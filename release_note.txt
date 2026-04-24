@@ -1,0 +1,31 @@
+OrbitTerm v1.0.0 (Build 1) Release Notes
+
+1. Unified Rust Core (orbit-core)
+- Added secure local encryption/decryption capabilities for config blobs.
+- Added SSH-based command channel for remote operations.
+- Added SFTP foundational capabilities and Docker management FFI interfaces.
+
+2. Auth & Security
+- Added login/register flow integrated with backend JWT.
+- Added Keychain secure storage for JWT and master password.
+- Added master-password gate before sensitive server list access.
+
+3. Cloud Sync
+- Added encrypted blob upload integration with backend /api/v1/config/upload.
+- Maintains zero-knowledge style flow: app encrypts first, backend stores ciphertext only.
+
+4. SFTP & File Operations UI
+- Added SFTP browser with list display, folder navigation, and transfer-related interactions.
+- Added file size formatting utility and improved file item visuals.
+
+5. Monitor & Docker Dashboard
+- Added system monitor dashboard and data polling services.
+- Added Docker container monitoring, stats query, action controls, and log stream page.
+
+6. UI/UX Enhancements
+- Upgraded auth interface style, interaction polish, and error states.
+- Added hidden server URL override trigger while keeping primary UI clean.
+
+7. Build & Delivery
+- Added automated AppIcon generation script for iOS + macOS sizes.
+- Added one-click packaging script for macOS (DMG/ZIP) and iOS unsigned IPA output.

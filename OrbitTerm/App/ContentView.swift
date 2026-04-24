@@ -25,6 +25,9 @@ private struct MainShellView: View {
             List {
                 NavigationLink("服务器", destination: ServerListView())
                 NavigationLink("连接测试", destination: ConnectionView())
+                NavigationLink("SFTP 浏览", destination: SFTPBrowserView())
+                NavigationLink("Docker 管理", destination: DockerManagerView())
+                NavigationLink("性能监控", destination: MonitorDashboardView())
                 NavigationLink("云同步", destination: SyncView())
             }
             .navigationTitle("OrbitTerm")
@@ -45,6 +48,15 @@ private struct MainShellView: View {
 
             NavigationStack { ConnectionView() }
                 .tabItem { Label("连接", systemImage: "network") }
+
+            NavigationStack { SFTPBrowserView() }
+                .tabItem { Label("SFTP", systemImage: "folder.badge.gearshape") }
+
+            NavigationStack { DockerManagerView() }
+                .tabItem { Label("Docker", systemImage: "shippingbox.fill") }
+
+            NavigationStack { MonitorDashboardView() }
+                .tabItem { Label("监控", systemImage: "gauge.with.dots.needle.67percent") }
 
             NavigationStack { SyncView() }
                 .tabItem { Label("同步", systemImage: "arrow.triangle.2.circlepath") }

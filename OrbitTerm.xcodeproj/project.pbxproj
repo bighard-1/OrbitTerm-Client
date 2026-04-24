@@ -9,29 +9,45 @@
 /* Begin PBXBuildFile section */
 		00D11168A4219FA8EC587704 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 381EB860DD822B532F60A2E4 /* ContentView.swift */; };
 		014ADC98587FFEEED9146A77 /* ServerListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21BA8750BFF4212C103320E8 /* ServerListView.swift */; };
+		01A09516FF61A032519D71F1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C73E4C7636485397927E7326 /* Assets.xcassets */; };
 		0DB5330EBC909B110C7D6B4E /* SyncView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26356970710D53A05E630E5C /* SyncView.swift */; };
 		13D1330ECE0E17F6F27753EA /* MasterPasswordGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */; };
 		2449C17F29FFCB7D459E7F14 /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20EA2AC1C67C6744ECBB46BD /* AuthView.swift */; };
 		30964E866A545DA1A90499AD /* OrbitTermApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */; };
 		3410CEE4ED16A4BBDB851E8A /* ServerListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21BA8750BFF4212C103320E8 /* ServerListView.swift */; };
+		3720F726734FDE2BA5EA3491 /* SFTPBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF8482667CCEAB37877728A8 /* SFTPBrowserView.swift */; };
+		38D00146CCC257E6EDBA4582 /* FileSizeFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9727DF6BCB4A2DC3FFF9644E /* FileSizeFormatter.swift */; };
 		3AA24B2C0C58DB4864AFE901 /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA155A9F65638E6194ADA93 /* KeychainManager.swift */; };
+		3DBFDFBCF613C85F01A8B88D /* MonitorService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F14341CBA2F36F648BF5800 /* MonitorService.swift */; };
+		45007ADA97B03480802E49C9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C73E4C7636485397927E7326 /* Assets.xcassets */; };
 		536D8317A2803E5A7373EB59 /* SyncView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26356970710D53A05E630E5C /* SyncView.swift */; };
+		58E2DD7AB605954D9FB0A998 /* SFTPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77D09730A51A26B9E686F253 /* SFTPManager.swift */; };
 		5C144C6F938F96E9A34F819F /* View+InputPolish.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */; };
 		64F544A29C8DC4526D624C8F /* OrbitTermApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */; };
+		67536C13CA08E03FF3A12BA8 /* DockerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B49A5D57724B8383BD06C96 /* DockerService.swift */; };
+		690C05D5E1CAC7BCB13D8D3E /* MonitorDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEF1B8EB20CEE14349EB99A4 /* MonitorDashboardView.swift */; };
 		749429BFF654F1AB265411AF /* View+InputPolish.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */; };
 		7537219233F149DD96EE566D /* NetworkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */; };
 		791C864C97C94860BC072BA1 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DC29E7DEA20362E09F501D3 /* AppSession.swift */; };
 		84DCCEEBB105C8E4BB112AD3 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DC29E7DEA20362E09F501D3 /* AppSession.swift */; };
+		85652ACC0968D7AF4EF480CD /* SFTPBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF8482667CCEAB37877728A8 /* SFTPBrowserView.swift */; };
+		87B279A9934945274515773E /* DockerManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7156371597A178C490DF8ABD /* DockerManagerView.swift */; };
 		8835C97A39B6523BD90EA986 /* OrbitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */; };
 		8BDBD2BE0DADEEF7F7E2AAAF /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E0EFB34CACD29FEB53B377 /* SyncService.swift */; };
 		8FB790CC339CDD3B1B2136B2 /* OrbitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */; };
 		A39C5F36E325D6D11857435F /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E0EFB34CACD29FEB53B377 /* SyncService.swift */; };
+		B1547A01247E01C13B756C9E /* SFTPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77D09730A51A26B9E686F253 /* SFTPManager.swift */; };
+		B809495F666036CEF46DA5F7 /* MonitorService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F14341CBA2F36F648BF5800 /* MonitorService.swift */; };
 		BBED422CCFC31B5F7D38D725 /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA155A9F65638E6194ADA93 /* KeychainManager.swift */; };
+		BBF64F6A16727778986E2B24 /* DockerManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7156371597A178C490DF8ABD /* DockerManagerView.swift */; };
 		C07A643F4C2EB8BA516F60A8 /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B4040E7C2C5A9F1C878E2E /* ConnectionView.swift */; };
 		C3F661036F847112CA11C87D /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20EA2AC1C67C6744ECBB46BD /* AuthView.swift */; };
 		D32A2630B47540D9846461F9 /* NetworkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */; };
+		D73945F35D103F36900752C6 /* DockerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B49A5D57724B8383BD06C96 /* DockerService.swift */; };
+		D7582594F04FB2E4C5812CCC /* FileSizeFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9727DF6BCB4A2DC3FFF9644E /* FileSizeFormatter.swift */; };
 		EB18551F6941809822CC4368 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 381EB860DD822B532F60A2E4 /* ContentView.swift */; };
 		ECDE1ACDE1B1D6F7A0E078B5 /* MasterPasswordGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */; };
+		EFED4745678E56EB1D29BDEE /* MonitorDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEF1B8EB20CEE14349EB99A4 /* MonitorDashboardView.swift */; };
 		F9A9DC4DB184DC513E122DB5 /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B4040E7C2C5A9F1C878E2E /* ConnectionView.swift */; };
 /* End PBXBuildFile section */
 
@@ -43,12 +59,20 @@
 		381EB860DD822B532F60A2E4 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkService.swift; sourceTree = "<group>"; };
 		62574FF79DCC3A178EE8FDEC /* OrbitTerm.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OrbitTerm.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		7156371597A178C490DF8ABD /* DockerManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerManagerView.swift; sourceTree = "<group>"; };
+		77D09730A51A26B9E686F253 /* SFTPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPManager.swift; sourceTree = "<group>"; };
 		78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterPasswordGateView.swift; sourceTree = "<group>"; };
 		8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitTermApp.swift; sourceTree = "<group>"; };
+		8B49A5D57724B8383BD06C96 /* DockerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerService.swift; sourceTree = "<group>"; };
+		9727DF6BCB4A2DC3FFF9644E /* FileSizeFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSizeFormatter.swift; sourceTree = "<group>"; };
+		9F14341CBA2F36F648BF5800 /* MonitorService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorService.swift; sourceTree = "<group>"; };
 		A622FE572935B57F21E6515A /* OrbitTerm.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = OrbitTerm.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C3E0EFB34CACD29FEB53B377 /* SyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncService.swift; sourceTree = "<group>"; };
 		C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+InputPolish.swift"; sourceTree = "<group>"; };
+		C73E4C7636485397927E7326 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		CF0C018CC927BA3B0E42EE18 /* orbit_core.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = orbit_core.h; sourceTree = "<group>"; };
+		CF8482667CCEAB37877728A8 /* SFTPBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserView.swift; sourceTree = "<group>"; };
+		DEF1B8EB20CEE14349EB99A4 /* MonitorDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorDashboardView.swift; sourceTree = "<group>"; };
 		E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitManager.swift; sourceTree = "<group>"; };
 		ED34A104EBBDBA17DC64A535 /* OrbitTerm-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "OrbitTerm-Bridging-Header.h"; sourceTree = "<group>"; };
 		EEA155A9F65638E6194ADA93 /* KeychainManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainManager.swift; sourceTree = "<group>"; };
@@ -60,9 +84,13 @@
 			isa = PBXGroup;
 			children = (
 				2DC29E7DEA20362E09F501D3 /* AppSession.swift */,
+				8B49A5D57724B8383BD06C96 /* DockerService.swift */,
+				9727DF6BCB4A2DC3FFF9644E /* FileSizeFormatter.swift */,
 				EEA155A9F65638E6194ADA93 /* KeychainManager.swift */,
+				9F14341CBA2F36F648BF5800 /* MonitorService.swift */,
 				3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */,
 				E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */,
+				77D09730A51A26B9E686F253 /* SFTPManager.swift */,
 				C3E0EFB34CACD29FEB53B377 /* SyncService.swift */,
 				C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */,
 			);
@@ -72,7 +100,10 @@
 		173BC5B3F73CD6F401A097AF /* Home */ = {
 			isa = PBXGroup;
 			children = (
+				7156371597A178C490DF8ABD /* DockerManagerView.swift */,
+				DEF1B8EB20CEE14349EB99A4 /* MonitorDashboardView.swift */,
 				21BA8750BFF4212C103320E8 /* ServerListView.swift */,
+				CF8482667CCEAB37877728A8 /* SFTPBrowserView.swift */,
 				26356970710D53A05E630E5C /* SyncView.swift */,
 			);
 			path = Home;
@@ -129,6 +160,14 @@
 			path = App;
 			sourceTree = "<group>";
 		};
+		9240D43EE8BA4BE651BF57FF /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				C73E4C7636485397927E7326 /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 		951A304BB80BBEE8C5D88345 /* Auth */ = {
 			isa = PBXGroup;
 			children = (
@@ -155,6 +194,7 @@
 				55E960C43CA3B61CEA371CD1 /* CBridge */,
 				04E8CCCF20C7677B9A01498F /* Core */,
 				F36C787D185F927F358E2DEE /* Features */,
+				9240D43EE8BA4BE651BF57FF /* Resources */,
 			);
 			path = OrbitTerm;
 			sourceTree = "<group>";
@@ -167,6 +207,7 @@
 			buildConfigurationList = 318334051428B0633709725D /* Build configuration list for PBXNativeTarget "OrbitTerm_macOS" */;
 			buildPhases = (
 				58DF301231D4A278559E6C26 /* Sources */,
+				B0904285199D77C88957CF81 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -184,6 +225,7 @@
 			buildConfigurationList = 1C5BD1ABC5D14EC31A38F2CB /* Build configuration list for PBXNativeTarget "OrbitTerm_iOS" */;
 			buildPhases = (
 				BB0507047F99AEB4F2572F27 /* Sources */,
+				337B62E78ABACF3559405ACD /* Resources */,
 			);
 			buildRules = (
 			);
@@ -233,6 +275,25 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		337B62E78ABACF3559405ACD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				01A09516FF61A032519D71F1 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B0904285199D77C88957CF81 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				45007ADA97B03480802E49C9 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		58DF301231D4A278559E6C26 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -242,11 +303,18 @@
 				2449C17F29FFCB7D459E7F14 /* AuthView.swift in Sources */,
 				F9A9DC4DB184DC513E122DB5 /* ConnectionView.swift in Sources */,
 				EB18551F6941809822CC4368 /* ContentView.swift in Sources */,
+				87B279A9934945274515773E /* DockerManagerView.swift in Sources */,
+				67536C13CA08E03FF3A12BA8 /* DockerService.swift in Sources */,
+				38D00146CCC257E6EDBA4582 /* FileSizeFormatter.swift in Sources */,
 				BBED422CCFC31B5F7D38D725 /* KeychainManager.swift in Sources */,
 				13D1330ECE0E17F6F27753EA /* MasterPasswordGateView.swift in Sources */,
+				690C05D5E1CAC7BCB13D8D3E /* MonitorDashboardView.swift in Sources */,
+				3DBFDFBCF613C85F01A8B88D /* MonitorService.swift in Sources */,
 				7537219233F149DD96EE566D /* NetworkService.swift in Sources */,
 				8FB790CC339CDD3B1B2136B2 /* OrbitManager.swift in Sources */,
 				64F544A29C8DC4526D624C8F /* OrbitTermApp.swift in Sources */,
+				3720F726734FDE2BA5EA3491 /* SFTPBrowserView.swift in Sources */,
+				58E2DD7AB605954D9FB0A998 /* SFTPManager.swift in Sources */,
 				014ADC98587FFEEED9146A77 /* ServerListView.swift in Sources */,
 				A39C5F36E325D6D11857435F /* SyncService.swift in Sources */,
 				536D8317A2803E5A7373EB59 /* SyncView.swift in Sources */,
@@ -262,11 +330,18 @@
 				C3F661036F847112CA11C87D /* AuthView.swift in Sources */,
 				C07A643F4C2EB8BA516F60A8 /* ConnectionView.swift in Sources */,
 				00D11168A4219FA8EC587704 /* ContentView.swift in Sources */,
+				BBF64F6A16727778986E2B24 /* DockerManagerView.swift in Sources */,
+				D73945F35D103F36900752C6 /* DockerService.swift in Sources */,
+				D7582594F04FB2E4C5812CCC /* FileSizeFormatter.swift in Sources */,
 				3AA24B2C0C58DB4864AFE901 /* KeychainManager.swift in Sources */,
 				ECDE1ACDE1B1D6F7A0E078B5 /* MasterPasswordGateView.swift in Sources */,
+				EFED4745678E56EB1D29BDEE /* MonitorDashboardView.swift in Sources */,
+				B809495F666036CEF46DA5F7 /* MonitorService.swift in Sources */,
 				D32A2630B47540D9846461F9 /* NetworkService.swift in Sources */,
 				8835C97A39B6523BD90EA986 /* OrbitManager.swift in Sources */,
 				30964E866A545DA1A90499AD /* OrbitTermApp.swift in Sources */,
+				85652ACC0968D7AF4EF480CD /* SFTPBrowserView.swift in Sources */,
+				B1547A01247E01C13B756C9E /* SFTPManager.swift in Sources */,
 				3410CEE4ED16A4BBDB851E8A /* ServerListView.swift in Sources */,
 				8BDBD2BE0DADEEF7F7E2AAAF /* SyncService.swift in Sources */,
 				0DB5330EBC909B110C7D6B4E /* SyncView.swift in Sources */,
@@ -417,6 +492,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -437,6 +513,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -483,6 +560,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -497,6 +575,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.orbitterm.app;

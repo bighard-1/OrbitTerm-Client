@@ -1,5 +1,11 @@
 # Xcode local build cache
 build/
+Build/
+.derived/
+.derived-ios/
+dist/*.zip
+dist/*.ipa
+dist/*.dmg
 
 # macOS metadata
 .DS_Store
