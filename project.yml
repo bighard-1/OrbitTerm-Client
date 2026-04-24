@@ -1,0 +1,42 @@
+name: OrbitTerm
+options:
+  minimumXcodeGenVersion: 2.38.0
+  deploymentTarget:
+    iOS: "17.0"
+    macOS: "14.0"
+
+settings:
+  base:
+    SWIFT_VERSION: 5.0
+    GENERATE_INFOPLIST_FILE: YES
+    PRODUCT_BUNDLE_IDENTIFIER: com.orbitterm.app
+    CODE_SIGN_STYLE: Automatic
+    CLANG_ENABLE_MODULES: YES
+
+targets:
+  OrbitTerm:
+    type: application
+    platform: [iOS, macOS]
+    sources:
+      - path: OrbitTerm
+    settings:
+      base:
+        SWIFT_OBJC_BRIDGING_HEADER: OrbitTerm/CBridge/OrbitTerm-Bridging-Header.h
+        HEADER_SEARCH_PATHS:
+          - $(inherited)
+          - $(SRCROOT)/OrbitTerm/CBridge
+          - $(SRCROOT)/orbit-core/include
+        OTHER_LDFLAGS[sdk=macosx*]:
+          - $(inherited)
+          - $(SRCROOT)/orbit-core/target/aarch64-apple-darwin/debug/liborbit_core.a
+        OTHER_LDFLAGS[sdk=iphonesimulator*]:
+          - $(inherited)
+          - $(SRCROOT)/orbit-core/target/aarch64-apple-ios-sim/debug/liborbit_core.a
+        OTHER_LDFLAGS[sdk=iphoneos*]:
+          - $(inherited)
+          - $(SRCROOT)/orbit-core/target/aarch64-apple-ios/debug/liborbit_core.a
+        SUPPORTED_PLATFORMS: iphonesimulator iphoneos macosx
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_HARDENED_RUNTIME: YES
+    scheme:
+      testTargets: []

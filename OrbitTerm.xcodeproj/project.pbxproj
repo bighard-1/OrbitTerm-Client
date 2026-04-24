@@ -1,0 +1,578 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		00D11168A4219FA8EC587704 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 381EB860DD822B532F60A2E4 /* ContentView.swift */; };
+		014ADC98587FFEEED9146A77 /* ServerListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21BA8750BFF4212C103320E8 /* ServerListView.swift */; };
+		0DB5330EBC909B110C7D6B4E /* SyncView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26356970710D53A05E630E5C /* SyncView.swift */; };
+		13D1330ECE0E17F6F27753EA /* MasterPasswordGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */; };
+		2449C17F29FFCB7D459E7F14 /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20EA2AC1C67C6744ECBB46BD /* AuthView.swift */; };
+		30964E866A545DA1A90499AD /* OrbitTermApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */; };
+		3410CEE4ED16A4BBDB851E8A /* ServerListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21BA8750BFF4212C103320E8 /* ServerListView.swift */; };
+		3AA24B2C0C58DB4864AFE901 /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA155A9F65638E6194ADA93 /* KeychainManager.swift */; };
+		536D8317A2803E5A7373EB59 /* SyncView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26356970710D53A05E630E5C /* SyncView.swift */; };
+		5C144C6F938F96E9A34F819F /* View+InputPolish.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */; };
+		64F544A29C8DC4526D624C8F /* OrbitTermApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */; };
+		749429BFF654F1AB265411AF /* View+InputPolish.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */; };
+		7537219233F149DD96EE566D /* NetworkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */; };
+		791C864C97C94860BC072BA1 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DC29E7DEA20362E09F501D3 /* AppSession.swift */; };
+		84DCCEEBB105C8E4BB112AD3 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DC29E7DEA20362E09F501D3 /* AppSession.swift */; };
+		8835C97A39B6523BD90EA986 /* OrbitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */; };
+		8BDBD2BE0DADEEF7F7E2AAAF /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E0EFB34CACD29FEB53B377 /* SyncService.swift */; };
+		8FB790CC339CDD3B1B2136B2 /* OrbitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */; };
+		A39C5F36E325D6D11857435F /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E0EFB34CACD29FEB53B377 /* SyncService.swift */; };
+		BBED422CCFC31B5F7D38D725 /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA155A9F65638E6194ADA93 /* KeychainManager.swift */; };
+		C07A643F4C2EB8BA516F60A8 /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B4040E7C2C5A9F1C878E2E /* ConnectionView.swift */; };
+		C3F661036F847112CA11C87D /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20EA2AC1C67C6744ECBB46BD /* AuthView.swift */; };
+		D32A2630B47540D9846461F9 /* NetworkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */; };
+		EB18551F6941809822CC4368 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 381EB860DD822B532F60A2E4 /* ContentView.swift */; };
+		ECDE1ACDE1B1D6F7A0E078B5 /* MasterPasswordGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */; };
+		F9A9DC4DB184DC513E122DB5 /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B4040E7C2C5A9F1C878E2E /* ConnectionView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		20EA2AC1C67C6744ECBB46BD /* AuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthView.swift; sourceTree = "<group>"; };
+		21BA8750BFF4212C103320E8 /* ServerListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerListView.swift; sourceTree = "<group>"; };
+		26356970710D53A05E630E5C /* SyncView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncView.swift; sourceTree = "<group>"; };
+		2DC29E7DEA20362E09F501D3 /* AppSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSession.swift; sourceTree = "<group>"; };
+		381EB860DD822B532F60A2E4 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkService.swift; sourceTree = "<group>"; };
+		62574FF79DCC3A178EE8FDEC /* OrbitTerm.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OrbitTerm.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterPasswordGateView.swift; sourceTree = "<group>"; };
+		8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitTermApp.swift; sourceTree = "<group>"; };
+		A622FE572935B57F21E6515A /* OrbitTerm.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = OrbitTerm.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C3E0EFB34CACD29FEB53B377 /* SyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncService.swift; sourceTree = "<group>"; };
+		C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+InputPolish.swift"; sourceTree = "<group>"; };
+		CF0C018CC927BA3B0E42EE18 /* orbit_core.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = orbit_core.h; sourceTree = "<group>"; };
+		E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitManager.swift; sourceTree = "<group>"; };
+		ED34A104EBBDBA17DC64A535 /* OrbitTerm-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "OrbitTerm-Bridging-Header.h"; sourceTree = "<group>"; };
+		EEA155A9F65638E6194ADA93 /* KeychainManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainManager.swift; sourceTree = "<group>"; };
+		F0B4040E7C2C5A9F1C878E2E /* ConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		04E8CCCF20C7677B9A01498F /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				2DC29E7DEA20362E09F501D3 /* AppSession.swift */,
+				EEA155A9F65638E6194ADA93 /* KeychainManager.swift */,
+				3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */,
+				E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */,
+				C3E0EFB34CACD29FEB53B377 /* SyncService.swift */,
+				C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		173BC5B3F73CD6F401A097AF /* Home */ = {
+			isa = PBXGroup;
+			children = (
+				21BA8750BFF4212C103320E8 /* ServerListView.swift */,
+				26356970710D53A05E630E5C /* SyncView.swift */,
+			);
+			path = Home;
+			sourceTree = "<group>";
+		};
+		2F3F735B5BF69835F3F47E0D /* Connection */ = {
+			isa = PBXGroup;
+			children = (
+				F0B4040E7C2C5A9F1C878E2E /* ConnectionView.swift */,
+			);
+			path = Connection;
+			sourceTree = "<group>";
+		};
+		3D708A1AEECA8BCA1AE1F6A2 /* Security */ = {
+			isa = PBXGroup;
+			children = (
+				78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */,
+			);
+			path = Security;
+			sourceTree = "<group>";
+		};
+		55E960C43CA3B61CEA371CD1 /* CBridge */ = {
+			isa = PBXGroup;
+			children = (
+				CF0C018CC927BA3B0E42EE18 /* orbit_core.h */,
+				ED34A104EBBDBA17DC64A535 /* OrbitTerm-Bridging-Header.h */,
+			);
+			path = CBridge;
+			sourceTree = "<group>";
+		};
+		5BD31C74C2737D02F64C8B9C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A622FE572935B57F21E6515A /* OrbitTerm.app */,
+				62574FF79DCC3A178EE8FDEC /* OrbitTerm.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		5C8A07681BFCB1AEB32399A7 = {
+			isa = PBXGroup;
+			children = (
+				F8A20BCDC3C022C4D595CEC9 /* OrbitTerm */,
+				5BD31C74C2737D02F64C8B9C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		6B1C763EDB66531565F3A7C2 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				381EB860DD822B532F60A2E4 /* ContentView.swift */,
+				8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		951A304BB80BBEE8C5D88345 /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				20EA2AC1C67C6744ECBB46BD /* AuthView.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
+		F36C787D185F927F358E2DEE /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				951A304BB80BBEE8C5D88345 /* Auth */,
+				2F3F735B5BF69835F3F47E0D /* Connection */,
+				173BC5B3F73CD6F401A097AF /* Home */,
+				3D708A1AEECA8BCA1AE1F6A2 /* Security */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		F8A20BCDC3C022C4D595CEC9 /* OrbitTerm */ = {
+			isa = PBXGroup;
+			children = (
+				6B1C763EDB66531565F3A7C2 /* App */,
+				55E960C43CA3B61CEA371CD1 /* CBridge */,
+				04E8CCCF20C7677B9A01498F /* Core */,
+				F36C787D185F927F358E2DEE /* Features */,
+			);
+			path = OrbitTerm;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		5D894F6ED837B8E66D8BC143 /* OrbitTerm_macOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 318334051428B0633709725D /* Build configuration list for PBXNativeTarget "OrbitTerm_macOS" */;
+			buildPhases = (
+				58DF301231D4A278559E6C26 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = OrbitTerm_macOS;
+			packageProductDependencies = (
+			);
+			productName = OrbitTerm_macOS;
+			productReference = 62574FF79DCC3A178EE8FDEC /* OrbitTerm.app */;
+			productType = "com.apple.product-type.application";
+		};
+		9037F5C81C57EF6606CFD7B1 /* OrbitTerm_iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1C5BD1ABC5D14EC31A38F2CB /* Build configuration list for PBXNativeTarget "OrbitTerm_iOS" */;
+			buildPhases = (
+				BB0507047F99AEB4F2572F27 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = OrbitTerm_iOS;
+			packageProductDependencies = (
+			);
+			productName = OrbitTerm_iOS;
+			productReference = A622FE572935B57F21E6515A /* OrbitTerm.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		FAEA315B2E50CA0FAB31ED7F /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					5D894F6ED837B8E66D8BC143 = {
+						ProvisioningStyle = Automatic;
+					};
+					9037F5C81C57EF6606CFD7B1 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = B0979EF4A02DA3DF25DFC616 /* Build configuration list for PBXProject "OrbitTerm" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 5C8A07681BFCB1AEB32399A7;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5BD31C74C2737D02F64C8B9C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				9037F5C81C57EF6606CFD7B1 /* OrbitTerm_iOS */,
+				5D894F6ED837B8E66D8BC143 /* OrbitTerm_macOS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		58DF301231D4A278559E6C26 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				84DCCEEBB105C8E4BB112AD3 /* AppSession.swift in Sources */,
+				2449C17F29FFCB7D459E7F14 /* AuthView.swift in Sources */,
+				F9A9DC4DB184DC513E122DB5 /* ConnectionView.swift in Sources */,
+				EB18551F6941809822CC4368 /* ContentView.swift in Sources */,
+				BBED422CCFC31B5F7D38D725 /* KeychainManager.swift in Sources */,
+				13D1330ECE0E17F6F27753EA /* MasterPasswordGateView.swift in Sources */,
+				7537219233F149DD96EE566D /* NetworkService.swift in Sources */,
+				8FB790CC339CDD3B1B2136B2 /* OrbitManager.swift in Sources */,
+				64F544A29C8DC4526D624C8F /* OrbitTermApp.swift in Sources */,
+				014ADC98587FFEEED9146A77 /* ServerListView.swift in Sources */,
+				A39C5F36E325D6D11857435F /* SyncService.swift in Sources */,
+				536D8317A2803E5A7373EB59 /* SyncView.swift in Sources */,
+				5C144C6F938F96E9A34F819F /* View+InputPolish.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BB0507047F99AEB4F2572F27 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				791C864C97C94860BC072BA1 /* AppSession.swift in Sources */,
+				C3F661036F847112CA11C87D /* AuthView.swift in Sources */,
+				C07A643F4C2EB8BA516F60A8 /* ConnectionView.swift in Sources */,
+				00D11168A4219FA8EC587704 /* ContentView.swift in Sources */,
+				3AA24B2C0C58DB4864AFE901 /* KeychainManager.swift in Sources */,
+				ECDE1ACDE1B1D6F7A0E078B5 /* MasterPasswordGateView.swift in Sources */,
+				D32A2630B47540D9846461F9 /* NetworkService.swift in Sources */,
+				8835C97A39B6523BD90EA986 /* OrbitManager.swift in Sources */,
+				30964E866A545DA1A90499AD /* OrbitTermApp.swift in Sources */,
+				3410CEE4ED16A4BBDB851E8A /* ServerListView.swift in Sources */,
+				8BDBD2BE0DADEEF7F7E2AAAF /* SyncService.swift in Sources */,
+				0DB5330EBC909B110C7D6B4E /* SyncView.swift in Sources */,
+				749429BFF654F1AB265411AF /* View+InputPolish.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		236E19E4BCA2B244C6030CD1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/OrbitTerm/CBridge",
+					"$(SRCROOT)/orbit-core/include",
+				);
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/orbit-core/target/aarch64-apple-ios/debug/liborbit_core.a",
+				);
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/orbit-core/target/aarch64-apple-ios-sim/debug/liborbit_core.a",
+				);
+				"OTHER_LDFLAGS[sdk=macosx*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/orbit-core/target/aarch64-apple-darwin/debug/liborbit_core.a",
+				);
+				PRODUCT_NAME = OrbitTerm;
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos macosx";
+				SWIFT_OBJC_BRIDGING_HEADER = "OrbitTerm/CBridge/OrbitTerm-Bridging-Header.h";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		2C55C06FA0AB54969D895A38 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/OrbitTerm/CBridge",
+					"$(SRCROOT)/orbit-core/include",
+				);
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/orbit-core/target/aarch64-apple-ios/debug/liborbit_core.a",
+				);
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/orbit-core/target/aarch64-apple-ios-sim/debug/liborbit_core.a",
+				);
+				"OTHER_LDFLAGS[sdk=macosx*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/orbit-core/target/aarch64-apple-darwin/debug/liborbit_core.a",
+				);
+				PRODUCT_NAME = OrbitTerm;
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos macosx";
+				SWIFT_OBJC_BRIDGING_HEADER = "OrbitTerm/CBridge/OrbitTerm-Bridging-Header.h";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		511D39B69F34FAF05AF32075 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_HARDENED_RUNTIME = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/OrbitTerm/CBridge",
+					"$(SRCROOT)/orbit-core/include",
+				);
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/orbit-core/target/aarch64-apple-ios/debug/liborbit_core.a",
+				);
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/orbit-core/target/aarch64-apple-ios-sim/debug/liborbit_core.a",
+				);
+				"OTHER_LDFLAGS[sdk=macosx*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/orbit-core/target/aarch64-apple-darwin/debug/liborbit_core.a",
+				);
+				PRODUCT_NAME = OrbitTerm;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos macosx";
+				SWIFT_OBJC_BRIDGING_HEADER = "OrbitTerm/CBridge/OrbitTerm-Bridging-Header.h";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		6074F9A97CA8AE95585205E6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbitterm.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		ADECE83760DE850973B4DAEC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbitterm.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		CE4247C37956DA442B100BF2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_HARDENED_RUNTIME = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/OrbitTerm/CBridge",
+					"$(SRCROOT)/orbit-core/include",
+				);
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/orbit-core/target/aarch64-apple-ios/debug/liborbit_core.a",
+				);
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/orbit-core/target/aarch64-apple-ios-sim/debug/liborbit_core.a",
+				);
+				"OTHER_LDFLAGS[sdk=macosx*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/orbit-core/target/aarch64-apple-darwin/debug/liborbit_core.a",
+				);
+				PRODUCT_NAME = OrbitTerm;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos macosx";
+				SWIFT_OBJC_BRIDGING_HEADER = "OrbitTerm/CBridge/OrbitTerm-Bridging-Header.h";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1C5BD1ABC5D14EC31A38F2CB /* Build configuration list for PBXNativeTarget "OrbitTerm_iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				511D39B69F34FAF05AF32075 /* Debug */,
+				CE4247C37956DA442B100BF2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		318334051428B0633709725D /* Build configuration list for PBXNativeTarget "OrbitTerm_macOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				236E19E4BCA2B244C6030CD1 /* Debug */,
+				2C55C06FA0AB54969D895A38 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B0979EF4A02DA3DF25DFC616 /* Build configuration list for PBXProject "OrbitTerm" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6074F9A97CA8AE95585205E6 /* Debug */,
+				ADECE83760DE850973B4DAEC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = FAEA315B2E50CA0FAB31ED7F /* Project object */;
+}

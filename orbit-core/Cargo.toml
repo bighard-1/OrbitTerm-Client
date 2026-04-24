@@ -1,0 +1,23 @@
+[package]
+name = "orbit-core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "orbit_core"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+aes-gcm = "0.10"
+argon2 = "0.5"
+base64 = "0.22"
+rand = "0.8"
+russh = "0.51"
+thiserror = "1.0"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net", "time"] }
+uniffi = { version = "0.29", features = ["tokio"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
