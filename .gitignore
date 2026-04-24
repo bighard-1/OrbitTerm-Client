@@ -1,0 +1,5 @@
+# Xcode local build cache
+build/
+
+# macOS metadata
+.DS_Store
