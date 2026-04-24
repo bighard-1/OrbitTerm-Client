@@ -5,15 +5,19 @@ import Foundation
 final class NetworkService {
     static let shared = NetworkService()
 
-    // iOS 模拟器与 macOS 本机都可通过 127.0.0.1 访问本地后端。
-    // 若使用真机，请替换为宿主机局域网 IP。
-    private let baseURL = URL(string: "http://127.0.0.1:8080")!
+    // 默认后端地址：首次启动直接指向正式域名。
+    // 同时支持从 UserDefaults 读取已保存的自定义地址。
+    private static let baseURLKey = "orbitterm.network.base_url"
+    private static let defaultBaseURLString = "https://server.orbitterm.com"
+
     private let session = URLSession.shared
 
     private init() {}
 
     enum NetworkError: Error, LocalizedError {
         case invalidURL
+        case invalidBaseURL
+        case insecureScheme
         case server(String)
         case unexpectedStatus(Int)
         case decodeFailed
@@ -22,6 +26,10 @@ final class NetworkService {
             switch self {
             case .invalidURL:
                 return "请求地址无效"
+            case .invalidBaseURL:
+                return "服务地址格式无效"
+            case .insecureScheme:
+                return "仅允许 HTTPS 服务地址"
             case let .server(message):
                 return "服务端错误: \(message)"
             case let .unexpectedStatus(code):
@@ -30,6 +38,19 @@ final class NetworkService {
                 return "响应解析失败"
             }
         }
+    }
+
+    // 返回当前生效的后端地址字符串（用于调试或隐形设置）。
+    // 若本地存储为空，自动返回内置默认值。
+    var currentBaseURLString: String {
+        UserDefaults.standard.string(forKey: Self.baseURLKey) ?? Self.defaultBaseURLString
+    }
+
+    // 写入自定义后端地址。入参允许省略 scheme，会自动补全为 https。
+    // 只允许 https，避免明文 http 被 ATS 拦截或产生安全风险。
+    func updateBaseURL(_ rawInput: String) throws {
+        let normalized = try normalizeBaseURLString(rawInput)
+        UserDefaults.standard.set(normalized, forKey: Self.baseURLKey)
     }
 
     func register(username: String, password: String) async throws {
@@ -72,6 +93,7 @@ final class NetworkService {
         token: String?,
         responseType: Resp.Type
     ) async throws -> Resp {
+        let baseURL = try resolvedBaseURL()
         guard let url = URL(string: path, relativeTo: baseURL) else {
             throw NetworkError.invalidURL
         }
@@ -103,6 +125,42 @@ final class NetworkService {
             throw NetworkError.decodeFailed
         }
         return payload
+    }
+
+    private func resolvedBaseURL() throws -> URL {
+        let storedOrDefault = currentBaseURLString
+        let normalized = try normalizeBaseURLString(storedOrDefault)
+        guard let url = URL(string: normalized) else {
+            throw NetworkError.invalidBaseURL
+        }
+        return url
+    }
+
+    private func normalizeBaseURLString(_ input: String) throws -> String {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw NetworkError.invalidBaseURL
+        }
+
+        let candidate = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+        guard var comps = URLComponents(string: candidate),
+              let host = comps.host,
+              !host.isEmpty else {
+            throw NetworkError.invalidBaseURL
+        }
+
+        let scheme = (comps.scheme ?? "https").lowercased()
+        guard scheme == "https" else {
+            throw NetworkError.insecureScheme
+        }
+
+        comps.scheme = "https"
+        comps.path = comps.path.isEmpty ? "" : comps.path
+
+        guard let normalizedURL = comps.url else {
+            throw NetworkError.invalidBaseURL
+        }
+        return normalizedURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
 }
 
