@@ -22,115 +22,199 @@ struct AddServerView: View {
     @State private var isTestingConnection = false
     @State private var isSaving = false
     @State private var testStatus = "尚未测试"
+    @State private var isConnectionVerified = false
 
     @State private var showAdvanced = false
     @State private var testTimeoutSec = 8
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("基础信息") {
-                    TextField("名称", text: $name)
-                    TextField("分组（可选）", text: $group)
-                }
+            VStack(spacing: 0) {
+                Form {
+                    Section("主机信息") {
+                        iconField("tag.fill", "名称", text: $name)
+                        iconField("tray.full.fill", "分组（可选）", text: $group)
+                        iconField("network", "IP 地址", text: $host)
 
-                Section("连接信息") {
-                    TextField("IP 地址", text: $host)
-#if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        .keyboardType(.URL)
-#endif
-
-                    Stepper(value: $port, in: 1...65535) {
                         HStack {
-                            Text("端口")
+                            Label("端口", systemImage: "point.3.connected.trianglepath.dotted")
+                                .foregroundStyle(.secondary)
                             Spacer()
-                            Text("\(port)")
+                            Stepper(value: $port, in: 1...65535) {
+                                Text("\(port)")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(minWidth: 90, idealWidth: 130, maxWidth: 160, alignment: .trailing)
+                        }
+                    }
+
+                    Section("认证") {
+                        iconField("person.fill", "用户名", text: $username)
+
+                        Picker("认证方式", selection: $authMethod) {
+                            ForEach(ServerAuthMethod.allCases) { method in
+                                Text(method.displayName).tag(method)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        if authMethod == .password {
+                            secureRow("lock.fill", "密码", text: $password)
+                        } else {
+                            iconField("key.fill", "密钥名称（如 id_rsa）", text: $privateKeyPath)
+                            Text("当前版本连接测试与自动连接仅支持密码认证。")
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     }
 
-                    TextField("用户名", text: $username)
-#if os(iOS)
-                        .textInputAutocapitalization(.never)
-#endif
-
-                    Picker("认证方式", selection: $authMethod) {
-                        ForEach(ServerAuthMethod.allCases) { method in
-                            Text(method.displayName).tag(method)
+                    DisclosureGroup("高级设置", isExpanded: $showAdvanced) {
+                        Stepper(value: $testTimeoutSec, in: 3...20) {
+                            Text("连接测试超时：\(testTimeoutSec) 秒")
                         }
-                    }
-
-                    if authMethod == .password {
-                        SecureField("密码", text: $password)
-                    } else {
-                        TextField("密钥名称（如 id_rsa）", text: $privateKeyPath)
-#if os(iOS)
-                            .textInputAutocapitalization(.never)
-#endif
-                        Text("当前版本连接测试与自动连接仅支持密码认证。")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        .padding(.top, 2)
                     }
                 }
+                .scrollContentBackground(.hidden)
+                .background(.clear)
+                .font(.system(.body, design: .rounded))
 
-                DisclosureGroup("高级设置", isExpanded: $showAdvanced) {
-                    Stepper(value: $testTimeoutSec, in: 3...20) {
-                        Text("连接测试超时：\(testTimeoutSec) 秒")
-                    }
-                    Text("高级参数仅影响本地连接检测，不会改变你的日常使用界面。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                statusBar
 
-                Section("连接检查") {
-                    Button(isTestingConnection ? "测试中..." : "一键测试连接") {
-                        Task { await testConnection() }
-                    }
-                    .disabled(isTestingConnection || !canTestConnection)
+                HStack(spacing: 10) {
+                    Button("取消") { dismiss() }
+                        .buttonStyle(.bordered)
 
-                    Text(testStatus)
-                        .foregroundStyle(statusColor(testStatus))
-                        .font(.callout)
-                }
-
-                Section("保存") {
                     Button(isSaving ? "保存中..." : "保存并连接") {
                         Task { await saveAndConnect() }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isSaving || !canSave)
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 9)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: saveButtonEnabled
+                                        ? [Color(red: 0.25, green: 0.58, blue: 1.0), Color(red: 0.09, green: 0.38, blue: 0.88)]
+                                        : [Color.gray.opacity(0.45), Color.gray.opacity(0.4)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    )
+                    .foregroundStyle(.white)
+                    .disabled(!saveButtonEnabled || isSaving)
                 }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
             }
             .navigationTitle("添加服务器")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
-                }
-            }
+            .background(.ultraThinMaterial)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+#if os(macOS)
+            .frame(minWidth: 500, minHeight: 650)
+#endif
+            .padding(12)
+            .onChange(of: name) { _, _ in invalidateVerification() }
+            .onChange(of: host) { _, _ in invalidateVerification() }
+            .onChange(of: username) { _, _ in invalidateVerification() }
+            .onChange(of: port) { _, _ in invalidateVerification() }
+            .onChange(of: authMethod) { _, _ in invalidateVerification() }
+            .onChange(of: password) { _, _ in invalidateVerification() }
+            .onChange(of: privateKeyPath) { _, _ in invalidateVerification() }
         }
+    }
+
+    private var statusBar: some View {
+        HStack(spacing: 10) {
+            if isTestingConnection {
+                ProgressView()
+                    .controlSize(.small)
+                Text("正在测试连接...")
+                    .foregroundStyle(.secondary)
+            } else if isConnectionVerified {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text("连接测试成功，可直接保存并连接")
+                    .foregroundStyle(.green)
+            } else {
+                Image(systemName: "bolt.horizontal.circle")
+                    .foregroundStyle(.secondary)
+                Text(testStatus)
+                    .foregroundStyle(statusColor(testStatus))
+            }
+
+            Spacer()
+
+            Button("测试连接") {
+                Task { await testConnection() }
+            }
+            .buttonStyle(.bordered)
+            .disabled(isTestingConnection || !canTestConnection)
+        }
+        .font(.system(.body, design: .rounded))
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .background(.thinMaterial)
+        .overlay(Rectangle().frame(height: 1).foregroundStyle(.secondary.opacity(0.1)), alignment: .top)
     }
 
     private var canSave: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        (authMethod == .password ? !password.isEmpty : !privateKeyPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            (authMethod == .password ? !password.isEmpty : !privateKeyPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    private var saveButtonEnabled: Bool {
+        canSave && (authMethod == .key || isConnectionVerified)
     }
 
     private var canTestConnection: Bool {
         authMethod == .password &&
-        !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !password.isEmpty
+            !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !password.isEmpty
+    }
+
+    private func iconField(_ icon: String, _ placeholder: String, text: Binding<String>) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+            TextField(placeholder, text: text)
+                .textFieldStyle(.plain)
+#if os(iOS)
+                .textInputAutocapitalization(.never)
+#endif
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func secureRow(_ icon: String, _ placeholder: String, text: Binding<String>) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+            SecureField(placeholder, text: text)
+                .textFieldStyle(.plain)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func invalidateVerification() {
+        isConnectionVerified = false
+        if !isTestingConnection {
+            testStatus = "尚未测试"
+        }
     }
 
     private func testConnection() async {
         guard canTestConnection else { return }
         isTestingConnection = true
         defer { isTestingConnection = false }
-
-        testStatus = "正在测试连接..."
 
         do {
             let result = try await withThrowingTaskGroup(of: String.self) { group in
@@ -149,9 +233,16 @@ struct AddServerView: View {
                 return first
             }
 
-            testStatus = result.hasPrefix("成功") ? "连接测试成功" : result
+            if result.hasPrefix("成功") {
+                testStatus = "连接测试成功"
+                isConnectionVerified = true
+            } else {
+                testStatus = result
+                isConnectionVerified = false
+            }
         } catch {
             testStatus = "连接测试失败: \(error.localizedDescription)"
+            isConnectionVerified = false
         }
     }
 
@@ -180,7 +271,6 @@ struct AddServerView: View {
         dismiss()
         session.showTransientStatus("已保存并连接")
 
-        // 后台静默同步：失败仅显示轻提示，不打断当前 SSH 工作流。
         Task(priority: .background) {
             await silentSync(server, token: token, masterPassword: masterPassword)
         }
@@ -218,7 +308,7 @@ struct AddServerView: View {
     private func statusColor(_ text: String) -> Color {
         if text.contains("成功") { return .green }
         if text.contains("失败") { return .red }
-        if text.contains("测试") { return .orange }
+        if text.contains("测试") || text.contains("尚未") { return .secondary }
         return .secondary
     }
 }

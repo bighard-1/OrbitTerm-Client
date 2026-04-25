@@ -21,45 +21,51 @@ struct AuthView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                LinearGradient(
-                    colors: colorScheme == .dark
-                        ? [Color(red: 0.03, green: 0.08, blue: 0.18), .black]
-                        : [Color(red: 0.78, green: 0.87, blue: 0.98), Color(red: 0.90, green: 0.94, blue: 0.99)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
-
-                VStack(spacing: 24) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("OrbitTerm")
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
-                            .foregroundStyle(.primary)
-                        Text(isLoginMode ? "欢迎回来，继续你的终端旅程" : "创建账号，开启深空控制台")
-                            .foregroundStyle(.secondary)
-                            .font(.subheadline)
-                            .animation(.easeInOut(duration: 0.25), value: isLoginMode)
-                    }
-
-                    VStack(spacing: 18) {
-                        modeSwitcher
-                        credentialsForm
-                        actionArea
-                        bannerArea
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 26)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .stroke(Color.secondary.opacity(0.1), lineWidth: 1)
+            GeometryReader { proxy in
+                ZStack {
+                    LinearGradient(
+                        colors: colorScheme == .dark
+                            ? [Color(red: 0.03, green: 0.08, blue: 0.18), .black]
+                            : [Color(red: 0.78, green: 0.87, blue: 0.98), Color(red: 0.90, green: 0.94, blue: 0.99)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
                     )
-                    .shadow(color: .black.opacity(colorScheme == .dark ? 0.28 : 0.12), radius: 20, x: 0, y: 14)
+                    .ignoresSafeArea()
+
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 24) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("OrbitTerm")
+                                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.primary)
+                                Text(isLoginMode ? "欢迎回来，继续你的终端旅程" : "创建账号，开启深空控制台")
+                                    .foregroundStyle(.secondary)
+                                    .font(.subheadline)
+                                    .animation(.easeInOut(duration: 0.25), value: isLoginMode)
+                            }
+
+                            VStack(spacing: 18) {
+                                modeSwitcher
+                                credentialsForm
+                                actionArea
+                                bannerArea
+                            }
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 26)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                    .stroke(Color.secondary.opacity(0.1), lineWidth: 1)
+                            )
+                            .shadow(color: .black.opacity(colorScheme == .dark ? 0.28 : 0.12), radius: 20, x: 0, y: 14)
+                        }
+                        .padding(.horizontal, 22)
+                        .padding(.vertical, 32)
+                        .frame(maxWidth: 520)
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: proxy.size.height)
+                    }
                 }
-                .padding(.horizontal, 22)
-                .padding(.vertical, 32)
-                .frame(maxWidth: 520)
             }
             .onChange(of: message) { _, newValue in
                 if newValue.hasPrefix("失败") {

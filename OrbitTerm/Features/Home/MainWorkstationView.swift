@@ -14,27 +14,25 @@ struct MainWorkstationView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let leftWidth = max(220, proxy.size.width * 0.20)
-            let middleWidth = max(420, proxy.size.width * 0.50)
-            let rightWidth = max(300, proxy.size.width - leftWidth - middleWidth)
+            let widths = workstationWidths(totalWidth: proxy.size.width, rightCollapsed: isRightPanelCollapsed)
 
             HStack(spacing: 0) {
                 leftColumn
-                    .frame(width: leftWidth)
+                    .frame(width: widths.left)
 
                 Divider()
 
                 middleColumn
-                    .frame(width: middleWidth)
+                    .frame(width: widths.middle)
 
                 Divider()
 
                 if isRightPanelCollapsed {
                     collapsedRail
-                        .frame(width: 34)
+                        .frame(width: widths.right)
                 } else {
                     rightColumn
-                        .frame(width: rightWidth)
+                        .frame(width: widths.right)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -56,7 +54,9 @@ struct MainWorkstationView: View {
                 sessionManager.openTab(for: server, autoConnect: true)
             }
             .environmentObject(session)
-            .frame(minWidth: 560, minHeight: 620)
+#if os(macOS)
+            .frame(minWidth: 500, minHeight: 650)
+#endif
         }
         .overlay(alignment: .bottom) {
             if !session.transientStatus.isEmpty {
@@ -414,6 +414,24 @@ struct MainWorkstationView: View {
         stressTask?.cancel()
         stressTask = nil
         isStressRunning = false
+    }
+
+    private func workstationWidths(totalWidth: CGFloat, rightCollapsed: Bool) -> (left: CGFloat, middle: CGFloat, right: CGFloat) {
+        let dividerSpace: CGFloat = 2
+        let available = max(0, totalWidth - dividerSpace)
+
+        if rightCollapsed {
+            let railWidth: CGFloat = 34
+            let contentSpace = max(0, available - railWidth)
+            let left = max(0, contentSpace * 0.28)
+            let middle = max(0, contentSpace - left)
+            return (left, middle, railWidth)
+        }
+
+        let left = max(0, available * 0.20)
+        let middle = max(0, available * 0.50)
+        let right = max(0, available - left - middle)
+        return (left, middle, right)
     }
 }
 
