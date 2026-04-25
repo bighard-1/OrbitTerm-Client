@@ -1,18 +1,26 @@
 import Foundation
+import Security
 
 // NetworkService 负责与 OrbitTerm 后端进行 HTTP 通信。
 // 采用 async/await 风格，便于与 SwiftUI 并发模型结合。
-final class NetworkService {
+final class NetworkService: NSObject {
     static let shared = NetworkService()
 
     // 默认后端地址：首次启动直接指向正式域名。
     // 同时支持从 UserDefaults 读取已保存的自定义地址。
     private static let baseURLKey = "orbitterm.network.base_url"
     private static let defaultBaseURLString = "https://server.orbitterm.com"
+    private static let defaultHost = "server.orbitterm.com"
 
-    private let session = URLSession.shared
+    private lazy var session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.waitsForConnectivity = true
+        return URLSession(configuration: config, delegate: self, delegateQueue: nil)
+    }()
 
-    private init() {}
+    private override init() {
+        super.init()
+    }
 
     enum NetworkError: Error, LocalizedError {
         case invalidURL
@@ -46,11 +54,64 @@ final class NetworkService {
         UserDefaults.standard.string(forKey: Self.baseURLKey) ?? Self.defaultBaseURLString
     }
 
+    var defaultBaseURLString: String {
+        Self.defaultBaseURLString
+    }
+
     // 写入自定义后端地址。入参允许省略 scheme，会自动补全为 https。
     // 只允许 https，避免明文 http 被 ATS 拦截或产生安全风险。
     func updateBaseURL(_ rawInput: String) throws {
         let normalized = try normalizeBaseURLString(rawInput)
         UserDefaults.standard.set(normalized, forKey: Self.baseURLKey)
+    }
+
+    // 在真正保存前提供预校验能力，便于 UI 做二次确认弹窗。
+    func validatedBaseURLString(_ rawInput: String) throws -> String {
+        try normalizeBaseURLString(rawInput)
+    }
+
+    func isDefaultEndpoint(_ rawInput: String) -> Bool {
+        guard let host = URL(string: rawInput)?.host?.lowercased() else {
+            return false
+        }
+        return host == Self.defaultHost
+    }
+
+    static func isRetriableNetworkError(_ error: Error) -> Bool {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet,
+                 .networkConnectionLost,
+                 .timedOut,
+                 .cannotFindHost,
+                 .cannotConnectToHost,
+                 .dnsLookupFailed,
+                 .resourceUnavailable,
+                 .internationalRoamingOff,
+                 .callIsActive,
+                 .dataNotAllowed:
+                return true
+            default:
+                return false
+            }
+        }
+
+        if let networkError = error as? NetworkError {
+            switch networkError {
+            case let .unexpectedStatus(code):
+                return code == 408 || code == 429 || (500 ... 599).contains(code)
+            default:
+                return false
+            }
+        }
+
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            let code = URLError.Code(rawValue: nsError.code)
+            return isRetriableNetworkError(URLError(code))
+        }
+
+        return false
     }
 
     func register(username: String, password: String) async throws {
@@ -86,6 +147,16 @@ final class NetworkService {
         )
     }
 
+    func pullConfigs(token: String) async throws -> [UploadConfigData] {
+        let data: PullConfigData = try await sendWithoutBody(
+            path: "/api/v1/config/pull",
+            method: "GET",
+            token: token,
+            responseType: PullConfigData.self
+        )
+        return data.items
+    }
+
     private func send<Req: Encodable, Resp: Decodable>(
         path: String,
         method: String,
@@ -105,6 +176,45 @@ final class NetworkService {
             request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResp = response as? HTTPURLResponse else {
+            throw NetworkError.unexpectedStatus(-1)
+        }
+
+        let envelope = try? JSONDecoder().decode(APIEnvelope<Resp>.self, from: data)
+        if !(200 ... 299).contains(httpResp.statusCode) {
+            if let message = envelope?.error {
+                throw NetworkError.server(message)
+            }
+            throw NetworkError.unexpectedStatus(httpResp.statusCode)
+        }
+
+        guard let parsed = envelope,
+              parsed.success,
+              let payload = parsed.data else {
+            throw NetworkError.decodeFailed
+        }
+        return payload
+    }
+
+    private func sendWithoutBody<Resp: Decodable>(
+        path: String,
+        method: String,
+        token: String?,
+        responseType: Resp.Type
+    ) async throws -> Resp {
+        let baseURL = try resolvedBaseURL()
+        guard let url = URL(string: path, relativeTo: baseURL) else {
+            throw NetworkError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.addValue("application/json", forHTTPHeaderField: "Accept")
+        if let token {
+            request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
 
         let (data, response) = try await session.data(for: request)
         guard let httpResp = response as? HTTPURLResponse else {
@@ -169,7 +279,7 @@ struct AuthRequest: Encodable {
     let password: String
 }
 
-struct UploadConfigRequest: Encodable {
+struct UploadConfigRequest: Codable {
     let id: UInt?
     let encrypted_blob_base64: String
     let vector_clock: String
@@ -198,4 +308,50 @@ struct UploadConfigData: Decodable {
     let encrypted_blob_base64: String
     let vector_clock: String
     let updated_at: String
+}
+
+struct PullConfigData: Decodable {
+    let items: [UploadConfigData]
+}
+
+extension NetworkService: URLSessionDelegate {
+    // 对默认正式域名执行额外 TLS 校验加固：
+    // 1) 强制 hostname policy
+    // 2) 强制系统信任评估通过
+    // 3) 拒绝单证书（常见自签名）链路
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let trust = challenge.protectionSpace.serverTrust else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+
+        let host = challenge.protectionSpace.host.lowercased()
+        guard host == Self.defaultHost else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+
+        let policy = SecPolicyCreateSSL(true, host as CFString)
+        SecTrustSetPolicies(trust, policy)
+
+        var trustError: CFError?
+        guard SecTrustEvaluateWithError(trust, &trustError) else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+
+        // 基础防护：对默认域名拒绝单证书链（降低自签名风险）。
+        let certCount = SecTrustGetCertificateCount(trust)
+        guard certCount > 1 else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+
+        completionHandler(.useCredential, URLCredential(trust: trust))
+    }
 }

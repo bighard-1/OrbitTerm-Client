@@ -19,11 +19,13 @@
 		3410CEE4ED16A4BBDB851E8A /* ServerListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21BA8750BFF4212C103320E8 /* ServerListView.swift */; };
 		3712CAE59D7C18F9AEE8BF84 /* MainWorkstationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16F52E3B6E83F077783BEC22 /* MainWorkstationView.swift */; };
 		3720F726734FDE2BA5EA3491 /* SFTPBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF8482667CCEAB37877728A8 /* SFTPBrowserView.swift */; };
+		37C9B427752B20DE73F01307 /* TerminalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82956A0F1C5D1E30A78D1E37 /* TerminalService.swift */; };
 		38D00146CCC257E6EDBA4582 /* FileSizeFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9727DF6BCB4A2DC3FFF9644E /* FileSizeFormatter.swift */; };
 		3AA24B2C0C58DB4864AFE901 /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA155A9F65638E6194ADA93 /* KeychainManager.swift */; };
 		3DBFDFBCF613C85F01A8B88D /* MonitorService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F14341CBA2F36F648BF5800 /* MonitorService.swift */; };
 		536D8317A2803E5A7373EB59 /* SyncView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26356970710D53A05E630E5C /* SyncView.swift */; };
 		55782C4392B3436284F01CCA /* ServerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AED26C552B7072D2AAC4669F /* ServerStore.swift */; };
+		5640BE786C6F90A9FCC3203A /* TerminalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82956A0F1C5D1E30A78D1E37 /* TerminalService.swift */; };
 		58E2DD7AB605954D9FB0A998 /* SFTPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77D09730A51A26B9E686F253 /* SFTPManager.swift */; };
 		5B4B0A4E7FD8556F5557BC7C /* SessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 530F2F2B65A5D82BAE62ED55 /* SessionManager.swift */; };
 		5C144C6F938F96E9A34F819F /* View+InputPolish.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */; };
@@ -35,12 +37,15 @@
 		7537219233F149DD96EE566D /* NetworkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */; };
 		76E0101D1870FB15B265D176 /* TabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62847EC28220849324529ECF /* TabBarView.swift */; };
 		791C864C97C94860BC072BA1 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DC29E7DEA20362E09F501D3 /* AppSession.swift */; };
+		79C11DB569DDBD8E23356C35 /* AssetManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04FFDB29556DE5419BEB4E78 /* AssetManagerView.swift */; };
 		84DCCEEBB105C8E4BB112AD3 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DC29E7DEA20362E09F501D3 /* AppSession.swift */; };
 		85652ACC0968D7AF4EF480CD /* SFTPBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF8482667CCEAB37877728A8 /* SFTPBrowserView.swift */; };
 		87B279A9934945274515773E /* DockerManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7156371597A178C490DF8ABD /* DockerManagerView.swift */; };
 		8835C97A39B6523BD90EA986 /* OrbitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */; };
 		8BDBD2BE0DADEEF7F7E2AAAF /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E0EFB34CACD29FEB53B377 /* SyncService.swift */; };
 		8FB790CC339CDD3B1B2136B2 /* OrbitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */; };
+		9F34C0206362FA67CED289A3 /* CredentialVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 190E90A490AB0BEFD1B5F1EA /* CredentialVault.swift */; };
+		A11F4C91A92CC0D933C8ACE7 /* CredentialVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 190E90A490AB0BEFD1B5F1EA /* CredentialVault.swift */; };
 		A39C5F36E325D6D11857435F /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E0EFB34CACD29FEB53B377 /* SyncService.swift */; };
 		AA180C68437B90DAC47E8B14 /* MainWorkstationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16F52E3B6E83F077783BEC22 /* MainWorkstationView.swift */; };
 		AAA8E9F1710C3DED7287020F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0599BB6B03494D8A6791ABA /* Assets.xcassets */; };
@@ -59,10 +64,13 @@
 		ECDE1ACDE1B1D6F7A0E078B5 /* MasterPasswordGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */; };
 		EFED4745678E56EB1D29BDEE /* MonitorDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEF1B8EB20CEE14349EB99A4 /* MonitorDashboardView.swift */; };
 		F9A9DC4DB184DC513E122DB5 /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B4040E7C2C5A9F1C878E2E /* ConnectionView.swift */; };
+		FBAA1C6A14A37B5022F9D8CF /* AssetManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04FFDB29556DE5419BEB4E78 /* AssetManagerView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		04FFDB29556DE5419BEB4E78 /* AssetManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetManagerView.swift; sourceTree = "<group>"; };
 		16F52E3B6E83F077783BEC22 /* MainWorkstationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWorkstationView.swift; sourceTree = "<group>"; };
+		190E90A490AB0BEFD1B5F1EA /* CredentialVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialVault.swift; sourceTree = "<group>"; };
 		1BDEC92E6B4B8974125CB64A /* AddServerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerView.swift; sourceTree = "<group>"; };
 		20EA2AC1C67C6744ECBB46BD /* AuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthView.swift; sourceTree = "<group>"; };
 		21BA8750BFF4212C103320E8 /* ServerListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerListView.swift; sourceTree = "<group>"; };
@@ -76,6 +84,7 @@
 		7156371597A178C490DF8ABD /* DockerManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerManagerView.swift; sourceTree = "<group>"; };
 		77D09730A51A26B9E686F253 /* SFTPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPManager.swift; sourceTree = "<group>"; };
 		78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterPasswordGateView.swift; sourceTree = "<group>"; };
+		82956A0F1C5D1E30A78D1E37 /* TerminalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalService.swift; sourceTree = "<group>"; };
 		8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitTermApp.swift; sourceTree = "<group>"; };
 		8B49A5D57724B8383BD06C96 /* DockerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerService.swift; sourceTree = "<group>"; };
 		9727DF6BCB4A2DC3FFF9644E /* FileSizeFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSizeFormatter.swift; sourceTree = "<group>"; };
@@ -99,6 +108,7 @@
 			isa = PBXGroup;
 			children = (
 				2DC29E7DEA20362E09F501D3 /* AppSession.swift */,
+				190E90A490AB0BEFD1B5F1EA /* CredentialVault.swift */,
 				8B49A5D57724B8383BD06C96 /* DockerService.swift */,
 				9727DF6BCB4A2DC3FFF9644E /* FileSizeFormatter.swift */,
 				EEA155A9F65638E6194ADA93 /* KeychainManager.swift */,
@@ -109,6 +119,7 @@
 				530F2F2B65A5D82BAE62ED55 /* SessionManager.swift */,
 				77D09730A51A26B9E686F253 /* SFTPManager.swift */,
 				C3E0EFB34CACD29FEB53B377 /* SyncService.swift */,
+				82956A0F1C5D1E30A78D1E37 /* TerminalService.swift */,
 				C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */,
 			);
 			path = Core;
@@ -118,6 +129,7 @@
 			isa = PBXGroup;
 			children = (
 				1BDEC92E6B4B8974125CB64A /* AddServerView.swift */,
+				04FFDB29556DE5419BEB4E78 /* AssetManagerView.swift */,
 				7156371597A178C490DF8ABD /* DockerManagerView.swift */,
 				16F52E3B6E83F077783BEC22 /* MainWorkstationView.swift */,
 				DEF1B8EB20CEE14349EB99A4 /* MonitorDashboardView.swift */,
@@ -313,9 +325,11 @@
 			files = (
 				0AD79FEB4AD1DF5ABCA1FB30 /* AddServerView.swift in Sources */,
 				84DCCEEBB105C8E4BB112AD3 /* AppSession.swift in Sources */,
+				FBAA1C6A14A37B5022F9D8CF /* AssetManagerView.swift in Sources */,
 				2449C17F29FFCB7D459E7F14 /* AuthView.swift in Sources */,
 				F9A9DC4DB184DC513E122DB5 /* ConnectionView.swift in Sources */,
 				EB18551F6941809822CC4368 /* ContentView.swift in Sources */,
+				9F34C0206362FA67CED289A3 /* CredentialVault.swift in Sources */,
 				87B279A9934945274515773E /* DockerManagerView.swift in Sources */,
 				67536C13CA08E03FF3A12BA8 /* DockerService.swift in Sources */,
 				38D00146CCC257E6EDBA4582 /* FileSizeFormatter.swift in Sources */,
@@ -335,6 +349,7 @@
 				A39C5F36E325D6D11857435F /* SyncService.swift in Sources */,
 				536D8317A2803E5A7373EB59 /* SyncView.swift in Sources */,
 				76E0101D1870FB15B265D176 /* TabBarView.swift in Sources */,
+				37C9B427752B20DE73F01307 /* TerminalService.swift in Sources */,
 				5C144C6F938F96E9A34F819F /* View+InputPolish.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -345,9 +360,11 @@
 			files = (
 				E7907F3D7B64FC7DEF6CA09C /* AddServerView.swift in Sources */,
 				791C864C97C94860BC072BA1 /* AppSession.swift in Sources */,
+				79C11DB569DDBD8E23356C35 /* AssetManagerView.swift in Sources */,
 				C3F661036F847112CA11C87D /* AuthView.swift in Sources */,
 				C07A643F4C2EB8BA516F60A8 /* ConnectionView.swift in Sources */,
 				00D11168A4219FA8EC587704 /* ContentView.swift in Sources */,
+				A11F4C91A92CC0D933C8ACE7 /* CredentialVault.swift in Sources */,
 				BBF64F6A16727778986E2B24 /* DockerManagerView.swift in Sources */,
 				D73945F35D103F36900752C6 /* DockerService.swift in Sources */,
 				D7582594F04FB2E4C5812CCC /* FileSizeFormatter.swift in Sources */,
@@ -367,6 +384,7 @@
 				8BDBD2BE0DADEEF7F7E2AAAF /* SyncService.swift in Sources */,
 				0DB5330EBC909B110C7D6B4E /* SyncView.swift in Sources */,
 				25A69CC08E8B9F245C88948A /* TabBarView.swift in Sources */,
+				5640BE786C6F90A9FCC3203A /* TerminalService.swift in Sources */,
 				749429BFF654F1AB265411AF /* View+InputPolish.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

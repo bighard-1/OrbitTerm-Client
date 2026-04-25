@@ -17,13 +17,15 @@ use regex::Regex;
 use russh::client;
 use russh::ChannelMsg;
 use russh::Disconnect;
+use russh::keys::{decode_secret_key, PrivateKeyWithHashAlg};
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::OpenFlags;
 use serde::Serialize;
 use serde_json::Value;
 use thiserror::Error;
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, ReadBuf};
 use tokio::process::Command;
+use tokio::sync::mpsc;
 
 const SALT_LEN: usize = 16;
 const NONCE_LEN: usize = 12;
@@ -70,11 +72,30 @@ impl client::Handler for OrbitSshClientHandler {
     }
 }
 
-struct OrbitSftpSession {
+struct OrbitBaseSession {
+    id: u64,
     host: String,
+    username: String,
+    key: String,
     ssh: tokio::sync::Mutex<client::Handle<OrbitSshClientHandler>>,
-    sftp: SftpSession,
     net_snapshot: tokio::sync::Mutex<Option<NetSnapshot>>,
+    channel_ref_count: AtomicU64,
+}
+
+struct OrbitSftpSession {
+    base: Arc<OrbitBaseSession>,
+    sftp: SftpSession,
+}
+
+enum TerminalCommand {
+    Write(Vec<u8>),
+    Resize { cols: u32, rows: u32 },
+    Close,
+}
+
+struct OrbitTerminalChannel {
+    base_id: u64,
+    tx: mpsc::UnboundedSender<TerminalCommand>,
 }
 
 static ORBIT_RUNTIME: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
@@ -85,9 +106,51 @@ static ORBIT_RUNTIME: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
         .expect("failed to initialize orbit tokio runtime")
 });
 
+type TerminalDataCallback = extern "C" fn(u64, *const u8, usize);
+
+static BASE_SESSIONS: Lazy<Mutex<HashMap<u64, Arc<OrbitBaseSession>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+static BASE_SESSION_KEY_INDEX: Lazy<Mutex<HashMap<String, u64>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 static SFTP_SESSIONS: Lazy<Mutex<HashMap<u64, Arc<OrbitSftpSession>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
-static NEXT_SFTP_SESSION_ID: AtomicU64 = AtomicU64::new(1);
+static TERMINAL_CHANNELS: Lazy<Mutex<HashMap<u64, OrbitTerminalChannel>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+static TERMINAL_DATA_CALLBACK: Lazy<Mutex<Option<TerminalDataCallback>>> =
+    Lazy::new(|| Mutex::new(None));
+static NEXT_BASE_SESSION_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_SFTP_CHANNEL_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_TERMINAL_CHANNEL_ID: AtomicU64 = AtomicU64::new(1);
+
+struct SliceAsyncReader {
+    data: Vec<u8>,
+    offset: usize,
+}
+
+impl SliceAsyncReader {
+    fn new(data: Vec<u8>) -> Self {
+        Self { data, offset: 0 }
+    }
+}
+
+impl AsyncRead for SliceAsyncReader {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        if self.offset >= self.data.len() {
+            return std::task::Poll::Ready(Ok(()));
+        }
+
+        let remaining = self.data.len() - self.offset;
+        let to_copy = remaining.min(buf.remaining());
+        let end = self.offset + to_copy;
+        buf.put_slice(&self.data[self.offset..end]);
+        self.offset = end;
+        std::task::Poll::Ready(Ok(()))
+    }
+}
 
 #[derive(Debug, Serialize)]
 struct SftpListItem {
@@ -221,66 +284,68 @@ pub fn decrypt_config(
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn test_ssh_connection(
     ip: String,
+    port: u16,
     username: String,
     password: String,
+    private_key_content: String,
+    private_key_passphrase: String,
+    allow_password_fallback: bool,
 ) -> Result<String, OrbitCoreError> {
-    if ip.trim().is_empty() || username.trim().is_empty() || password.is_empty() {
+    if ip.trim().is_empty() || username.trim().is_empty() || port == 0 {
         return Err(OrbitCoreError::InvalidInput);
     }
 
     let config = Arc::new(client::Config::default());
-    let addr = normalize_host_port(&ip);
+    let addr = normalize_host_port(&ip, port);
 
     let mut ssh_session = client::connect(config, addr, OrbitSshClientHandler)
         .await
         .map_err(|e| OrbitCoreError::SshFailed(e.to_string()))?;
 
-    let auth_result = ssh_session
-        .authenticate_password(username, password)
-        .await
-        .map_err(|e| OrbitCoreError::SshFailed(e.to_string()))?;
+    authenticate_ssh(
+        &mut ssh_session,
+        &username,
+        &password,
+        &private_key_content,
+        &private_key_passphrase,
+        allow_password_fallback,
+    )
+    .await?;
 
-    if auth_result.success() {
-        Ok("SSH connection success".to_string())
-    } else {
-        Err(OrbitCoreError::SshFailed(
-            "SSH authentication failed".to_string(),
-        ))
-    }
+    Ok("SSH connection success".to_string())
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn sftp_connect(
     ip: String,
+    port: u16,
     username: String,
     password: String,
+    private_key_content: String,
+    private_key_passphrase: String,
+    allow_password_fallback: bool,
 ) -> Result<u64, OrbitCoreError> {
-    if ip.trim().is_empty() || username.trim().is_empty() || password.is_empty() {
+    if ip.trim().is_empty() || username.trim().is_empty() || port == 0 {
         return Err(OrbitCoreError::InvalidInput);
     }
 
-    let config = Arc::new(client::Config::default());
-    let addr = normalize_host_port(&ip);
+    let base = get_or_create_base_session(
+        &ip,
+        port,
+        &username,
+        &password,
+        &private_key_content,
+        &private_key_passphrase,
+        allow_password_fallback,
+    )
+    .await?;
 
-    let mut ssh = client::connect(config, addr, OrbitSshClientHandler)
-        .await
-        .map_err(|e| OrbitCoreError::SshFailed(e.to_string()))?;
-
-    let auth_result = ssh
-        .authenticate_password(username, password)
-        .await
-        .map_err(|e| OrbitCoreError::SshFailed(e.to_string()))?;
-
-    if !auth_result.success() {
-        return Err(OrbitCoreError::SshFailed(
-            "SSH authentication failed".to_string(),
-        ));
-    }
-
+    let ssh = base.ssh.lock().await;
     let channel = ssh
         .channel_open_session()
         .await
         .map_err(|e| OrbitCoreError::SshFailed(e.to_string()))?;
+    drop(ssh);
 
     channel
         .request_subsystem(true, "sftp")
@@ -291,12 +356,10 @@ pub async fn sftp_connect(
         .await
         .map_err(|e| OrbitCoreError::SftpFailed(e.to_string()))?;
 
-    let session_id = NEXT_SFTP_SESSION_ID.fetch_add(1, Ordering::SeqCst);
+    let session_id = NEXT_SFTP_CHANNEL_ID.fetch_add(1, Ordering::SeqCst);
     let wrapper = Arc::new(OrbitSftpSession {
-        host: ip,
-        ssh: tokio::sync::Mutex::new(ssh),
+        base,
         sftp,
-        net_snapshot: tokio::sync::Mutex::new(None),
     });
 
     let mut sessions = lock_sftp_sessions()?;
@@ -312,16 +375,13 @@ pub async fn sftp_disconnect(session_id: u64) -> Result<(), OrbitCoreError> {
     }
     .ok_or_else(|| OrbitCoreError::SftpFailed("session not found".to_string()))?;
 
+    let base_id = session.base.id;
     session
         .sftp
         .close()
         .await
         .map_err(|e| OrbitCoreError::SftpFailed(e.to_string()))?;
-
-    let ssh = session.ssh.lock().await;
-    ssh.disconnect(Disconnect::ByApplication, "sftp session closed", "en")
-        .await
-        .map_err(|e| OrbitCoreError::SshFailed(e.to_string()))?;
+    release_base_session(base_id).await?;
 
     Ok(())
 }
@@ -503,15 +563,88 @@ pub async fn sftp_download_file(
 }
 
 #[uniffi::export(async_runtime = "tokio")]
+pub async fn sftp_read_text_file(session_id: u64, remote_path: String) -> Result<String, OrbitCoreError> {
+    if remote_path.trim().is_empty() {
+        return Err(OrbitCoreError::InvalidInput);
+    }
+
+    let session = get_sftp_session(session_id)?;
+    let mut remote = session
+        .sftp
+        .open(remote_path)
+        .await
+        .map_err(|e| OrbitCoreError::SftpFailed(format!("open remote file failed: {e}")))?;
+
+    let mut data = Vec::new();
+    remote
+        .read_to_end(&mut data)
+        .await
+        .map_err(|e| OrbitCoreError::SftpFailed(format!("read remote file failed: {e}")))?;
+
+    if data.len() > 2 * 1024 * 1024 {
+        return Err(OrbitCoreError::SftpFailed("文件超过 2MB，暂不支持在线编辑".to_string()));
+    }
+
+    String::from_utf8(data)
+        .map_err(|_| OrbitCoreError::SftpFailed("文件不是 UTF-8 文本，暂不支持在线编辑".to_string()))
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn sftp_write_text_file(
+    session_id: u64,
+    remote_path: String,
+    content: String,
+) -> Result<String, OrbitCoreError> {
+    if remote_path.trim().is_empty() {
+        return Err(OrbitCoreError::InvalidInput);
+    }
+
+    let session = get_sftp_session(session_id)?;
+    let mut remote = session
+        .sftp
+        .open_with_flags(
+            remote_path,
+            OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE,
+        )
+        .await
+        .map_err(|e| OrbitCoreError::SftpFailed(format!("open remote file failed: {e}")))?;
+
+    let bytes = content.into_bytes();
+    remote
+        .write_all(&bytes)
+        .await
+        .map_err(|e| OrbitCoreError::SftpFailed(format!("write remote file failed: {e}")))?;
+    remote
+        .shutdown()
+        .await
+        .map_err(|e| OrbitCoreError::SftpFailed(format!("shutdown remote file failed: {e}")))?;
+
+    serde_json::to_string(&SftpTransferResult {
+        bytes: bytes.len() as u64,
+    })
+    .map_err(|e| OrbitCoreError::Internal(e.to_string()))
+}
+
+#[uniffi::export(async_runtime = "tokio")]
 pub async fn sftp_remove_file(session_id: u64, remote_path: String) -> Result<(), OrbitCoreError> {
     if remote_path.trim().is_empty() {
         return Err(OrbitCoreError::InvalidInput);
     }
 
     let session = get_sftp_session(session_id)?;
+    if session
+        .sftp
+        .remove_file(remote_path.clone())
+        .await
+        .is_ok()
+    {
+        return Ok(());
+    }
+
+    // 兼容目录删除：先尝试删文件，失败后再尝试删空目录。
     session
         .sftp
-        .remove_file(remote_path)
+        .remove_dir(remote_path)
         .await
         .map_err(|e| OrbitCoreError::SftpFailed(e.to_string()))
 }
@@ -535,19 +668,91 @@ pub async fn sftp_rename(
 }
 
 #[uniffi::export(async_runtime = "tokio")]
+pub async fn sftp_mkdir(session_id: u64, remote_path: String) -> Result<(), OrbitCoreError> {
+    if remote_path.trim().is_empty() {
+        return Err(OrbitCoreError::InvalidInput);
+    }
+    let session = get_sftp_session(session_id)?;
+    let cmd = format!("mkdir -p -- {}", shell_single_quote(remote_path.trim()));
+    let _ = run_remote_command(&session.base, &cmd).await?;
+    Ok(())
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn sftp_create_file(session_id: u64, remote_path: String) -> Result<(), OrbitCoreError> {
+    if remote_path.trim().is_empty() {
+        return Err(OrbitCoreError::InvalidInput);
+    }
+    let session = get_sftp_session(session_id)?;
+    let cmd = format!("touch -- {}", shell_single_quote(remote_path.trim()));
+    let _ = run_remote_command(&session.base, &cmd).await?;
+    Ok(())
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn sftp_chmod(
+    session_id: u64,
+    remote_path: String,
+    mode_octal: String,
+) -> Result<(), OrbitCoreError> {
+    if remote_path.trim().is_empty() {
+        return Err(OrbitCoreError::InvalidInput);
+    }
+    let mode = mode_octal.trim();
+    let mode_re = Regex::new(r"^[0-7]{3,4}$")
+        .map_err(|e| OrbitCoreError::Internal(e.to_string()))?;
+    if !mode_re.is_match(mode) {
+        return Err(OrbitCoreError::InvalidInput);
+    }
+
+    let session = get_sftp_session(session_id)?;
+    let cmd = format!(
+        "chmod {} -- {}",
+        mode,
+        shell_single_quote(remote_path.trim())
+    );
+    let _ = run_remote_command(&session.base, &cmd).await?;
+    Ok(())
+}
+
+#[uniffi::export(async_runtime = "tokio")]
 pub async fn fetch_system_stats(session_id: u64) -> Result<String, OrbitCoreError> {
     let session = get_sftp_session(session_id)?;
 
-    let top_output = run_remote_command(&session, "top -bn1 | head -n 5").await?;
-    let free_output = run_remote_command(&session, "free -m").await?;
-    let disk_output = run_remote_command(&session, "df -h /").await?;
-    let net_output = run_remote_command(&session, "cat /proc/net/dev").await?;
+    // 采集策略：优先 Linux 常见命令，失败时回退到 /proc，避免因单命令缺失导致整体失败。
+    let top_output = run_remote_command(&session.base, "top -bn1 | head -n 8")
+        .await
+        .unwrap_or_default();
+    let cpu_proc = run_remote_command(
+        &session.base,
+        "cat /proc/stat 2>/dev/null | awk '/^cpu /{print $2,$3,$4,$5,$6,$7,$8}'",
+    )
+    .await
+    .unwrap_or_default();
+    let free_output = run_remote_command(&session.base, "free -m 2>/dev/null")
+        .await
+        .unwrap_or_default();
+    let meminfo_output = run_remote_command(&session.base, "cat /proc/meminfo 2>/dev/null")
+        .await
+        .unwrap_or_default();
+    let disk_output = run_remote_command(&session.base, "df -P / 2>/dev/null")
+        .await
+        .unwrap_or_default();
+    let net_output = run_remote_command(&session.base, "cat /proc/net/dev 2>/dev/null")
+        .await
+        .unwrap_or_default();
 
-    let cpu_usage_percent = parse_cpu_usage(&top_output)?;
-    let (mem_available_mb, mem_used_percent) = parse_memory_stats(&free_output)?;
-    let disk_used_percent = parse_disk_usage(&disk_output)?;
-    let (rx_rate_kbps, tx_rate_kbps) = compute_network_rate_kbps(&session, &net_output).await?;
-    let ping_latency_ms = measure_ping_ms(&session.host).await;
+    let cpu_usage_percent = parse_cpu_usage(&top_output)
+        .or_else(|_| parse_cpu_from_proc_stat(&cpu_proc))
+        .unwrap_or(0.0);
+    let (mem_available_mb, mem_used_percent) = parse_memory_stats(&free_output)
+        .or_else(|_| parse_memory_from_meminfo(&meminfo_output))
+        .unwrap_or((0, 0.0));
+    let disk_used_percent = parse_disk_usage(&disk_output).unwrap_or(0.0);
+    let (rx_rate_kbps, tx_rate_kbps) = compute_network_rate_kbps(&session.base, &net_output)
+        .await
+        .unwrap_or((0.0, 0.0));
+    let ping_latency_ms = measure_ping_ms(&session.base.host).await;
     let sampled_at_unix = current_unix_secs();
 
     let payload = SystemStatsResponse {
@@ -567,7 +772,7 @@ pub async fn fetch_system_stats(session_id: u64) -> Result<String, OrbitCoreErro
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn fetch_docker_containers(session_id: u64) -> Result<String, OrbitCoreError> {
     let session = get_sftp_session(session_id)?;
-    let output = run_remote_command(&session, "docker ps -a --format '{{json .}}'").await?;
+    let output = run_remote_command(&session.base, "docker ps -a --format '{{json .}}'").await?;
     let mut items: Vec<DockerContainerItem> = Vec::new();
 
     for line in output.lines().filter(|line| !line.trim().is_empty()) {
@@ -615,7 +820,7 @@ pub async fn fetch_docker_containers(session_id: u64) -> Result<String, OrbitCor
 pub async fn fetch_docker_stats(session_id: u64) -> Result<String, OrbitCoreError> {
     let session = get_sftp_session(session_id)?;
     let output =
-        run_remote_command(&session, "docker stats --no-stream --format '{{json .}}'").await?;
+        run_remote_command(&session.base, "docker stats --no-stream --format '{{json .}}'").await?;
     let mut items: Vec<DockerStatsItem> = Vec::new();
 
     for line in output.lines().filter(|line| !line.trim().is_empty()) {
@@ -679,14 +884,18 @@ pub async fn docker_action(
     let normalized_action = action.trim().to_lowercase();
     if !matches!(
         normalized_action.as_str(),
-        "start" | "stop" | "restart" | "kill"
+        "start" | "stop" | "restart" | "kill" | "remove"
     ) {
         return Err(OrbitCoreError::InvalidInput);
     }
 
     let session = get_sftp_session(session_id)?;
-    let cmd = format!("docker {} {}", normalized_action, container_id.trim());
-    let result = run_remote_command(&session, &cmd).await?;
+    let cmd = if normalized_action == "remove" {
+        format!("docker rm -f {}", container_id.trim())
+    } else {
+        format!("docker {} {}", normalized_action, container_id.trim())
+    };
+    let result = run_remote_command(&session.base, &cmd).await?;
     Ok(result)
 }
 
@@ -707,11 +916,164 @@ pub async fn fetch_docker_logs(
         safe_tail,
         container_id.trim()
     );
-    run_remote_command(&session, &cmd).await
+    run_remote_command(&session.base, &cmd).await
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn request_channel(
+    session_or_channel_id: u64,
+    channel_type: String,
+) -> Result<u64, OrbitCoreError> {
+    let base = resolve_base_session(session_or_channel_id)?;
+    let kind = channel_type.trim().to_lowercase();
+
+    match kind.as_str() {
+        "sftp" => {
+            let ssh = base.ssh.lock().await;
+            let channel = ssh
+                .channel_open_session()
+                .await
+                .map_err(|e| OrbitCoreError::SshFailed(e.to_string()))?;
+            drop(ssh);
+
+            channel
+                .request_subsystem(true, "sftp")
+                .await
+                .map_err(|e| OrbitCoreError::SftpFailed(format!("request subsystem failed: {e}")))?;
+
+            let sftp = SftpSession::new(channel.into_stream())
+                .await
+                .map_err(|e| OrbitCoreError::SftpFailed(e.to_string()))?;
+
+            base.channel_ref_count.fetch_add(1, Ordering::SeqCst);
+            let channel_id = NEXT_SFTP_CHANNEL_ID.fetch_add(1, Ordering::SeqCst);
+            let wrapper = Arc::new(OrbitSftpSession {
+                base,
+                sftp,
+            });
+            lock_sftp_sessions()?.insert(channel_id, wrapper);
+            Ok(channel_id)
+        }
+        "exec" => Ok(base.id),
+        "pty" => open_terminal_channel(base, 120, 36).await,
+        _ => Err(OrbitCoreError::InvalidInput),
+    }
+}
+
+async fn open_terminal_channel(
+    base: Arc<OrbitBaseSession>,
+    cols: u32,
+    rows: u32,
+) -> Result<u64, OrbitCoreError> {
+    let ssh = base.ssh.lock().await;
+    let channel = ssh
+        .channel_open_session()
+        .await
+        .map_err(|e| OrbitCoreError::SshFailed(e.to_string()))?;
+    drop(ssh);
+
+    channel
+        .request_pty(true, "xterm-256color", cols, rows, 0, 0, &[])
+        .await
+        .map_err(|e| OrbitCoreError::SshFailed(format!("request pty failed: {e}")))?;
+    channel
+        .request_shell(true)
+        .await
+        .map_err(|e| OrbitCoreError::SshFailed(format!("request shell failed: {e}")))?;
+
+    base.channel_ref_count.fetch_add(1, Ordering::SeqCst);
+    let (mut read_half, write_half) = channel.split();
+    let (tx, mut rx) = mpsc::unbounded_channel::<TerminalCommand>();
+    let terminal_id = NEXT_TERMINAL_CHANNEL_ID.fetch_add(1, Ordering::SeqCst);
+    let base_id = base.id;
+
+    lock_terminal_channels()?.insert(
+        terminal_id,
+        OrbitTerminalChannel { base_id, tx },
+    );
+
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                cmd = rx.recv() => {
+                    match cmd {
+                        Some(TerminalCommand::Write(bytes)) => {
+                            if !bytes.is_empty() {
+                                let _ = write_half.data(SliceAsyncReader::new(bytes)).await;
+                            }
+                        }
+                        Some(TerminalCommand::Resize { cols, rows }) => {
+                            let _ = write_half.window_change(cols, rows, 0, 0).await;
+                        }
+                        Some(TerminalCommand::Close) | None => {
+                            let _ = write_half.eof().await;
+                            let _ = write_half.close().await;
+                            break;
+                        }
+                    }
+                }
+                msg = read_half.wait() => {
+                    match msg {
+                        Some(ChannelMsg::Data { data }) => emit_terminal_data(terminal_id, &data),
+                        Some(ChannelMsg::ExtendedData { data, .. }) => emit_terminal_data(terminal_id, &data),
+                        Some(ChannelMsg::ExitStatus { .. }) | Some(ChannelMsg::Eof) | None => {
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        if let Ok(mut map) = TERMINAL_CHANNELS.lock() {
+            map.remove(&terminal_id);
+        }
+        let _ = release_base_session(base_id).await;
+    });
+
+    Ok(terminal_id)
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn terminal_write(terminal_channel_id: u64, data: Vec<u8>) -> Result<(), OrbitCoreError> {
+    let tx = lock_terminal_channels()?
+        .get(&terminal_channel_id)
+        .map(|ch| ch.tx.clone())
+        .ok_or_else(|| OrbitCoreError::SshFailed("terminal channel not found".to_string()))?;
+
+    tx.send(TerminalCommand::Write(data))
+        .map_err(|_| OrbitCoreError::SshFailed("terminal write channel closed".to_string()))
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn terminal_resize(
+    terminal_channel_id: u64,
+    cols: u32,
+    rows: u32,
+) -> Result<(), OrbitCoreError> {
+    let tx = lock_terminal_channels()?
+        .get(&terminal_channel_id)
+        .map(|ch| ch.tx.clone())
+        .ok_or_else(|| OrbitCoreError::SshFailed("terminal channel not found".to_string()))?;
+
+    tx.send(TerminalCommand::Resize { cols, rows })
+        .map_err(|_| OrbitCoreError::SshFailed("terminal resize channel closed".to_string()))
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn terminal_close(terminal_channel_id: u64) -> Result<(), OrbitCoreError> {
+    let channel = lock_terminal_channels()?.remove(&terminal_channel_id);
+    if let Some(ch) = channel {
+        let _ = ch.tx.send(TerminalCommand::Close);
+        return Ok(());
+    }
+    Err(OrbitCoreError::SshFailed(
+        "terminal channel not found".to_string(),
+    ))
 }
 
 async fn run_remote_command(
-    session: &Arc<OrbitSftpSession>,
+    session: &Arc<OrbitBaseSession>,
     command: &str,
 ) -> Result<String, OrbitCoreError> {
     let ssh = session.ssh.lock().await;
@@ -762,7 +1124,7 @@ async fn run_remote_command(
 }
 
 fn parse_cpu_usage(top_output: &str) -> Result<f64, OrbitCoreError> {
-    let cpu_line = Regex::new(r"(?mi)^%?Cpu\(s\):.*?([0-9]+(?:\.[0-9]+)?)\s*id")
+    let cpu_line = Regex::new(r"(?mi)(?:^%?Cpu\(s\):|^Cpu\(s\):).*?([0-9]+(?:\.[0-9]+)?)\s*id")
         .map_err(|e| OrbitCoreError::Internal(e.to_string()))?;
 
     if let Some(caps) = cpu_line.captures(top_output) {
@@ -773,7 +1135,41 @@ fn parse_cpu_usage(top_output: &str) -> Result<f64, OrbitCoreError> {
         return Ok((100.0 - idle).clamp(0.0, 100.0));
     }
 
+    // macOS/BSD top 格式: "CPU usage: 12.34% user, 5.00% sys, 82.66% idle"
+    let bsd = Regex::new(
+        r"(?mi)cpu usage:\s*([0-9]+(?:\.[0-9]+)?)%\s*user,\s*([0-9]+(?:\.[0-9]+)?)%\s*sys",
+    )
+    .map_err(|e| OrbitCoreError::Internal(e.to_string()))?;
+    if let Some(caps) = bsd.captures(top_output) {
+        let user = caps
+            .get(1)
+            .and_then(|m| m.as_str().parse::<f64>().ok())
+            .unwrap_or(0.0);
+        let sys = caps
+            .get(2)
+            .and_then(|m| m.as_str().parse::<f64>().ok())
+            .unwrap_or(0.0);
+        return Ok((user + sys).clamp(0.0, 100.0));
+    }
+
     Err(OrbitCoreError::Internal("无法解析 CPU 使用率".to_string()))
+}
+
+fn parse_cpu_from_proc_stat(raw: &str) -> Result<f64, OrbitCoreError> {
+    let nums: Vec<u64> = raw
+        .split_whitespace()
+        .filter_map(|v| v.parse::<u64>().ok())
+        .collect();
+    if nums.len() < 4 {
+        return Err(OrbitCoreError::Internal("proc stat 字段不足".to_string()));
+    }
+
+    let idle = nums[3] as f64;
+    let total: f64 = nums.iter().map(|v| *v as f64).sum();
+    if total <= 0.0 {
+        return Ok(0.0);
+    }
+    Ok(((total - idle) / total * 100.0).clamp(0.0, 100.0))
 }
 
 fn parse_memory_stats(free_output: &str) -> Result<(u64, f64), OrbitCoreError> {
@@ -804,6 +1200,34 @@ fn parse_memory_stats(free_output: &str) -> Result<(u64, f64), OrbitCoreError> {
     Ok((available, used_percent.clamp(0.0, 100.0)))
 }
 
+fn parse_memory_from_meminfo(meminfo_output: &str) -> Result<(u64, f64), OrbitCoreError> {
+    let mut total_kb = 0u64;
+    let mut available_kb = 0u64;
+    for line in meminfo_output.lines() {
+        if line.starts_with("MemTotal:") {
+            total_kb = line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(0);
+        } else if line.starts_with("MemAvailable:") {
+            available_kb = line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(0);
+        }
+    }
+
+    if total_kb == 0 {
+        return Err(OrbitCoreError::Internal("meminfo 缺少总内存".to_string()));
+    }
+
+    let used_kb = total_kb.saturating_sub(available_kb);
+    let used_percent = (used_kb as f64 / total_kb as f64 * 100.0).clamp(0.0, 100.0);
+    Ok((available_kb / 1024, used_percent))
+}
+
 fn parse_disk_usage(df_output: &str) -> Result<f64, OrbitCoreError> {
     let re = Regex::new(r"(?m)^\S+\s+\S+\s+\S+\s+\S+\s+(\d+)%\s+/\s*$")
         .map_err(|e| OrbitCoreError::Internal(e.to_string()))?;
@@ -826,8 +1250,12 @@ fn parse_percent(raw: &str) -> f64 {
         .unwrap_or(0.0)
 }
 
+fn shell_single_quote(input: &str) -> String {
+    format!("'{}'", input.replace('\'', "'\"'\"'"))
+}
+
 async fn compute_network_rate_kbps(
-    session: &Arc<OrbitSftpSession>,
+    session: &Arc<OrbitBaseSession>,
     net_dev_output: &str,
 ) -> Result<(f64, f64), OrbitCoreError> {
     let re = Regex::new(
@@ -906,7 +1334,17 @@ async fn measure_ping_ms(host: &str) -> Option<f64> {
 }
 
 fn host_without_port(host: &str) -> &str {
-    host.split(':').next().unwrap_or(host)
+    let trimmed = host.trim();
+    if trimmed.starts_with('[') {
+        if let Some(end) = trimmed.find(']') {
+            return &trimmed[1..end];
+        }
+    }
+    // 仅一个冒号时，按 host:port 处理；多个冒号视为 IPv6 地址本体。
+    if trimmed.matches(':').count() == 1 {
+        return trimmed.split(':').next().unwrap_or(trimmed);
+    }
+    trimmed
 }
 
 fn current_unix_secs() -> u64 {
@@ -928,12 +1366,26 @@ fn derive_key(master_password: &[u8], salt: &[u8]) -> Result<[u8; 32], OrbitCore
     Ok(key)
 }
 
-fn normalize_host_port(ip: &str) -> String {
-    if ip.contains(':') {
-        ip.to_string()
-    } else {
-        format!("{}:22", ip)
+fn normalize_host_port(ip: &str, port: u16) -> String {
+    let host = ip.trim();
+    if host.is_empty() {
+        return format!("127.0.0.1:{port}");
     }
+
+    if host.starts_with('[') && host.contains("]:") {
+        return host.to_string();
+    }
+    if host.matches(':').count() == 1 && !host.starts_with('[') {
+        return host.to_string();
+    }
+    if host.matches(':').count() > 1 {
+        if host.starts_with('[') {
+            return format!("{host}:{port}");
+        }
+        return format!("[{host}]:{port}");
+    }
+
+    format!("{host}:{port}")
 }
 
 fn lock_sftp_sessions(
@@ -951,6 +1403,138 @@ fn get_sftp_session(session_id: u64) -> Result<Arc<OrbitSftpSession>, OrbitCoreE
         .ok_or_else(|| OrbitCoreError::SftpFailed("session not found".to_string()))
 }
 
+fn lock_base_sessions(
+) -> Result<std::sync::MutexGuard<'static, HashMap<u64, Arc<OrbitBaseSession>>>, OrbitCoreError> {
+    BASE_SESSIONS
+        .lock()
+        .map_err(|_| OrbitCoreError::Internal("base session lock poisoned".to_string()))
+}
+
+fn lock_base_key_index(
+) -> Result<std::sync::MutexGuard<'static, HashMap<String, u64>>, OrbitCoreError> {
+    BASE_SESSION_KEY_INDEX
+        .lock()
+        .map_err(|_| OrbitCoreError::Internal("base key index lock poisoned".to_string()))
+}
+
+fn lock_terminal_channels(
+) -> Result<std::sync::MutexGuard<'static, HashMap<u64, OrbitTerminalChannel>>, OrbitCoreError> {
+    TERMINAL_CHANNELS
+        .lock()
+        .map_err(|_| OrbitCoreError::Internal("terminal channel lock poisoned".to_string()))
+}
+
+fn emit_terminal_data(channel_id: u64, bytes: &[u8]) {
+    let cb_opt = TERMINAL_DATA_CALLBACK
+        .lock()
+        .ok()
+        .and_then(|guard| *guard);
+
+    if let Some(cb) = cb_opt {
+        cb(channel_id, bytes.as_ptr(), bytes.len());
+    }
+}
+
+fn base_session_key(ip: &str, port: u16, username: &str) -> String {
+    format!("{}|{}", normalize_host_port(ip, port), username.trim())
+}
+
+async fn get_or_create_base_session(
+    ip: &str,
+    port: u16,
+    username: &str,
+    password: &str,
+    private_key_content: &str,
+    private_key_passphrase: &str,
+    allow_password_fallback: bool,
+) -> Result<Arc<OrbitBaseSession>, OrbitCoreError> {
+    let key = base_session_key(ip, port, username);
+
+    if let Some(existing_id) = lock_base_key_index()?.get(&key).copied() {
+        if let Some(existing) = lock_base_sessions()?.get(&existing_id).cloned() {
+            existing.channel_ref_count.fetch_add(1, Ordering::SeqCst);
+            return Ok(existing);
+        }
+    }
+
+    let config = Arc::new(client::Config::default());
+    let addr = normalize_host_port(ip, port);
+
+    let mut ssh = client::connect(config, addr, OrbitSshClientHandler)
+        .await
+        .map_err(|e| OrbitCoreError::SshFailed(e.to_string()))?;
+
+    authenticate_ssh(
+        &mut ssh,
+        username,
+        password,
+        private_key_content,
+        private_key_passphrase,
+        allow_password_fallback,
+    )
+    .await?;
+
+    let base_id = NEXT_BASE_SESSION_ID.fetch_add(1, Ordering::SeqCst);
+    let base = Arc::new(OrbitBaseSession {
+        id: base_id,
+        host: ip.to_string(),
+        username: username.to_string(),
+        key: key.clone(),
+        ssh: tokio::sync::Mutex::new(ssh),
+        net_snapshot: tokio::sync::Mutex::new(None),
+        channel_ref_count: AtomicU64::new(1),
+    });
+
+    lock_base_sessions()?.insert(base_id, base.clone());
+    lock_base_key_index()?.insert(key, base_id);
+    Ok(base)
+}
+
+fn resolve_base_session(session_or_channel_id: u64) -> Result<Arc<OrbitBaseSession>, OrbitCoreError> {
+    if let Some(base) = lock_base_sessions()?.get(&session_or_channel_id).cloned() {
+        return Ok(base);
+    }
+    if let Some(sftp) = lock_sftp_sessions()?.get(&session_or_channel_id).cloned() {
+        return Ok(sftp.base.clone());
+    }
+    if let Some(term) = lock_terminal_channels()?.get(&session_or_channel_id) {
+        if let Some(base) = lock_base_sessions()?.get(&term.base_id).cloned() {
+            return Ok(base);
+        }
+    }
+
+    Err(OrbitCoreError::SshFailed(
+        "unable to resolve base session".to_string(),
+    ))
+}
+
+async fn release_base_session(base_id: u64) -> Result<(), OrbitCoreError> {
+    let maybe_base = lock_base_sessions()?.get(&base_id).cloned();
+    let Some(base) = maybe_base else {
+        return Ok(());
+    };
+
+    let prev = base.channel_ref_count.fetch_sub(1, Ordering::SeqCst);
+    if prev > 1 {
+        return Ok(());
+    }
+
+    {
+        let mut bases = lock_base_sessions()?;
+        bases.remove(&base_id);
+    }
+    {
+        let mut index = lock_base_key_index()?;
+        index.remove(&base.key);
+    }
+
+    let ssh = base.ssh.lock().await;
+    let _ = ssh
+        .disconnect(Disconnect::ByApplication, "session released", "en")
+        .await;
+    Ok(())
+}
+
 fn c_ptr_to_string(ptr: *const c_char) -> Result<String, OrbitCoreError> {
     if ptr.is_null() {
         return Err(OrbitCoreError::InvalidInput);
@@ -960,6 +1544,80 @@ fn c_ptr_to_string(ptr: *const c_char) -> Result<String, OrbitCoreError> {
     raw.to_str()
         .map(|s| s.to_string())
         .map_err(|_| OrbitCoreError::InvalidInput)
+}
+
+async fn authenticate_ssh(
+    ssh_session: &mut client::Handle<OrbitSshClientHandler>,
+    username: &str,
+    password: &str,
+    private_key_content: &str,
+    private_key_passphrase: &str,
+    allow_password_fallback: bool,
+) -> Result<(), OrbitCoreError> {
+    let trimmed_key = private_key_content.trim();
+    let mut key_auth_failed = false;
+    if !trimmed_key.is_empty() {
+        let passphrase = if private_key_passphrase.is_empty() {
+            None
+        } else {
+            Some(private_key_passphrase)
+        };
+
+        let private_key = decode_secret_key(trimmed_key, passphrase)
+            .map_err(|e| OrbitCoreError::SshFailed(format!("私钥解析失败: {e}")))?;
+        let hash_alg = ssh_session
+            .best_supported_rsa_hash()
+            .await
+            .map_err(|e| OrbitCoreError::SshFailed(e.to_string()))?
+            .flatten();
+
+        let auth_result = ssh_session
+            .authenticate_publickey(
+                username.to_string(),
+                PrivateKeyWithHashAlg::new(Arc::new(private_key), hash_alg),
+            )
+            .await
+            .map_err(|e| OrbitCoreError::SshFailed(e.to_string()))?;
+
+        if auth_result.success() {
+            return Ok(());
+        }
+
+        key_auth_failed = true;
+        if !allow_password_fallback {
+            return Err(OrbitCoreError::SshFailed(
+                "SSH 密钥认证失败（已禁用密码回退）".to_string(),
+            ));
+        }
+    }
+
+    if !password.is_empty() {
+        let auth_result = ssh_session
+            .authenticate_password(username.to_string(), password.to_string())
+            .await
+            .map_err(|e| OrbitCoreError::SshFailed(e.to_string()))?;
+
+        if auth_result.success() {
+            return Ok(());
+        }
+
+        if key_auth_failed {
+            return Err(OrbitCoreError::SshFailed(
+                "SSH 认证失败：密钥与密码均失败".to_string(),
+            ));
+        }
+        return Err(OrbitCoreError::SshFailed(
+            "SSH 密码认证失败".to_string(),
+        ));
+    }
+
+    if key_auth_failed {
+        Err(OrbitCoreError::SshFailed(
+            "SSH 认证失败：密钥失败且未提供可用密码".to_string(),
+        ))
+    } else {
+        Err(OrbitCoreError::InvalidInput)
+    }
 }
 
 fn to_c_string_ptr(value: String) -> *mut c_char {
@@ -1027,8 +1685,12 @@ pub extern "C" fn orbit_decrypt_config(
 #[no_mangle]
 pub extern "C" fn orbit_test_ssh_connection(
     ip: *const c_char,
+    port: i32,
     username: *const c_char,
     password: *const c_char,
+    private_key_content: *const c_char,
+    private_key_passphrase: *const c_char,
+    allow_password_fallback: i32,
 ) -> *mut c_char {
     let ip = match c_ptr_to_string(ip) {
         Ok(v) => v,
@@ -1042,8 +1704,28 @@ pub extern "C" fn orbit_test_ssh_connection(
         Ok(v) => v,
         Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
     };
+    let private_key_content = match c_ptr_to_string(private_key_content) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+    let private_key_passphrase = match c_ptr_to_string(private_key_passphrase) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+    let port = match normalize_port(port) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
 
-    let result = ORBIT_RUNTIME.block_on(test_ssh_connection(ip, username, password));
+    let result = ORBIT_RUNTIME.block_on(test_ssh_connection(
+        ip,
+        port,
+        username,
+        password,
+        private_key_content,
+        private_key_passphrase,
+        allow_password_fallback != 0,
+    ));
     match result {
         Ok(msg) => to_c_string_ptr(format!("OK:{}", msg)),
         Err(e) => to_c_string_ptr(format!("ERR:{}", e)),
@@ -1051,10 +1733,14 @@ pub extern "C" fn orbit_test_ssh_connection(
 }
 
 #[no_mangle]
-pub extern "C" fn orbit_sftp_connect(
+pub extern "C" fn orbit_ssh_connect(
     ip: *const c_char,
+    port: i32,
     username: *const c_char,
     password: *const c_char,
+    private_key_content: *const c_char,
+    private_key_passphrase: *const c_char,
+    allow_password_fallback: i32,
 ) -> *mut c_char {
     let ip = match c_ptr_to_string(ip) {
         Ok(v) => v,
@@ -1068,10 +1754,153 @@ pub extern "C" fn orbit_sftp_connect(
         Ok(v) => v,
         Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
     };
+    let private_key_content = match c_ptr_to_string(private_key_content) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+    let private_key_passphrase = match c_ptr_to_string(private_key_passphrase) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+    let port = match normalize_port(port) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
 
-    let result = ORBIT_RUNTIME.block_on(sftp_connect(ip, username, password));
+    let result = ORBIT_RUNTIME.block_on(get_or_create_base_session(
+        &ip,
+        port,
+        &username,
+        &password,
+        &private_key_content,
+        &private_key_passphrase,
+        allow_password_fallback != 0,
+    ));
+    match result {
+        Ok(base) => to_c_string_ptr(format!("OK:session:{}", base.id)),
+        Err(e) => to_c_string_ptr(format!("ERR:{}", e)),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn orbit_sftp_connect(
+    ip: *const c_char,
+    port: i32,
+    username: *const c_char,
+    password: *const c_char,
+    private_key_content: *const c_char,
+    private_key_passphrase: *const c_char,
+    allow_password_fallback: i32,
+) -> *mut c_char {
+    let ip = match c_ptr_to_string(ip) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+    let username = match c_ptr_to_string(username) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+    let password = match c_ptr_to_string(password) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+    let private_key_content = match c_ptr_to_string(private_key_content) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+    let private_key_passphrase = match c_ptr_to_string(private_key_passphrase) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+    let port = match normalize_port(port) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+
+    let result = ORBIT_RUNTIME.block_on(sftp_connect(
+        ip,
+        port,
+        username,
+        password,
+        private_key_content,
+        private_key_passphrase,
+        allow_password_fallback != 0,
+    ));
     match result {
         Ok(session_id) => to_c_string_ptr(format!("OK:{}", session_id)),
+        Err(e) => to_c_string_ptr(format!("ERR:{}", e)),
+    }
+}
+
+fn normalize_port(port: i32) -> Result<u16, OrbitCoreError> {
+    if (1..=65535).contains(&port) {
+        Ok(port as u16)
+    } else {
+        Err(OrbitCoreError::InvalidInput)
+    }
+}
+
+pub type OrbitTerminalDataCallback = extern "C" fn(u64, *const u8, usize);
+
+#[no_mangle]
+pub extern "C" fn orbit_terminal_set_callback(callback: Option<OrbitTerminalDataCallback>) {
+    if let Ok(mut holder) = TERMINAL_DATA_CALLBACK.lock() {
+        *holder = callback;
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn orbit_request_channel(
+    session_or_channel_id: u64,
+    channel_type: *const c_char,
+) -> *mut c_char {
+    let channel_type = match c_ptr_to_string(channel_type) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+
+    let result = ORBIT_RUNTIME.block_on(request_channel(session_or_channel_id, channel_type));
+    match result {
+        Ok(channel_id) => to_c_string_ptr(format!("OK:{}", channel_id)),
+        Err(e) => to_c_string_ptr(format!("ERR:{}", e)),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn orbit_terminal_write(
+    terminal_channel_id: u64,
+    data_ptr: *const u8,
+    data_len: usize,
+) -> *mut c_char {
+    if data_ptr.is_null() {
+        return to_c_string_ptr("ERR:参数不合法".to_string());
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(data_ptr, data_len) }.to_vec();
+    let result = ORBIT_RUNTIME.block_on(terminal_write(terminal_channel_id, bytes));
+    match result {
+        Ok(_) => to_c_string_ptr("OK:wrote".to_string()),
+        Err(e) => to_c_string_ptr(format!("ERR:{}", e)),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn orbit_terminal_resize(
+    terminal_channel_id: u64,
+    cols: u32,
+    rows: u32,
+) -> *mut c_char {
+    let result = ORBIT_RUNTIME.block_on(terminal_resize(terminal_channel_id, cols, rows));
+    match result {
+        Ok(_) => to_c_string_ptr("OK:resized".to_string()),
+        Err(e) => to_c_string_ptr(format!("ERR:{}", e)),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn orbit_terminal_close(terminal_channel_id: u64) -> *mut c_char {
+    let result = ORBIT_RUNTIME.block_on(terminal_close(terminal_channel_id));
+    match result {
+        Ok(_) => to_c_string_ptr("OK:closed".to_string()),
         Err(e) => to_c_string_ptr(format!("ERR:{}", e)),
     }
 }
@@ -1151,6 +1980,45 @@ pub extern "C" fn orbit_sftp_download_file(
 }
 
 #[no_mangle]
+pub extern "C" fn orbit_sftp_read_text_file(
+    session_id: u64,
+    remote_path: *const c_char,
+) -> *mut c_char {
+    let remote_path = match c_ptr_to_string(remote_path) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+
+    let result = ORBIT_RUNTIME.block_on(sftp_read_text_file(session_id, remote_path));
+    match result {
+        Ok(text) => to_c_string_ptr(format!("OK:{}", text)),
+        Err(e) => to_c_string_ptr(format!("ERR:{}", e)),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn orbit_sftp_write_text_file(
+    session_id: u64,
+    remote_path: *const c_char,
+    content: *const c_char,
+) -> *mut c_char {
+    let remote_path = match c_ptr_to_string(remote_path) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+    let content = match c_ptr_to_string(content) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+
+    let result = ORBIT_RUNTIME.block_on(sftp_write_text_file(session_id, remote_path, content));
+    match result {
+        Ok(payload) => to_c_string_ptr(format!("OK:{}", payload)),
+        Err(e) => to_c_string_ptr(format!("ERR:{}", e)),
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn orbit_sftp_remove_file(session_id: u64, remote_path: *const c_char) -> *mut c_char {
     let remote_path = match c_ptr_to_string(remote_path) {
         Ok(v) => v,
@@ -1182,6 +2050,56 @@ pub extern "C" fn orbit_sftp_rename(
     let result = ORBIT_RUNTIME.block_on(sftp_rename(session_id, old_remote_path, new_remote_path));
     match result {
         Ok(_) => to_c_string_ptr("OK:renamed".to_string()),
+        Err(e) => to_c_string_ptr(format!("ERR:{}", e)),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn orbit_sftp_mkdir(session_id: u64, remote_path: *const c_char) -> *mut c_char {
+    let remote_path = match c_ptr_to_string(remote_path) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+
+    let result = ORBIT_RUNTIME.block_on(sftp_mkdir(session_id, remote_path));
+    match result {
+        Ok(_) => to_c_string_ptr("OK:mkdir".to_string()),
+        Err(e) => to_c_string_ptr(format!("ERR:{}", e)),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn orbit_sftp_create_file(session_id: u64, remote_path: *const c_char) -> *mut c_char {
+    let remote_path = match c_ptr_to_string(remote_path) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+
+    let result = ORBIT_RUNTIME.block_on(sftp_create_file(session_id, remote_path));
+    match result {
+        Ok(_) => to_c_string_ptr("OK:create_file".to_string()),
+        Err(e) => to_c_string_ptr(format!("ERR:{}", e)),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn orbit_sftp_chmod(
+    session_id: u64,
+    remote_path: *const c_char,
+    mode_octal: *const c_char,
+) -> *mut c_char {
+    let remote_path = match c_ptr_to_string(remote_path) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+    let mode_octal = match c_ptr_to_string(mode_octal) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+
+    let result = ORBIT_RUNTIME.block_on(sftp_chmod(session_id, remote_path, mode_octal));
+    match result {
+        Ok(_) => to_c_string_ptr("OK:chmod".to_string()),
         Err(e) => to_c_string_ptr(format!("ERR:{}", e)),
     }
 }

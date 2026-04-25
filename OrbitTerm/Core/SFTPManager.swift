@@ -118,11 +118,21 @@ final class SFTPManager: ObservableObject {
         isConnected = true
     }
 
-    func connect(host: String, username: String, password: String, preferMock: Bool = false) async {
+    func connect(
+        host: String,
+        port: Int = 22,
+        username: String,
+        password: String,
+        privateKeyContent: String = "",
+        privateKeyPassphrase: String = "",
+        allowPasswordFallback: Bool = true,
+        preferMock: Bool = false
+    ) async {
         let cleanedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedKey = privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if preferMock || cleanedHost.isEmpty || cleanedUsername.isEmpty || password.isEmpty {
+        if preferMock || cleanedHost.isEmpty || cleanedUsername.isEmpty || (password.isEmpty && cleanedKey.isEmpty) {
             useMockData(path: "/", status: "当前为模拟模式")
             isConnected = true
             debugLog("switch_to_mock", ["host": cleanedHost, "username": cleanedUsername])
@@ -139,7 +149,19 @@ final class SFTPManager: ObservableObject {
                         cleanedHost.withCString { h in
                             cleanedUsername.withCString { u in
                                 password.withCString { p in
-                                    orbit_sftp_connect(h, u, p)
+                                    cleanedKey.withCString { k in
+                                        privateKeyPassphrase.withCString { passphrase in
+                                            orbit_sftp_connect(
+                                                h,
+                                                Int32(max(1, min(65535, port))),
+                                                u,
+                                                p,
+                                                k,
+                                                passphrase,
+                                                allowPasswordFallback ? 1 : 0
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -420,6 +442,141 @@ final class SFTPManager: ObservableObject {
         } catch {
             statusText = "重命名失败: \(error.localizedDescription)"
         }
+    }
+
+    func createDirectory(named name: String) async {
+        let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else {
+            statusText = "新建目录失败: 名称为空"
+            return
+        }
+        guard let sid = sessionID else {
+            statusText = "新建目录失败: 未连接"
+            return
+        }
+
+        let path = makeChildPath(name: cleaned)
+        do {
+            _ = try await runBlockingWithTimeout(seconds: 10) {
+                try Self.parseOKPayload(
+                    Self.callRust {
+                        path.withCString { cPath in
+                            orbit_sftp_mkdir(sid, cPath)
+                        }
+                    }
+                )
+            }
+            try await refresh(path: currentPath)
+            statusText = "目录已创建"
+            successHaptic()
+        } catch {
+            statusText = "新建目录失败: \(error.localizedDescription)"
+        }
+    }
+
+    func createFile(named name: String) async {
+        let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else {
+            statusText = "新建文件失败: 名称为空"
+            return
+        }
+        guard let sid = sessionID else {
+            statusText = "新建文件失败: 未连接"
+            return
+        }
+
+        let path = makeChildPath(name: cleaned)
+        do {
+            _ = try await runBlockingWithTimeout(seconds: 10) {
+                try Self.parseOKPayload(
+                    Self.callRust {
+                        path.withCString { cPath in
+                            orbit_sftp_create_file(sid, cPath)
+                        }
+                    }
+                )
+            }
+            try await refresh(path: currentPath)
+            statusText = "文件已创建"
+            successHaptic()
+        } catch {
+            statusText = "新建文件失败: \(error.localizedDescription)"
+        }
+    }
+
+    func chmod(item: FileItem, modeOctal: String) async {
+        let mode = modeOctal.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard mode.range(of: #"^[0-7]{3,4}$"#, options: .regularExpression) != nil else {
+            statusText = "修改权限失败: 模式需为 3-4 位八进制"
+            return
+        }
+        guard let sid = sessionID else {
+            statusText = "修改权限失败: 未连接"
+            return
+        }
+
+        let path = makeChildPath(name: item.name)
+        do {
+            _ = try await runBlockingWithTimeout(seconds: 10) {
+                try Self.parseOKPayload(
+                    Self.callRust {
+                        path.withCString { cPath in
+                            mode.withCString { cMode in
+                                orbit_sftp_chmod(sid, cPath, cMode)
+                            }
+                        }
+                    }
+                )
+            }
+            try await refresh(path: currentPath)
+            statusText = "权限已更新为 \(mode)"
+            successHaptic()
+        } catch {
+            statusText = "修改权限失败: \(error.localizedDescription)"
+        }
+    }
+
+    func readTextFile(item: FileItem) async throws -> String {
+        guard !item.isDirectory else {
+            throw SFTPError.rustError("目录不支持在线编辑")
+        }
+        guard let sid = sessionID else {
+            throw SFTPError.notConnected
+        }
+        let path = makeChildPath(name: item.name)
+        return try await runBlockingWithTimeout(seconds: 12) {
+            try Self.parseOKPayload(
+                Self.callRust {
+                    path.withCString { cPath in
+                        orbit_sftp_read_text_file(sid, cPath)
+                    }
+                }
+            )
+        }
+    }
+
+    func writeTextFile(item: FileItem, content: String) async throws {
+        guard !item.isDirectory else {
+            throw SFTPError.rustError("目录不支持保存文本")
+        }
+        guard let sid = sessionID else {
+            throw SFTPError.notConnected
+        }
+        let path = makeChildPath(name: item.name)
+        _ = try await runBlockingWithTimeout(seconds: 15) {
+            try Self.parseOKPayload(
+                Self.callRust {
+                    path.withCString { cPath in
+                        content.withCString { cContent in
+                            orbit_sftp_write_text_file(sid, cPath, cContent)
+                        }
+                    }
+                }
+            )
+        }
+        try await refresh(path: currentPath)
+        statusText = "文件已保存"
+        successHaptic()
     }
 
     func makeChildPath(name: String) -> String {

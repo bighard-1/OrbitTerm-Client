@@ -1,6 +1,19 @@
 import SwiftUI
 import Charts
 
+private enum MonitorCredentialMode: String, CaseIterable, Identifiable {
+    case password
+    case key
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .password: return "密码优先"
+        case .key: return "密钥优先"
+        }
+    }
+}
+
 struct MonitorDashboardView: View {
     @StateObject private var service = MonitorService()
 
@@ -9,6 +22,9 @@ struct MonitorDashboardView: View {
     @State private var host = ""
     @State private var username = ""
     @State private var password = ""
+    @State private var privateKeyContent = ""
+    @State private var privateKeyPassphrase = ""
+    @State private var credentialMode: MonitorCredentialMode = .password
 
     var body: some View {
         Group {
@@ -30,7 +46,27 @@ struct MonitorDashboardView: View {
                     TextField("显示名称", text: $name)
                     TextField("主机/IP", text: $host)
                     TextField("用户名", text: $username)
-                    SecureField("密码", text: $password)
+                    Picker("认证模式", selection: $credentialMode) {
+                        ForEach(MonitorCredentialMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    SecureField("密码（可选）", text: $password)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("私钥内容（可选）")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextEditor(text: $privateKeyContent)
+                            .font(.system(.caption, design: .monospaced))
+                            .frame(minHeight: 90)
+                            .padding(6)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+
+                    SecureField("私钥口令（可选）", text: $privateKeyPassphrase)
                 }
                 .navigationTitle("新增监控主机")
                 .toolbar {
@@ -43,19 +79,40 @@ struct MonitorDashboardView: View {
                                 name: name.isEmpty ? host : name,
                                 host: host,
                                 username: username,
-                                password: password
+                                credentials: ServerCredentials(
+                                    password: password,
+                                    privateKeyContent: privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines),
+                                    privateKeyPassphrase: privateKeyPassphrase
+                                )
                             )
                             name = ""
                             host = ""
                             username = ""
                             password = ""
+                            privateKeyContent = ""
+                            privateKeyPassphrase = ""
+                            credentialMode = .password
                             showingAddSheet = false
                         }
-                        .disabled(host.isEmpty || username.isEmpty || password.isEmpty)
+                        .disabled(!canSaveTarget)
                     }
                 }
             }
         }
+    }
+
+    private var canSaveTarget: Bool {
+        let hasBase = !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard hasBase else { return false }
+
+        let hasPassword = !password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasKey = !privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        if credentialMode == .password {
+            return hasPassword || hasKey
+        }
+        return hasKey || hasPassword
     }
 
     #if os(iOS)

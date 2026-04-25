@@ -15,7 +15,9 @@ struct AuthView: View {
     @State private var shakeOffset: CGFloat = 0
     @State private var hiddenTapCount: Int = 0
     @State private var showServerConfigAlert: Bool = false
+    @State private var showServerConfirmAlert: Bool = false
     @State private var customServerAddress: String = ""
+    @State private var pendingServerAddress: String = ""
 
     private let network = NetworkService.shared
 
@@ -79,9 +81,15 @@ struct AuthView: View {
             }
             .alert("后端地址设置", isPresented: $showServerConfigAlert) {
                 TextField("https://server.orbitterm.com", text: $customServerAddress)
-                Button("保存") {
+                Button("下一步") { prepareServerAddressConfirmation() }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("隐藏菜单：仅用于调试或临时切换后端地址。")
+            }
+            .alert("安全确认", isPresented: $showServerConfirmAlert) {
+                Button("确认切换", role: .destructive) {
                     do {
-                        try network.updateBaseURL(customServerAddress)
+                        try network.updateBaseURL(pendingServerAddress)
                         message = "成功: 服务地址已更新"
                     } catch {
                         message = "失败: \(error.localizedDescription)"
@@ -89,7 +97,7 @@ struct AuthView: View {
                 }
                 Button("取消", role: .cancel) {}
             } message: {
-                Text("隐藏菜单：仅用于调试或临时切换后端地址。")
+                Text("新地址：\(pendingServerAddress)\n\n自定义后端可能会拦截您的加密凭据，请确认该端点来源可靠。")
             }
         }
     }
@@ -309,6 +317,21 @@ struct AuthView: View {
             let token = try await network.login(username: username, password: password)
             try session.persistLogin(token: token, username: username)
             message = "成功: 已获取 JWT"
+        } catch {
+            message = "失败: \(error.localizedDescription)"
+        }
+    }
+
+    private func prepareServerAddressConfirmation() {
+        do {
+            let normalized = try network.validatedBaseURLString(customServerAddress)
+            pendingServerAddress = normalized
+            if network.isDefaultEndpoint(normalized) {
+                try network.updateBaseURL(normalized)
+                message = "成功: 服务地址已更新"
+                return
+            }
+            showServerConfirmAlert = true
         } catch {
             message = "失败: \(error.localizedDescription)"
         }

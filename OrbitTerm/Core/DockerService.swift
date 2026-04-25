@@ -68,6 +68,7 @@ enum DockerAction: String, CaseIterable {
     case stop
     case restart
     case kill
+    case remove
 
     var label: String {
         switch self {
@@ -75,6 +76,7 @@ enum DockerAction: String, CaseIterable {
         case .stop: return "停止"
         case .restart: return "重启"
         case .kill: return "强制终止"
+        case .remove: return "删除容器"
         }
     }
 }
@@ -92,10 +94,19 @@ final class DockerService: ObservableObject {
     private var sessionID: UInt64?
     private var refreshTask: Task<Void, Never>?
 
-    func connect(host: String, username: String, password: String) async {
+    func connect(
+        host: String,
+        port: Int = 22,
+        username: String,
+        password: String,
+        privateKeyContent: String = "",
+        privateKeyPassphrase: String = "",
+        allowPasswordFallback: Bool = true
+    ) async {
         let host = host.trimmingCharacters(in: .whitespacesAndNewlines)
         let username = username.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !host.isEmpty, !username.isEmpty, !password.isEmpty else {
+        let key = privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty, !username.isEmpty, !(password.isEmpty && key.isEmpty) else {
             statusText = "请填写完整 SSH 连接信息"
             return
         }
@@ -111,7 +122,19 @@ final class DockerService: ObservableObject {
                 host.withCString { h in
                     username.withCString { u in
                         password.withCString { p in
-                            orbit_sftp_connect(h, u, p)
+                            key.withCString { k in
+                                privateKeyPassphrase.withCString { passphrase in
+                                    orbit_sftp_connect(
+                                        h,
+                                        Int32(max(1, min(65535, port))),
+                                        u,
+                                        p,
+                                        k,
+                                        passphrase,
+                                        allowPasswordFallback ? 1 : 0
+                                    )
+                                }
+                            }
                         }
                     }
                 }

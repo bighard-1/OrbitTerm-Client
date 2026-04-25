@@ -38,8 +38,16 @@ final class OrbitManager: ObservableObject {
         return try parseResultAsData(resultPtr)
     }
 
-    // 调用 Rust 的 SSH 测试接口，更新 UI 状态。
-    func testConnection(ip: String, username: String, password: String) {
+    // 调用 Rust 的 SSH 测试接口，支持密码认证与密钥认证（含口令私钥）。
+    func testConnection(
+        ip: String,
+        port: Int = 22,
+        username: String,
+        password: String,
+        privateKeyContent: String = "",
+        privateKeyPassphrase: String = "",
+        allowPasswordFallback: Bool = true
+    ) {
         statusText = "连接中..."
 
         Task.detached(priority: .userInitiated) {
@@ -47,8 +55,18 @@ final class OrbitManager: ObservableObject {
 
             if let ipCString = ip.cString(using: .utf8),
                let usernameCString = username.cString(using: .utf8),
-               let passwordCString = password.cString(using: .utf8) {
-                let ptr = orbit_test_ssh_connection(ipCString, usernameCString, passwordCString)
+               let passwordCString = password.cString(using: .utf8),
+               let keyCString = privateKeyContent.cString(using: .utf8),
+               let passphraseCString = privateKeyPassphrase.cString(using: .utf8) {
+                let ptr = orbit_test_ssh_connection(
+                    ipCString,
+                    Int32(max(1, min(65535, port))),
+                    usernameCString,
+                    passwordCString,
+                    keyCString,
+                    passphraseCString,
+                    allowPasswordFallback ? 1 : 0
+                )
                 result = OrbitManager.parseResultAsStringStatic(ptr)
             } else {
                 result = "失败: 参数编码失败"
@@ -61,12 +79,30 @@ final class OrbitManager: ObservableObject {
     }
 
     // 异步返回连接测试结果，供 UI 层在不阻塞主线程的情况下复用。
-    nonisolated func testConnectionAsync(ip: String, username: String, password: String) async -> String {
+    nonisolated func testConnectionAsync(
+        ip: String,
+        port: Int = 22,
+        username: String,
+        password: String,
+        privateKeyContent: String = "",
+        privateKeyPassphrase: String = "",
+        allowPasswordFallback: Bool = true
+    ) async -> String {
         await Task.detached(priority: .userInitiated) {
             if let ipCString = ip.cString(using: .utf8),
                let usernameCString = username.cString(using: .utf8),
-               let passwordCString = password.cString(using: .utf8) {
-                let ptr = orbit_test_ssh_connection(ipCString, usernameCString, passwordCString)
+               let passwordCString = password.cString(using: .utf8),
+               let keyCString = privateKeyContent.cString(using: .utf8),
+               let passphraseCString = privateKeyPassphrase.cString(using: .utf8) {
+                let ptr = orbit_test_ssh_connection(
+                    ipCString,
+                    Int32(max(1, min(65535, port))),
+                    usernameCString,
+                    passwordCString,
+                    keyCString,
+                    passphraseCString,
+                    allowPasswordFallback ? 1 : 0
+                )
                 return OrbitManager.parseResultAsStringStatic(ptr)
             }
             return "失败: 参数编码失败"

@@ -2,7 +2,7 @@ import SwiftUI
 
 struct SyncView: View {
     @EnvironmentObject private var session: AppSession
-    @StateObject private var syncService = SyncService()
+    @StateObject private var syncService = SyncService.shared
 
     @State private var plaintext: String = "{\"servers\":[]}"
     @State private var localCounter: Int = 1
