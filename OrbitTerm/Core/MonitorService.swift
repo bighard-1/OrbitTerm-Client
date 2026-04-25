@@ -116,6 +116,32 @@ final class MonitorService: ObservableObject {
         persistTargets()
     }
 
+    // 为工作台模式准备：若目标已存在则复用，否则创建并返回目标 ID。
+    func ensureTarget(name: String, host: String, username: String, password: String) -> UUID {
+        if let existing = panels.first(where: {
+            $0.target.host == host && $0.target.username == username
+        }) {
+            return existing.id
+        }
+
+        let target = MonitorTargetConfig(name: name, host: host, username: username, password: password)
+        panels.append(MonitorPanelState(id: target.id, target: target, isRunning: false, status: "未连接", points: []))
+        buffers[target.id] = CircularBuffer(capacity: 600)
+        persistTargets()
+        return target.id
+    }
+
+    func startMonitoring(name: String, host: String, username: String, password: String) async -> UUID {
+        let id = ensureTarget(name: name, host: host, username: username, password: password)
+        await connect(id)
+        return id
+    }
+
+    func panel(id: UUID?) -> MonitorPanelState? {
+        guard let id else { return nil }
+        return panels.first(where: { $0.id == id })
+    }
+
     func removeTarget(_ targetID: UUID) {
         Task { await disconnect(targetID) }
         panels.removeAll { $0.id == targetID }

@@ -3,6 +3,7 @@ build/
 Build/
 .derived/
 .derived-ios/
+.keys/
 dist/*.zip
 dist/*.ipa
 dist/*.dmg

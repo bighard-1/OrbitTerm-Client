@@ -5,6 +5,7 @@ final class AppSession: ObservableObject {
     @Published var isAuthenticated: Bool = false
     @Published var isUnlocked: Bool = false
     @Published var username: String = ""
+    @Published var transientStatus: String = ""
 
     private let keychain: KeychainManager
 
@@ -74,5 +75,16 @@ final class AppSession: ObservableObject {
 
     func readMasterPassword() -> String? {
         try? keychain.readString(service: passwordService, account: passwordAccount)
+    }
+
+    func showTransientStatus(_ message: String, duration: TimeInterval = 2.8) {
+        transientStatus = message
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+            guard let self else { return }
+            if self.transientStatus == message {
+                self.transientStatus = ""
+            }
+        }
     }
 }

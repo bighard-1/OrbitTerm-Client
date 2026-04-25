@@ -84,6 +84,8 @@ final class DockerService: ObservableObject {
     @Published var cards: [DockerContainerCard] = []
     @Published var isConnected: Bool = false
     @Published var isLoading: Bool = false
+    @Published var isScanning: Bool = false
+    @Published var dockerEnvironmentMissing: Bool = false
     @Published var statusText: String = "未连接"
 
     private let logger = Logger(subsystem: "com.orbitterm.app", category: "docker")
@@ -99,6 +101,9 @@ final class DockerService: ObservableObject {
         }
 
         isLoading = true
+        isScanning = true
+        dockerEnvironmentMissing = false
+        statusText = "正在扫描容器..."
         defer { isLoading = false }
 
         do {
@@ -118,11 +123,20 @@ final class DockerService: ObservableObject {
 
             sessionID = sid
             isConnected = true
-            statusText = "Docker 已连接"
+            statusText = "正在扫描容器..."
             startRefreshLoop()
             try await refreshNow()
+            isScanning = false
         } catch {
-            statusText = "连接失败: \(error.localizedDescription)"
+            isScanning = false
+            let message = error.localizedDescription.lowercased()
+            if message.contains("docker") || message.contains("command") || message.contains("not found") {
+                dockerEnvironmentMissing = true
+                statusText = "未检测到 Docker 环境"
+            } else {
+                dockerEnvironmentMissing = false
+                statusText = "连接失败: \(error.localizedDescription)"
+            }
             isConnected = false
             sessionID = nil
         }
@@ -144,6 +158,8 @@ final class DockerService: ObservableObject {
         sessionID = nil
         cards = []
         isConnected = false
+        isScanning = false
+        dockerEnvironmentMissing = false
         statusText = "已断开"
     }
 
@@ -178,6 +194,8 @@ final class DockerService: ObservableObject {
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 
         statusText = "\(cards.count) 个容器"
+        isScanning = false
+        dockerEnvironmentMissing = false
         logger.debug("[DOCKER] refresh cards=\(self.cards.count)")
     }
 

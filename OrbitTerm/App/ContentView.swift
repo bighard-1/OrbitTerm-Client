@@ -21,25 +21,8 @@ private struct MainShellView: View {
 
     var body: some View {
         #if os(macOS)
-        NavigationSplitView {
-            List {
-                NavigationLink("服务器", destination: ServerListView())
-                NavigationLink("连接测试", destination: ConnectionView())
-                NavigationLink("SFTP 浏览", destination: SFTPBrowserView())
-                NavigationLink("Docker 管理", destination: DockerManagerView())
-                NavigationLink("性能监控", destination: MonitorDashboardView())
-                NavigationLink("云同步", destination: SyncView())
-            }
-            .navigationTitle("OrbitTerm")
-        } detail: {
-            ServerListView()
-                .toolbar {
-                    ToolbarItem {
-                        Button("退出登录") {
-                            session.logout()
-                        }
-                    }
-                }
+        NavigationStack {
+            MainWorkstationView()
         }
         #else
         TabView {
@@ -57,9 +40,6 @@ private struct MainShellView: View {
 
             NavigationStack { MonitorDashboardView() }
                 .tabItem { Label("监控", systemImage: "gauge.with.dots.needle.67percent") }
-
-            NavigationStack { SyncView() }
-                .tabItem { Label("同步", systemImage: "arrow.triangle.2.circlepath") }
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

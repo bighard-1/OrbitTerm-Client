@@ -60,6 +60,19 @@ final class OrbitManager: ObservableObject {
         }
     }
 
+    // 异步返回连接测试结果，供 UI 层在不阻塞主线程的情况下复用。
+    nonisolated func testConnectionAsync(ip: String, username: String, password: String) async -> String {
+        await Task.detached(priority: .userInitiated) {
+            if let ipCString = ip.cString(using: .utf8),
+               let usernameCString = username.cString(using: .utf8),
+               let passwordCString = password.cString(using: .utf8) {
+                let ptr = orbit_test_ssh_connection(ipCString, usernameCString, passwordCString)
+                return OrbitManager.parseResultAsStringStatic(ptr)
+            }
+            return "失败: 参数编码失败"
+        }.value
+    }
+
     private func parseResultAsData(_ resultPtr: UnsafeMutablePointer<CChar>?) throws -> Data {
         let raw = Self.parseRaw(resultPtr)
         if raw.hasPrefix("OK:") {

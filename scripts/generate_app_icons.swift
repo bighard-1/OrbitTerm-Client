@@ -79,8 +79,7 @@ func renderPNG(side: Int) async throws -> Data {
               let tiff = image.tiffRepresentation,
               let rep = NSBitmapImageRep(data: tiff),
               let png = rep.representation(using: .png, properties: [:]) else {
-            struct RenderError: Error {}
-            throw RenderError()
+            throw NSError(domain: "icon.render", code: 1)
         }
         return png
     }
@@ -88,7 +87,7 @@ func renderPNG(side: Int) async throws -> Data {
 
 let appRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
 let iconsetDir = appRoot
-    .appendingPathComponent("OrbitTerm/Resources/Assets.xcassets/AppIcon.appiconset", isDirectory: true)
+    .appendingPathComponent("OrbitTerm/Assets.xcassets/AppIcon.appiconset", isDirectory: true)
 
 try FileManager.default.createDirectory(at: iconsetDir, withIntermediateDirectories: true)
 
