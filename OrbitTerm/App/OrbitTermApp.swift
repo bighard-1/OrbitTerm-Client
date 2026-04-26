@@ -3,18 +3,21 @@ import SwiftUI
 @main
 struct OrbitTermApp: App {
     @StateObject private var session = AppSession()
+    @StateObject private var serverStore = ServerStore.shared
     @ObservedObject private var sessionManager = SessionManager.shared
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(session)
+                .environmentObject(serverStore)
         }
 
         #if os(macOS)
         WindowGroup("监控看板") {
             MonitorDashboardView()
                 .environmentObject(session)
+                .environmentObject(serverStore)
         }
         .defaultSize(width: 980, height: 760)
 
@@ -22,6 +25,7 @@ struct OrbitTermApp: App {
             if let sid = value.wrappedValue {
                 DetachedSessionWindowView(sessionID: sid)
                     .environmentObject(session)
+                    .environmentObject(serverStore)
             } else {
                 ContentUnavailableView("无可用会话", systemImage: "terminal")
             }

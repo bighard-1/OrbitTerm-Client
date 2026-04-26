@@ -19,9 +19,9 @@ private enum MonitorHistoryRange: String, CaseIterable, Identifiable {
 
 struct MainWorkstationView: View {
     @EnvironmentObject private var session: AppSession
+    @EnvironmentObject private var serverStore: ServerStore
     @Environment(\.openWindow) private var openWindow
 
-    @StateObject private var serverStore = ServerStore()
     @ObservedObject private var sessionManager = SessionManager.shared
     @StateObject private var syncService = SyncService.shared
 
@@ -32,7 +32,6 @@ struct MainWorkstationView: View {
     @State private var isRightPanelCollapsed = false
     @State private var isStressRunning = false
     @State private var stressTask: Task<Void, Never>?
-    @State private var didRunInitialPull = false
     @AppStorage("orbitterm.terminal.line_spacing") private var terminalLineSpacing: Double = 2.0
     @State private var showingMonitorDetailPanelID: UUID?
     @State private var pendingSFTPRename: PendingSFTPRename?
@@ -269,32 +268,6 @@ struct MainWorkstationView: View {
 #if os(macOS)
             .frame(minWidth: 700, minHeight: 520)
 #endif
-        }
-        .task {
-            await runInitialSilentPullIfNeeded()
-        }
-    }
-
-    private func runInitialSilentPullIfNeeded() async {
-        guard !didRunInitialPull else { return }
-        didRunInitialPull = true
-
-        SyncQueue.shared.setAuthTokenProvider {
-            session.readToken()
-        }
-
-        guard let token = session.readToken(),
-              let masterPassword = session.readMasterPassword() else {
-            return
-        }
-
-        let ok = await syncService.pullAndApplyConfigs(
-            token: token,
-            masterPassword: masterPassword,
-            store: serverStore
-        )
-        if !ok {
-            session.showTransientStatus("云端拉取失败，已保留本地数据")
         }
     }
 

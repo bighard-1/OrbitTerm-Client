@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ServerListView: View {
     @EnvironmentObject private var session: AppSession
-    @StateObject private var store = ServerStore()
+    @EnvironmentObject private var store: ServerStore
     @State private var showingAddServer = false
 
     var body: some View {

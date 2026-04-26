@@ -164,6 +164,8 @@ struct PortableServerConfig: Codable {
 
 @MainActor
 final class ServerStore: ObservableObject {
+    static let shared = ServerStore()
+
     @Published private(set) var servers: [ServerEntry] = []
     @Published var selectedServerID: UUID?
 
