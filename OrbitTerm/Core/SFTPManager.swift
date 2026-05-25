@@ -71,6 +71,32 @@ struct TransferTaskItem: Identifiable {
     var isDone: Bool
 }
 
+struct BatchOperationSummary {
+    var succeeded: [String] = []
+    var failed: [String: String] = [:]
+
+    var successCount: Int { succeeded.count }
+    var failureCount: Int { failed.count }
+    var hasFailure: Bool { !failed.isEmpty }
+}
+
+struct BatchDownloadProgress {
+    let completed: Int
+    let total: Int
+    let bytesTransferred: UInt64
+    let currentFile: String
+
+    var fraction: Double {
+        guard total > 0 else { return 1 }
+        return Double(completed) / Double(total)
+    }
+}
+
+struct BatchDownloadResult {
+    var summary: BatchOperationSummary
+    var downloadedURLs: [URL]
+}
+
 enum SFTPError: LocalizedError {
     case notConnected
     case timeout
@@ -93,6 +119,19 @@ enum SFTPError: LocalizedError {
 
 @MainActor
 final class SFTPManager: ObservableObject {
+    private struct BatchDownloadEntry {
+        let item: FileItem
+        let remotePath: String
+        let localURL: URL
+    }
+
+    private struct BatchDownloadSingleResult {
+        let fileName: String
+        let localURL: URL
+        let bytes: UInt64?
+        let error: String?
+    }
+
     @Published var items: [FileItem] = []
     @Published var currentPath: String = "/"
     @Published var isConnected: Bool = false
@@ -257,11 +296,16 @@ final class SFTPManager: ObservableObject {
         }
     }
 
-    func goToPath(_ path: String) async {
+    @discardableResult
+    func goToPath(_ path: String, reportErrors: Bool = true) async -> Bool {
         do {
             try await refresh(path: path)
+            return true
         } catch {
-            statusText = "路径跳转失败: \(error.localizedDescription)"
+            if reportErrors {
+                statusText = "路径跳转失败: \(error.localizedDescription)"
+            }
+            return false
         }
     }
 
@@ -399,6 +443,58 @@ final class SFTPManager: ObservableObject {
         } catch {
             statusText = "删除失败: \(error.localizedDescription)"
         }
+    }
+
+    func batchDelete(paths: [String]) async -> BatchOperationSummary {
+        let uniquePaths = Array(Set(paths)).sorted()
+        guard !uniquePaths.isEmpty else { return BatchOperationSummary() }
+
+        if isUsingMockData {
+            let names = Set(uniquePaths.map { URL(fileURLWithPath: $0).lastPathComponent })
+            let before = items.count
+            items.removeAll { names.contains($0.name) }
+            let removed = before - items.count
+            statusText = "模拟模式：已删除 \(removed) 项"
+            return BatchOperationSummary(succeeded: uniquePaths, failed: [:])
+        }
+
+        guard let sid = sessionID else {
+            let failed = Dictionary(uniqueKeysWithValues: uniquePaths.map { ($0, "未连接") })
+            statusText = "批量删除失败: 未连接"
+            return BatchOperationSummary(succeeded: [], failed: failed)
+        }
+
+        var summary = BatchOperationSummary()
+        for path in uniquePaths {
+            do {
+                _ = try await runBlockingWithTimeout(seconds: 12) {
+                    try Self.parseOKPayload(
+                        Self.callRust {
+                            path.withCString { cPath in
+                                orbit_sftp_remove_file(sid, cPath)
+                            }
+                        }
+                    )
+                }
+                summary.succeeded.append(path)
+            } catch {
+                summary.failed[path] = error.localizedDescription
+            }
+        }
+
+        do {
+            try await refresh(path: currentPath)
+        } catch {
+            statusText = "批量删除后刷新失败: \(error.localizedDescription)"
+        }
+
+        if summary.hasFailure {
+            statusText = "批量删除完成：成功 \(summary.successCount)，失败 \(summary.failureCount)"
+        } else {
+            statusText = "批量删除完成：共 \(summary.successCount) 项"
+            successHaptic()
+        }
+        return summary
     }
 
     func rename(item: FileItem, to newName: String) async {
@@ -586,6 +682,91 @@ final class SFTPManager: ObservableObject {
         return currentPath + "/" + name
     }
 
+    func batchDownload(
+        items: [FileItem],
+        destinationDirectory: URL,
+        maxConcurrent: Int = 3,
+        progress: (@Sendable (BatchDownloadProgress) -> Void)? = nil
+    ) async -> BatchDownloadResult {
+        let total = items.count
+        guard total > 0 else {
+            return BatchDownloadResult(summary: BatchOperationSummary(), downloadedURLs: [])
+        }
+        guard let sid = sessionID else {
+            let failed = Dictionary(uniqueKeysWithValues: items.map { ($0.name, "未连接") })
+            return BatchDownloadResult(summary: BatchOperationSummary(succeeded: [], failed: failed), downloadedURLs: [])
+        }
+
+        do {
+            try FileManager.default.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+        } catch {
+            let failed = Dictionary(uniqueKeysWithValues: items.map { ($0.name, "创建目录失败: \(error.localizedDescription)") })
+            return BatchDownloadResult(summary: BatchOperationSummary(succeeded: [], failed: failed), downloadedURLs: [])
+        }
+
+        let entries: [BatchDownloadEntry] = items.map { item in
+            BatchDownloadEntry(
+                item: item,
+                remotePath: makeChildPath(name: item.name),
+                localURL: destinationDirectory.appendingPathComponent(item.name)
+            )
+        }
+
+        var results: [BatchDownloadSingleResult] = []
+        results.reserveCapacity(entries.count)
+
+        var iterator = entries.makeIterator()
+        let workerCount = max(1, min(maxConcurrent, entries.count))
+        await withTaskGroup(of: BatchDownloadSingleResult.self) { group in
+            for _ in 0..<workerCount {
+                guard let next = iterator.next() else { break }
+                group.addTask {
+                    await Self.downloadEntry(sessionID: sid, entry: next)
+                }
+            }
+
+            while let result = await group.next() {
+                results.append(result)
+                if let next = iterator.next() {
+                    group.addTask {
+                        await Self.downloadEntry(sessionID: sid, entry: next)
+                    }
+                }
+            }
+        }
+
+        var summary = BatchOperationSummary()
+        var urls: [URL] = []
+        var transferredBytes: UInt64 = 0
+        var completed = 0
+
+        for result in results {
+            completed += 1
+            if let err = result.error {
+                summary.failed[result.fileName] = err
+            } else {
+                summary.succeeded.append(result.fileName)
+                urls.append(result.localURL)
+                transferredBytes += result.bytes ?? 0
+            }
+            progress?(BatchDownloadProgress(
+                completed: completed,
+                total: total,
+                bytesTransferred: transferredBytes,
+                currentFile: result.fileName
+            ))
+        }
+
+        if summary.hasFailure {
+            statusText = "批量下载完成：成功 \(summary.successCount)，失败 \(summary.failureCount)"
+        } else {
+            statusText = "批量下载完成：\(summary.successCount) 项"
+            successHaptic()
+        }
+
+        return BatchDownloadResult(summary: summary, downloadedURLs: urls)
+    }
+
     private func parseTransferBytes(_ payload: String) -> UInt64 {
         struct TransferResp: Decodable { let bytes: UInt64 }
         guard let data = payload.data(using: .utf8),
@@ -653,6 +834,71 @@ final class SFTPManager: ObservableObject {
             throw SFTPError.rustError(String(raw.dropFirst(4)))
         }
         throw SFTPError.invalidResponse
+    }
+
+    private nonisolated static func runWithTimeout<T>(
+        seconds: TimeInterval,
+        _ work: @escaping @Sendable () throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask(priority: .userInitiated) {
+                try work()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw SFTPError.timeout
+            }
+            guard let first = try await group.next() else {
+                throw SFTPError.invalidResponse
+            }
+            group.cancelAll()
+            return first
+        }
+    }
+
+    private nonisolated static func downloadEntry(
+        sessionID: UInt64,
+        entry: BatchDownloadEntry
+    ) async -> BatchDownloadSingleResult {
+        if entry.item.isDirectory {
+            return BatchDownloadSingleResult(
+                fileName: entry.item.name,
+                localURL: entry.localURL,
+                bytes: nil,
+                error: "目录暂不支持批量下载"
+            )
+        }
+
+        do {
+            let payload = try await runWithTimeout(seconds: 50) {
+                try parseOKPayload(
+                    callRust {
+                        entry.remotePath.withCString { remote in
+                            entry.localURL.path.withCString { local in
+                                orbit_sftp_download_file(sessionID, remote, local, 0)
+                            }
+                        }
+                    }
+                )
+            }
+
+            struct TransferResp: Decodable { let bytes: UInt64 }
+            let bytes = (try? JSONDecoder().decode(TransferResp.self, from: Data(payload.utf8)).bytes) ?? 0
+
+            return BatchDownloadSingleResult(
+                fileName: entry.item.name,
+                localURL: entry.localURL,
+                bytes: bytes,
+                error: nil
+            )
+        } catch {
+            return BatchDownloadSingleResult(
+                fileName: entry.item.name,
+                localURL: entry.localURL,
+                bytes: nil,
+                error: error.localizedDescription
+            )
+        }
     }
 
     private static func mockItems(path: String) -> [FileItem] {

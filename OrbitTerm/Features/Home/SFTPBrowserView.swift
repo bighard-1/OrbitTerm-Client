@@ -1,5 +1,10 @@
 import SwiftUI
 import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 struct SFTPBrowserView: View {
     private struct Breadcrumb: Identifiable {
@@ -10,6 +15,8 @@ struct SFTPBrowserView: View {
     }
 
     @StateObject private var manager = SFTPManager()
+    @ObservedObject private var sessionManager = SessionManager.shared
+    private let vault = CredentialVault.shared
 
     @State private var host: String = ""
     @State private var username: String = ""
@@ -19,19 +26,110 @@ struct SFTPBrowserView: View {
 
     @State private var renameItem: FileItem?
     @State private var newName: String = ""
+    @State private var chmodItem: FileItem?
+    @State private var chmodMode: String = ""
+    @State private var showCreateFolder = false
+    @State private var showCreateFile = false
+    @State private var createFolderName: String = ""
+    @State private var createFileName: String = ""
+
+    @State private var selectedIDs: Set<String> = []
+    @State private var showingBatchDeleteConfirm = false
+    @State private var isBatchRunning = false
+    @State private var batchProgress: BatchDownloadProgress?
+    @State private var batchResultMessage: String = ""
+    @State private var showingBatchResult = false
+
+#if os(iOS)
+    @State private var shareURLs: [URL] = []
+    @State private var showingShareSheet = false
+#else
+    @State private var revealInFinderURL: URL?
+#endif
+
+    private var effectiveManager: SFTPManager {
+        sessionManager.activeSession?.sftpManager ?? manager
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            if !manager.isConnected {
+            if !effectiveManager.isConnected {
                 connectPanel
             } else {
                 browserPanel
             }
         }
-        .navigationTitle("SFTP 浏览器")
+        .navigationTitle("SFTP")
+#if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+#endif
         .task {
-            manager.activateMockIfNeeded(host: host, username: username, password: password)
+            effectiveManager.activateMockIfNeeded(host: host, username: username, password: password)
+            await autoBindActiveSessionIfNeeded()
         }
+        .alert("重命名", isPresented: Binding(
+            get: { renameItem != nil },
+            set: { if !$0 { renameItem = nil } }
+        )) {
+            TextField("新名称", text: $newName)
+            Button("取消", role: .cancel) { renameItem = nil }
+            Button("确认") {
+                if let renameItem {
+                    Task { await effectiveManager.rename(item: renameItem, to: newName) }
+                }
+                self.renameItem = nil
+            }
+        } message: {
+            Text("输入新的文件名")
+        }
+        .alert("修改权限", isPresented: Binding(
+            get: { chmodItem != nil },
+            set: { if !$0 { chmodItem = nil } }
+        )) {
+            TextField("例如 644 / 755 / 600", text: $chmodMode)
+            Button("取消", role: .cancel) {}
+            Button("确认") {
+                guard let target = chmodItem else { return }
+                Task { await effectiveManager.chmod(item: target, modeOctal: chmodMode) }
+                chmodItem = nil
+            }
+        } message: {
+            Text("请输入 3-4 位八进制权限")
+        }
+        .alert("新建目录", isPresented: $showCreateFolder) {
+            TextField("目录名称", text: $createFolderName)
+            Button("取消", role: .cancel) {}
+            Button("创建") {
+                Task { await effectiveManager.createDirectory(named: createFolderName) }
+                createFolderName = ""
+            }
+        }
+        .alert("新建文件", isPresented: $showCreateFile) {
+            TextField("文件名称", text: $createFileName)
+            Button("取消", role: .cancel) {}
+            Button("创建") {
+                Task { await effectiveManager.createFile(named: createFileName) }
+                createFileName = ""
+            }
+        }
+        .alert("确认批量删除", isPresented: $showingBatchDeleteConfirm) {
+            Button("取消", role: .cancel) {}
+            Button("删除", role: .destructive) {
+                Task { await performBatchDelete() }
+            }
+        } message: {
+            Text("即将删除 \(selectedItems.count) 项，删除后不可恢复。")
+        }
+        .alert("批量操作结果", isPresented: $showingBatchResult) {
+            Button("确定", role: .cancel) {}
+        } message: {
+            Text(batchResultMessage)
+        }
+#if os(iOS)
+        .sheet(isPresented: $showingShareSheet) {
+            ActivityShareSheet(activityItems: shareURLs)
+        }
+#endif
     }
 
     private var connectPanel: some View {
@@ -54,7 +152,7 @@ struct SFTPBrowserView: View {
             Section("操作") {
                 Button(preferMockMode ? "进入模拟浏览" : "连接 SFTP") {
                     Task {
-                        await manager.connect(
+                        await effectiveManager.connect(
                             host: host,
                             username: username,
                             password: password,
@@ -63,12 +161,12 @@ struct SFTPBrowserView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(manager.isLoading)
+                .disabled(effectiveManager.isLoading)
             }
 
-            if !manager.statusText.isEmpty {
+            if !effectiveManager.statusText.isEmpty {
                 Section("状态") {
-                    Text(manager.statusText)
+                    Text(effectiveManager.statusText)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -79,71 +177,98 @@ struct SFTPBrowserView: View {
         ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
                 breadcrumbBar
+                summaryBar
 
-                if manager.isLoading {
+                if effectiveManager.isLoading {
                     ProgressView("加载中...")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if manager.items.isEmpty {
+                } else if effectiveManager.items.isEmpty {
                     emptyFolderView
                 } else {
-                    List(manager.items) { item in
-                        fileRow(item)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                if item.isDirectory {
-                                    Task { await manager.enterDirectory(item) }
-                                }
-                            }
-                            .contextMenu {
-                                Button("下载") {
-                                    Task {
-                                        let local = defaultDownloadURL(fileName: item.name)
-                                        await manager.download(item: item, to: local)
-                                    }
-                                }
-
-                                Button("删除", role: .destructive) {
-                                    Task { await manager.delete(item: item) }
-                                }
-
-                                Button("重命名") {
-                                    renameItem = item
-                                    newName = item.name
-                                }
-                            }
-                    }
-                    .listStyle(.inset)
-                    .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
-                        handleDrop(providers: providers)
-                    }
-                    .overlay {
-                        if isDropTargeted {
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(.blue, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
-                                .padding(8)
-                        }
-                    }
+                    fileList
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-            transferBoard
-                .padding(.horizontal, 12)
-                .padding(.bottom, 10)
+            VStack(spacing: 8) {
+#if os(macOS)
+                if let revealURL = revealInFinderURL {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Text("批量下载完成")
+                            .font(.caption)
+                        Button("在访达中显示") {
+                            NSWorkspace.shared.activateFileViewerSelecting([revealURL])
+                            revealInFinderURL = nil
+                        }
+                        .buttonStyle(.link)
+                    }
+                    .padding(10)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
+                    )
+                    .padding(.horizontal, 12)
+                }
+#endif
+
+                if !selectedIDs.isEmpty {
+                    batchToolbar
+                        .padding(.horizontal, 12)
+                }
+
+                transferBoard
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 10)
+            }
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("刷新") {
-                    Task { try? await manager.refresh() }
+                    Task {
+                        try? await effectiveManager.refresh()
+                        selectedIDs.removeAll()
+                    }
                 }
             }
             ToolbarItem(placement: .primaryAction) {
                 Button("断开") {
-                    Task { await manager.disconnect() }
+                    Task {
+                        await effectiveManager.disconnect()
+                        selectedIDs.removeAll()
+                    }
                 }
             }
-            if manager.isUsingMockData {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showCreateFolder = true
+                } label: {
+                    Image(systemName: "folder.badge.plus")
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showCreateFile = true
+                } label: {
+                    Image(systemName: "doc.badge.plus")
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    Task {
+                        let parent = parentPath(of: effectiveManager.currentPath)
+                        _ = await effectiveManager.goToPath(parent)
+                        selectedIDs.removeAll()
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.left")
+                }
+            }
+            if effectiveManager.isUsingMockData {
                 ToolbarItem(placement: .automatic) {
-                    Text("MOCK")
+                    Text("模拟模式")
                         .font(.caption2.bold())
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
@@ -151,21 +276,104 @@ struct SFTPBrowserView: View {
                 }
             }
         }
-        .alert("重命名", isPresented: Binding(
-            get: { renameItem != nil },
-            set: { if !$0 { renameItem = nil } }
-        )) {
-            TextField("新名称", text: $newName)
-            Button("取消", role: .cancel) { renameItem = nil }
-            Button("确认") {
-                if let renameItem {
-                    Task { await manager.rename(item: renameItem, to: newName) }
-                }
-                self.renameItem = nil
-            }
-        } message: {
-            Text("输入新的文件名")
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 8)
         }
+    }
+
+    private var fileList: some View {
+        List(effectiveManager.items) { item in
+            fileRow(item)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if !selectedIDs.isEmpty {
+                        toggleSelection(item)
+                    } else if item.isDirectory {
+                        Task { await effectiveManager.enterDirectory(item) }
+                    }
+                }
+                .contextMenu {
+                    Button("下载") {
+                        Task {
+                            let local = defaultDownloadURL(fileName: item.name)
+                            await effectiveManager.download(item: item, to: local)
+                        }
+                    }
+
+                    Button("删除", role: .destructive) {
+                        Task { await effectiveManager.delete(item: item) }
+                    }
+
+                    Button("重命名") {
+                        renameItem = item
+                        newName = item.name
+                    }
+
+                    Button("修改权限") {
+                        chmodItem = item
+                        chmodMode = String(format: "%03o", item.permissionsOctal & 0o777)
+                    }
+
+                    Button(selectedIDs.contains(item.id) ? "取消选择" : "选择") {
+                        toggleSelection(item)
+                    }
+                }
+        }
+        .listStyle(.plain)
+        .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
+            handleDrop(providers: providers)
+        }
+        .overlay {
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(.blue, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
+                    .padding(8)
+            }
+        }
+    }
+
+    private var batchToolbar: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("已选中 \(selectedIDs.count) 项")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Button("取消") { selectedIDs.removeAll() }
+                    .buttonStyle(.bordered)
+            }
+
+            if let p = batchProgress, isBatchRunning {
+                VStack(alignment: .leading, spacing: 4) {
+                    ProgressView(value: p.fraction)
+                    Text("下载进度 \(p.completed)/\(p.total) · \(FileSizeFormatter.humanReadable(p.bytesTransferred))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            HStack(spacing: 8) {
+                Button("下载") {
+                    Task { await performBatchDownload() }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isBatchRunning)
+
+                Button("删除", role: .destructive) {
+                    showingBatchDeleteConfirm = true
+                }
+                .buttonStyle(.bordered)
+                .disabled(isBatchRunning)
+            }
+        }
+        .padding(12)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
+        )
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .animation(.easeInOut(duration: 0.2), value: selectedIDs.count)
     }
 
     private var breadcrumbBar: some View {
@@ -173,7 +381,10 @@ struct SFTPBrowserView: View {
             HStack(spacing: 6) {
                 ForEach(pathCrumbs) { crumb in
                     Button(action: {
-                        Task { await manager.goToPath(crumb.path) }
+                        Task {
+                            await effectiveManager.goToPath(crumb.path)
+                            selectedIDs.removeAll()
+                        }
                     }) {
                         Text(crumb.title)
                     }
@@ -193,12 +404,28 @@ struct SFTPBrowserView: View {
         .background(.ultraThinMaterial)
     }
 
+    private var summaryBar: some View {
+        HStack(spacing: 12) {
+            Text("总计 \(effectiveManager.items.count)")
+            Text("目录 \(effectiveManager.items.filter { $0.isDirectory }.count)")
+            Text("文件 \(effectiveManager.items.filter { !$0.isDirectory }.count)")
+            Spacer()
+            Text(effectiveManager.currentPath)
+                .lineLimit(1)
+                .foregroundStyle(.secondary)
+        }
+        .font(.caption)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.thinMaterial)
+    }
+
     private var pathCrumbs: [Breadcrumb] {
-        if manager.currentPath == "/" {
+        if effectiveManager.currentPath == "/" {
             return [Breadcrumb(id: 0, title: "Root", path: "/", isLast: true)]
         }
 
-        let parts = manager.currentPath.split(separator: "/").map(String.init)
+        let parts = effectiveManager.currentPath.split(separator: "/").map(String.init)
         var result: [(String, String)] = [("Root", "/")]
         var runningPath = ""
 
@@ -218,6 +445,15 @@ struct SFTPBrowserView: View {
 
     private func fileRow(_ item: FileItem) -> some View {
         HStack(spacing: 12) {
+            Button {
+                toggleSelection(item)
+            } label: {
+                Image(systemName: selectedIDs.contains(item.id) ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(selectedIDs.contains(item.id) ? .blue : .secondary)
+                    .font(.body)
+            }
+            .buttonStyle(.plain)
+
             Image(systemName: item.iconName)
                 .foregroundStyle(item.isDirectory ? .blue : .secondary)
                 .frame(width: 18)
@@ -239,6 +475,12 @@ struct SFTPBrowserView: View {
             }
         }
         .padding(.vertical, 4)
+        .background(
+            selectedIDs.contains(item.id)
+            ? Color.accentColor.opacity(0.12)
+            : Color.clear
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private var emptyFolderView: some View {
@@ -267,12 +509,12 @@ struct SFTPBrowserView: View {
 
     @ViewBuilder
     private var transferBoard: some View {
-        if !manager.transfers.isEmpty {
+        if !effectiveManager.transfers.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 Text("传输任务")
                     .font(.headline)
 
-                ForEach(manager.transfers.prefix(3)) { task in
+                ForEach(effectiveManager.transfers.prefix(3)) { task in
                     VStack(alignment: .leading, spacing: 4) {
                         Text("\(task.direction.rawValue): \(task.fileName)")
                             .font(.subheadline)
@@ -291,6 +533,92 @@ struct SFTPBrowserView: View {
                     .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
             )
         }
+    }
+
+    private var selectedItems: [FileItem] {
+        effectiveManager.items.filter { selectedIDs.contains($0.id) }
+    }
+
+    private func toggleSelection(_ item: FileItem) {
+        if selectedIDs.contains(item.id) {
+            selectedIDs.remove(item.id)
+        } else {
+            selectedIDs.insert(item.id)
+        }
+    }
+
+    private func performBatchDelete() async {
+        let paths = selectedItems.map { item in
+            if effectiveManager.currentPath == "/" {
+                return "/\(item.name)"
+            }
+            return "\(effectiveManager.currentPath)/\(item.name)"
+        }
+
+        let summary = await effectiveManager.batchDelete(paths: paths)
+        selectedIDs.removeAll()
+
+        if summary.hasFailure {
+            let topErrors = summary.failed.prefix(3).map { "\($0.key): \($0.value)" }.joined(separator: "\n")
+            batchResultMessage = "成功 \(summary.successCount) 项，失败 \(summary.failureCount) 项。\n\n\(topErrors)"
+        } else {
+            batchResultMessage = "已删除 \(summary.successCount) 项。"
+        }
+        showingBatchResult = true
+    }
+
+    private func performBatchDownload() async {
+        let targets = selectedItems.filter { !$0.isDirectory }
+        guard !targets.isEmpty else {
+            batchResultMessage = "未选择可下载文件（目录暂不支持批量下载）。"
+            showingBatchResult = true
+            return
+        }
+
+        isBatchRunning = true
+        batchProgress = BatchDownloadProgress(completed: 0, total: targets.count, bytesTransferred: 0, currentFile: "")
+
+#if os(macOS)
+        let base = (FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory)
+            .appendingPathComponent("OrbitTerm", isDirectory: true)
+#else
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrbitTerm-Exports", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+#endif
+
+        let result = await effectiveManager.batchDownload(
+            items: targets,
+            destinationDirectory: base,
+            maxConcurrent: 3
+        ) { progress in
+            Task { @MainActor in
+                self.batchProgress = progress
+            }
+        }
+
+        isBatchRunning = false
+        selectedIDs.removeAll()
+
+        if result.summary.hasFailure {
+            let topErrors = result.summary.failed.prefix(3).map { "\($0.key): \($0.value)" }.joined(separator: "\n")
+            batchResultMessage = "下载完成：成功 \(result.summary.successCount) 项，失败 \(result.summary.failureCount) 项。\n\n\(topErrors)"
+        } else {
+            batchResultMessage = "下载完成：共 \(result.summary.successCount) 项。"
+        }
+        showingBatchResult = true
+
+#if os(macOS)
+        if let first = result.downloadedURLs.first {
+            revealInFinderURL = first
+        }
+#else
+        if !result.downloadedURLs.isEmpty {
+            shareURLs = result.downloadedURLs
+            showingShareSheet = true
+        }
+#endif
     }
 
     private func defaultDownloadURL(fileName: String) -> URL {
@@ -314,11 +642,49 @@ struct SFTPBrowserView: View {
                       let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
 
                 Task { @MainActor in
-                    await manager.upload(localURL: url)
+                    await effectiveManager.upload(localURL: url)
                 }
             }
         }
 
         return true
     }
+
+    private func parentPath(of path: String) -> String {
+        guard path != "/", !path.isEmpty else { return "/" }
+        var comps = path.split(separator: "/").map(String.init)
+        if !comps.isEmpty { comps.removeLast() }
+        if comps.isEmpty { return "/" }
+        return "/" + comps.joined(separator: "/")
+    }
+
+    private func autoBindActiveSessionIfNeeded() async {
+        guard let active = sessionManager.activeSession else { return }
+        guard active.isConnected, active.server.transport == .ssh else { return }
+        if active.sftpManager.isConnected { return }
+        guard let creds = try? vault.read(for: active.server.credentialID), !creds.isEmpty else { return }
+        await active.sftpManager.connect(
+            host: active.server.host,
+            port: active.server.port,
+            username: active.server.username,
+            password: creds.password,
+            privateKeyContent: creds.privateKeyContent,
+            privateKeyPassphrase: creds.privateKeyPassphrase,
+            allowPasswordFallback: active.server.allowPasswordFallback,
+            preferMock: false
+        )
+    }
 }
+
+#if os(iOS)
+private struct ActivityShareSheet: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {
+    }
+}
+#endif

@@ -105,3 +105,34 @@ final class CredentialVault {
         throw KeychainManager.KeychainError.unhandled(status)
     }
 }
+
+enum SecurityPrimitives {
+    static func randomBytes(count: Int) throws -> Data {
+        var bytes = Data(count: count)
+        let status = bytes.withUnsafeMutableBytes { rawBuf in
+            guard let base = rawBuf.baseAddress else { return errSecParam }
+            return SecRandomCopyBytes(kSecRandomDefault, count, base)
+        }
+        guard status == errSecSuccess else {
+            throw KeychainManager.KeychainError.unhandled(status)
+        }
+        return bytes
+    }
+
+    static func secureZero(_ data: inout Data) {
+        data.withUnsafeMutableBytes { rawBuf in
+            guard rawBuf.count > 0 else { return }
+            _ = rawBuf.initializeMemory(as: UInt8.self, repeating: 0)
+        }
+        data.removeAll(keepingCapacity: false)
+    }
+
+    static func secureZero(_ text: inout String) {
+        if text.isEmpty {
+            return
+        }
+        let length = text.utf8.count
+        text = String(repeating: "\0", count: length)
+        text.removeAll(keepingCapacity: false)
+    }
+}

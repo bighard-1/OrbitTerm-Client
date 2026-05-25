@@ -20,12 +20,19 @@ use russh::Disconnect;
 use russh::keys::{decode_secret_key, PrivateKeyWithHashAlg};
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::OpenFlags;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, ReadBuf};
 use tokio::process::Command;
 use tokio::sync::mpsc;
+
+#[cfg(target_os = "android")]
+use jni::objects::{JByteArray, JString, JObject};
+#[cfg(target_os = "android")]
+use jni::sys::{jlong, jstring};
+#[cfg(target_os = "android")]
+use jni::JNIEnv;
 
 const SALT_LEN: usize = 16;
 const NONCE_LEN: usize = 12;
@@ -48,6 +55,49 @@ pub enum OrbitCoreError {
     SftpFailed(String),
     #[error("内部错误: {0}")]
     Internal(String),
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PortableServerConfigV1 {
+    id: String,
+    #[serde(default)]
+    credential_id: String,
+    name: String,
+    #[serde(default)]
+    group: String,
+    host: String,
+    port: u16,
+    username: String,
+    auth_method: String,
+    #[serde(default = "default_transport")]
+    transport: String,
+    #[serde(default = "default_network_device_profile")]
+    network_device_profile: String,
+    #[serde(default = "default_allow_password_fallback")]
+    allow_password_fallback: bool,
+    #[serde(default)]
+    password: String,
+    #[serde(default)]
+    private_key_content: String,
+    #[serde(default)]
+    private_key_passphrase: String,
+    #[serde(default)]
+    key_reference: String,
+    #[serde(default)]
+    saved_at_unix: u64,
+}
+
+fn default_transport() -> String {
+    "ssh".to_string()
+}
+
+fn default_network_device_profile() -> String {
+    "auto".to_string()
+}
+
+fn default_allow_password_fallback() -> bool {
+    true
 }
 
 impl From<russh::Error> for OrbitCoreError {
@@ -75,11 +125,13 @@ impl client::Handler for OrbitSshClientHandler {
 struct OrbitBaseSession {
     id: u64,
     host: String,
+    #[allow(dead_code)]
     username: String,
     key: String,
     ssh: tokio::sync::Mutex<client::Handle<OrbitSshClientHandler>>,
     net_snapshot: tokio::sync::Mutex<Option<NetSnapshot>>,
     channel_ref_count: AtomicU64,
+    keepalive_watch_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 struct OrbitSftpSession {
@@ -107,6 +159,7 @@ static ORBIT_RUNTIME: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
 });
 
 type TerminalDataCallback = extern "C" fn(u64, *const u8, usize);
+type ConnectionEventCallback = extern "C" fn(u64, *const c_char);
 
 static BASE_SESSIONS: Lazy<Mutex<HashMap<u64, Arc<OrbitBaseSession>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -117,6 +170,8 @@ static SFTP_SESSIONS: Lazy<Mutex<HashMap<u64, Arc<OrbitSftpSession>>>> =
 static TERMINAL_CHANNELS: Lazy<Mutex<HashMap<u64, OrbitTerminalChannel>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 static TERMINAL_DATA_CALLBACK: Lazy<Mutex<Option<TerminalDataCallback>>> =
+    Lazy::new(|| Mutex::new(None));
+static CONNECTION_EVENT_CALLBACK: Lazy<Mutex<Option<ConnectionEventCallback>>> =
     Lazy::new(|| Mutex::new(None));
 static NEXT_BASE_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_SFTP_CHANNEL_ID: AtomicU64 = AtomicU64::new(1);
@@ -295,7 +350,7 @@ pub async fn test_ssh_connection(
         return Err(OrbitCoreError::InvalidInput);
     }
 
-    let config = Arc::new(client::Config::default());
+    let config = new_client_config();
     let addr = normalize_host_port(&ip, port);
 
     let mut ssh_session = client::connect(config, addr, OrbitSshClientHandler)
@@ -920,6 +975,15 @@ pub async fn fetch_docker_logs(
 }
 
 #[uniffi::export(async_runtime = "tokio")]
+pub async fn exec_command(session_id: u64, command: String) -> Result<String, OrbitCoreError> {
+    if command.trim().is_empty() {
+        return Err(OrbitCoreError::InvalidInput);
+    }
+    let session = get_sftp_session(session_id)?;
+    run_remote_command(&session.base, command.trim()).await
+}
+
+#[uniffi::export(async_runtime = "tokio")]
 pub async fn request_channel(
     session_or_channel_id: u64,
     channel_type: String,
@@ -1366,6 +1430,42 @@ fn derive_key(master_password: &[u8], salt: &[u8]) -> Result<[u8; 32], OrbitCore
     Ok(key)
 }
 
+fn derive_key_strong(master_password: &[u8], salt: &[u8]) -> Result<[u8; 32], OrbitCoreError> {
+    let params = Params::new(64 * 1024, 3, 4, Some(32))
+        .map_err(|e| OrbitCoreError::Internal(e.to_string()))?;
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+
+    let mut key = [0u8; 32];
+    argon2
+        .hash_password_into(master_password, salt, &mut key)
+        .map_err(|_| OrbitCoreError::Internal("Argon2 key derivation failed".to_string()))?;
+    Ok(key)
+}
+
+#[no_mangle]
+pub extern "C" fn orbit_argon2id_derive(
+    password: *const c_char,
+    salt_ptr: *const u8,
+    salt_len: usize,
+) -> *mut c_char {
+    let password = match c_ptr_to_string(password) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+    if salt_ptr.is_null() || salt_len == 0 {
+        return to_c_string_ptr("ERR:参数不合法".to_string());
+    }
+
+    let salt = unsafe { std::slice::from_raw_parts(salt_ptr, salt_len) };
+    match derive_key_strong(password.as_bytes(), salt) {
+        Ok(key) => {
+            let payload = base64::engine::general_purpose::STANDARD.encode(key);
+            to_c_string_ptr(format!("OK:{}", payload))
+        }
+        Err(e) => to_c_string_ptr(format!("ERR:{}", e)),
+    }
+}
+
 fn normalize_host_port(ip: &str, port: u16) -> String {
     let host = ip.trim();
     if host.is_empty() {
@@ -1435,6 +1535,60 @@ fn emit_terminal_data(channel_id: u64, bytes: &[u8]) {
     }
 }
 
+fn emit_connection_event(base_id: u64, message: &str) {
+    let cb_opt = CONNECTION_EVENT_CALLBACK
+        .lock()
+        .ok()
+        .and_then(|guard| *guard);
+
+    if let Some(cb) = cb_opt {
+        if let Ok(payload) = CString::new(message) {
+            cb(base_id, payload.as_ptr());
+        }
+    }
+}
+
+fn new_client_config() -> Arc<client::Config> {
+    let mut config = client::Config::default();
+    config.keepalive_interval = Some(Duration::from_secs(30));
+    config.keepalive_max = 3;
+    Arc::new(config)
+}
+
+fn spawn_keepalive_watch(base: Arc<OrbitBaseSession>) {
+    let base_id = base.id;
+    let watch_base = base.clone();
+    let task = tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+
+            let still_exists = lock_base_sessions()
+                .ok()
+                .map(|sessions| sessions.contains_key(&base_id))
+                .unwrap_or(false);
+            if !still_exists {
+                break;
+            }
+
+            let is_closed = {
+                let ssh = watch_base.ssh.lock().await;
+                ssh.is_closed()
+            };
+            if is_closed {
+                emit_connection_event(base_id, "ERR_CONNECTION_LOST");
+                break;
+            }
+        }
+    });
+
+    if let Ok(mut holder) = base.keepalive_watch_task.lock() {
+        if let Some(existing) = holder.take() {
+            existing.abort();
+        }
+        *holder = Some(task);
+    }
+}
+
 fn base_session_key(ip: &str, port: u16, username: &str) -> String {
     format!("{}|{}", normalize_host_port(ip, port), username.trim())
 }
@@ -1457,7 +1611,7 @@ async fn get_or_create_base_session(
         }
     }
 
-    let config = Arc::new(client::Config::default());
+    let config = new_client_config();
     let addr = normalize_host_port(ip, port);
 
     let mut ssh = client::connect(config, addr, OrbitSshClientHandler)
@@ -1483,10 +1637,12 @@ async fn get_or_create_base_session(
         ssh: tokio::sync::Mutex::new(ssh),
         net_snapshot: tokio::sync::Mutex::new(None),
         channel_ref_count: AtomicU64::new(1),
+        keepalive_watch_task: Mutex::new(None),
     });
 
     lock_base_sessions()?.insert(base_id, base.clone());
     lock_base_key_index()?.insert(key, base_id);
+    spawn_keepalive_watch(base.clone());
     Ok(base)
 }
 
@@ -1526,6 +1682,11 @@ async fn release_base_session(base_id: u64) -> Result<(), OrbitCoreError> {
     {
         let mut index = lock_base_key_index()?;
         index.remove(&base.key);
+    }
+    if let Ok(mut holder) = base.keepalive_watch_task.lock() {
+        if let Some(task) = holder.take() {
+            task.abort();
+        }
     }
 
     let ssh = base.ssh.lock().await;
@@ -1626,6 +1787,372 @@ fn to_c_string_ptr(value: String) -> *mut c_char {
             CString::new("internal string error").expect("fallback CString must be valid")
         })
         .into_raw()
+}
+
+fn parse_portable_config(raw: &str) -> Result<PortableServerConfigV1, OrbitCoreError> {
+    let mut config: PortableServerConfigV1 = serde_json::from_str(raw)
+        .map_err(|_| OrbitCoreError::Internal("PortableServerConfig JSON 格式不合法".to_string()))?;
+
+    if config.id.trim().is_empty()
+        || config.name.trim().is_empty()
+        || config.host.trim().is_empty()
+        || config.username.trim().is_empty()
+        || config.port == 0
+    {
+        return Err(OrbitCoreError::InvalidInput);
+    }
+    if config.credential_id.trim().is_empty() {
+        config.credential_id = config.id.clone();
+    }
+    if config.saved_at_unix == 0 {
+        config.saved_at_unix = current_unix_secs();
+    }
+    Ok(config)
+}
+
+fn portable_changed_fields(
+    base: &PortableServerConfigV1,
+    newer: &PortableServerConfigV1,
+) -> Vec<&'static str> {
+    let mut fields = Vec::new();
+    if base.name != newer.name { fields.push("name"); }
+    if base.group != newer.group { fields.push("group"); }
+    if base.host != newer.host { fields.push("host"); }
+    if base.port != newer.port { fields.push("port"); }
+    if base.username != newer.username { fields.push("username"); }
+    if base.auth_method != newer.auth_method { fields.push("authMethod"); }
+    if base.transport != newer.transport { fields.push("transport"); }
+    if base.network_device_profile != newer.network_device_profile { fields.push("networkDeviceProfile"); }
+    if base.allow_password_fallback != newer.allow_password_fallback { fields.push("allowPasswordFallback"); }
+    if base.password != newer.password { fields.push("password"); }
+    if base.private_key_content != newer.private_key_content { fields.push("privateKeyContent"); }
+    if base.private_key_passphrase != newer.private_key_passphrase { fields.push("privateKeyPassphrase"); }
+    fields
+}
+
+fn portable_merge(
+    remote: PortableServerConfigV1,
+    local: PortableServerConfigV1,
+    local_changed: &[String],
+) -> PortableServerConfigV1 {
+    let changed = |field: &str| local_changed.iter().any(|item| item == field);
+    PortableServerConfigV1 {
+        id: remote.id,
+        credential_id: local.credential_id,
+        name: if changed("name") { local.name } else { remote.name },
+        group: if changed("group") { local.group } else { remote.group },
+        host: if changed("host") { local.host } else { remote.host },
+        port: if changed("port") { local.port } else { remote.port },
+        username: if changed("username") { local.username } else { remote.username },
+        auth_method: if changed("authMethod") { local.auth_method } else { remote.auth_method },
+        transport: if changed("transport") { local.transport } else { remote.transport },
+        network_device_profile: if changed("networkDeviceProfile") {
+            local.network_device_profile
+        } else {
+            remote.network_device_profile
+        },
+        allow_password_fallback: if changed("allowPasswordFallback") {
+            local.allow_password_fallback
+        } else {
+            remote.allow_password_fallback
+        },
+        password: if changed("password") { local.password } else { remote.password },
+        private_key_content: if changed("privateKeyContent") {
+            local.private_key_content
+        } else {
+            remote.private_key_content
+        },
+        private_key_passphrase: if changed("privateKeyPassphrase") {
+            local.private_key_passphrase
+        } else {
+            remote.private_key_passphrase
+        },
+        key_reference: local.key_reference,
+        saved_at_unix: current_unix_secs(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn orbit_portable_validate(portable_json: *const c_char) -> *mut c_char {
+    let raw = match c_ptr_to_string(portable_json) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+
+    match parse_portable_config(&raw).and_then(|portable| {
+        serde_json::to_string(&portable)
+            .map_err(|e| OrbitCoreError::Internal(format!("PortableServerConfig 编码失败: {e}")))
+    }) {
+        Ok(payload) => to_c_string_ptr(format!("OK:{}", payload)),
+        Err(e) => to_c_string_ptr(format!("ERR:{}", e)),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn orbit_portable_changed_fields(
+    base_json: *const c_char,
+    newer_json: *const c_char,
+) -> *mut c_char {
+    let base_raw = match c_ptr_to_string(base_json) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+    let newer_raw = match c_ptr_to_string(newer_json) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+
+    let result = parse_portable_config(&base_raw).and_then(|base| {
+        parse_portable_config(&newer_raw).and_then(|newer| {
+            serde_json::to_string(&portable_changed_fields(&base, &newer))
+                .map_err(|e| OrbitCoreError::Internal(format!("字段差异编码失败: {e}")))
+        })
+    });
+    match result {
+        Ok(payload) => to_c_string_ptr(format!("OK:{}", payload)),
+        Err(e) => to_c_string_ptr(format!("ERR:{}", e)),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn orbit_portable_merge(
+    remote_json: *const c_char,
+    local_json: *const c_char,
+    local_changed_fields_json: *const c_char,
+) -> *mut c_char {
+    let remote_raw = match c_ptr_to_string(remote_json) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+    let local_raw = match c_ptr_to_string(local_json) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+    let fields_raw = match c_ptr_to_string(local_changed_fields_json) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+
+    let result = parse_portable_config(&remote_raw).and_then(|remote| {
+        parse_portable_config(&local_raw).and_then(|local| {
+            let fields: Vec<String> = serde_json::from_str(&fields_raw)
+                .map_err(|_| OrbitCoreError::InvalidInput)?;
+            let merged = portable_merge(remote, local, &fields);
+            serde_json::to_string(&merged)
+                .map_err(|e| OrbitCoreError::Internal(format!("合并结果编码失败: {e}")))
+        })
+    });
+    match result {
+        Ok(payload) => to_c_string_ptr(format!("OK:{}", payload)),
+        Err(e) => to_c_string_ptr(format!("ERR:{}", e)),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn orbit_vector_clock_bump(
+    vector_clock_json: *const c_char,
+    actor: *const c_char,
+) -> *mut c_char {
+    let raw = match c_ptr_to_string(vector_clock_json) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+    let actor = match c_ptr_to_string(actor) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+
+    let mut map: HashMap<String, i64> = serde_json::from_str(&raw).unwrap_or_default();
+    let clean_actor = actor.trim();
+    if clean_actor.is_empty() {
+        return to_c_string_ptr("ERR:参数不合法".to_string());
+    }
+    let next = map.get(clean_actor).copied().unwrap_or(0) + 1;
+    map.insert(clean_actor.to_string(), next);
+    match serde_json::to_string(&map) {
+        Ok(payload) => to_c_string_ptr(format!("OK:{}", payload)),
+        Err(e) => to_c_string_ptr(format!("ERR:{}", e)),
+    }
+}
+
+#[cfg(target_os = "android")]
+fn jstring_to_rust(env: &mut JNIEnv, value: JString) -> Result<String, OrbitCoreError> {
+    env.get_string(&value)
+        .map(|s| s.to_string_lossy().into_owned())
+        .map_err(|_| OrbitCoreError::InvalidInput)
+}
+
+#[cfg(target_os = "android")]
+fn java_string(env: &mut JNIEnv, value: String) -> jstring {
+    env.new_string(value)
+        .map(|s| s.into_raw())
+        .unwrap_or(std::ptr::null_mut())
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_orbitterm_android_core_OrbitCoreBridge_orbitEncryptConfig(
+    mut env: JNIEnv,
+    _this: JObject,
+    master_password: JString,
+    plaintext: JByteArray,
+    _plaintext_len: jlong,
+) -> jstring {
+    let password = match jstring_to_rust(&mut env, master_password) {
+        Ok(v) => v,
+        Err(e) => return java_string(&mut env, format!("ERR:{}", e)),
+    };
+    let bytes = match env.convert_byte_array(plaintext) {
+        Ok(v) => v,
+        Err(_) => return java_string(&mut env, "ERR:参数不合法".to_string()),
+    };
+    match encrypt_config(password, bytes) {
+        Ok(payload) => java_string(
+            &mut env,
+            format!("OK:{}", base64::engine::general_purpose::STANDARD.encode(payload)),
+        ),
+        Err(e) => java_string(&mut env, format!("ERR:{}", e)),
+    }
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_orbitterm_android_core_OrbitCoreBridge_orbitDecryptConfig(
+    mut env: JNIEnv,
+    _this: JObject,
+    master_password: JString,
+    encrypted_base64: JString,
+) -> jstring {
+    let password = match jstring_to_rust(&mut env, master_password) {
+        Ok(v) => v,
+        Err(e) => return java_string(&mut env, format!("ERR:{}", e)),
+    };
+    let encrypted_b64 = match jstring_to_rust(&mut env, encrypted_base64) {
+        Ok(v) => v,
+        Err(e) => return java_string(&mut env, format!("ERR:{}", e)),
+    };
+    let encrypted = match base64::engine::general_purpose::STANDARD.decode(encrypted_b64) {
+        Ok(v) => v,
+        Err(_) => return java_string(&mut env, "ERR:Base64 解码失败".to_string()),
+    };
+    match decrypt_config(password, encrypted) {
+        Ok(payload) => java_string(
+            &mut env,
+            format!("OK:{}", base64::engine::general_purpose::STANDARD.encode(payload)),
+        ),
+        Err(e) => java_string(&mut env, format!("ERR:{}", e)),
+    }
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_orbitterm_android_core_OrbitCoreBridge_orbitPortableValidate(
+    mut env: JNIEnv,
+    _this: JObject,
+    portable_json: JString,
+) -> jstring {
+    let raw = match jstring_to_rust(&mut env, portable_json) {
+        Ok(v) => v,
+        Err(e) => return java_string(&mut env, format!("ERR:{}", e)),
+    };
+    match parse_portable_config(&raw).and_then(|portable| {
+        serde_json::to_string(&portable)
+            .map_err(|e| OrbitCoreError::Internal(format!("PortableServerConfig 编码失败: {e}")))
+    }) {
+        Ok(payload) => java_string(&mut env, format!("OK:{}", payload)),
+        Err(e) => java_string(&mut env, format!("ERR:{}", e)),
+    }
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_orbitterm_android_core_OrbitCoreBridge_orbitPortableChangedFields(
+    mut env: JNIEnv,
+    _this: JObject,
+    base_json: JString,
+    newer_json: JString,
+) -> jstring {
+    let base_raw = match jstring_to_rust(&mut env, base_json) {
+        Ok(v) => v,
+        Err(e) => return java_string(&mut env, format!("ERR:{}", e)),
+    };
+    let newer_raw = match jstring_to_rust(&mut env, newer_json) {
+        Ok(v) => v,
+        Err(e) => return java_string(&mut env, format!("ERR:{}", e)),
+    };
+    let result = parse_portable_config(&base_raw).and_then(|base| {
+        parse_portable_config(&newer_raw).and_then(|newer| {
+            serde_json::to_string(&portable_changed_fields(&base, &newer))
+                .map_err(|e| OrbitCoreError::Internal(format!("字段差异编码失败: {e}")))
+        })
+    });
+    match result {
+        Ok(payload) => java_string(&mut env, format!("OK:{}", payload)),
+        Err(e) => java_string(&mut env, format!("ERR:{}", e)),
+    }
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_orbitterm_android_core_OrbitCoreBridge_orbitPortableMerge(
+    mut env: JNIEnv,
+    _this: JObject,
+    remote_json: JString,
+    local_json: JString,
+    local_changed_fields_json: JString,
+) -> jstring {
+    let remote_raw = match jstring_to_rust(&mut env, remote_json) {
+        Ok(v) => v,
+        Err(e) => return java_string(&mut env, format!("ERR:{}", e)),
+    };
+    let local_raw = match jstring_to_rust(&mut env, local_json) {
+        Ok(v) => v,
+        Err(e) => return java_string(&mut env, format!("ERR:{}", e)),
+    };
+    let fields_raw = match jstring_to_rust(&mut env, local_changed_fields_json) {
+        Ok(v) => v,
+        Err(e) => return java_string(&mut env, format!("ERR:{}", e)),
+    };
+    let result = parse_portable_config(&remote_raw).and_then(|remote| {
+        parse_portable_config(&local_raw).and_then(|local| {
+            let fields: Vec<String> = serde_json::from_str(&fields_raw)
+                .map_err(|_| OrbitCoreError::InvalidInput)?;
+            serde_json::to_string(&portable_merge(remote, local, &fields))
+                .map_err(|e| OrbitCoreError::Internal(format!("合并结果编码失败: {e}")))
+        })
+    });
+    match result {
+        Ok(payload) => java_string(&mut env, format!("OK:{}", payload)),
+        Err(e) => java_string(&mut env, format!("ERR:{}", e)),
+    }
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_orbitterm_android_core_OrbitCoreBridge_orbitVectorClockBump(
+    mut env: JNIEnv,
+    _this: JObject,
+    vector_clock_json: JString,
+    actor: JString,
+) -> jstring {
+    let raw = match jstring_to_rust(&mut env, vector_clock_json) {
+        Ok(v) => v,
+        Err(e) => return java_string(&mut env, format!("ERR:{}", e)),
+    };
+    let actor = match jstring_to_rust(&mut env, actor) {
+        Ok(v) => v,
+        Err(e) => return java_string(&mut env, format!("ERR:{}", e)),
+    };
+    let clean_actor = actor.trim();
+    if clean_actor.is_empty() {
+        return java_string(&mut env, "ERR:参数不合法".to_string());
+    }
+    let mut map: HashMap<String, i64> = serde_json::from_str(&raw).unwrap_or_default();
+    map.insert(clean_actor.to_string(), map.get(clean_actor).copied().unwrap_or(0) + 1);
+    match serde_json::to_string(&map) {
+        Ok(payload) => java_string(&mut env, format!("OK:{}", payload)),
+        Err(e) => java_string(&mut env, format!("ERR:{}", e)),
+    }
 }
 
 #[no_mangle]
@@ -1841,10 +2368,18 @@ fn normalize_port(port: i32) -> Result<u16, OrbitCoreError> {
 }
 
 pub type OrbitTerminalDataCallback = extern "C" fn(u64, *const u8, usize);
+pub type OrbitConnectionEventCallback = extern "C" fn(u64, *const c_char);
 
 #[no_mangle]
 pub extern "C" fn orbit_terminal_set_callback(callback: Option<OrbitTerminalDataCallback>) {
     if let Ok(mut holder) = TERMINAL_DATA_CALLBACK.lock() {
+        *holder = callback;
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn orbit_connection_set_callback(callback: Option<OrbitConnectionEventCallback>) {
+    if let Ok(mut holder) = CONNECTION_EVENT_CALLBACK.lock() {
         *holder = callback;
     }
 }
@@ -2165,6 +2700,23 @@ pub extern "C" fn orbit_fetch_docker_logs(
     };
 
     let result = ORBIT_RUNTIME.block_on(fetch_docker_logs(session_id, container_id, tail_lines));
+    match result {
+        Ok(payload) => to_c_string_ptr(format!("OK:{}", payload)),
+        Err(e) => to_c_string_ptr(format!("ERR:{}", e)),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn orbit_exec_command(
+    session_id: u64,
+    command: *const c_char,
+) -> *mut c_char {
+    let command = match c_ptr_to_string(command) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+
+    let result = ORBIT_RUNTIME.block_on(exec_command(session_id, command));
     match result {
         Ok(payload) => to_c_string_ptr(format!("OK:{}", payload)),
         Err(e) => to_c_string_ptr(format!("ERR:{}", e)),

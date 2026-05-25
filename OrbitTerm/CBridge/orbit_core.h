@@ -10,6 +10,11 @@ extern "C" {
 
 char *orbit_encrypt_config(const char *master_password, const unsigned char *plaintext_ptr, size_t plaintext_len);
 char *orbit_decrypt_config(const char *master_password, const char *encrypted_base64);
+char *orbit_argon2id_derive(const char *password, const uint8_t *salt_ptr, size_t salt_len);
+char *orbit_portable_validate(const char *portable_json);
+char *orbit_portable_changed_fields(const char *base_json, const char *newer_json);
+char *orbit_portable_merge(const char *remote_json, const char *local_json, const char *local_changed_fields_json);
+char *orbit_vector_clock_bump(const char *vector_clock_json, const char *actor);
 char *orbit_test_ssh_connection(
     const char *ip,
     int32_t port,
@@ -54,9 +59,12 @@ char *orbit_fetch_docker_containers(uint64_t session_id);
 char *orbit_fetch_docker_stats(uint64_t session_id);
 char *orbit_docker_action(uint64_t session_id, const char *container_id, const char *action);
 char *orbit_fetch_docker_logs(uint64_t session_id, const char *container_id, uint32_t tail_lines);
+char *orbit_exec_command(uint64_t session_id, const char *command);
 
 typedef void (*orbit_terminal_data_callback_t)(uint64_t terminal_channel_id, const uint8_t *data, size_t len);
+typedef void (*orbit_connection_event_callback_t)(uint64_t base_session_id, const char *message);
 void orbit_terminal_set_callback(orbit_terminal_data_callback_t callback);
+void orbit_connection_set_callback(orbit_connection_event_callback_t callback);
 char *orbit_request_channel(uint64_t session_or_channel_id, const char *channel_type);
 char *orbit_terminal_write(uint64_t terminal_channel_id, const uint8_t *data_ptr, size_t data_len);
 char *orbit_terminal_resize(uint64_t terminal_channel_id, uint32_t cols, uint32_t rows);

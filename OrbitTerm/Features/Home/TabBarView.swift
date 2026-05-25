@@ -32,8 +32,25 @@ struct TabBarView: View {
     }
 
     private func tabItem(_ tab: WorkspaceSession) -> some View {
-        let isActive = tab.id == activeTabID
-        return HStack(spacing: 8) {
+        TabBarItemView(
+            tab: tab,
+            isActive: tab.id == activeTabID,
+            onSelect: { onSelect(tab) },
+            onClose: { onClose(tab) },
+            onDetach: { onDetach(tab) }
+        )
+    }
+}
+
+private struct TabBarItemView: View {
+    @ObservedObject var tab: WorkspaceSession
+    let isActive: Bool
+    let onSelect: () -> Void
+    let onClose: () -> Void
+    let onDetach: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
             Circle()
                 .fill(tab.isConnected ? Color.green : Color.gray)
                 .frame(width: 8, height: 8)
@@ -42,9 +59,7 @@ struct TabBarView: View {
                 .lineLimit(1)
                 .font(.system(size: 12, weight: .medium))
 
-            Button {
-                onClose(tab)
-            } label: {
+            Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.secondary)
@@ -62,16 +77,10 @@ struct TabBarView: View {
                 .stroke(isActive ? Color.accentColor.opacity(0.55) : Color.secondary.opacity(0.12), lineWidth: 1)
         )
         .contentShape(Rectangle())
-        .onTapGesture {
-            onSelect(tab)
-        }
+        .onTapGesture(perform: onSelect)
         .contextMenu {
-            Button("在新窗口打开") {
-                onDetach(tab)
-            }
-            Button("关闭标签") {
-                onClose(tab)
-            }
+            Button("在新窗口打开", action: onDetach)
+            Button("关闭标签", action: onClose)
         }
     }
 }

@@ -1,0 +1,18 @@
+{
+  "id": "11111111-1111-4111-8111-111111111111",
+  "credentialID": "11111111-1111-4111-8111-111111111111",
+  "name": "Demo Server",
+  "group": "Lab",
+  "host": "192.0.2.10",
+  "port": 22,
+  "username": "root",
+  "authMethod": "key",
+  "transport": "ssh",
+  "networkDeviceProfile": "auto",
+  "allowPasswordFallback": false,
+  "password": "",
+  "privateKeyContent": "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
+  "privateKeyPassphrase": "",
+  "keyReference": "id_ed25519",
+  "savedAtUnix": 1770000000
+}

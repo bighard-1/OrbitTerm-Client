@@ -1,16 +1,83 @@
+import CryptoKit
 import Foundation
 import Network
+import SQLite3
 import os
+
+enum ConflictField: String, CaseIterable {
+    case name
+    case group
+    case host
+    case port
+    case username
+    case authMethod
+    case networkDeviceProfile
+    case allowPasswordFallback
+    case password
+    case privateKeyContent
+    case privateKeyPassphrase
+}
+
+enum ConflictChoice {
+    case keepLocal
+    case keepCloud
+}
+
+struct SyncConflictPrompt: Identifiable {
+    let id = UUID()
+    let serverID: String
+    let conflictedFields: [ConflictField]
+    let localSummary: String
+    let cloudSummary: String
+}
+
+private struct ConflictDecision {
+    let choice: ConflictChoice
+}
+
+private final class SyncShadowStore {
+    private let key = "orbitterm.sync.shadow.v2"
+
+    func read(id: String) -> PortableServerConfig? {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let map = try? JSONDecoder().decode([String: PortableServerConfig].self, from: data) else {
+            return nil
+        }
+        return map[id]
+    }
+
+    func save(_ portable: PortableServerConfig) {
+        var map = readAll()
+        map[portable.id] = portable
+        persist(map)
+    }
+
+    private func readAll() -> [String: PortableServerConfig] {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let map = try? JSONDecoder().decode([String: PortableServerConfig].self, from: data) else {
+            return [:]
+        }
+        return map
+    }
+
+    private func persist(_ map: [String: PortableServerConfig]) {
+        guard let data = try? JSONEncoder().encode(map) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+}
 
 @MainActor
 final class SyncService: ObservableObject {
     static let shared = SyncService()
 
     @Published var lastSyncMessage: String = "尚未同步"
+    @Published var pendingConflictPrompt: SyncConflictPrompt?
 
     private let network: NetworkService
     private let orbitManager: OrbitManager
     private let vault: CredentialVault
+    private let shadowStore = SyncShadowStore()
+    private var conflictContinuation: CheckedContinuation<ConflictDecision, Never>?
 
     init(network: NetworkService = .shared, orbitManager: OrbitManager? = nil, vault: CredentialVault = .shared) {
         self.network = network
@@ -18,7 +85,12 @@ final class SyncService: ObservableObject {
         self.vault = vault
     }
 
-    // 将本地明文配置先交给 Rust 核心加密，再上传密文到后端 /upload。
+    func chooseConflict(_ choice: ConflictChoice) {
+        conflictContinuation?.resume(returning: ConflictDecision(choice: choice))
+        conflictContinuation = nil
+        pendingConflictPrompt = nil
+    }
+
     func uploadEncryptedConfig(
         token: String,
         masterPassword: String,
@@ -28,29 +100,39 @@ final class SyncService: ObservableObject {
         allowQueueOnNetworkFailure: Bool = false
     ) async -> Bool {
         do {
-            let encrypted = try orbitManager.encrypt(password: masterPassword, data: plaintextConfig)
-            let vectorClockData = try JSONSerialization.data(withJSONObject: vectorClock)
-            guard let vectorClockString = String(data: vectorClockData, encoding: .utf8) else {
-                lastSyncMessage = "同步失败: 版本号编码失败"
-                return false
-            }
-
+            let decodedPortable = try decodePortable(from: plaintextConfig)
+            let localPortable = try enrichPortableWithCredentialVault(decodedPortable)
+            let normalizedPlain = try encodePortable(localPortable)
+            let encrypted = try orbitManager.encrypt(password: masterPassword, data: normalizedPlain)
             let payload = UploadConfigRequest(
                 id: configID,
                 encrypted_blob_base64: encrypted.base64EncodedString(),
-                vector_clock: vectorClockString
+                vector_clock: Self.encodeVectorClock(vectorClock)
             )
 
             do {
                 let response = try await network.uploadConfig(token: token, payload: payload)
+                shadowStore.save(localPortable)
                 lastSyncMessage = "同步成功，配置ID: \(response.id)"
                 return true
             } catch {
-                // P2：静默同步在网络异常下进入本地离线重试队列。
+                if isConflict(error) {
+                    return await resolveConflictAndRetry(
+                        token: token,
+                        masterPassword: masterPassword,
+                        localPortable: localPortable,
+                        fallbackPayload: payload
+                    )
+                }
                 if allowQueueOnNetworkFailure, NetworkService.isRetriableNetworkError(error) {
                     await SyncQueue.shared.enqueueUpload(payload: payload, reason: error.localizedDescription)
                     lastSyncMessage = "网络波动，已加入后台同步队列"
                     return true
+                }
+                if let net = error as? NetworkService.NetworkError,
+                   case .unauthorized = net {
+                    lastSyncMessage = "登录已过期，请重新登录后自动同步"
+                    return false
                 }
                 throw error
             }
@@ -60,11 +142,6 @@ final class SyncService: ObservableObject {
         }
     }
 
-    // 从云端拉取并解包配置：
-    // 1) 使用主密码解密 Blob
-    // 2) 解析 PortableServerConfig
-    // 3) 本地 ServerStore 更新普通配置
-    // 4) 所有敏感字段（密码/私钥/私钥口令）统一写回 Keychain
     func pullAndApplyConfigs(
         token: String,
         masterPassword: String,
@@ -79,64 +156,352 @@ final class SyncService: ObservableObject {
 
             var applied = 0
             var skipped = 0
+            var collectedServers: [ServerEntry] = []
+            var collectedPortable: [PortableServerConfig] = []
 
             for item in remoteItems {
-                guard let encrypted = Data(base64Encoded: item.encrypted_blob_base64) else {
+                do {
+                    let portable = try await decryptPortableBackground(item, masterPassword: masterPassword)
+                    guard let serverID = UUID(uuidString: portable.id) else {
+                        skipped += 1
+                        continue
+                    }
+                    let credentialID = UUID(uuidString: portable.credentialID) ?? serverID
+                    let credentials = ServerCredentials(
+                        password: portable.password,
+                        privateKeyContent: portable.privateKeyContent,
+                        privateKeyPassphrase: portable.privateKeyPassphrase
+                    )
+                    try await Task.detached(priority: .utility) { [vault] in
+                        try vault.save(credentials, for: credentialID)
+                    }.value
+
+                    let server = ServerEntry(
+                        id: serverID,
+                        name: portable.name,
+                        group: portable.group,
+                        host: portable.host,
+                        port: portable.port,
+                        username: portable.username,
+                        authMethod: portable.authMethod == ServerAuthMethod.key.rawValue ? .key : .password,
+                        transport: portable.transport == ServerTransportProtocol.telnet.rawValue ? .telnet : .ssh,
+                        networkDeviceProfile: NetworkDeviceProfile(rawValue: portable.networkDeviceProfile) ?? .auto,
+                        allowPasswordFallback: portable.allowPasswordFallback,
+                        credentialID: credentialID,
+                        createdAt: Date(timeIntervalSince1970: TimeInterval(portable.savedAtUnix))
+                    )
+                    collectedPortable.append(portable)
+                    collectedServers.append(server)
+                    applied += 1
+                } catch {
                     skipped += 1
-                    continue
                 }
-
-                let plainData = try orbitManager.decrypt(password: masterPassword, encrypted: encrypted)
-                guard let plainText = String(data: plainData, encoding: .utf8),
-                      let portableData = plainText.data(using: .utf8) else {
-                    skipped += 1
-                    continue
-                }
-
-                let portable = try JSONDecoder().decode(PortableServerConfig.self, from: portableData)
-                guard let serverID = UUID(uuidString: portable.id) else {
-                    skipped += 1
-                    continue
-                }
-
-                let credentialID = store.servers.first(where: { $0.id == serverID })?.credentialID ?? serverID
-                let createdAt = Date(timeIntervalSince1970: TimeInterval(portable.savedAtUnix))
-                let server = ServerEntry(
-                    id: serverID,
-                    name: portable.name,
-                    group: portable.group,
-                    host: portable.host,
-                    port: portable.port,
-                    username: portable.username,
-                    authMethod: portable.authMethod == ServerAuthMethod.key.rawValue ? .key : .password,
-                    allowPasswordFallback: portable.allowPasswordFallback,
-                    credentialID: credentialID,
-                    createdAt: createdAt
-                )
-
-                // P1 修复：无论当前主认证方式是什么，都完整回写全部敏感字段。
-                let credentials = ServerCredentials(
-                    password: portable.password,
-                    privateKeyContent: portable.privateKeyContent,
-                    privateKeyPassphrase: portable.privateKeyPassphrase
-                )
-                try vault.save(credentials, for: credentialID)
-                store.addOrUpdate(server)
-                applied += 1
             }
+
+            for portable in collectedPortable {
+                shadowStore.save(portable)
+            }
+            store.applySyncedServers(collectedServers)
 
             lastSyncMessage = "拉取完成: 已应用 \(applied) 条，跳过 \(skipped) 条"
             return applied > 0 || skipped == 0
         } catch {
+            if let net = error as? NetworkService.NetworkError,
+               case .unauthorized = net {
+                lastSyncMessage = "登录已过期，请重新登录"
+                return false
+            }
             lastSyncMessage = "拉取失败: \(error.localizedDescription)"
             return false
         }
+    }
+
+    private func resolveConflictAndRetry(
+        token: String,
+        masterPassword: String,
+        localPortable: PortableServerConfig,
+        fallbackPayload: UploadConfigRequest
+    ) async -> Bool {
+        do {
+            let remoteItems = try await network.pullConfigs(token: token)
+            let decoded = remoteItems.compactMap { item -> (UploadConfigData, PortableServerConfig)? in
+                guard let portable = try? decryptPortable(item, masterPassword: masterPassword) else { return nil }
+                return (item, portable)
+            }
+
+            guard let target = decoded.first(where: { $0.1.id == localPortable.id }) else {
+                await SyncQueue.shared.enqueueUpload(payload: fallbackPayload, reason: "conflict_pull_missing")
+                lastSyncMessage = "冲突处理失败：未找到云端同名配置"
+                return false
+            }
+
+            let remoteMeta = target.0
+            let remotePortable = target.1
+            let basePortable = shadowStore.read(id: localPortable.id)
+
+            if let basePortable {
+                let localChanged = changedFields(from: basePortable, to: localPortable)
+                let remoteChanged = changedFields(from: basePortable, to: remotePortable)
+                let conflictFields = localChanged.intersection(remoteChanged)
+
+                if conflictFields.isEmpty {
+                    let merged = mergedPortable(base: remotePortable, local: localPortable, localChanged: localChanged)
+                    let mergedPayload = try await buildPayload(
+                        portable: merged,
+                        masterPassword: masterPassword,
+                        remoteMeta: remoteMeta
+                    )
+                    _ = try await network.uploadConfig(token: token, payload: mergedPayload)
+                    shadowStore.save(merged)
+                    lastSyncMessage = "冲突已静默合并并同步"
+                    return true
+                }
+
+                let choice = await askUserConflictDecision(
+                    local: localPortable,
+                    remote: remotePortable,
+                    conflictedFields: Array(conflictFields).sorted { $0.rawValue < $1.rawValue }
+                )
+
+                switch choice.choice {
+                case .keepLocal:
+                    let retryPayload = try await buildPayload(
+                        portable: localPortable,
+                        masterPassword: masterPassword,
+                        remoteMeta: remoteMeta
+                    )
+                    _ = try await network.uploadConfig(token: token, payload: retryPayload)
+                    shadowStore.save(localPortable)
+                    lastSyncMessage = "已保留本地修改并覆盖云端"
+                    return true
+                case .keepCloud:
+                    shadowStore.save(remotePortable)
+                    lastSyncMessage = "已保留云端版本，本地修改未覆盖"
+                    return true
+                }
+            } else {
+                let choice = await askUserConflictDecision(
+                    local: localPortable,
+                    remote: remotePortable,
+                    conflictedFields: ConflictField.allCases
+                )
+                switch choice.choice {
+                case .keepLocal:
+                    let retryPayload = try await buildPayload(
+                        portable: localPortable,
+                        masterPassword: masterPassword,
+                        remoteMeta: remoteMeta
+                    )
+                    _ = try await network.uploadConfig(token: token, payload: retryPayload)
+                    shadowStore.save(localPortable)
+                    lastSyncMessage = "已保留本地修改并覆盖云端"
+                    return true
+                case .keepCloud:
+                    shadowStore.save(remotePortable)
+                    lastSyncMessage = "已保留云端版本，本地修改未覆盖"
+                    return true
+                }
+            }
+        } catch {
+            lastSyncMessage = "冲突处理失败: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    private func askUserConflictDecision(
+        local: PortableServerConfig,
+        remote: PortableServerConfig,
+        conflictedFields: [ConflictField]
+    ) async -> ConflictDecision {
+        let localSummary = "名称: \(local.name)\n分组: \(local.group)\n主机: \(local.host):\(local.port)\n用户: \(local.username)"
+        let cloudSummary = "名称: \(remote.name)\n分组: \(remote.group)\n主机: \(remote.host):\(remote.port)\n用户: \(remote.username)"
+        pendingConflictPrompt = SyncConflictPrompt(
+            serverID: local.id,
+            conflictedFields: conflictedFields,
+            localSummary: localSummary,
+            cloudSummary: cloudSummary
+        )
+        return await withCheckedContinuation { continuation in
+            conflictContinuation = continuation
+        }
+    }
+
+    private func mergedPortable(
+        base remote: PortableServerConfig,
+        local: PortableServerConfig,
+        localChanged: Set<ConflictField>
+    ) -> PortableServerConfig {
+        PortableServerConfig(
+            id: remote.id,
+            credentialID: local.credentialID,
+            name: localChanged.contains(.name) ? local.name : remote.name,
+            group: localChanged.contains(.group) ? local.group : remote.group,
+            host: localChanged.contains(.host) ? local.host : remote.host,
+            port: localChanged.contains(.port) ? local.port : remote.port,
+            username: localChanged.contains(.username) ? local.username : remote.username,
+            authMethod: localChanged.contains(.authMethod) ? local.authMethod : remote.authMethod,
+            transport: localChanged.contains(.host) || localChanged.contains(.port) || localChanged.contains(.username) ? local.transport : remote.transport,
+            networkDeviceProfile: localChanged.contains(.networkDeviceProfile) ? local.networkDeviceProfile : remote.networkDeviceProfile,
+            allowPasswordFallback: localChanged.contains(.allowPasswordFallback) ? local.allowPasswordFallback : remote.allowPasswordFallback,
+            password: localChanged.contains(.password) ? local.password : remote.password,
+            privateKeyContent: localChanged.contains(.privateKeyContent) ? local.privateKeyContent : remote.privateKeyContent,
+            privateKeyPassphrase: localChanged.contains(.privateKeyPassphrase) ? local.privateKeyPassphrase : remote.privateKeyPassphrase,
+            keyReference: local.keyReference,
+            savedAtUnix: Int(Date().timeIntervalSince1970)
+        )
+    }
+
+    private func changedFields(from base: PortableServerConfig, to newer: PortableServerConfig) -> Set<ConflictField> {
+        var changed = Set<ConflictField>()
+        if base.name != newer.name { changed.insert(.name) }
+        if base.group != newer.group { changed.insert(.group) }
+        if base.host != newer.host { changed.insert(.host) }
+        if base.port != newer.port { changed.insert(.port) }
+        if base.username != newer.username { changed.insert(.username) }
+        if base.authMethod != newer.authMethod { changed.insert(.authMethod) }
+        if base.networkDeviceProfile != newer.networkDeviceProfile { changed.insert(.networkDeviceProfile) }
+        if base.allowPasswordFallback != newer.allowPasswordFallback { changed.insert(.allowPasswordFallback) }
+        if base.password != newer.password { changed.insert(.password) }
+        if base.privateKeyContent != newer.privateKeyContent { changed.insert(.privateKeyContent) }
+        if base.privateKeyPassphrase != newer.privateKeyPassphrase { changed.insert(.privateKeyPassphrase) }
+        return changed
+    }
+
+    private func buildPayload(
+        portable: PortableServerConfig,
+        masterPassword: String,
+        remoteMeta: UploadConfigData
+    ) async throws -> UploadConfigRequest {
+        let plain = try encodePortable(portable)
+        let encrypted = try orbitManager.encrypt(password: masterPassword, data: plain)
+        let mergedClock = Self.bumpClock(remoteMeta.vector_clock, actor: "client")
+        return UploadConfigRequest(
+            id: remoteMeta.id,
+            encrypted_blob_base64: encrypted.base64EncodedString(),
+            vector_clock: mergedClock
+        )
+    }
+
+    private static func bumpClock(_ raw: String, actor: String) -> String {
+        var map = (try? JSONDecoder().decode([String: Int].self, from: Data(raw.utf8))) ?? [:]
+        map[actor] = (map[actor] ?? 0) + 1
+        return encodeVectorClock(map)
+    }
+
+    private static func encodeVectorClock(_ map: [String: Int]) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: map, options: [.sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return text
+    }
+
+    private func encodePortable(_ portable: PortableServerConfig) throws -> String {
+        let data = try JSONEncoder().encode(portable)
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw NetworkService.NetworkError.decodeFailed
+        }
+        return text
+    }
+
+    private func decodePortable(from plaintext: String) throws -> PortableServerConfig {
+        guard let data = plaintext.data(using: .utf8) else {
+            throw NetworkService.NetworkError.decodeFailed
+        }
+        return try JSONDecoder().decode(PortableServerConfig.self, from: data)
+    }
+
+    private func enrichPortableWithCredentialVault(_ portable: PortableServerConfig) throws -> PortableServerConfig {
+        guard let credentialUUID = UUID(uuidString: portable.credentialID),
+              let credentials = try vault.read(for: credentialUUID) else {
+            return portable
+        }
+        return PortableServerConfig(
+            id: portable.id,
+            credentialID: portable.credentialID,
+            name: portable.name,
+            group: portable.group,
+            host: portable.host,
+            port: portable.port,
+            username: portable.username,
+            authMethod: portable.authMethod,
+            transport: portable.transport,
+            networkDeviceProfile: portable.networkDeviceProfile,
+            allowPasswordFallback: portable.allowPasswordFallback,
+            password: credentials.password,
+            privateKeyContent: credentials.privateKeyContent,
+            privateKeyPassphrase: credentials.privateKeyPassphrase,
+            keyReference: portable.keyReference,
+            savedAtUnix: portable.savedAtUnix
+        )
+    }
+
+    private func decryptPortable(_ item: UploadConfigData, masterPassword: String) throws -> PortableServerConfig {
+        guard let encrypted = Data(base64Encoded: item.encrypted_blob_base64) else {
+            throw NetworkService.NetworkError.decodeFailed
+        }
+        let plainData = try orbitManager.decrypt(password: masterPassword, encrypted: encrypted)
+        guard let plainText = String(data: plainData, encoding: .utf8),
+              let portableData = plainText.data(using: .utf8) else {
+            throw NetworkService.NetworkError.decodeFailed
+        }
+        return try JSONDecoder().decode(PortableServerConfig.self, from: portableData)
+    }
+
+    private func decryptPortableBackground(_ item: UploadConfigData, masterPassword: String) async throws -> PortableServerConfig {
+        try await Task.detached(priority: .utility) {
+            guard let encrypted = Data(base64Encoded: item.encrypted_blob_base64) else {
+                throw NetworkService.NetworkError.decodeFailed
+            }
+            let decrypted = try Self.decryptBlob(password: masterPassword, encrypted: encrypted)
+            guard let plainText = String(data: decrypted, encoding: .utf8),
+                  let data = plainText.data(using: .utf8) else {
+                throw NetworkService.NetworkError.decodeFailed
+            }
+            return try JSONDecoder().decode(PortableServerConfig.self, from: data)
+        }.value
+    }
+
+    nonisolated private static func decryptBlob(password: String, encrypted: Data) throws -> Data {
+        guard let passwordCString = password.cString(using: .utf8) else {
+            throw NetworkService.NetworkError.decodeFailed
+        }
+        let encryptedB64 = encrypted.base64EncodedString()
+        guard let encryptedCString = encryptedB64.cString(using: .utf8) else {
+            throw NetworkService.NetworkError.decodeFailed
+        }
+        guard let resultPtr = orbit_decrypt_config(passwordCString, encryptedCString) else {
+            throw NetworkService.NetworkError.decodeFailed
+        }
+        defer { orbit_free_string(resultPtr) }
+        let raw = String(cString: resultPtr)
+        guard raw.hasPrefix("OK:"),
+              let decoded = Data(base64Encoded: String(raw.dropFirst(3))) else {
+            throw NetworkService.NetworkError.decodeFailed
+        }
+        return decoded
+    }
+
+    private func isConflict(_ error: Error) -> Bool {
+        if let net = error as? NetworkService.NetworkError {
+            switch net {
+            case let .server(message):
+                return message.contains("版本冲突") || message.lowercased().contains("conflict")
+            case let .unexpectedStatus(code):
+                return code == 409
+            default:
+                return false
+            }
+        }
+        let msg = error.localizedDescription.lowercased()
+        return msg.contains("409") || msg.contains("冲突") || msg.contains("conflict")
     }
 }
 
 struct SyncQueueItem: Codable, Identifiable {
     let id: UUID
     let payload: UploadConfigRequest
+    let requestHash: String
     let createdAt: Date
     var updatedAt: Date
     var attemptCount: Int
@@ -146,6 +511,7 @@ struct SyncQueueItem: Codable, Identifiable {
     init(
         id: UUID = UUID(),
         payload: UploadConfigRequest,
+        requestHash: String,
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
         attemptCount: Int = 0,
@@ -154,6 +520,7 @@ struct SyncQueueItem: Codable, Identifiable {
     ) {
         self.id = id
         self.payload = payload
+        self.requestHash = requestHash
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.attemptCount = attemptCount
@@ -163,58 +530,159 @@ struct SyncQueueItem: Codable, Identifiable {
 }
 
 actor SyncQueueStore {
-    private(set) var items: [SyncQueueItem]
-    private let fileURL: URL
-    private let encoder = JSONEncoder()
+    private let db: OpaquePointer?
+    private let queueDBURL: URL
 
     init(fileURL: URL) {
-        self.fileURL = fileURL
-        self.items = Self.loadFromDisk(fileURL: fileURL)
-        encoder.outputFormatting = [.sortedKeys]
+        self.queueDBURL = fileURL
+        try? FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        var raw: OpaquePointer?
+        sqlite3_open(fileURL.path, &raw)
+        db = raw
+        Self.createTableIfNeeded(db: raw)
     }
 
-    func append(_ item: SyncQueueItem) {
-        items.append(item)
-        items.sort { $0.createdAt < $1.createdAt }
-        persist()
-    }
-
-    func remove(id: UUID) {
-        items.removeAll { $0.id == id }
-        persist()
-    }
-
-    func update(_ item: SyncQueueItem) {
-        guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
-        items[index] = item
-        items.sort { $0.createdAt < $1.createdAt }
-        persist()
-    }
-
-    func firstItem() -> SyncQueueItem? {
-        items.sorted { $0.createdAt < $1.createdAt }.first
-    }
-
-    private func persist() {
-        do {
-            let data = try encoder.encode(items)
-            try FileManager.default.createDirectory(
-                at: fileURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true,
-                attributes: nil
-            )
-            try data.write(to: fileURL, options: [.atomic])
-        } catch {
-            // 队列持久化失败时忽略，避免影响主流程。
+    deinit {
+        if let db {
+            sqlite3_close(db)
         }
     }
 
-    private static func loadFromDisk(fileURL: URL) -> [SyncQueueItem] {
-        guard let data = try? Data(contentsOf: fileURL) else { return [] }
-        guard let items = try? JSONDecoder().decode([SyncQueueItem].self, from: data) else { return [] }
-        return items.sorted { $0.createdAt < $1.createdAt }
+    func append(_ item: SyncQueueItem) {
+        guard let db else { return }
+        _ = execute(db, sql: "BEGIN IMMEDIATE TRANSACTION;")
+        defer { _ = execute(db, sql: "COMMIT;") }
+
+        let sql = """
+        INSERT OR IGNORE INTO sync_queue
+        (id, request_hash, payload_json, created_at, updated_at, attempt_count, next_retry_at, last_error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+        """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return }
+        defer { sqlite3_finalize(stmt) }
+
+        let payloadData = (try? JSONEncoder().encode(item.payload)) ?? Data()
+        let payloadText = String(data: payloadData, encoding: .utf8) ?? "{}"
+        bindText(item.id.uuidString, stmt: stmt, index: 1)
+        bindText(item.requestHash, stmt: stmt, index: 2)
+        bindText(payloadText, stmt: stmt, index: 3)
+        sqlite3_bind_double(stmt, 4, item.createdAt.timeIntervalSince1970)
+        sqlite3_bind_double(stmt, 5, item.updatedAt.timeIntervalSince1970)
+        sqlite3_bind_int(stmt, 6, Int32(item.attemptCount))
+        sqlite3_bind_double(stmt, 7, item.nextRetryAt.timeIntervalSince1970)
+        if let lastError = item.lastError {
+            bindText(lastError, stmt: stmt, index: 8)
+        } else {
+            sqlite3_bind_null(stmt, 8)
+        }
+        _ = sqlite3_step(stmt)
+    }
+
+    func remove(id: UUID) {
+        guard let db else { return }
+        _ = execute(db, sql: "BEGIN IMMEDIATE TRANSACTION;")
+        defer { _ = execute(db, sql: "COMMIT;") }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "DELETE FROM sync_queue WHERE id = ?;", -1, &stmt, nil) == SQLITE_OK, let stmt else { return }
+        defer { sqlite3_finalize(stmt) }
+        bindText(id.uuidString, stmt: stmt, index: 1)
+        _ = sqlite3_step(stmt)
+    }
+
+    func update(_ item: SyncQueueItem) {
+        guard let db else { return }
+        _ = execute(db, sql: "BEGIN IMMEDIATE TRANSACTION;")
+        defer { _ = execute(db, sql: "COMMIT;") }
+
+        let sql = "UPDATE sync_queue SET updated_at=?, attempt_count=?, next_retry_at=?, last_error=? WHERE id=?;"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return }
+        defer { sqlite3_finalize(stmt) }
+
+        sqlite3_bind_double(stmt, 1, item.updatedAt.timeIntervalSince1970)
+        sqlite3_bind_int(stmt, 2, Int32(item.attemptCount))
+        sqlite3_bind_double(stmt, 3, item.nextRetryAt.timeIntervalSince1970)
+        if let lastError = item.lastError {
+            bindText(lastError, stmt: stmt, index: 4)
+        } else {
+            sqlite3_bind_null(stmt, 4)
+        }
+        bindText(item.id.uuidString, stmt: stmt, index: 5)
+        _ = sqlite3_step(stmt)
+    }
+
+    func firstItem() -> SyncQueueItem? {
+        guard let db else { return nil }
+        let sql = """
+        SELECT id, request_hash, payload_json, created_at, updated_at, attempt_count, next_retry_at, last_error
+        FROM sync_queue
+        ORDER BY created_at ASC
+        LIMIT 1;
+        """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return nil }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+
+        guard let idText = sqlite3_column_text(stmt, 0).map({ String(cString: $0) }),
+              let id = UUID(uuidString: idText),
+              let hashText = sqlite3_column_text(stmt, 1).map({ String(cString: $0) }),
+              let payloadText = sqlite3_column_text(stmt, 2).map({ String(cString: $0) }),
+              let payloadData = payloadText.data(using: .utf8),
+              let payload = try? JSONDecoder().decode(UploadConfigRequest.self, from: payloadData) else {
+            return nil
+        }
+        let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 3))
+        let updatedAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4))
+        let attemptCount = Int(sqlite3_column_int(stmt, 5))
+        let nextRetryAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 6))
+        let lastError = sqlite3_column_text(stmt, 7).map { String(cString: $0) }
+
+        return SyncQueueItem(
+            id: id,
+            payload: payload,
+            requestHash: hashText,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            attemptCount: attemptCount,
+            nextRetryAt: nextRetryAt,
+            lastError: lastError
+        )
+    }
+
+    private static func createTableIfNeeded(db: OpaquePointer?) {
+        guard let db else { return }
+        let sql = """
+        CREATE TABLE IF NOT EXISTS sync_queue (
+            id TEXT PRIMARY KEY NOT NULL,
+            request_hash TEXT NOT NULL UNIQUE,
+            payload_json TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            attempt_count INTEGER NOT NULL,
+            next_retry_at REAL NOT NULL,
+            last_error TEXT NULL
+        );
+        """
+        _ = sqlite3_exec(db, sql, nil, nil, nil)
+    }
+
+    private func execute(_ db: OpaquePointer, sql: String) -> Bool {
+        sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK
+    }
+
+    private func bindText(_ text: String, stmt: OpaquePointer, index: Int32) {
+        _ = text.withCString { cstr in
+            sqlite3_bind_text(stmt, index, cstr, -1, SQLITE_TRANSIENT)
+        }
     }
 }
+
+private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 final class SyncQueue {
     static let shared = SyncQueue()
@@ -233,8 +701,9 @@ final class SyncQueue {
     private let store: SyncQueueStore
 
     private init() {
-        let fileURL = Self.queueFileURL()
-        self.store = SyncQueueStore(fileURL: fileURL)
+        let dbURL = Self.queueDBURL()
+        self.store = SyncQueueStore(fileURL: dbURL)
+        migrateLegacyJSONIfNeeded()
         startMonitor()
     }
 
@@ -246,8 +715,10 @@ final class SyncQueue {
     }
 
     func enqueueUpload(payload: UploadConfigRequest, reason: String?) async {
+        let hash = Self.requestHash(payload)
         let item = SyncQueueItem(
             payload: payload,
+            requestHash: hash,
             attemptCount: 0,
             nextRetryAt: Date(),
             lastError: reason
@@ -275,14 +746,13 @@ final class SyncQueue {
         stateQueue.sync {
             let canStart = isNetworkReachable && processingTask == nil
             guard canStart else { return }
-            let task = Task(priority: .utility) { [weak self] in
+            processingTask = Task(priority: .utility) { [weak self] in
                 guard let self else { return }
                 await self.processLoop(reason: reason)
                 self.stateQueue.sync {
                     self.processingTask = nil
                 }
             }
-            processingTask = task
         }
     }
 
@@ -290,12 +760,10 @@ final class SyncQueue {
         logger.debug("[SYNCQ] process start reason=\(reason, privacy: .public)")
         while !Task.isCancelled {
             guard isNetworkUp else { return }
-
             guard let token = currentToken(), !token.isEmpty else {
                 logger.debug("[SYNCQ] process paused: token unavailable")
                 return
             }
-
             guard let head = await store.firstItem() else {
                 logger.debug("[SYNCQ] queue empty")
                 return
@@ -311,6 +779,11 @@ final class SyncQueue {
                 await store.remove(id: head.id)
                 logger.debug("[SYNCQ] sent id=\(head.id.uuidString, privacy: .public)")
             } catch {
+                if let net = error as? NetworkService.NetworkError,
+                   case .unauthorized = net {
+                    logger.debug("[SYNCQ] paused: auth expired")
+                    return
+                }
                 var failed = head
                 failed.attemptCount += 1
                 failed.updatedAt = Date()
@@ -353,11 +826,62 @@ final class SyncQueue {
         return steps[index]
     }
 
-    private static func queueFileURL() -> URL {
+    private func migrateLegacyJSONIfNeeded() {
+        let legacyURL = Self.legacyQueueJSONURL()
+        guard let data = try? Data(contentsOf: legacyURL),
+              let items = try? JSONDecoder().decode([LegacySyncQueueItem].self, from: data),
+              !items.isEmpty else {
+            return
+        }
+
+        Task {
+            for item in items {
+                let hash = Self.requestHash(item.payload)
+                let migrated = SyncQueueItem(
+                    id: item.id,
+                    payload: item.payload,
+                    requestHash: hash,
+                    createdAt: item.createdAt,
+                    updatedAt: item.updatedAt,
+                    attemptCount: item.attemptCount,
+                    nextRetryAt: item.nextRetryAt,
+                    lastError: item.lastError
+                )
+                await store.append(migrated)
+            }
+            try? FileManager.default.removeItem(at: legacyURL)
+        }
+    }
+
+    private static func requestHash(_ payload: UploadConfigRequest) -> String {
+        let base = "\(payload.id ?? 0)|\(payload.vector_clock)|\(payload.encrypted_blob_base64)"
+        let digest = SHA256.hash(data: Data(base.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func queueDBURL() -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return base
+            .appendingPathComponent("OrbitTerm", isDirectory: true)
+            .appendingPathComponent("sync_queue.sqlite", isDirectory: false)
+    }
+
+    private static func legacyQueueJSONURL() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         return base
             .appendingPathComponent("OrbitTerm", isDirectory: true)
             .appendingPathComponent("sync_queue.json", isDirectory: false)
     }
+}
+
+private struct LegacySyncQueueItem: Codable {
+    let id: UUID
+    let payload: UploadConfigRequest
+    let createdAt: Date
+    let updatedAt: Date
+    let attemptCount: Int
+    let nextRetryAt: Date
+    let lastError: String?
 }

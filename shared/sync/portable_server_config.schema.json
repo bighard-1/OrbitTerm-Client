@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://orbitterm.com/schemas/portable-server-config-v1.json",
+  "title": "OrbitTerm PortableServerConfig v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "credentialID",
+    "name",
+    "group",
+    "host",
+    "port",
+    "username",
+    "authMethod",
+    "transport",
+    "networkDeviceProfile",
+    "allowPasswordFallback",
+    "password",
+    "privateKeyContent",
+    "privateKeyPassphrase",
+    "keyReference",
+    "savedAtUnix"
+  ],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "credentialID": { "type": "string", "format": "uuid" },
+    "name": { "type": "string", "minLength": 1 },
+    "group": { "type": "string" },
+    "host": { "type": "string", "minLength": 1 },
+    "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+    "username": { "type": "string", "minLength": 1 },
+    "authMethod": { "type": "string", "enum": ["password", "key"] },
+    "transport": { "type": "string", "enum": ["ssh", "telnet"] },
+    "networkDeviceProfile": { "type": "string" },
+    "allowPasswordFallback": { "type": "boolean" },
+    "password": { "type": "string" },
+    "privateKeyContent": { "type": "string" },
+    "privateKeyPassphrase": { "type": "string" },
+    "keyReference": { "type": "string" },
+    "savedAtUnix": { "type": "integer", "minimum": 0 }
+  }
+}

@@ -133,20 +133,25 @@ final class MonitorService: ObservableObject {
     private var sessions: [UUID: UInt64] = [:]
     private var consecutiveFailures: [UUID: Int] = [:]
     private var reconnectTasks: [UUID: Task<Void, Never>] = [:]
+    private var pollTasks: [UUID: Task<Void, Never>] = [:]
     private var allowPasswordFallbackByTarget: [UUID: Bool] = [:]
-    private var loopTask: Task<Void, Never>?
 
     private let userDefaultsKey = "monitor.targets.v1"
     private let migrationFlagKey = "monitor.targets.credentials.migrated.v1"
+    private let intervalKey = "orbitterm.monitor.realtime.interval"
     private let vault = CredentialVault.shared
 
     init() {
         loadTargets()
-        startBackgroundLoop()
     }
 
     deinit {
-        loopTask?.cancel()
+        for (_, task) in pollTasks {
+            task.cancel()
+        }
+        for (_, task) in reconnectTasks {
+            task.cancel()
+        }
     }
 
     func addTarget(name: String, host: String, port: Int = 22, username: String, credentials: ServerCredentials) {
@@ -198,6 +203,7 @@ final class MonitorService: ObservableObject {
         }
         reconnectTasks[targetID]?.cancel()
         reconnectTasks.removeValue(forKey: targetID)
+        stopPolling(targetID)
         Task { await disconnect(targetID) }
         panels.removeAll { $0.id == targetID }
         buffers.removeValue(forKey: targetID)
@@ -253,6 +259,7 @@ final class MonitorService: ObservableObject {
             allowPasswordFallbackByTarget[targetID] = allowPasswordFallback
             panels[index].isRunning = true
             panels[index].status = "监控中"
+            startPolling(targetID)
             logger.debug("[MON] connected target=\(target.name, privacy: .public) sid=\(sessionID)")
         } catch {
             panels[index].status = "连接失败: \(error.localizedDescription)"
@@ -263,6 +270,7 @@ final class MonitorService: ObservableObject {
     func disconnect(_ targetID: UUID) async {
         reconnectTasks[targetID]?.cancel()
         reconnectTasks.removeValue(forKey: targetID)
+        stopPolling(targetID)
         guard let sid = sessions[targetID] else { return }
         _ = try? await callRustWithTimeout(seconds: 8, label: "disconnect") {
             orbit_sftp_disconnect(sid)
@@ -276,23 +284,36 @@ final class MonitorService: ObservableObject {
         }
     }
 
-    private func startBackgroundLoop() {
-        loopTask = Task(priority: .utility) { [weak self] in
+    private func startPolling(_ targetID: UUID) {
+        guard pollTasks[targetID] == nil else { return }
+        pollTasks[targetID] = Task(priority: .utility) { @MainActor [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
-                await self.pollAllTargets()
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                let start = Date()
+                await self.pollTargetOnce(targetID)
+
+                // 背压策略：上一轮完成（成功或超时）后，再等待剩余时间补齐配置周期。
+                let configuredInterval = max(1.0, min(10.0, UserDefaults.standard.double(forKey: self.intervalKey) == 0 ? 1.0 : UserDefaults.standard.double(forKey: self.intervalKey)))
+                let elapsed = Date().timeIntervalSince(start)
+                let delay = max(0, configuredInterval - elapsed)
+                if delay > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                }
+
+                guard self.panels.contains(where: { $0.id == targetID && $0.isRunning }) else {
+                    break
+                }
             }
+            self.pollTasks.removeValue(forKey: targetID)
         }
     }
 
-    private func pollAllTargets() async {
-        for panel in panels where panel.isRunning {
-            await pollTarget(panel.id)
-        }
+    private func stopPolling(_ targetID: UUID) {
+        pollTasks[targetID]?.cancel()
+        pollTasks.removeValue(forKey: targetID)
     }
 
-    private func pollTarget(_ targetID: UUID) async {
+    private func pollTargetOnce(_ targetID: UUID) async {
         guard let sid = sessions[targetID],
               let panelIndex = panels.firstIndex(where: { $0.id == targetID }) else {
             return
@@ -418,6 +439,7 @@ final class MonitorService: ObservableObject {
             sessions[targetID] = newSID
             consecutiveFailures[targetID] = 0
             panels[index].status = "监控已恢复"
+            startPolling(targetID)
             logger.debug("[MON] healed target=\(target.name, privacy: .public) sid=\(newSID)")
             return true
         } catch {

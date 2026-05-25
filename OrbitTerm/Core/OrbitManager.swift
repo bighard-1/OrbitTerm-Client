@@ -109,6 +109,50 @@ final class OrbitManager: ObservableObject {
         }.value
     }
 
+    // 批量命令执行：按目标服务器信息临时建立会话，执行命令后立即断开并返回输出。
+    nonisolated func executeRemoteCommandAsync(
+        ip: String,
+        port: Int = 22,
+        username: String,
+        password: String,
+        privateKeyContent: String = "",
+        privateKeyPassphrase: String = "",
+        allowPasswordFallback: Bool = true,
+        command: String
+    ) async throws -> String {
+        try await Task.detached(priority: .userInitiated) {
+            guard let ipCString = ip.cString(using: .utf8),
+                  let usernameCString = username.cString(using: .utf8),
+                  let passwordCString = password.cString(using: .utf8),
+                  let keyCString = privateKeyContent.cString(using: .utf8),
+                  let passphraseCString = privateKeyPassphrase.cString(using: .utf8),
+                  let commandCString = command.cString(using: .utf8) else {
+                throw OrbitManagerError.invalidInput("参数编码失败")
+            }
+
+            let connectPtr = orbit_sftp_connect(
+                ipCString,
+                Int32(max(1, min(65535, port))),
+                usernameCString,
+                passwordCString,
+                keyCString,
+                passphraseCString,
+                allowPasswordFallback ? 1 : 0
+            )
+            let sessionPayload = try Self.parseOKPayloadStatic(connectPtr)
+            guard let sessionID = UInt64(sessionPayload) else {
+                throw OrbitManagerError.invalidResponse("连接返回会话 ID 无效")
+            }
+            defer {
+                let closePtr = orbit_sftp_disconnect(sessionID)
+                orbit_free_string(closePtr)
+            }
+
+            let execPtr = orbit_exec_command(sessionID, commandCString)
+            return try Self.parseOKPayloadStatic(execPtr)
+        }.value
+    }
+
     private func parseResultAsData(_ resultPtr: UnsafeMutablePointer<CChar>?) throws -> Data {
         let raw = Self.parseRaw(resultPtr)
         if raw.hasPrefix("OK:") {
@@ -140,6 +184,15 @@ final class OrbitManager: ObservableObject {
 
         defer { orbit_free_string(resultPtr) }
         return String(cString: resultPtr)
+    }
+
+    nonisolated private static func parseOKPayloadStatic(_ resultPtr: UnsafeMutablePointer<CChar>?) throws -> String {
+        let raw = parseRaw(resultPtr)
+        if raw.hasPrefix("OK:") {
+            return String(raw.dropFirst(3))
+        }
+        let message = raw.hasPrefix("ERR:") ? String(raw.dropFirst(4)) : raw
+        throw OrbitManagerError.rustError(message)
     }
 }
 

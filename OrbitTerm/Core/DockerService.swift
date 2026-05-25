@@ -81,6 +81,12 @@ enum DockerAction: String, CaseIterable {
     }
 }
 
+struct DockerContainerUpdateOptions {
+    var restartPolicy: String?
+    var memoryLimit: String?
+    var cpuShares: Int?
+}
+
 @MainActor
 final class DockerService: ObservableObject {
     @Published var cards: [DockerContainerCard] = []
@@ -244,6 +250,50 @@ final class DockerService: ObservableObject {
             containerID.withCString { cID in
                 orbit_fetch_docker_logs(sid, cID, tailLines)
             }
+        }
+    }
+
+    func renameContainer(containerID: String, newName: String) async {
+        guard let sid = sessionID else { return }
+        let targetName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !targetName.isEmpty else { return }
+        do {
+            let cmd = "docker rename \(containerID) \(targetName)"
+            _ = try await callRustWithTimeout(seconds: 12) {
+                cmd.withCString { cCmd in
+                    orbit_exec_command(sid, cCmd)
+                }
+            }
+            try await refreshNow()
+        } catch {
+            statusText = "编辑失败: \(error.localizedDescription)"
+        }
+    }
+
+    func updateContainer(containerID: String, options: DockerContainerUpdateOptions) async {
+        guard let sid = sessionID else { return }
+        var parts: [String] = ["docker", "update"]
+        if let policy = options.restartPolicy?.trimmingCharacters(in: .whitespacesAndNewlines), !policy.isEmpty {
+            parts.append("--restart=\(policy)")
+        }
+        if let mem = options.memoryLimit?.trimmingCharacters(in: .whitespacesAndNewlines), !mem.isEmpty {
+            parts.append("--memory=\(mem)")
+        }
+        if let shares = options.cpuShares, shares > 0 {
+            parts.append("--cpu-shares=\(shares)")
+        }
+        parts.append(containerID)
+        guard parts.count > 2 else { return }
+        let cmd = parts.joined(separator: " ")
+        do {
+            _ = try await callRustWithTimeout(seconds: 12) {
+                cmd.withCString { cCmd in
+                    orbit_exec_command(sid, cCmd)
+                }
+            }
+            try await refreshNow()
+        } catch {
+            statusText = "更新失败: \(error.localizedDescription)"
         }
     }
 

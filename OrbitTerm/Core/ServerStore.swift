@@ -1,6 +1,6 @@
 import Foundation
 
-enum ServerAuthMethod: String, Codable, CaseIterable, Identifiable {
+enum ServerAuthMethod: String, Codable, CaseIterable, Identifiable, Sendable {
     case password
     case key
 
@@ -14,6 +14,60 @@ enum ServerAuthMethod: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum ServerTransportProtocol: String, Codable, CaseIterable, Identifiable, Sendable {
+    case ssh
+    case telnet
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .ssh: return "SSH"
+        case .telnet: return "Telnet"
+        }
+    }
+}
+
+enum NetworkDeviceProfile: String, Codable, CaseIterable, Identifiable, Sendable {
+    case auto
+    case huaweiVRP
+    case h3cComware
+    case ciscoIOS
+    case ciscoASA
+    case juniperJunos
+    case fortinetFortiGate
+    case paloAltoPANOS
+    case mikrotikRouterOS
+    case ruijie
+    case sangfor
+    case hillstone
+    case checkPoint
+    case f5BIGIP
+    case generic
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .auto: return "自动识别"
+        case .huaweiVRP: return "华为 VRP / USG"
+        case .h3cComware: return "H3C Comware"
+        case .ciscoIOS: return "Cisco IOS / IOS XE"
+        case .ciscoASA: return "Cisco ASA"
+        case .juniperJunos: return "Juniper Junos"
+        case .fortinetFortiGate: return "Fortinet FortiGate"
+        case .paloAltoPANOS: return "Palo Alto PAN-OS"
+        case .mikrotikRouterOS: return "MikroTik RouterOS"
+        case .ruijie: return "锐捷 Ruijie"
+        case .sangfor: return "深信服 Sangfor"
+        case .hillstone: return "山石 Hillstone"
+        case .checkPoint: return "Check Point"
+        case .f5BIGIP: return "F5 BIG-IP"
+        case .generic: return "通用 Telnet"
+        }
+    }
+}
+
 struct ServerEntry: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String
@@ -22,6 +76,8 @@ struct ServerEntry: Identifiable, Codable, Hashable {
     var port: Int
     var username: String
     var authMethod: ServerAuthMethod
+    var transport: ServerTransportProtocol
+    var networkDeviceProfile: NetworkDeviceProfile
     var allowPasswordFallback: Bool
     var credentialID: UUID
     var createdAt: Date
@@ -34,6 +90,8 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         port: Int = 22,
         username: String,
         authMethod: ServerAuthMethod,
+        transport: ServerTransportProtocol = .ssh,
+        networkDeviceProfile: NetworkDeviceProfile = .auto,
         allowPasswordFallback: Bool = true,
         credentialID: UUID? = nil,
         createdAt: Date = Date()
@@ -45,6 +103,8 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         self.port = port
         self.username = username
         self.authMethod = authMethod
+        self.transport = transport
+        self.networkDeviceProfile = networkDeviceProfile
         self.allowPasswordFallback = allowPasswordFallback
         self.credentialID = credentialID ?? id
         self.createdAt = createdAt
@@ -58,6 +118,8 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         case port
         case username
         case authMethod
+        case transport
+        case networkDeviceProfile
         case allowPasswordFallback
         case credentialID
         case createdAt
@@ -79,6 +141,8 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         port = try container.decodeIfPresent(Int.self, forKey: .port) ?? 22
         username = try container.decode(String.self, forKey: .username)
         authMethod = try container.decodeIfPresent(ServerAuthMethod.self, forKey: .authMethod) ?? .password
+        transport = try container.decodeIfPresent(ServerTransportProtocol.self, forKey: .transport) ?? .ssh
+        networkDeviceProfile = try container.decodeIfPresent(NetworkDeviceProfile.self, forKey: .networkDeviceProfile) ?? .auto
         allowPasswordFallback = try container.decodeIfPresent(Bool.self, forKey: .allowPasswordFallback) ?? true
         credentialID = try container.decodeIfPresent(UUID.self, forKey: .credentialID) ?? id
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
@@ -95,6 +159,8 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         try container.encode(port, forKey: .port)
         try container.encode(username, forKey: .username)
         try container.encode(authMethod, forKey: .authMethod)
+        try container.encode(transport, forKey: .transport)
+        try container.encode(networkDeviceProfile, forKey: .networkDeviceProfile)
         try container.encode(allowPasswordFallback, forKey: .allowPasswordFallback)
         try container.encode(credentialID, forKey: .credentialID)
         try container.encode(createdAt, forKey: .createdAt)
@@ -118,12 +184,15 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         let privateKeyPassphrase = credentials?.privateKeyPassphrase ?? ""
         return PortableServerConfig(
             id: id.uuidString,
+            credentialID: credentialID.uuidString,
             name: name,
             group: group,
             host: host,
             port: port,
             username: username,
             authMethod: authMethod.rawValue,
+            transport: transport.rawValue,
+            networkDeviceProfile: networkDeviceProfile.rawValue,
             allowPasswordFallback: allowPasswordFallback,
             password: password,
             privateKeyContent: privateKeyContent,
@@ -148,18 +217,96 @@ struct ServerEntry: Identifiable, Codable, Hashable {
 
 struct PortableServerConfig: Codable {
     let id: String
+    let credentialID: String
     let name: String
     let group: String
     let host: String
     let port: Int
     let username: String
     let authMethod: String
+    let transport: String
+    let networkDeviceProfile: String
     let allowPasswordFallback: Bool
     let password: String
     let privateKeyContent: String
     let privateKeyPassphrase: String
     let keyReference: String
     let savedAtUnix: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case credentialID
+        case name
+        case group
+        case host
+        case port
+        case username
+        case authMethod
+        case transport
+        case networkDeviceProfile
+        case allowPasswordFallback
+        case password
+        case privateKeyContent
+        case privateKeyPassphrase
+        case keyReference
+        case savedAtUnix
+    }
+
+    init(
+        id: String,
+        credentialID: String,
+        name: String,
+        group: String,
+        host: String,
+        port: Int,
+        username: String,
+        authMethod: String,
+        transport: String,
+        networkDeviceProfile: String = NetworkDeviceProfile.auto.rawValue,
+        allowPasswordFallback: Bool,
+        password: String,
+        privateKeyContent: String,
+        privateKeyPassphrase: String,
+        keyReference: String,
+        savedAtUnix: Int
+    ) {
+        self.id = id
+        self.credentialID = credentialID
+        self.name = name
+        self.group = group
+        self.host = host
+        self.port = port
+        self.username = username
+        self.authMethod = authMethod
+        self.transport = transport
+        self.networkDeviceProfile = networkDeviceProfile
+        self.allowPasswordFallback = allowPasswordFallback
+        self.password = password
+        self.privateKeyContent = privateKeyContent
+        self.privateKeyPassphrase = privateKeyPassphrase
+        self.keyReference = keyReference
+        self.savedAtUnix = savedAtUnix
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        credentialID = try c.decodeIfPresent(String.self, forKey: .credentialID) ?? id
+        name = try c.decode(String.self, forKey: .name)
+        group = try c.decode(String.self, forKey: .group)
+        host = try c.decode(String.self, forKey: .host)
+        port = try c.decode(Int.self, forKey: .port)
+        username = try c.decode(String.self, forKey: .username)
+        authMethod = try c.decode(String.self, forKey: .authMethod)
+        transport = try c.decodeIfPresent(String.self, forKey: .transport) ?? ServerTransportProtocol.ssh.rawValue
+        networkDeviceProfile = try c.decodeIfPresent(String.self, forKey: .networkDeviceProfile) ?? NetworkDeviceProfile.auto.rawValue
+        allowPasswordFallback = try c.decode(Bool.self, forKey: .allowPasswordFallback)
+        password = try c.decode(String.self, forKey: .password)
+        privateKeyContent = try c.decode(String.self, forKey: .privateKeyContent)
+        privateKeyPassphrase = try c.decodeIfPresent(String.self, forKey: .privateKeyPassphrase) ?? ""
+        keyReference = try c.decodeIfPresent(String.self, forKey: .keyReference) ?? ""
+        savedAtUnix = try c.decodeIfPresent(Int.self, forKey: .savedAtUnix) ?? Int(Date().timeIntervalSince1970)
+    }
 }
 
 @MainActor
@@ -211,12 +358,67 @@ final class ServerStore: ObservableObject {
         persist()
     }
 
+    func applySyncedServers(_ synced: [ServerEntry]) {
+        guard !synced.isEmpty else { return }
+        var table = Dictionary(uniqueKeysWithValues: servers.map { ($0.id, $0) })
+        for item in synced {
+            table[item.id] = item
+        }
+        servers = table.values.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        if selectedServerID == nil {
+            selectedServerID = servers.first?.id
+        }
+        persist()
+    }
+
     func remove(_ server: ServerEntry) {
         servers.removeAll { $0.id == server.id }
         if selectedServerID == server.id {
             selectedServerID = servers.first?.id
         }
         try? vault.delete(for: server.credentialID)
+        persist()
+    }
+
+    func removeMany(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        let removed = servers.filter { ids.contains($0.id) }
+        servers.removeAll { ids.contains($0.id) }
+        if let selected = selectedServerID, ids.contains(selected) {
+            selectedServerID = servers.first?.id
+        }
+        for item in removed {
+            try? vault.delete(for: item.credentialID)
+        }
+        persist()
+    }
+
+    func renameGroup(from oldName: String, to newName: String) {
+        let trimmedNew = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedNew.isEmpty else { return }
+        let targetOld = oldName == "未分组" ? "" : oldName
+        var changed = false
+        for idx in servers.indices {
+            if servers[idx].displayGroup == oldName || servers[idx].group == targetOld {
+                servers[idx].group = trimmedNew
+                changed = true
+            }
+        }
+        if changed { persist() }
+    }
+
+    func removeGroup(_ groupName: String) {
+        let target = groupName == "未分组" ? "" : groupName
+        let removed = servers.filter { $0.displayGroup == groupName || $0.group == target }
+        guard !removed.isEmpty else { return }
+        let removedIDs = Set(removed.map(\.id))
+        servers.removeAll { removedIDs.contains($0.id) }
+        if let selected = selectedServerID, removedIDs.contains(selected) {
+            selectedServerID = servers.first?.id
+        }
+        for item in removed {
+            try? vault.delete(for: item.credentialID)
+        }
         persist()
     }
 
@@ -243,35 +445,35 @@ final class ServerStore: ObservableObject {
             return
         }
 
-        var migrated = decoded
-        var needsRewrite = false
-
-        // 单次迁移：将旧版明文凭据搬入 Keychain。
-        if !UserDefaults.standard.bool(forKey: migrationFlagKey) {
-            for idx in migrated.indices {
-                let legacyPassword = migrated[idx].legacyPassword?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                let legacyPrivateKey = migrated[idx].legacyPrivateKeyContent?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-                if !legacyPassword.isEmpty || !legacyPrivateKey.isEmpty {
-                    let creds = ServerCredentials(password: legacyPassword, privateKeyContent: legacyPrivateKey)
-                    try? vault.save(creds, for: migrated[idx].credentialID)
-                    needsRewrite = true
-                }
-            }
-            UserDefaults.standard.set(true, forKey: migrationFlagKey)
-        }
-
-        // 只要捕获到旧字段或首次迁移，均重写 defaults，确保彻底抹除明文字段。
-        if migrated.contains(where: { ($0.legacyPassword?.isEmpty == false) || ($0.legacyPrivateKeyContent?.isEmpty == false) }) {
-            needsRewrite = true
-        }
-
+        let migrated = decoded
         servers = migrated
         selectedServerID = migrated.first?.id
+        migrateLegacyCredentialsIfNeeded(migrated)
+    }
 
-        if needsRewrite {
-            UserDefaults.standard.removeObject(forKey: defaultsKey)
-            persist()
+    private func migrateLegacyCredentialsIfNeeded(_ entries: [ServerEntry]) {
+        let requiresMigration = !UserDefaults.standard.bool(forKey: migrationFlagKey) ||
+            entries.contains(where: { ($0.legacyPassword?.isEmpty == false) || ($0.legacyPrivateKeyContent?.isEmpty == false) })
+        guard requiresMigration else { return }
+
+        Task(priority: .background) { [weak self] in
+            guard let self else { return }
+            var migratedAny = false
+            for entry in entries {
+                let legacyPassword = entry.legacyPassword?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let legacyPrivateKey = entry.legacyPrivateKeyContent?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !legacyPassword.isEmpty || !legacyPrivateKey.isEmpty {
+                    let creds = ServerCredentials(password: legacyPassword, privateKeyContent: legacyPrivateKey)
+                    try? self.vault.save(creds, for: entry.credentialID)
+                    migratedAny = true
+                }
+            }
+
+            UserDefaults.standard.set(true, forKey: self.migrationFlagKey)
+            if migratedAny {
+                UserDefaults.standard.removeObject(forKey: self.defaultsKey)
+                self.persist()
+            }
         }
     }
 

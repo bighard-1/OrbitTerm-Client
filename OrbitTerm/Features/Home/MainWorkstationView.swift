@@ -1,5 +1,6 @@
 import SwiftUI
 import Charts
+import UniformTypeIdentifiers
 
 private enum MonitorHistoryRange: String, CaseIterable, Identifiable {
     case realtime = "实时"
@@ -24,15 +25,22 @@ struct MainWorkstationView: View {
 
     @ObservedObject private var sessionManager = SessionManager.shared
     @StateObject private var syncService = SyncService.shared
+    @StateObject private var diagnostics = DiagnosticsManager.shared
+    @StateObject private var snippetStore = SnippetStore.shared
 
     @State private var showingAddServer = false
     @State private var editingServer: ServerEntry?
     @State private var showingAssetManager = false
+    @State private var showingSettings = false
+    @State private var showingBatchCommand = false
     @State private var isLeftPanelCollapsed = false
     @State private var isRightPanelCollapsed = false
+    @State private var showMonitorPanel = true
+    @State private var showSFTPPanel = true
+    @State private var showDockerPanel = true
+    @State private var showSnippetsPanel = true
     @State private var isStressRunning = false
     @State private var stressTask: Task<Void, Never>?
-    @AppStorage("orbitterm.terminal.line_spacing") private var terminalLineSpacing: Double = 2.0
     @State private var showingMonitorDetailPanelID: UUID?
     @State private var pendingSFTPRename: PendingSFTPRename?
     @State private var pendingSFTPRenameText: String = ""
@@ -83,6 +91,18 @@ struct MainWorkstationView: View {
         }
         .navigationTitle("工作站")
         .toolbar {
+#if DEBUG
+            ToolbarItem(placement: .automatic) {
+                DebugFPSBadge()
+            }
+#endif
+            ToolbarItem(placement: .automatic) {
+                if diagnostics.isRetrying {
+                    ProgressView()
+                        .controlSize(.small)
+                        .help("网络重试中")
+                }
+            }
             ToolbarItem(placement: .automatic) {
                 HStack(spacing: 6) {
                     Image(systemName: syncService.lastSyncMessage.contains("失败") ? "arrow.triangle.2.circlepath.circle.fill" : "checkmark.icloud.fill")
@@ -105,6 +125,12 @@ struct MainWorkstationView: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 Button("资产管理") { showingAssetManager = true }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button("批量命令") { showingBatchCommand = true }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button("设置") { showingSettings = true }
             }
             ToolbarItem(placement: .primaryAction) {
                 Button("退出登录") { session.logout() }
@@ -141,6 +167,18 @@ struct MainWorkstationView: View {
                     sessionManager.openTab(for: server, autoConnect: true)
                 }
             )
+        }
+        .sheet(isPresented: $showingSettings) {
+            SettingsView()
+#if os(macOS)
+                .frame(minWidth: 520, minHeight: 480)
+#endif
+        }
+        .sheet(isPresented: $showingBatchCommand) {
+            BatchCommandRunnerView(store: serverStore)
+#if os(macOS)
+                .frame(minWidth: 980, minHeight: 680)
+#endif
         }
         .overlay(alignment: .bottom) {
             if !session.transientStatus.isEmpty {
@@ -385,8 +423,12 @@ struct MainWorkstationView: View {
                 TerminalSessionPane(
                     session: active,
                     sessionManager: sessionManager,
-                    lineSpacing: $terminalLineSpacing,
                     isStressRunning: $isStressRunning,
+                    onSplitStateChanged: { isSplitEnabled in
+                        if isSplitEnabled {
+                            showSFTPPanel = false
+                        }
+                    },
                     onToggleStress: { target in
                         toggleStressTest(for: target)
                     }
@@ -404,7 +446,7 @@ struct MainWorkstationView: View {
     }
 
     private var rightColumn: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("监控 + SFTP")
                     .font(.headline)
@@ -418,32 +460,73 @@ struct MainWorkstationView: View {
                 }
                 .buttonStyle(.borderless)
             }
+            .padding(.horizontal, 12)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
 
-            if let active = sessionManager.activeSession {
-                monitorCard(for: active)
-                if let panelID = showingMonitorDetailPanelID,
-                   panelID == active.activeMonitorPanelID {
-                    MonitorDetailInlineView(
-                        panelID: panelID,
-                        service: sessionManager.monitorService,
-                        onClose: { showingMonitorDetailPanelID = nil }
-                    )
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(alignment: .leading, spacing: 12) {
+                    if let active = sessionManager.activeSession {
+                        if showMonitorPanel {
+                            monitorCard(for: active)
+                            if let panelID = showingMonitorDetailPanelID,
+                               panelID == active.activeMonitorPanelID {
+                                MonitorDetailInlineView(
+                                    panelID: panelID,
+                                    service: sessionManager.monitorService,
+                                    onClose: { showingMonitorDetailPanelID = nil }
+                                )
+                            }
+                        } else {
+                            collapsedFeatureRow(title: "系统监控") { showMonitorPanel = true }
+                        }
+
+                        if active.terminalSplitCount > 0 {
+                            collapsedFeatureRow(title: "SFTP（分屏模式已禁用同步）") { }
+                        } else if showSFTPPanel {
+                            sftpCard(for: active)
+                        } else {
+                            collapsedFeatureRow(title: "SFTP") { showSFTPPanel = true }
+                        }
+
+                        if showDockerPanel {
+                            dockerCard(for: active)
+                        } else {
+                            collapsedFeatureRow(title: "Docker") { showDockerPanel = true }
+                        }
+
+                        if showSnippetsPanel {
+                            snippetsCard(for: active)
+                        } else {
+                            collapsedFeatureRow(title: "Snippets") { showSnippetsPanel = true }
+                        }
+                    } else {
+                        Text("连接终端后自动展示监控与 SFTP")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
                 }
-                sftpCard(for: active)
-                dockerCard(for: active)
-            } else {
-                Text("连接终端后自动展示监控与 SFTP")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
             }
-
-            Spacer(minLength: 0)
         }
-        .padding(12)
         .background(.regularMaterial)
+    }
+
+    private func collapsedFeatureRow(title: String, onShow: @escaping () -> Void) -> some View {
+        HStack {
+            Text("\(title) 已隐藏")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button("显示") { onShow() }
+                .buttonStyle(.bordered)
+        }
+        .padding(10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var collapsedRail: some View {
@@ -468,6 +551,12 @@ struct MainWorkstationView: View {
                 Text("系统监控")
                     .font(.subheadline.weight(.semibold))
                 Spacer()
+                Button {
+                    showMonitorPanel = false
+                } label: {
+                    Image(systemName: "eye.slash")
+                }
+                .buttonStyle(.borderless)
                 Button("查看详情") {
                     if let panelID = active.activeMonitorPanelID {
                         showingMonitorDetailPanelID = panelID
@@ -493,6 +582,8 @@ struct MainWorkstationView: View {
                     metricRow(title: "内存", value: String(format: "%.1f%%", p.memUsedPercent))
                     metricRow(title: "磁盘", value: String(format: "%.1f%%", p.diskUsedPercent))
                     metricRow(title: "延迟", value: p.pingLatencyMs.map { String(format: "%.0fms", $0) } ?? "--")
+                    metricRow(title: "下载", value: formatRate(p.rxRateKBps))
+                    metricRow(title: "上传", value: formatRate(p.txRateKBps))
                 }
             } else {
                 Text("连接终端后自动开始监控")
@@ -510,6 +601,12 @@ struct MainWorkstationView: View {
                 Text("SFTP")
                     .font(.subheadline.weight(.semibold))
                 Spacer()
+                Button {
+                    showSFTPPanel = false
+                } label: {
+                    Image(systemName: "eye.slash")
+                }
+                .buttonStyle(.borderless)
                 Button("刷新") {
                     Task { try? await active.sftpManager.refresh() }
                 }
@@ -535,6 +632,7 @@ struct MainWorkstationView: View {
                             parent = deletingLast.isEmpty ? "/" : deletingLast
                         }
                         await active.sftpManager.goToPath(parent)
+                        await sessionManager.syncTerminalPathFromSFTP(session: active, newPath: active.sftpManager.currentPath)
                     }
                 }
                 .buttonStyle(.bordered)
@@ -544,12 +642,20 @@ struct MainWorkstationView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
+            HStack(spacing: 10) {
+                Text("总计 \(active.sftpManager.items.count)")
+                Text("目录 \(active.sftpManager.items.filter { $0.isDirectory }.count)")
+                Text("文件 \(active.sftpManager.items.filter { !$0.isDirectory }.count)")
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+
             if active.sftpManager.items.isEmpty {
                 Text("连接后自动展示远程文件")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(active.sftpManager.items.prefix(12)) { item in
+                ForEach(active.sftpManager.items) { item in
                     HStack {
                         Image(systemName: item.iconName)
                             .foregroundStyle(item.isDirectory ? .blue : .secondary)
@@ -563,7 +669,10 @@ struct MainWorkstationView: View {
                     .contentShape(Rectangle())
                     .onTapGesture {
                         guard item.isDirectory else { return }
-                        Task { await active.sftpManager.enterDirectory(item) }
+                        Task {
+                            await active.sftpManager.enterDirectory(item)
+                            await sessionManager.syncTerminalPathFromSFTP(session: active, newPath: active.sftpManager.currentPath)
+                        }
                     }
                     .onTapGesture(count: 2) {
                         guard !item.isDirectory else { return }
@@ -572,7 +681,10 @@ struct MainWorkstationView: View {
                     .contextMenu {
                         if item.isDirectory {
                             Button("进入目录") {
-                                Task { await active.sftpManager.enterDirectory(item) }
+                                Task {
+                                    await active.sftpManager.enterDirectory(item)
+                                    await sessionManager.syncTerminalPathFromSFTP(session: active, newPath: active.sftpManager.currentPath)
+                                }
                             }
                         } else {
                             Button("打开并编辑") {
@@ -615,8 +727,17 @@ struct MainWorkstationView: View {
 
     private func dockerCard(for active: WorkspaceSession) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Docker")
-                .font(.subheadline.weight(.semibold))
+            HStack {
+                Text("Docker")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Button {
+                    showDockerPanel = false
+                } label: {
+                    Image(systemName: "eye.slash")
+                }
+                .buttonStyle(.borderless)
+            }
 
             if active.dockerService.isScanning {
                 Text("正在扫描容器...")
@@ -626,8 +747,10 @@ struct MainWorkstationView: View {
                 Text("环境待安装，是否查看一键安装教程？")
                     .font(.caption)
                     .foregroundStyle(.orange)
-                Link("查看 Docker 官方安装文档", destination: URL(string: "https://docs.docker.com/engine/install/")!)
-                    .font(.caption)
+                if let docsURL = URL(string: "https://docs.docker.com/engine/install/") {
+                    Link("查看 Docker 官方安装文档", destination: docsURL)
+                        .font(.caption)
+                }
             } else if active.dockerService.cards.isEmpty {
                 Text(active.dockerService.statusText)
                     .font(.caption)
@@ -641,8 +764,17 @@ struct MainWorkstationView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(card.name).lineLimit(1)
                             Text(card.image).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                            Text(card.isRunning ? "运行中" : "已停止")
+                                .font(.caption2)
+                                .foregroundStyle(card.isRunning ? .green : .red)
                         }
                         Spacer()
+                        Text(card.isRunning ? "运行中" : "已停止")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background((card.isRunning ? Color.green : Color.red).opacity(0.14), in: Capsule())
+                            .foregroundStyle(card.isRunning ? .green : .red)
                         Text(String(format: "CPU %.1f%%", card.cpuPercent))
                             .font(.caption2.monospacedDigit())
                             .foregroundStyle(.secondary)
@@ -674,6 +806,38 @@ struct MainWorkstationView: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
+    private func snippetsCard(for active: WorkspaceSession) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Snippets")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Button {
+                    showSnippetsPanel = false
+                } label: {
+                    Image(systemName: "eye.slash")
+                }
+                .buttonStyle(.borderless)
+            }
+
+            SnippetsPanelView(
+                snippetStore: snippetStore,
+                session: active,
+                onInsertCommand: { command, executeImmediately in
+                    Task {
+                        await sessionManager.dispatchSnippetCommand(
+                            session: active,
+                            command: command,
+                            executeImmediately: executeImmediately
+                        )
+                    }
+                }
+            )
+        }
+        .padding(10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
     private func metricRow(title: String, value: String) -> some View {
         HStack {
             Text(title)
@@ -682,6 +846,13 @@ struct MainWorkstationView: View {
                 .monospacedDigit()
         }
         .font(.caption)
+    }
+
+    private func formatRate(_ kbps: Double) -> String {
+        if kbps >= 1024 {
+            return String(format: "%.2f MB/s", kbps / 1024.0)
+        }
+        return String(format: "%.0f KB/s", kbps)
     }
 
     private func desktopURL(fileName: String) -> URL {
@@ -822,12 +993,26 @@ private struct PendingSFTPFileEdit: Identifiable {
     var id: String { "\(sessionID.uuidString)::\(item.id)" }
 }
 
+private struct TerminalDropToast: Identifiable {
+    let id = UUID()
+    let message: String
+    let progress: Double?
+    let isError: Bool
+}
+
 private struct TerminalSessionPane: View {
     @ObservedObject var session: WorkspaceSession
     @ObservedObject var sessionManager: SessionManager
-    @Binding var lineSpacing: Double
     @Binding var isStressRunning: Bool
+    let onSplitStateChanged: (Bool) -> Void
     let onToggleStress: (WorkspaceSession) -> Void
+    @State private var isDropTargeted = false
+    @State private var uploadToast: TerminalDropToast?
+    @State private var showSearchOverlay = false
+    @State private var searchText = ""
+    @State private var searchCommand: TerminalSearchCommand?
+    @State private var searchStatusText = ""
+    @FocusState private var isSearchFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -835,6 +1020,27 @@ private struct TerminalSessionPane: View {
                 Text("终端会话")
                     .font(.headline)
                 Spacer()
+#if os(macOS)
+                Button("分屏 +") {
+                    Task { @MainActor in
+                        session.terminalSplitCount = min(3, session.terminalSplitCount + 1)
+                        onSplitStateChanged(session.terminalSplitCount > 0)
+                        await sessionManager.ensureTerminalSplitChannels(session: session)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(session.terminalSplitCount >= 3)
+
+                Button("合并 -") {
+                    Task { @MainActor in
+                        session.terminalSplitCount = max(0, session.terminalSplitCount - 1)
+                        onSplitStateChanged(session.terminalSplitCount > 0)
+                        await sessionManager.ensureTerminalSplitChannels(session: session)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(session.terminalSplitCount <= 0)
+#endif
 
                 Button("测试连接") {
                     Task { await sessionManager.testConnection(session: session) }
@@ -856,16 +1062,6 @@ private struct TerminalSessionPane: View {
                 .buttonStyle(.bordered)
             }
 
-            HStack(spacing: 10) {
-                Text("行距")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Slider(value: $lineSpacing, in: 0...8)
-                Text(String(format: "%.1f", lineSpacing))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-
             VStack(alignment: .leading, spacing: 4) {
                 Text(session.server.name)
                     .font(.title3.weight(.semibold))
@@ -874,74 +1070,303 @@ private struct TerminalSessionPane: View {
                     .foregroundStyle(.secondary)
             }
 
-            GeometryReader { geo in
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 2) {
-                            ForEach(Array(session.terminalLines.enumerated()), id: \.offset) { index, line in
-                                Text(line.isEmpty ? " " : line)
-                                    .font(.system(.body, design: .monospaced))
-                                    .lineSpacing(lineSpacing)
-                                    .textSelection(.enabled)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .id("line-\(session.id)-\(index)")
-                            }
-                            Color.clear
-                                .frame(height: 1)
-                                .id("terminal-bottom-\(session.id)")
-                        }
-                        .padding(12)
+            if showSearchOverlay {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("搜索终端历史", text: $searchText)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($isSearchFocused)
+                        .onSubmit { triggerSearch(.next) }
+
+                    Button {
+                        triggerSearch(.previous)
+                    } label: {
+                        Image(systemName: "chevron.up")
                     }
-                    .onAppear {
-                        proxy.scrollTo("terminal-bottom-\(session.id)", anchor: .bottom)
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        triggerSearch(.next)
+                    } label: {
+                        Image(systemName: "chevron.down")
                     }
-                    .onChange(of: session.terminalLines.count) { _, _ in
-                        withAnimation(.easeOut(duration: 0.12)) {
-                            proxy.scrollTo("terminal-bottom-\(session.id)", anchor: .bottom)
-                        }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        searchText = ""
+                        triggerSearch(.clear)
+                    } label: {
+                        Image(systemName: "xmark.circle")
                     }
+                    .buttonStyle(.bordered)
+
+                    Button("关闭") {
+                        showSearchOverlay = false
+                        searchStatusText = ""
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.black.opacity(0.88), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .foregroundStyle(Color.green)
-                .onAppear {
-                    Task {
-                        let cols = Int(max(geo.size.width / 8.2, 40))
-                        let rows = Int(max(geo.size.height / 18.0, 12))
-                        await sessionManager.resizeTerminal(session: session, cols: cols, rows: rows)
-                    }
-                }
-                .onChange(of: geo.size) { _, newSize in
-                    Task {
-                        let cols = Int(max(newSize.width / 8.2, 40))
-                        let rows = Int(max(newSize.height / 18.0, 12))
-                        await sessionManager.resizeTerminal(session: session, cols: cols, rows: rows)
-                    }
+
+                if !searchStatusText.isEmpty {
+                    Text(searchStatusText)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
 
-            HStack(spacing: 8) {
-                TextField(
-                    "输入命令后回车（真实 PTY）",
-                    text: Binding(
-                        get: { session.terminalInput },
-                        set: { session.terminalInput = $0 }
+            terminalSplitLayout
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(
+                        isDropTargeted ? Color.blue.opacity(0.72) : Color.secondary.opacity(0.12),
+                        style: StrokeStyle(lineWidth: isDropTargeted ? 2 : 1, dash: isDropTargeted ? [7, 5] : [])
                     )
-                )
-                .textFieldStyle(.roundedBorder)
-                .onSubmit {
-                    Task { await sessionManager.sendTerminalInput(session: session) }
+            )
+            .overlay(alignment: .bottomTrailing) {
+                if let toast = uploadToast {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Image(systemName: toast.isError ? "exclamationmark.triangle.fill" : "arrow.up.circle.fill")
+                                .foregroundStyle(toast.isError ? .orange : .blue)
+                            Text(toast.message)
+                                .font(.caption)
+                                .lineLimit(1)
+                        }
+                        if let progress = toast.progress {
+                            ProgressView(value: progress)
+                                .frame(width: 180)
+                        } else {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
+                    .padding(10)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(Color.secondary.opacity(0.14), lineWidth: 1)
+                    )
+                    .padding(10)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
-                Button("发送") {
-                    Task { await sessionManager.sendTerminalInput(session: session) }
+            }
+            .animation(.easeInOut(duration: 0.2), value: isDropTargeted)
+            .onAppear {
+                Task {
+                    onSplitStateChanged(session.terminalSplitCount > 0)
+                    await sessionManager.ensureTerminalSplitChannels(session: session)
+                    await sessionManager.resizeTerminal(session: session, cols: 120, rows: 36)
                 }
-                .buttonStyle(.borderedProminent)
+            }
+            .overlay(alignment: .topLeading) {
+#if os(macOS)
+                Button("") {
+                    showSearchOverlay = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        isSearchFocused = true
+                    }
+                }
+                .keyboardShortcut("f", modifiers: .command)
+                .opacity(0.001)
+                .frame(width: 1, height: 1)
+#endif
+            }
+            .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
+                handleTerminalDrop(providers: providers)
             }
 
             Text("状态：\(session.terminalStatus)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private func triggerSearch(_ action: TerminalSearchAction) {
+        searchCommand = TerminalSearchCommand(action: action)
+    }
+
+    private func handleTerminalDrop(providers: [NSItemProvider]) -> Bool {
+        guard session.isConnected, session.sftpManager.isConnected, !session.sftpManager.isUsingMockData else {
+            return false
+        }
+        let accepted = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
+        guard !accepted.isEmpty else { return false }
+
+        for provider in accepted {
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                guard let url = resolveDropURL(item: item) else { return }
+                Task { @MainActor in
+                    await uploadDroppedFile(url)
+                }
+            }
+        }
+        return true
+    }
+
+    private func resolveDropURL(item: NSSecureCoding?) -> URL? {
+        if let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil) {
+            return url
+        }
+        if let url = item as? URL {
+            return url
+        }
+        if let str = item as? String, let url = URL(string: str), url.isFileURL {
+            return url
+        }
+        return nil
+    }
+
+    @MainActor
+    private func uploadDroppedFile(_ localURL: URL) async {
+        guard session.isConnected, session.sftpManager.isConnected, !session.sftpManager.isUsingMockData else {
+            return
+        }
+
+        let remotePath = remoteUploadPath(fileName: localURL.lastPathComponent)
+        withAnimation(.easeInOut(duration: 0.18)) {
+            uploadToast = TerminalDropToast(message: "正在上传 \(localURL.lastPathComponent)", progress: 0, isError: false)
+        }
+
+        await session.sftpManager.upload(localURL: localURL, remotePath: remotePath) { progress in
+            Task { @MainActor in
+                uploadToast = TerminalDropToast(message: "正在上传 \(localURL.lastPathComponent)", progress: progress, isError: false)
+            }
+        }
+
+        let latestTask = session.sftpManager.transfers.first(where: {
+            $0.fileName == localURL.lastPathComponent && $0.direction == .upload
+        })
+        let failed = latestTask?.statusText.contains("失败") ?? false
+
+        if failed {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                uploadToast = TerminalDropToast(message: latestTask?.statusText ?? "上传失败", progress: 1, isError: true)
+            }
+            dismissUploadToastLater()
+            return
+        }
+
+        let pathLiteral = shellPathLiteral(remotePath)
+        await sessionManager.sendTerminalBytes(session: session, bytes: Array(pathLiteral.utf8))
+        withAnimation(.easeInOut(duration: 0.18)) {
+            uploadToast = TerminalDropToast(message: "上传完成，已写入路径", progress: 1, isError: false)
+        }
+        dismissUploadToastLater()
+    }
+
+    private func remoteUploadPath(fileName: String) -> String {
+        let current = session.sftpManager.currentPath
+        if current == "/" { return "/\(fileName)" }
+        return "\(current)/\(fileName)"
+    }
+
+    private func shellPathLiteral(_ path: String) -> String {
+        if path.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+           !path.contains("'"),
+           !path.contains("\"") {
+            return path
+        }
+        return "'" + path.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    private func dismissUploadToastLater() {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            withAnimation(.easeInOut(duration: 0.2)) {
+                uploadToast = nil
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var terminalSplitLayout: some View {
+        #if os(macOS)
+        switch session.terminalSplitCount {
+        case 0:
+            terminalPane(index: 0)
+        case 1:
+            VStack(spacing: 8) {
+                terminalPane(index: 0)
+                terminalPane(index: 1)
+            }
+        case 2:
+            VStack(spacing: 8) {
+                terminalPane(index: 0)
+                HStack(spacing: 8) {
+                    terminalPane(index: 1)
+                    terminalPane(index: 2)
+                }
+            }
+        default:
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    terminalPane(index: 0)
+                    terminalPane(index: 1)
+                }
+                HStack(spacing: 8) {
+                    terminalPane(index: 2)
+                    terminalPane(index: 3)
+                }
+            }
+        }
+        #else
+        terminalPane(index: 0)
+        #endif
+    }
+
+    private func terminalPane(index: Int) -> some View {
+        let paneChannelID = paneChannel(for: index)
+        return SwiftTermTerminalView(
+            channelID: paneChannelID,
+            onResize: { cols, rows in
+                guard let paneChannelID else { return }
+                Task { await sessionManager.resizeTerminal(session: session, cols: cols, rows: rows, channelID: paneChannelID) }
+            },
+            onInput: { bytes in
+                guard let paneChannelID else { return }
+                Task { @MainActor in
+                    session.activeTerminalPaneIndex = index
+                    await sessionManager.sendTerminalBytes(session: session, bytes: bytes, channelID: paneChannelID)
+                }
+            },
+            searchText: searchText,
+            searchCommand: searchCommand,
+            onSearchFeedback: { found, action in
+                switch action {
+                case .clear:
+                    searchStatusText = "已清除搜索高亮"
+                case .next, .previous:
+                    searchStatusText = found ? "已定位匹配项" : "未找到匹配项"
+                }
+            }
+        )
+        .id("terminal-pane-\(session.id.uuidString)-\(index)-\(paneChannelID ?? 0)")
+        .onTapGesture {
+            session.activeTerminalPaneIndex = index
+        }
+        .overlay(alignment: .topTrailing) {
+            #if os(macOS)
+            Text("分屏 \(index + 1)\(session.activeTerminalPaneIndex == index ? " · 当前" : "")")
+                    .font(.caption2)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(6)
+            #endif
+        }
+    }
+
+    private func paneChannel(for index: Int) -> UInt64? {
+        if index < session.terminalChannelIDs.count {
+            return session.terminalChannelIDs[index]
+        }
+        if index == 0 {
+            return session.terminalChannelID
+        }
+        return nil
     }
 }
 
@@ -977,6 +1402,8 @@ private struct MonitorDetailInlineView: View {
                 chartCard(title: "内存", points: filtered(panel.points), value: \.memUsedPercent, tint: .green, domain: 0...100, percent: true)
                 chartCard(title: "磁盘", points: filtered(panel.points), value: \.diskUsedPercent, tint: .orange, domain: 0...100, percent: true)
                 chartCard(title: "延迟", points: filtered(panel.points), value: { $0.pingLatencyMs ?? 0 }, tint: .purple, domain: 0...300, percent: false)
+                chartCard(title: "下载速率", points: filtered(panel.points), value: \.rxRateKBps, tint: .cyan, domain: 0...rateUpperBound(filtered(panel.points), keyPath: \.rxRateKBps), percent: false, unit: "KB/s")
+                chartCard(title: "上传速率", points: filtered(panel.points), value: \.txRateKBps, tint: .mint, domain: 0...rateUpperBound(filtered(panel.points), keyPath: \.txRateKBps), percent: false, unit: "KB/s")
             } else {
                 ContentUnavailableView("暂无监控数据", systemImage: "chart.line.uptrend.xyaxis")
             }
@@ -997,13 +1424,14 @@ private struct MonitorDetailInlineView: View {
         value: @escaping (MonitorPoint) -> Double,
         tint: Color,
         domain: ClosedRange<Double>,
-        percent: Bool
+        percent: Bool,
+        unit: String = "ms"
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.subheadline.weight(.semibold))
             if let latest = points.last {
-                Text(percent ? String(format: "%.1f%%", value(latest)) : String(format: "%.1f ms", value(latest)))
+                Text(percent ? String(format: "%.1f%%", value(latest)) : String(format: "%.1f %@", value(latest), unit))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1021,12 +1449,16 @@ private struct MonitorDetailInlineView: View {
         .padding(10)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
+
+    private func rateUpperBound(_ points: [MonitorPoint], keyPath: KeyPath<MonitorPoint, Double>) -> Double {
+        let maxValue = points.map { $0[keyPath: keyPath] }.max() ?? 100
+        return max(100, ceil(maxValue * 1.25))
+    }
 }
 
 struct DetachedSessionWindowView: View {
     let sessionID: UUID
     @ObservedObject private var sessionManager = SessionManager.shared
-    @AppStorage("orbitterm.terminal.line_spacing") private var terminalLineSpacing: Double = 2.0
 
     var body: some View {
         Group {
@@ -1042,19 +1474,19 @@ struct DetachedSessionWindowView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 2) {
-                            ForEach(Array(session.terminalLines.enumerated()), id: \.offset) { _, line in
-                                Text(line.isEmpty ? " " : line)
-                                    .font(.system(.body, design: .monospaced))
-                                    .lineSpacing(terminalLineSpacing)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
-                        .padding(12)
-                    }
-                    .background(Color.black.opacity(0.88), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .foregroundStyle(.green)
+                    SwiftTermTerminalView(
+                        channelID: session.terminalChannelID,
+                        onResize: { cols, rows in
+                            Task { await sessionManager.resizeTerminal(session: session, cols: cols, rows: rows) }
+                        },
+                        onInput: { bytes in
+                            Task { await sessionManager.sendTerminalBytes(session: session, bytes: bytes) }
+                        },
+                        searchText: "",
+                        searchCommand: nil,
+                        onSearchFeedback: { _, _ in }
+                    )
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .padding(12)
             } else {
@@ -1064,3 +1496,303 @@ struct DetachedSessionWindowView: View {
         .frame(minWidth: 760, minHeight: 520)
     }
 }
+
+private struct BatchCommandReceipt: Identifiable {
+    let id = UUID()
+    let serverName: String
+    let endpoint: String
+    let durationMs: Int
+    let success: Bool
+    let output: String
+}
+
+private struct BatchCommandRunnerView: View {
+    @ObservedObject var store: ServerStore
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var selectedServerIDs: Set<UUID> = []
+    @State private var selectedGroups: Set<String> = []
+    @State private var commandText = ""
+    @State private var isRunning = false
+    @State private var receipts: [BatchCommandReceipt] = []
+    @State private var summaryText = "请选择资产或分组，然后输入命令执行。"
+
+    private let vault = CredentialVault.shared
+    private let orbit = OrbitManager()
+
+    var body: some View {
+        NavigationStack {
+            HStack(spacing: 0) {
+                selectionPane
+                    .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
+                Divider()
+                commandPane
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .navigationTitle("多资产命令执行")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("执行命令") {
+                        Task { await runBatchCommand() }
+                    }
+                    .disabled(isRunning || commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || effectiveTargets.isEmpty)
+                }
+            }
+        }
+    }
+
+    private var selectionPane: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("选择分组")
+                .font(.headline)
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+
+            if store.groupedServers.isEmpty {
+                Text("暂无分组")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(store.groupedServers, id: \.group) { section in
+                            let isOn = selectedGroups.contains(section.group)
+                            Button {
+                                if isOn {
+                                    selectedGroups.remove(section.group)
+                                } else {
+                                    selectedGroups.insert(section.group)
+                                }
+                            } label: {
+                                HStack {
+                                    Image(systemName: isOn ? "checkmark.square.fill" : "square")
+                                    Text("\(section.group) (\(section.items.count))")
+                                    Spacer()
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                }
+            }
+
+            Divider().padding(.vertical, 4)
+
+            Text("选择资产")
+                .font(.headline)
+                .padding(.horizontal, 12)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(store.servers) { server in
+                        let isOn = selectedServerIDs.contains(server.id)
+                        Button {
+                            if isOn {
+                                selectedServerIDs.remove(server.id)
+                            } else {
+                                selectedServerIDs.insert(server.id)
+                            }
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(server.name).lineLimit(1)
+                                    Text("\(server.displayGroup) · \(server.endpointText)")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
+            }
+        }
+    }
+
+    private var commandPane: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("目标数量：\(effectiveTargets.count)")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            TextEditor(text: $commandText)
+                .font(.system(.body, design: .monospaced))
+                .frame(minHeight: 120)
+                .padding(8)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.14), lineWidth: 1)
+                )
+
+            HStack {
+                if isRunning {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                Text(summaryText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+
+            List(receipts) { item in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text(item.serverName)
+                            .font(.headline)
+                        Text(item.endpoint)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(item.success ? "成功" : "失败")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background((item.success ? Color.green : Color.red).opacity(0.14), in: Capsule())
+                            .foregroundStyle(item.success ? .green : .red)
+                        Text("\(item.durationMs)ms")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    ScrollView(.vertical) {
+                        Text(item.output.isEmpty ? "(无输出)" : item.output)
+                            .font(.system(.caption, design: .monospaced))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 120)
+                    .padding(8)
+                    .background(Color.black.opacity(0.88), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .foregroundStyle(.green)
+                }
+                .padding(.vertical, 4)
+            }
+            .listStyle(.inset)
+        }
+        .padding(14)
+    }
+
+    private var effectiveTargets: [ServerEntry] {
+        store.servers.filter {
+            selectedServerIDs.contains($0.id) || selectedGroups.contains($0.displayGroup)
+        }
+    }
+
+    private func runBatchCommand() async {
+        let command = commandText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !command.isEmpty else { return }
+        let targets = effectiveTargets
+        guard !targets.isEmpty else { return }
+
+        isRunning = true
+        receipts = []
+        summaryText = "正在并发执行：\(targets.count) 台资产..."
+
+        await withTaskGroup(of: BatchCommandReceipt.self) { group in
+            for server in targets {
+                group.addTask {
+                    let start = Date()
+                    do {
+                        guard let credentials = try self.vault.read(for: server.credentialID),
+                              !credentials.isEmpty else {
+                            throw OrbitManagerError.invalidInput("凭据不存在")
+                        }
+                        let output = try await self.orbit.executeRemoteCommandAsync(
+                            ip: server.host,
+                            port: server.port,
+                            username: server.username,
+                            password: credentials.password,
+                            privateKeyContent: credentials.privateKeyContent,
+                            privateKeyPassphrase: credentials.privateKeyPassphrase,
+                            allowPasswordFallback: server.allowPasswordFallback,
+                            command: command
+                        )
+                        let ms = Int(Date().timeIntervalSince(start) * 1000)
+                        return BatchCommandReceipt(
+                            serverName: server.name,
+                            endpoint: server.endpointText,
+                            durationMs: ms,
+                            success: true,
+                            output: output
+                        )
+                    } catch {
+                        let ms = Int(Date().timeIntervalSince(start) * 1000)
+                        return BatchCommandReceipt(
+                            serverName: server.name,
+                            endpoint: server.endpointText,
+                            durationMs: ms,
+                            success: false,
+                            output: error.localizedDescription
+                        )
+                    }
+                }
+            }
+
+            for await receipt in group {
+                receipts.append(receipt)
+                receipts.sort { $0.serverName.localizedCaseInsensitiveCompare($1.serverName) == .orderedAscending }
+            }
+        }
+
+        let okCount = receipts.filter(\.success).count
+        summaryText = "执行完成：成功 \(okCount) / \(receipts.count)"
+        isRunning = false
+    }
+}
+
+#if DEBUG
+private struct DebugFPSBadge: View {
+    @StateObject private var meter = DebugFPSMeter()
+
+    var body: some View {
+        Text(String(format: "FPS %.0f", meter.fps))
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(meter.fps >= 50 ? Color.secondary : (meter.fps >= 30 ? Color.orange : Color.red))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.ultraThinMaterial, in: Capsule())
+            .help("渲染帧率采样（Debug）")
+            .onAppear { meter.start() }
+            .onDisappear { meter.stop() }
+    }
+}
+
+private final class DebugFPSMeter: ObservableObject {
+    @Published var fps: Double = 0
+    private var timer: Timer?
+    private var frameCount = 0
+    private var lastSample = Date()
+
+    func start() {
+        guard timer == nil else { return }
+        lastSample = Date()
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                self.frameCount += 1
+                let now = Date()
+                let elapsed = now.timeIntervalSince(self.lastSample)
+                guard elapsed >= 1 else { return }
+                self.fps = Double(self.frameCount) / elapsed
+                self.frameCount = 0
+                self.lastSample = now
+            }
+        }
+        RunLoop.main.add(timer!, forMode: .common)
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+    }
+}
+#endif

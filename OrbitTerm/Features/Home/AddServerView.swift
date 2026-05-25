@@ -20,6 +20,7 @@ struct AddServerView: View {
 
     @ObservedObject var store: ServerStore
     var editingServer: ServerEntry? = nil
+    var prefill: ServerAddPrefill? = nil
     var onSaveAndConnect: (ServerEntry) -> Void
 
     @StateObject private var syncService = SyncService.shared
@@ -31,6 +32,8 @@ struct AddServerView: View {
     @State private var portText: String = "22"
     @State private var username: String = ""
     @State private var authMethod: ServerAuthMethod = .password
+    @State private var transport: ServerTransportProtocol = .ssh
+    @State private var networkDeviceProfile: NetworkDeviceProfile = .auto
     @State private var allowPasswordFallback = true
     @State private var password: String = ""
     @State private var privateKeyContent: String = ""
@@ -41,12 +44,14 @@ struct AddServerView: View {
 
     @State private var isTestingConnection = false
     @State private var isSaving = false
+    @AppStorage("orbitterm.enable.telnet") private var telnetEnabled: Bool = true
     @State private var testStatus = "尚未测试"
     @State private var isConnectionVerified = false
 
     @State private var showAdvanced = false
     @State private var testTimeoutSec = 8
     @State private var didLoadEditingServer = false
+    @State private var didApplyPrefill = false
 
     private let vault = CredentialVault.shared
 
@@ -70,86 +75,7 @@ struct AddServerView: View {
                             }
                         }
 
-                        sectionCard(title: "认证") {
-                            formRow(icon: "person.fill", title: "用户名") {
-                                inputField("例如：root", text: $username)
-                            }
-                            formRow(icon: "switch.2", title: "认证方式") {
-                                Picker("认证方式", selection: $authMethod) {
-                                    ForEach(ServerAuthMethod.allCases) { method in
-                                        Text(method.displayName).tag(method)
-                                    }
-                                }
-                                .labelsHidden()
-                                .pickerStyle(.segmented)
-                            }
-
-                            formRow(icon: "lock.fill", title: "密码") {
-                                secureInputField("可选：SSH 密码", text: $password)
-                            }
-
-                            formRow(icon: "switch.2", title: "密钥输入") {
-                                Picker("密钥输入", selection: $keyInputMode) {
-                                    ForEach(KeyInputMode.allCases) { mode in
-                                        Text(mode.title).tag(mode)
-                                    }
-                                }
-                                .labelsHidden()
-                                .pickerStyle(.segmented)
-                            }
-
-                            formRow(icon: "key.fill", title: "私钥内容") {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    if keyInputMode == .file {
-                                        Button {
-                                            showKeyFileImporter = true
-                                        } label: {
-                                            HStack(spacing: 8) {
-                                                Image(systemName: "doc.badge.plus")
-                                                Text(selectedKeyFileName.isEmpty ? "选择私钥文件" : selectedKeyFileName)
-                                                    .lineLimit(1)
-                                            }
-                                        }
-                                        .buttonStyle(.bordered)
-                                    }
-
-                                    TextEditor(text: $privateKeyContent)
-                                        .font(.system(.caption, design: .monospaced))
-                                        .frame(minHeight: 120, maxHeight: 180)
-                                        .padding(6)
-                                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-
-                                    Text(privateKeyValidationMessage)
-                                        .font(.caption)
-                                        .foregroundStyle(privateKeyValidationColor)
-                                }
-                            }
-
-                            formRow(icon: "lock.shield.fill", title: "私钥口令") {
-                                secureInputField("可选：用于解密受保护私钥", text: $privateKeyPassphrase)
-                            }
-
-                            formRow(icon: "shield.lefthalf.filled", title: "登录策略") {
-                                Toggle(
-                                    "仅允许密钥登录",
-                                    isOn: Binding(
-                                        get: { !allowPasswordFallback },
-                                        set: { allowPasswordFallback = !$0 }
-                                    )
-                                )
-                                .toggleStyle(.switch)
-                            }
-
-                            if !allowPasswordFallback {
-                                Text("已开启仅密钥模式：连接时将强制跳过密码认证。")
-                                    .font(.caption)
-                                    .foregroundStyle(.orange)
-                            }
-
-                            Text("支持 OPENSSH/PEM 私钥。密码、私钥内容与口令仅存储在系统钥匙串。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                        authSection
 
                         if authMethod == .password && password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             Text("当前首选密码认证，请填写密码。")
@@ -157,7 +83,7 @@ struct AddServerView: View {
                                 .foregroundStyle(.secondary)
                         }
 
-                        if authMethod == .key && !hasValidPrivateKey {
+                        if transport == .ssh && authMethod == .key && !hasValidPrivateKey {
                             Text("当前首选密钥认证，请提供有效私钥。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -176,6 +102,7 @@ struct AddServerView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 14)
                 }
+                .scrollDismissesKeyboard(.interactively)
                 .font(.system(.body, design: .rounded))
 
                 statusBar
@@ -227,12 +154,17 @@ struct AddServerView: View {
                 invalidateVerification()
             }
             .onChange(of: authMethod) { _, _ in invalidateVerification() }
+            .onChange(of: transport) { _, newValue in
+                handleTransportChange(newValue)
+            }
+            .onChange(of: networkDeviceProfile) { _, _ in invalidateVerification() }
             .onChange(of: password) { _, _ in invalidateVerification() }
             .onChange(of: privateKeyContent) { _, _ in invalidateVerification() }
             .onChange(of: privateKeyPassphrase) { _, _ in invalidateVerification() }
+            .applyKeyboardDismissToolbar()
             .onChange(of: allowPasswordFallback) { _, _ in invalidateVerification() }
             .task {
-                await loadEditingServerIfNeeded()
+                await initialLoad()
             }
         }
         .fileImporter(
@@ -240,15 +172,187 @@ struct AddServerView: View {
             allowedContentTypes: [.data, .plainText, .text],
             allowsMultipleSelection: false
         ) { result in
-            guard keyInputMode == .file else { return }
-            switch result {
-            case let .success(urls):
-                guard let url = urls.first else { return }
-                selectedKeyFileName = url.lastPathComponent
-                loadPrivateKeyFile(url)
-            case let .failure(error):
-                testStatus = "私钥文件读取失败: \(error.localizedDescription)"
+            handleKeyFileImport(result)
+        }
+    }
+
+    private func handleTransportChange(_ newValue: ServerTransportProtocol) {
+        if newValue == .telnet {
+            if portText == "22" {
+                portText = "23"
             }
+            authMethod = .password
+        } else if portText == "23" {
+            portText = "22"
+        }
+        invalidateVerification()
+    }
+
+    private func initialLoad() async {
+        applyPrefillIfNeeded()
+        await loadEditingServerIfNeeded()
+        if !telnetEnabled, transport == .telnet {
+            transport = .ssh
+            if portText == "23" {
+                portText = "22"
+            }
+        }
+    }
+
+    private func handleKeyFileImport(_ result: Result<[URL], Error>) {
+        guard keyInputMode == .file else { return }
+        switch result {
+        case let .success(urls):
+            guard let url = urls.first else { return }
+            selectedKeyFileName = url.lastPathComponent
+            loadPrivateKeyFile(url)
+        case let .failure(error):
+            testStatus = "私钥文件读取失败: \(error.localizedDescription)"
+        }
+    }
+
+    private var authSection: some View {
+        sectionCard(title: "认证") {
+            formRow(icon: "person.fill", title: "用户名") {
+                inputField("例如：root", text: $username)
+            }
+
+            formRow(icon: "switch.2", title: "认证方式") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Picker("认证方式", selection: $authMethod) {
+                        ForEach(ServerAuthMethod.allCases) { method in
+                            Text(method.displayName).tag(method)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .disabled(transport == .telnet)
+
+                    if transport == .telnet {
+                        Text("Telnet 使用文本提示符自动登录，认证方式固定为密码。")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            formRow(icon: "network", title: "传输协议") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Picker("传输协议", selection: $transport) {
+                        ForEach(ServerTransportProtocol.allCases) { proto in
+                            Text(proto.displayName).tag(proto)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .disabled(!telnetEnabled)
+
+                    if !telnetEnabled {
+                        Text("Telnet 已在设置中禁用，仅可使用 SSH。")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            if transport == .telnet {
+                telnetProfileSection
+            }
+
+            formRow(icon: "lock.fill", title: "密码") {
+                secureInputField(transport == .telnet ? "用于自动应答 Password 提示" : "可选：SSH 密码", text: $password)
+            }
+
+            if transport == .ssh {
+                sshCredentialOptions
+            } else {
+                Text("Telnet 密码仅存储在系统钥匙串，连接时用于自动应答设备登录提示符。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var telnetProfileSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            formRow(icon: "switch.2", title: "设备模板") {
+                Picker("设备模板", selection: $networkDeviceProfile) {
+                    ForEach(NetworkDeviceProfile.allCases) { profile in
+                        Text(profile.displayName).tag(profile)
+                    }
+                }
+                .labelsHidden()
+            }
+
+            Text("Telnet 无标准认证协议，OrbitTerm 会根据模板识别 Username/Password 等提示符并自动应答。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var sshCredentialOptions: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            formRow(icon: "switch.2", title: "密钥输入") {
+                Picker("密钥输入", selection: $keyInputMode) {
+                    ForEach(KeyInputMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+            }
+
+            formRow(icon: "key.fill", title: "私钥内容") {
+                VStack(alignment: .leading, spacing: 8) {
+                    if keyInputMode == .file {
+                        Button {
+                            showKeyFileImporter = true
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "doc.badge.plus")
+                                Text(selectedKeyFileName.isEmpty ? "选择私钥文件" : selectedKeyFileName)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
+                    TextEditor(text: $privateKeyContent)
+                        .font(.system(.caption, design: .monospaced))
+                        .frame(minHeight: 120, maxHeight: 180)
+                        .padding(6)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                    Text(privateKeyValidationMessage)
+                        .font(.caption)
+                        .foregroundStyle(privateKeyValidationColor)
+                }
+            }
+
+            formRow(icon: "lock.shield.fill", title: "私钥口令") {
+                secureInputField("可选：用于解密受保护私钥", text: $privateKeyPassphrase)
+            }
+
+            formRow(icon: "shield.lefthalf.filled", title: "登录策略") {
+                Toggle(
+                    "仅允许密钥登录",
+                    isOn: Binding(
+                        get: { !allowPasswordFallback },
+                        set: { allowPasswordFallback = !$0 }
+                    )
+                )
+                .toggleStyle(.switch)
+            }
+
+            if !allowPasswordFallback {
+                Text("已开启仅密钥模式：连接时将强制跳过密码认证。")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+
+            Text("支持 OPENSSH/PEM 私钥。密码、私钥内容与口令仅存储在系统钥匙串。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -342,6 +446,9 @@ struct AddServerView: View {
             !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
         guard baseValid else { return false }
+        if transport == .telnet {
+            return !password.isEmpty
+        }
         if !allowPasswordFallback && !hasValidPrivateKey {
             return false
         }
@@ -371,6 +478,9 @@ struct AddServerView: View {
         let baseReady = !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         guard baseReady else { return false }
+        if transport == .telnet {
+            return !password.isEmpty
+        }
 
         if !allowPasswordFallback {
             return hasValidPrivateKey
@@ -421,6 +531,25 @@ struct AddServerView: View {
         isTestingConnection = true
         defer { isTestingConnection = false }
 
+        if transport == .telnet {
+            let probe = TelnetClient(host: host, port: parsedPort ?? 23)
+            let autoLogin = TelnetClient.AutoLoginConfig(
+                username: username,
+                password: password,
+                profile: networkDeviceProfile
+            )
+            let ok = await probe.connect(autoLogin: autoLogin, onData: { _ in }, onState: { _ in })
+            await probe.disconnect()
+            if ok {
+                testStatus = autoLogin.isEnabled ? "连接测试成功 (Telnet，已尝试自动登录)" : "连接测试成功 (Telnet 端口可达)"
+                isConnectionVerified = true
+            } else {
+                testStatus = "连接测试失败: Telnet 端口不可达"
+                isConnectionVerified = false
+            }
+            return
+        }
+
         do {
             let result = try await withThrowingTaskGroup(of: String.self) { group in
                 let keyContent = privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -468,8 +597,8 @@ struct AddServerView: View {
 
         let credentials = ServerCredentials(
             password: password,
-            privateKeyContent: privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines),
-            privateKeyPassphrase: privateKeyPassphrase
+            privateKeyContent: transport == .ssh ? privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines) : "",
+            privateKeyPassphrase: transport == .ssh ? privateKeyPassphrase : ""
         )
 
         let server: ServerEntry
@@ -481,8 +610,10 @@ struct AddServerView: View {
                 host: host.trimmingCharacters(in: .whitespacesAndNewlines),
                 port: parsedPort ?? 22,
                 username: username.trimmingCharacters(in: .whitespacesAndNewlines),
-                authMethod: authMethod,
-                allowPasswordFallback: allowPasswordFallback,
+                authMethod: transport == .telnet ? .password : authMethod,
+                transport: transport,
+                networkDeviceProfile: networkDeviceProfile,
+                allowPasswordFallback: transport == .telnet ? true : allowPasswordFallback,
                 credentialID: existing.credentialID,
                 createdAt: existing.createdAt
             )
@@ -493,8 +624,10 @@ struct AddServerView: View {
                 host: host.trimmingCharacters(in: .whitespacesAndNewlines),
                 port: parsedPort ?? 22,
                 username: username.trimmingCharacters(in: .whitespacesAndNewlines),
-                authMethod: authMethod,
-                allowPasswordFallback: allowPasswordFallback
+                authMethod: transport == .telnet ? .password : authMethod,
+                transport: transport,
+                networkDeviceProfile: networkDeviceProfile,
+                allowPasswordFallback: transport == .telnet ? true : allowPasswordFallback
             )
         }
 
@@ -523,6 +656,11 @@ struct AddServerView: View {
         portText = String(existing.port)
         username = existing.username
         authMethod = existing.authMethod
+        transport = existing.transport
+        networkDeviceProfile = existing.networkDeviceProfile
+        if transport == .telnet {
+            authMethod = .password
+        }
         allowPasswordFallback = existing.allowPasswordFallback
 
         if let credentials = try? vault.read(for: existing.credentialID) {
@@ -535,6 +673,19 @@ struct AddServerView: View {
             keyInputMode = .paste
         }
         testStatus = "已载入现有凭据"
+    }
+
+    private func applyPrefillIfNeeded() {
+        guard !didApplyPrefill else { return }
+        didApplyPrefill = true
+        guard editingServer == nil, let prefill else { return }
+
+        name = prefill.name
+        group = prefill.group
+        host = prefill.host
+        portText = String(prefill.port)
+        username = prefill.username
+        testStatus = "已通过链接填充连接信息，请先测试再保存"
     }
 
     private func silentSync(_ server: ServerEntry, credentials: ServerCredentials, token: String?, masterPassword: String?) async {

@@ -16,6 +16,7 @@ private enum ConnectionKeyInputMode: String, CaseIterable, Identifiable {
 }
 
 struct ConnectionView: View {
+    @ObservedObject private var sessionManager = SessionManager.shared
     @StateObject private var manager = OrbitManager()
 
     @State private var ip = ""
@@ -132,6 +133,17 @@ struct ConnectionView: View {
             }
         }
         .navigationTitle("连接测试")
+#if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        .scrollDismissesKeyboard(.interactively)
+#endif
+        .applyKeyboardDismissToolbar()
+        .onAppear {
+            applyQuickOpenServerIfNeeded()
+        }
+        .onChange(of: sessionManager.quickOpenServer?.id) { _, _ in
+            applyQuickOpenServerIfNeeded()
+        }
         .fileImporter(
             isPresented: $showKeyFileImporter,
             allowedContentTypes: [.data, .plainText, .text],
@@ -229,5 +241,13 @@ struct ConnectionView: View {
         } catch {
             manager.statusText = "失败: 私钥文件读取失败 - \(error.localizedDescription)"
         }
+    }
+
+    private func applyQuickOpenServerIfNeeded() {
+        guard let server = sessionManager.quickOpenServer else { return }
+        ip = server.host
+        username = server.username
+        port = String(server.port)
+        authMethod = server.authMethod
     }
 }

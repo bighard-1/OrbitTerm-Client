@@ -12,3 +12,31 @@ extension View {
         #endif
     }
 }
+
+#if os(iOS)
+extension View {
+    func applyKeyboardDismissToolbar(title: String = "收起键盘") -> some View {
+        toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button(title) {
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.resignFirstResponder),
+                        to: nil,
+                        from: nil,
+                        for: nil
+                    )
+                }
+            }
+        }
+    }
+}
+#endif
+
+#if !os(iOS)
+extension View {
+    func applyKeyboardDismissToolbar(title: String = "收起键盘") -> some View {
+        self
+    }
+}
+#endif

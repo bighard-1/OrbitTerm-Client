@@ -99,6 +99,7 @@ struct AuthView: View {
             } message: {
                 Text("新地址：\(pendingServerAddress)\n\n自定义后端可能会拦截您的加密凭据，请确认该端点来源可靠。")
             }
+            .applyKeyboardDismissToolbar()
         }
     }
 
@@ -117,6 +118,9 @@ struct AuthView: View {
         }
         .padding(4)
         .background(Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.06), in: Capsule())
+        .frame(maxWidth: 320)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .frame(height: 48)
     }
 
     private func modeButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
@@ -131,8 +135,9 @@ struct AuthView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
+                    .frame(height: 36)
             }
+            .frame(height: 40)
         }
         .buttonStyle(.plain)
     }
@@ -239,10 +244,13 @@ struct AuthView: View {
                         .font(.headline)
                         .foregroundStyle(.white)
                 }
-                .padding(.vertical, 14)
+                .frame(height: 50)
             }
+            .frame(height: 52)
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: 360)
+        .frame(maxWidth: .infinity, alignment: .center)
         .scaleEffect(isPressingPrimary ? 0.98 : 1.0)
         .animation(.easeInOut(duration: 0.15), value: isPressingPrimary)
         .simultaneousGesture(
@@ -314,8 +322,12 @@ struct AuthView: View {
                 try await network.register(username: username, password: password)
             }
 
-            let token = try await network.login(username: username, password: password)
-            try session.persistLogin(token: token, username: username)
+            let loginData = try await network.login(username: username, password: password)
+            try session.persistLogin(
+                accessToken: loginData.accessTokenValue,
+                refreshToken: loginData.refreshTokenValue,
+                username: username
+            )
             message = "成功: 已获取 JWT"
         } catch {
             message = "失败: \(error.localizedDescription)"

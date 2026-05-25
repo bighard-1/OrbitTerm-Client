@@ -1,5 +1,5 @@
-OrbitTerm v1.0.0 Trinity Workspace Edition
-Build: 20260425
+OrbitTerm v1.0.1 Trinity Workspace Edition
+Build: 20260510
 
 核心功能清单:
 1. 多标签会话管理
