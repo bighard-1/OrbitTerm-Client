@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 
 struct AssetManagerView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var session: AppSession
 
     @ObservedObject var store: ServerStore
     let onEdit: (ServerEntry) -> Void
@@ -16,6 +17,7 @@ struct AssetManagerView: View {
 
     private let vault = CredentialVault.shared
     @StateObject private var orbitManager = OrbitManager()
+    @StateObject private var syncService = SyncService.shared
 
     var body: some View {
         NavigationStack {
@@ -63,7 +65,7 @@ struct AssetManagerView: View {
                                         }
                                     }
                                     Button("删除", role: .destructive) {
-                                        store.remove(server)
+                                        deleteServer(server)
                                     }
                                 }
                             }
@@ -139,8 +141,38 @@ struct AssetManagerView: View {
         var updated = server
         updated.allowPasswordFallback = true
         store.addOrUpdate(updated)
+        syncServerUpdate(updated)
         noticeColor = .green
         noticeText = "已开启密码登录：\(server.name)"
+    }
+
+    private func deleteServer(_ server: ServerEntry) {
+        store.remove(server)
+        let token = session.readToken()
+        let masterPassword = session.readMasterPassword()
+        Task(priority: .background) {
+            await syncService.deleteRemoteConfigs(for: [server], token: token, masterPassword: masterPassword)
+        }
+    }
+
+    private func syncServerUpdate(_ server: ServerEntry) {
+        guard let credentials = try? vault.read(for: server.credentialID),
+              let token = session.readToken(),
+              let masterPassword = session.readMasterPassword() else { return }
+        let portable = server.makePortableConfig(savedAtUnix: Int(Date().timeIntervalSince1970), credentials: credentials)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(portable),
+              let plain = String(data: data, encoding: .utf8) else { return }
+        Task(priority: .background) {
+            _ = await syncService.uploadEncryptedConfig(
+                token: token,
+                masterPassword: masterPassword,
+                plaintextConfig: plain,
+                vectorClock: ["client": Int(Date().timeIntervalSince1970)],
+                allowQueueOnNetworkFailure: true
+            )
+        }
     }
 
     private func disablePasswordFallback(_ server: ServerEntry) async {
@@ -174,6 +206,7 @@ struct AssetManagerView: View {
         var updated = server
         updated.allowPasswordFallback = false
         store.addOrUpdate(updated)
+        syncServerUpdate(updated)
         noticeColor = .green
         noticeText = "已关闭密码登录（仅密钥模式）：\(server.name)"
     }
@@ -199,12 +232,14 @@ private enum AssetKeyInputMode: String, CaseIterable, Identifiable {
 
 private struct QuickKeySetupSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var session: AppSession
 
     let server: ServerEntry
     @ObservedObject var store: ServerStore
     let onFinish: (QuickKeySetupResult) -> Void
 
     @StateObject private var orbitManager = OrbitManager()
+    @StateObject private var syncService = SyncService.shared
 
     @State private var keyInputMode: AssetKeyInputMode = .paste
     @State private var privateKeyContent = ""
@@ -381,6 +416,7 @@ private struct QuickKeySetupSheet: View {
                 updatedServer.allowPasswordFallback = false
             }
             store.addOrUpdate(updatedServer)
+            await syncServerUpdate(updatedServer, credentials: updatedCreds)
 
             onFinish(.saved(closePasswordLogin ? "密钥已保存并切换为仅密钥登录" : "密钥已保存"))
             dismiss()
@@ -389,6 +425,23 @@ private struct QuickKeySetupSheet: View {
             statusColor = .red
             onFinish(.failed(statusText))
         }
+    }
+
+    private func syncServerUpdate(_ server: ServerEntry, credentials: ServerCredentials) async {
+        guard let token = session.readToken(),
+              let masterPassword = session.readMasterPassword() else { return }
+        let portable = server.makePortableConfig(savedAtUnix: Int(Date().timeIntervalSince1970), credentials: credentials)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(portable),
+              let plain = String(data: data, encoding: .utf8) else { return }
+        _ = await syncService.uploadEncryptedConfig(
+            token: token,
+            masterPassword: masterPassword,
+            plaintextConfig: plain,
+            vectorClock: ["client": Int(Date().timeIntervalSince1970)],
+            allowQueueOnNetworkFailure: true
+        )
     }
 
     private func loadPrivateKeyFile(_ url: URL) {

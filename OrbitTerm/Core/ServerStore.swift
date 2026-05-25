@@ -309,6 +309,77 @@ struct PortableServerConfig: Codable, Equatable {
     }
 }
 
+/// 本地删除墓碑：用于解决“本地已删除，但云端旧副本下次拉取又复活”的问题。
+/// 只保存资产 UUID 和删除时间，不包含任何凭据或敏感信息。
+final class DeletedServerRegistry {
+    static let shared = DeletedServerRegistry()
+
+    private let defaultsKey = "orbitterm.deleted.servers.v1"
+    private let retention: TimeInterval = 60 * 60 * 24 * 90
+    private let lock = NSLock()
+
+    private init() {}
+
+    func markDeleted(_ id: UUID) {
+        markDeleted([id])
+    }
+
+    func markDeleted(_ ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+
+        var map = readMapUnlocked()
+        let now = Date().timeIntervalSince1970
+        for id in ids {
+            map[id.uuidString] = now
+        }
+        persistUnlocked(pruned(map, now: now))
+    }
+
+    func clear(_ id: UUID) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var map = readMapUnlocked()
+        map.removeValue(forKey: id.uuidString)
+        persistUnlocked(map)
+    }
+
+    func isDeleted(idString: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return readMapUnlocked()[idString] != nil
+    }
+
+    func snapshot() -> [String: TimeInterval] {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let now = Date().timeIntervalSince1970
+        let map = pruned(readMapUnlocked(), now: now)
+        persistUnlocked(map)
+        return map
+    }
+
+    private func readMapUnlocked() -> [String: TimeInterval] {
+        guard let data = UserDefaults.standard.data(forKey: defaultsKey),
+              let map = try? JSONDecoder().decode([String: TimeInterval].self, from: data) else {
+            return [:]
+        }
+        return map
+    }
+
+    private func persistUnlocked(_ map: [String: TimeInterval]) {
+        guard let data = try? JSONEncoder().encode(map) else { return }
+        UserDefaults.standard.set(data, forKey: defaultsKey)
+    }
+
+    private func pruned(_ map: [String: TimeInterval], now: TimeInterval) -> [String: TimeInterval] {
+        map.filter { now - $0.value <= retention }
+    }
+}
+
 @MainActor
 final class ServerStore: ObservableObject {
     static let shared = ServerStore()
@@ -341,6 +412,7 @@ final class ServerStore: ObservableObject {
         if selectedServerID == nil {
             selectedServerID = server.id
         }
+        DeletedServerRegistry.shared.clear(server.id)
         persist()
     }
 
@@ -355,6 +427,7 @@ final class ServerStore: ObservableObject {
         if selectedServerID == nil {
             selectedServerID = server.id
         }
+        DeletedServerRegistry.shared.clear(server.id)
         persist()
     }
 
@@ -382,6 +455,7 @@ final class ServerStore: ObservableObject {
         if selectedServerID == server.id {
             selectedServerID = servers.first?.id
         }
+        DeletedServerRegistry.shared.markDeleted(server.id)
         try? vault.delete(for: server.credentialID)
         persist()
     }
@@ -393,6 +467,7 @@ final class ServerStore: ObservableObject {
         if let selected = selectedServerID, ids.contains(selected) {
             selectedServerID = servers.first?.id
         }
+        DeletedServerRegistry.shared.markDeleted(Array(ids))
         for item in removed {
             try? vault.delete(for: item.credentialID)
         }
@@ -422,6 +497,7 @@ final class ServerStore: ObservableObject {
         if let selected = selectedServerID, removedIDs.contains(selected) {
             selectedServerID = servers.first?.id
         }
+        DeletedServerRegistry.shared.markDeleted(Array(removedIDs))
         for item in removed {
             try? vault.delete(for: item.credentialID)
         }

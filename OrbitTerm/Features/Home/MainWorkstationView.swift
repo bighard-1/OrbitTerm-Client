@@ -372,7 +372,7 @@ struct MainWorkstationView: View {
                                         serverStore.select(server)
                                         editingServer = server
                                     }
-                                    Button("删除", role: .destructive) { serverStore.remove(server) }
+                                    Button("删除", role: .destructive) { deleteServer(server) }
                                 }
                             }
                         }
@@ -865,6 +865,15 @@ struct MainWorkstationView: View {
             ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         return docs.appendingPathComponent(fileName, isDirectory: false)
 #endif
+    }
+
+    private func deleteServer(_ server: ServerEntry) {
+        serverStore.remove(server)
+        let token = session.readToken()
+        let masterPassword = session.readMasterPassword()
+        Task(priority: .background) {
+            await syncService.deleteRemoteConfigs(for: [server], token: token, masterPassword: masterPassword)
+        }
     }
 
     private func openSFTPFileEditor(sessionID: UUID, item: FileItem) {

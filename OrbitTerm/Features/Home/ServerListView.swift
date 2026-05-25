@@ -4,6 +4,7 @@ struct ServerListView: View {
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var store: ServerStore
     @ObservedObject private var sessionManager = SessionManager.shared
+    @StateObject private var syncService = SyncService.shared
     @State private var showingAddServer = false
     @State private var expandedGroups: Set<String> = []
     @State private var selectedForDelete: Set<UUID> = []
@@ -175,8 +176,7 @@ struct ServerListView: View {
             ToolbarItem(placement: .primaryAction) {
                 if batchMode && !selectedForDelete.isEmpty {
                     Button(role: .destructive) {
-                        store.removeMany(selectedForDelete)
-                        selectedForDelete.removeAll()
+                        deleteSelectedServers()
                     } label: {
                         Image(systemName: "trash")
                     }
@@ -216,7 +216,7 @@ struct ServerListView: View {
             Button("取消", role: .cancel) {}
             Button("删除", role: .destructive) {
                 guard let target = pendingDeleteServer else { return }
-                store.remove(target)
+                deleteServers([target])
                 pendingDeleteServer = nil
             }
         } message: {
@@ -235,7 +235,7 @@ struct ServerListView: View {
             Button("取消", role: .cancel) {}
             Button("删除", role: .destructive) {
                 guard let group = pendingDeleteGroup else { return }
-                store.removeGroup(group)
+                deleteGroup(group)
                 pendingDeleteGroup = nil
             }
         } message: {
@@ -260,6 +260,35 @@ struct ServerListView: View {
         sessionManager.quickOpenServer = server
         onConnectRequested?(server)
         session.showTransientStatus("已选择 \(server.name)，请在连接页发起连接")
+    }
+
+    private func deleteSelectedServers() {
+        let targets = store.servers.filter { selectedForDelete.contains($0.id) }
+        store.removeMany(selectedForDelete)
+        selectedForDelete.removeAll()
+        syncDeletedServers(targets)
+    }
+
+    private func deleteServers(_ servers: [ServerEntry]) {
+        for server in servers {
+            store.remove(server)
+        }
+        syncDeletedServers(servers)
+    }
+
+    private func deleteGroup(_ group: String) {
+        let targets = store.servers.filter { $0.displayGroup == group || $0.group == (group == "未分组" ? "" : group) }
+        store.removeGroup(group)
+        syncDeletedServers(targets)
+    }
+
+    private func syncDeletedServers(_ servers: [ServerEntry]) {
+        guard !servers.isEmpty else { return }
+        let token = session.readToken()
+        let masterPassword = session.readMasterPassword()
+        Task(priority: .background) {
+            await syncService.deleteRemoteConfigs(for: servers, token: token, masterPassword: masterPassword)
+        }
     }
 
     private func isServerConnected(_ server: ServerEntry) -> Bool {

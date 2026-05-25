@@ -171,6 +171,13 @@ final class NetworkService: NSObject {
         return data.items
     }
 
+    func deleteConfig(id: UInt) async throws {
+        try await sendAuthorizedRawWithoutBody(
+            path: "/api/v1/config/\(id)",
+            method: "DELETE"
+        )
+    }
+
     private func sendAuthorized<Req: Encodable, Resp: Decodable>(
         path: String,
         method: String,
@@ -223,6 +230,20 @@ final class NetworkService: NSObject {
             )
         }
     }
+    private func sendAuthorizedRawWithoutBody(
+        path: String,
+        method: String
+    ) async throws {
+        let token = try readAccessToken()
+        do {
+            try await sendRawWithoutBody(path: path, method: method, token: token)
+        } catch let error as NetworkError {
+            guard case .unauthorized = error else { throw error }
+            let refreshed = try await refreshAndPersistAccessToken()
+            try await sendRawWithoutBody(path: path, method: method, token: refreshed)
+        }
+    }
+
 
     private func send<Req: Encodable, Resp: Decodable>(
         path: String,
@@ -274,6 +295,43 @@ final class NetworkService: NSObject {
             throw NetworkError.decodeFailed
         }
         return payload
+    }
+
+    private func sendRawWithoutBody(path: String, method: String, token: String?) async throws {
+        let baseURL = try resolvedBaseURL()
+        guard let url = URL(string: path, relativeTo: baseURL) else {
+            throw NetworkError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = 15
+        request.addValue("application/json", forHTTPHeaderField: "Accept")
+        if let token {
+            request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let (data, httpResp, latencyMs, attempts) = try await executeRequest(request)
+        let envelope = try? JSONDecoder().decode(APIEnvelope<EmptyResponseData>.self, from: data)
+        await MainActor.run {
+            DiagnosticsManager.shared.record(
+                method: method,
+                url: request.url?.absoluteString ?? path,
+                statusCode: httpResp.statusCode,
+                latencyMs: latencyMs,
+                errorType: nil,
+                attempt: attempts
+            )
+        }
+        guard (200 ... 299).contains(httpResp.statusCode) else {
+            if httpResp.statusCode == 401 {
+                throw NetworkError.unauthorized(envelope?.error)
+            }
+            if let message = envelope?.error {
+                throw NetworkError.server(message)
+            }
+            throw NetworkError.unexpectedStatus(httpResp.statusCode)
+        }
     }
 
     private func sendWithoutBody<Resp: Decodable>(
@@ -492,6 +550,8 @@ struct APIEnvelope<T: Decodable>: Decodable {
     let data: T?
     let error: String?
 }
+
+private struct EmptyResponseData: Decodable {}
 
 struct RegisterData: Decodable {
     let id: UInt

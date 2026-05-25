@@ -80,10 +80,20 @@ private struct SyncPreparedItem {
     let portable: PortableServerConfig
 }
 
+private struct SyncDecodedRemoteItem {
+    let remoteID: UInt
+    let server: ServerEntry
+    let portable: PortableServerConfig
+    let credentials: ServerCredentials
+}
+
 private struct SyncPullPreparation {
     let items: [SyncPreparedItem]
     let skipped: Int
+    let tombstoneSkipped: Int
+    let duplicateSkipped: Int
     let credentialWriteCount: Int
+    let remoteConfigIDsToDelete: [UInt]
 }
 
 @MainActor
@@ -176,10 +186,12 @@ final class SyncService: ObservableObject {
             }
 
             let shadowSnapshot = shadowStore.readAll()
+            let tombstoneSnapshot = DeletedServerRegistry.shared.snapshot()
             let preparation = try await preparePullResultBackground(
                 remoteItems,
                 masterPassword: masterPassword,
-                shadowSnapshot: shadowSnapshot
+                shadowSnapshot: shadowSnapshot,
+                tombstoneSnapshot: tombstoneSnapshot
             )
 
             let servers = preparation.items.map(\.server)
@@ -191,11 +203,14 @@ final class SyncService: ObservableObject {
             }
             shadowStore.saveMany(portables)
 
+            deleteRemoteConfigsInBackground(ids: preparation.remoteConfigIDsToDelete)
+
             let changedCount = preparation.credentialWriteCount + (metadataChanged ? servers.count : 0)
             if changedCount == 0 {
                 lastSyncMessage = "后台同步完成: 云端无变化"
             } else {
-                lastSyncMessage = "后台同步完成: 更新 \(servers.count) 条，凭据变更 \(preparation.credentialWriteCount) 条，跳过 \(preparation.skipped) 条"
+                let ignored = preparation.skipped + preparation.tombstoneSkipped + preparation.duplicateSkipped
+                lastSyncMessage = "后台同步完成: 更新 \(servers.count) 条，凭据变更 \(preparation.credentialWriteCount) 条，忽略 \(ignored) 条"
             }
             return !servers.isEmpty || preparation.skipped == 0
         } catch {
@@ -212,17 +227,26 @@ final class SyncService: ObservableObject {
     private func preparePullResultBackground(
         _ remoteItems: [UploadConfigData],
         masterPassword: String,
-        shadowSnapshot: [String: PortableServerConfig]
+        shadowSnapshot: [String: PortableServerConfig],
+        tombstoneSnapshot: [String: TimeInterval]
     ) async throws -> SyncPullPreparation {
         let vault = self.vault
         return try await Task.detached(priority: .utility) {
-            var prepared: [SyncPreparedItem] = []
+            var bestByServerID: [String: SyncDecodedRemoteItem] = [:]
             var skipped = 0
+            var tombstoneSkipped = 0
+            var duplicateSkipped = 0
             var credentialWriteCount = 0
+            var remoteConfigIDsToDelete: Set<UInt> = []
 
             for item in remoteItems {
                 do {
                     let portable = try Self.decryptPortableStatic(item, masterPassword: masterPassword)
+                    if tombstoneSnapshot[portable.id] != nil {
+                        tombstoneSkipped += 1
+                        remoteConfigIDsToDelete.insert(item.id)
+                        continue
+                    }
                     guard let serverID = UUID(uuidString: portable.id) else {
                         skipped += 1
                         continue
@@ -233,13 +257,6 @@ final class SyncService: ObservableObject {
                         privateKeyContent: portable.privateKeyContent,
                         privateKeyPassphrase: portable.privateKeyPassphrase
                     )
-
-                    let shouldCheckCredentials = shadowSnapshot[portable.id] != portable
-                    let existingCredentials = try? vault.read(for: credentialID)
-                    if shouldCheckCredentials || existingCredentials == nil || existingCredentials != credentials {
-                        try vault.save(credentials, for: credentialID)
-                        credentialWriteCount += 1
-                    }
 
                     let server = ServerEntry(
                         id: serverID,
@@ -255,18 +272,100 @@ final class SyncService: ObservableObject {
                         credentialID: credentialID,
                         createdAt: Date(timeIntervalSince1970: TimeInterval(portable.savedAtUnix))
                     )
-                    prepared.append(SyncPreparedItem(server: server, portable: portable))
+                    let decoded = SyncDecodedRemoteItem(
+                        remoteID: item.id,
+                        server: server,
+                        portable: portable,
+                        credentials: credentials
+                    )
+                    if let existing = bestByServerID[portable.id] {
+                        if Self.shouldPrefer(decoded.portable, remoteID: decoded.remoteID, over: existing.portable, existingRemoteID: existing.remoteID) {
+                            remoteConfigIDsToDelete.insert(existing.remoteID)
+                            bestByServerID[portable.id] = decoded
+                        } else {
+                            remoteConfigIDsToDelete.insert(item.id)
+                        }
+                        duplicateSkipped += 1
+                    } else {
+                        bestByServerID[portable.id] = decoded
+                    }
                 } catch {
                     skipped += 1
                 }
             }
 
+            let chosen = bestByServerID.values.sorted {
+                $0.server.name.localizedCaseInsensitiveCompare($1.server.name) == .orderedAscending
+            }
+            var prepared: [SyncPreparedItem] = []
+            for item in chosen {
+                let shouldCheckCredentials = shadowSnapshot[item.portable.id] != item.portable
+                let existingCredentials = try? vault.read(for: item.server.credentialID)
+                if shouldCheckCredentials || existingCredentials == nil || existingCredentials != item.credentials {
+                    try vault.save(item.credentials, for: item.server.credentialID)
+                    credentialWriteCount += 1
+                }
+                prepared.append(SyncPreparedItem(server: item.server, portable: item.portable))
+            }
+
             return SyncPullPreparation(
                 items: prepared,
                 skipped: skipped,
-                credentialWriteCount: credentialWriteCount
+                tombstoneSkipped: tombstoneSkipped,
+                duplicateSkipped: duplicateSkipped,
+                credentialWriteCount: credentialWriteCount,
+                remoteConfigIDsToDelete: Array(remoteConfigIDsToDelete)
             )
         }.value
+    }
+
+    func deleteRemoteConfigs(for servers: [ServerEntry], token: String?, masterPassword: String?) async {
+        guard !servers.isEmpty else { return }
+        guard token != nil, let masterPassword else {
+            lastSyncMessage = "已本地删除，登录并解锁后将忽略云端旧副本"
+            return
+        }
+
+        do {
+            let ids = Set(servers.map { $0.id.uuidString })
+            let remoteItems = try await network.pullConfigs(token: token ?? "")
+            var remoteIDs: [UInt] = []
+            for item in remoteItems {
+                guard let portable = try? await decryptPortableBackground(item, masterPassword: masterPassword),
+                      ids.contains(portable.id) else { continue }
+                remoteIDs.append(item.id)
+            }
+            for id in remoteIDs {
+                try? await network.deleteConfig(id: id)
+            }
+            if !remoteIDs.isEmpty {
+                lastSyncMessage = "已同步删除 \(remoteIDs.count) 条云端资产"
+            }
+        } catch {
+            lastSyncMessage = "已本地删除，云端删除稍后重试: \(error.localizedDescription)"
+        }
+    }
+
+    private func deleteRemoteConfigsInBackground(ids: [UInt]) {
+        let uniqueIDs = Array(Set(ids))
+        guard !uniqueIDs.isEmpty else { return }
+        Task(priority: .background) { [network] in
+            for id in uniqueIDs {
+                try? await network.deleteConfig(id: id)
+            }
+        }
+    }
+
+    nonisolated private static func shouldPrefer(
+        _ candidate: PortableServerConfig,
+        remoteID: UInt,
+        over existing: PortableServerConfig,
+        existingRemoteID: UInt
+    ) -> Bool {
+        if candidate.savedAtUnix != existing.savedAtUnix {
+            return candidate.savedAtUnix > existing.savedAtUnix
+        }
+        return remoteID > existingRemoteID
     }
 
     private func resolveConflictAndRetry(
