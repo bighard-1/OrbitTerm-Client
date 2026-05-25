@@ -42,6 +42,12 @@ private struct SnippetSyncEnvelope: Codable {
     }
 }
 
+private struct SnippetRemoteCandidate {
+    let envelope: SnippetSyncEnvelope
+    let configID: UInt
+    let vectorClock: String
+}
+
 private actor SnippetStoreDB {
     private let db: OpaquePointer?
 
@@ -357,46 +363,73 @@ final class SnippetStore: ObservableObject {
                 return
             }
 
-            var latestEnvelope: SnippetSyncEnvelope?
-            var latestConfigID: UInt?
-            var latestVectorClock = "{}"
+            guard let latest = await latestSnippetEnvelopeBackground(remoteItems, masterPassword: masterPassword) else {
+                lastSyncMessage = "Snippets 拉取完成（未发现 Snippet 数据）"
+                return
+            }
+
+            let localEnvelopeTime = Int(await db.readMeta(MetaKey.envelopeTime) ?? "0") ?? 0
+            if latest.envelope.updatedAtUnix >= localEnvelopeTime {
+                await db.replaceAll(latest.envelope.snippets)
+                await db.writeMeta(MetaKey.remoteConfigID, value: String(latest.configID))
+                await db.writeMeta(MetaKey.vectorClock, value: latest.vectorClock)
+                await db.writeMeta(MetaKey.envelopeTime, value: String(latest.envelope.updatedAtUnix))
+                await reloadFromDB()
+                lastSyncMessage = "Snippets 已拉取并应用 \(latest.envelope.snippets.count) 条"
+            } else {
+                lastSyncMessage = "Snippets 已是最新"
+            }
+        } catch {
+            lastSyncMessage = "Snippets 拉取失败: \(error.localizedDescription)"
+        }
+    }
+
+    private nonisolated func latestSnippetEnvelopeBackground(
+        _ remoteItems: [UploadConfigData],
+        masterPassword: String
+    ) async -> SnippetRemoteCandidate? {
+        await Task.detached(priority: .utility) {
+            var latest: SnippetRemoteCandidate?
 
             for item in remoteItems {
-                guard let blobData = Data(base64Encoded: item.encrypted_blob_base64) else { continue }
-                guard let plain = try? orbitManager.decrypt(password: masterPassword, encrypted: blobData) else { continue }
-                guard let text = String(data: plain, encoding: .utf8),
+                guard let blobData = Data(base64Encoded: item.encrypted_blob_base64),
+                      let plain = try? Self.decryptBlob(password: masterPassword, encrypted: blobData),
+                      let text = String(data: plain, encoding: .utf8),
                       let data = text.data(using: .utf8),
                       let env = try? JSONDecoder().decode(SnippetSyncEnvelope.self, from: data),
                       env.kind == SnippetSyncEnvelope.marker else {
                     continue
                 }
 
-                if latestEnvelope == nil || env.updatedAtUnix > (latestEnvelope?.updatedAtUnix ?? 0) {
-                    latestEnvelope = env
-                    latestConfigID = item.id
-                    latestVectorClock = item.vector_clock
+                if latest == nil || env.updatedAtUnix > (latest?.envelope.updatedAtUnix ?? 0) {
+                    latest = SnippetRemoteCandidate(
+                        envelope: env,
+                        configID: item.id,
+                        vectorClock: item.vector_clock
+                    )
                 }
             }
 
-            guard let latestEnvelope else {
-                lastSyncMessage = "Snippets 拉取完成（未发现 Snippet 数据）"
-                return
-            }
+            return latest
+        }.value
+    }
 
-            let localEnvelopeTime = Int(await db.readMeta(MetaKey.envelopeTime) ?? "0") ?? 0
-            if latestEnvelope.updatedAtUnix >= localEnvelopeTime {
-                await db.replaceAll(latestEnvelope.snippets)
-                if let latestConfigID {
-                    await db.writeMeta(MetaKey.remoteConfigID, value: String(latestConfigID))
-                }
-                await db.writeMeta(MetaKey.vectorClock, value: latestVectorClock)
-                await db.writeMeta(MetaKey.envelopeTime, value: String(latestEnvelope.updatedAtUnix))
-                await reloadFromDB()
-                lastSyncMessage = "Snippets 已拉取并应用 \(latestEnvelope.snippets.count) 条"
-            }
-        } catch {
-            lastSyncMessage = "Snippets 拉取失败: \(error.localizedDescription)"
+    private nonisolated static func decryptBlob(password: String, encrypted: Data) throws -> Data {
+        guard let passwordCString = password.cString(using: .utf8) else {
+            throw NetworkService.NetworkError.decodeFailed
         }
+        let encryptedB64 = encrypted.base64EncodedString()
+        guard let encryptedCString = encryptedB64.cString(using: .utf8),
+              let resultPtr = orbit_decrypt_config(passwordCString, encryptedCString) else {
+            throw NetworkService.NetworkError.decodeFailed
+        }
+        defer { orbit_free_string(resultPtr) }
+        let raw = String(cString: resultPtr)
+        guard raw.hasPrefix("OK:"),
+              let decoded = Data(base64Encoded: String(raw.dropFirst(3))) else {
+            throw NetworkService.NetworkError.decodeFailed
+        }
+        return decoded
     }
 
     private func syncIfPossible(token: String?, masterPassword: String?, reason: String) async {

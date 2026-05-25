@@ -52,7 +52,7 @@ private final class SyncShadowStore {
         persist(map)
     }
 
-    private func readAll() -> [String: PortableServerConfig] {
+    func readAll() -> [String: PortableServerConfig] {
         guard let data = UserDefaults.standard.data(forKey: key),
               let map = try? JSONDecoder().decode([String: PortableServerConfig].self, from: data) else {
             return [:]
@@ -60,10 +60,30 @@ private final class SyncShadowStore {
         return map
     }
 
+    func saveMany(_ portables: [PortableServerConfig]) {
+        guard !portables.isEmpty else { return }
+        var map = readAll()
+        for portable in portables {
+            map[portable.id] = portable
+        }
+        persist(map)
+    }
+
     private func persist(_ map: [String: PortableServerConfig]) {
         guard let data = try? JSONEncoder().encode(map) else { return }
         UserDefaults.standard.set(data, forKey: key)
     }
+}
+
+private struct SyncPreparedItem {
+    let server: ServerEntry
+    let portable: PortableServerConfig
+}
+
+private struct SyncPullPreparation {
+    let items: [SyncPreparedItem]
+    let skipped: Int
+    let credentialWriteCount: Int
 }
 
 @MainActor
@@ -148,20 +168,61 @@ final class SyncService: ObservableObject {
         store: ServerStore
     ) async -> Bool {
         do {
+            lastSyncMessage = "正在后台同步..."
             let remoteItems = try await network.pullConfigs(token: token)
             if remoteItems.isEmpty {
                 lastSyncMessage = "拉取完成: 云端暂无配置"
                 return true
             }
 
-            var applied = 0
+            let shadowSnapshot = shadowStore.readAll()
+            let preparation = try await preparePullResultBackground(
+                remoteItems,
+                masterPassword: masterPassword,
+                shadowSnapshot: shadowSnapshot
+            )
+
+            let servers = preparation.items.map(\.server)
+            let portables = preparation.items.map(\.portable)
+            let metadataChanged = !store.containsSameServers(servers)
+
+            if metadataChanged {
+                store.applySyncedServers(servers)
+            }
+            shadowStore.saveMany(portables)
+
+            let changedCount = preparation.credentialWriteCount + (metadataChanged ? servers.count : 0)
+            if changedCount == 0 {
+                lastSyncMessage = "后台同步完成: 云端无变化"
+            } else {
+                lastSyncMessage = "后台同步完成: 更新 \(servers.count) 条，凭据变更 \(preparation.credentialWriteCount) 条，跳过 \(preparation.skipped) 条"
+            }
+            return !servers.isEmpty || preparation.skipped == 0
+        } catch {
+            if let net = error as? NetworkService.NetworkError,
+               case .unauthorized = net {
+                lastSyncMessage = "登录已过期，请重新登录"
+                return false
+            }
+            lastSyncMessage = "拉取失败: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    private func preparePullResultBackground(
+        _ remoteItems: [UploadConfigData],
+        masterPassword: String,
+        shadowSnapshot: [String: PortableServerConfig]
+    ) async throws -> SyncPullPreparation {
+        let vault = self.vault
+        return try await Task.detached(priority: .utility) {
+            var prepared: [SyncPreparedItem] = []
             var skipped = 0
-            var collectedServers: [ServerEntry] = []
-            var collectedPortable: [PortableServerConfig] = []
+            var credentialWriteCount = 0
 
             for item in remoteItems {
                 do {
-                    let portable = try await decryptPortableBackground(item, masterPassword: masterPassword)
+                    let portable = try Self.decryptPortableStatic(item, masterPassword: masterPassword)
                     guard let serverID = UUID(uuidString: portable.id) else {
                         skipped += 1
                         continue
@@ -172,9 +233,13 @@ final class SyncService: ObservableObject {
                         privateKeyContent: portable.privateKeyContent,
                         privateKeyPassphrase: portable.privateKeyPassphrase
                     )
-                    try await Task.detached(priority: .utility) { [vault] in
+
+                    let shouldCheckCredentials = shadowSnapshot[portable.id] != portable
+                    let existingCredentials = try? vault.read(for: credentialID)
+                    if shouldCheckCredentials || existingCredentials == nil || existingCredentials != credentials {
                         try vault.save(credentials, for: credentialID)
-                    }.value
+                        credentialWriteCount += 1
+                    }
 
                     let server = ServerEntry(
                         id: serverID,
@@ -190,30 +255,18 @@ final class SyncService: ObservableObject {
                         credentialID: credentialID,
                         createdAt: Date(timeIntervalSince1970: TimeInterval(portable.savedAtUnix))
                     )
-                    collectedPortable.append(portable)
-                    collectedServers.append(server)
-                    applied += 1
+                    prepared.append(SyncPreparedItem(server: server, portable: portable))
                 } catch {
                     skipped += 1
                 }
             }
 
-            for portable in collectedPortable {
-                shadowStore.save(portable)
-            }
-            store.applySyncedServers(collectedServers)
-
-            lastSyncMessage = "拉取完成: 已应用 \(applied) 条，跳过 \(skipped) 条"
-            return applied > 0 || skipped == 0
-        } catch {
-            if let net = error as? NetworkService.NetworkError,
-               case .unauthorized = net {
-                lastSyncMessage = "登录已过期，请重新登录"
-                return false
-            }
-            lastSyncMessage = "拉取失败: \(error.localizedDescription)"
-            return false
-        }
+            return SyncPullPreparation(
+                items: prepared,
+                skipped: skipped,
+                credentialWriteCount: credentialWriteCount
+            )
+        }.value
     }
 
     private func resolveConflictAndRetry(
@@ -448,17 +501,21 @@ final class SyncService: ObservableObject {
         return try JSONDecoder().decode(PortableServerConfig.self, from: portableData)
     }
 
+    nonisolated private static func decryptPortableStatic(_ item: UploadConfigData, masterPassword: String) throws -> PortableServerConfig {
+        guard let encrypted = Data(base64Encoded: item.encrypted_blob_base64) else {
+            throw NetworkService.NetworkError.decodeFailed
+        }
+        let plainData = try decryptBlob(password: masterPassword, encrypted: encrypted)
+        guard let plainText = String(data: plainData, encoding: .utf8),
+              let portableData = plainText.data(using: .utf8) else {
+            throw NetworkService.NetworkError.decodeFailed
+        }
+        return try JSONDecoder().decode(PortableServerConfig.self, from: portableData)
+    }
+
     private func decryptPortableBackground(_ item: UploadConfigData, masterPassword: String) async throws -> PortableServerConfig {
         try await Task.detached(priority: .utility) {
-            guard let encrypted = Data(base64Encoded: item.encrypted_blob_base64) else {
-                throw NetworkService.NetworkError.decodeFailed
-            }
-            let decrypted = try Self.decryptBlob(password: masterPassword, encrypted: encrypted)
-            guard let plainText = String(data: decrypted, encoding: .utf8),
-                  let data = plainText.data(using: .utf8) else {
-                throw NetworkService.NetworkError.decodeFailed
-            }
-            return try JSONDecoder().decode(PortableServerConfig.self, from: data)
+            try Self.decryptPortableStatic(item, masterPassword: masterPassword)
         }.value
     }
 

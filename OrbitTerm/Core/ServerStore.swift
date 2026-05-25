@@ -215,7 +215,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
     }
 }
 
-struct PortableServerConfig: Codable {
+struct PortableServerConfig: Codable, Equatable {
     let id: String
     let credentialID: String
     let name: String
@@ -369,6 +369,12 @@ final class ServerStore: ObservableObject {
             selectedServerID = servers.first?.id
         }
         persist()
+    }
+
+    func containsSameServers(_ synced: [ServerEntry]) -> Bool {
+        guard !synced.isEmpty else { return true }
+        let table = Dictionary(uniqueKeysWithValues: servers.map { ($0.id, $0) })
+        return synced.allSatisfy { table[$0.id] == $0 }
     }
 
     func remove(_ server: ServerEntry) {

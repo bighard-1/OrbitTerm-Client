@@ -80,13 +80,8 @@ struct ContentView: View {
     }
 
     private var autoSyncTaskKey: String {
-        // 关键修复：
-        // 触发键必须包含 token 本身，而不仅是“是否存在 token”。
-        // 否则当用户重新登录拿到新 JWT 时（旧 JWT 已过期），自动拉取不会重新触发。
-        let tokenValue = session.readToken() ?? ""
-        let refreshValue = session.readRefreshToken() ?? ""
-        // 不在触发键中读取主密码，避免 SwiftUI 视图更新时反复触发 Keychain/AES 解密导致首屏卡顿。
-        return "\(session.isAuthenticated)-\(session.isUnlocked)-\(session.hasMasterPassword)-\(tokenValue)-\(refreshValue)"
+        // 触发键只使用内存态，避免 SwiftUI 刷新时反复读取 Keychain 造成首屏卡顿。
+        "\(session.isAuthenticated)-\(session.isUnlocked)-\(session.authRevision)"
     }
 
     private func runAutoSyncIfPossible() async {
@@ -118,6 +113,7 @@ struct ContentView: View {
             store: serverStore
         )
         Task(priority: .utility) {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
             await snippetStore.pullFromCloud(token: token, masterPassword: masterPassword)
         }
         if !ok {

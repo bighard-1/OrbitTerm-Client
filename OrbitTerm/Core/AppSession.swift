@@ -12,6 +12,7 @@ final class AppSession: ObservableObject {
     @Published var isUnlocked: Bool = false
     @Published var username: String = ""
     @Published var transientStatus: String = ""
+    @Published private(set) var authRevision: Int = 0
 
     private let keychain: KeychainManager
 
@@ -37,9 +38,11 @@ final class AppSession: ObservableObject {
             if !isAuthenticated {
                 isUnlocked = false
             }
+            authRevision += 1
         } catch {
             isAuthenticated = false
             isUnlocked = false
+            authRevision += 1
         }
     }
 
@@ -50,6 +53,7 @@ final class AppSession: ObservableObject {
         }
         self.username = username
         isAuthenticated = true
+        authRevision += 1
     }
 
     func readToken() -> String? {
@@ -62,10 +66,12 @@ final class AppSession: ObservableObject {
 
     func updateAccessToken(_ token: String) {
         try? keychain.saveString(token, service: tokenService, account: tokenAccount)
+        authRevision += 1
     }
 
     func updateRefreshToken(_ token: String) {
         try? keychain.saveString(token, service: tokenService, account: refreshTokenAccount)
+        authRevision += 1
     }
 
     func logout() {
@@ -79,6 +85,7 @@ final class AppSession: ObservableObject {
         isAuthenticated = false
         isUnlocked = false
         username = ""
+        authRevision += 1
     }
 
     var hasMasterPassword: Bool {
