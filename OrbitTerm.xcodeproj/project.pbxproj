@@ -55,6 +55,7 @@
 		79C11DB569DDBD8E23356C35 /* AssetManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04FFDB29556DE5419BEB4E78 /* AssetManagerView.swift */; };
 		7BCDEB379D2BCBD46813D516 /* BatchCommandRunnerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23CDE6AF8E0550184AC99A12 /* BatchCommandRunnerView.swift */; };
 		7C977D075E101CF4239514D8 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 9C72235D0D53A8B38F2E0FA5 /* SwiftTerm */; };
+		7F38D279C57A1E4693BDA47D /* WorkstationTerminalSessionPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3DE23E2FB664A118F6B8646 /* WorkstationTerminalSessionPane.swift */; };
 		7F996E7D9810AEABC9BE7BCA /* SwiftTermTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAFDE71AA1A69539BB2EA7CD /* SwiftTermTerminalView.swift */; };
 		84DCCEEBB105C8E4BB112AD3 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DC29E7DEA20362E09F501D3 /* AppSession.swift */; };
 		85652ACC0968D7AF4EF480CD /* SFTPBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF8482667CCEAB37877728A8 /* SFTPBrowserView.swift */; };
@@ -77,6 +78,7 @@
 		AAA8E9F1710C3DED7287020F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0599BB6B03494D8A6791ABA /* Assets.xcassets */; };
 		AD6D297C9DE3F41779D516C6 /* WorkstationSnippetsCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8EC0F86958319CF2CAC049C /* WorkstationSnippetsCardView.swift */; };
 		AFF1D8B2C45D35B9B44C3285 /* SnippetsPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1117F7A981D07A249B0CDBD7 /* SnippetsPanelView.swift */; };
+		B04BBC89E70A62AAF9095CEA /* WorkstationTerminalSessionPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3DE23E2FB664A118F6B8646 /* WorkstationTerminalSessionPane.swift */; };
 		B0702EC01B476677C22715E6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0599BB6B03494D8A6791ABA /* Assets.xcassets */; };
 		B1547A01247E01C13B756C9E /* SFTPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77D09730A51A26B9E686F253 /* SFTPManager.swift */; };
 		B809495F666036CEF46DA5F7 /* MonitorService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F14341CBA2F36F648BF5800 /* MonitorService.swift */; };
@@ -135,6 +137,7 @@
 		9BF8175E63892D99108F4789 /* WorkstationDockerCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationDockerCardView.swift; sourceTree = "<group>"; };
 		9F14341CBA2F36F648BF5800 /* MonitorService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorService.swift; sourceTree = "<group>"; };
 		A0599BB6B03494D8A6791ABA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A3DE23E2FB664A118F6B8646 /* WorkstationTerminalSessionPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSessionPane.swift; sourceTree = "<group>"; };
 		A622FE572935B57F21E6515A /* OrbitTerm.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = OrbitTerm.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A8EC0F86958319CF2CAC049C /* WorkstationSnippetsCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationSnippetsCardView.swift; sourceTree = "<group>"; };
 		AED26C552B7072D2AAC4669F /* ServerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerStore.swift; sourceTree = "<group>"; };
@@ -224,6 +227,7 @@
 				FAA681CD5E929D54BAF59BA3 /* WorkstationSFTPCardView.swift */,
 				EBF252B95C1A0A974038062E /* WorkstationSFTPDialogs.swift */,
 				A8EC0F86958319CF2CAC049C /* WorkstationSnippetsCardView.swift */,
+				A3DE23E2FB664A118F6B8646 /* WorkstationTerminalSessionPane.swift */,
 			);
 			path = Home;
 			sourceTree = "<group>";
@@ -453,6 +457,7 @@
 				D6439AEECD4CACDF386120B4 /* WorkstationSFTPCardView.swift in Sources */,
 				E42A9A249C32B1E0FEF03732 /* WorkstationSFTPDialogs.swift in Sources */,
 				274A6C9E05F226D23980A92B /* WorkstationSnippetsCardView.swift in Sources */,
+				7F38D279C57A1E4693BDA47D /* WorkstationTerminalSessionPane.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -504,6 +509,7 @@
 				94B6DD52F6058B3F1B49B0BA /* WorkstationSFTPCardView.swift in Sources */,
 				79C01AB0151A55725DB45DC8 /* WorkstationSFTPDialogs.swift in Sources */,
 				AD6D297C9DE3F41779D516C6 /* WorkstationSnippetsCardView.swift in Sources */,
+				B04BBC89E70A62AAF9095CEA /* WorkstationTerminalSessionPane.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
