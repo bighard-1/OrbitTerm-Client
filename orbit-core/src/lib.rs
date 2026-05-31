@@ -17,12 +17,12 @@ use russh::keys::{decode_secret_key, PrivateKeyWithHashAlg};
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::OpenFlags;
 use serde::Serialize;
-use serde_json::Value;
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, ReadBuf};
 use tokio::sync::mpsc;
 
 mod crypto;
+mod docker;
 mod monitor;
 mod portable;
 pub use crypto::{decrypt_config, encrypt_config};
@@ -176,28 +176,6 @@ struct SftpListItem {
 #[derive(Debug, Serialize)]
 struct SftpTransferResult {
     bytes: u64,
-}
-
-#[derive(Debug, Serialize)]
-struct DockerContainerItem {
-    id: String,
-    name: String,
-    image: String,
-    state: String,
-    status: String,
-    running_for: String,
-}
-
-#[derive(Debug, Serialize)]
-struct DockerStatsItem {
-    id: String,
-    name: String,
-    cpu_percent: f64,
-    mem_percent: f64,
-    mem_usage: String,
-    net_io: String,
-    block_io: String,
-    pids: u32,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -642,103 +620,13 @@ pub async fn fetch_system_stats(session_id: u64) -> Result<String, OrbitCoreErro
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn fetch_docker_containers(session_id: u64) -> Result<String, OrbitCoreError> {
     let session = get_sftp_session(session_id)?;
-    let output = run_remote_command(&session.base, "docker ps -a --format '{{json .}}'").await?;
-    let mut items: Vec<DockerContainerItem> = Vec::new();
-
-    for line in output.lines().filter(|line| !line.trim().is_empty()) {
-        let value: Value = serde_json::from_str(line)
-            .map_err(|e| OrbitCoreError::Internal(format!("docker ps json parse failed: {e}")))?;
-
-        items.push(DockerContainerItem {
-            id: value
-                .get("ID")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            name: value
-                .get("Names")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            image: value
-                .get("Image")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            state: value
-                .get("State")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            status: value
-                .get("Status")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            running_for: value
-                .get("RunningFor")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string(),
-        });
-    }
-
-    serde_json::to_string(&items).map_err(|e| OrbitCoreError::Internal(e.to_string()))
+    docker::fetch_containers(&session.base).await
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn fetch_docker_stats(session_id: u64) -> Result<String, OrbitCoreError> {
     let session = get_sftp_session(session_id)?;
-    let output =
-        run_remote_command(&session.base, "docker stats --no-stream --format '{{json .}}'").await?;
-    let mut items: Vec<DockerStatsItem> = Vec::new();
-
-    for line in output.lines().filter(|line| !line.trim().is_empty()) {
-        let value: Value = serde_json::from_str(line).map_err(|e| {
-            OrbitCoreError::Internal(format!("docker stats json parse failed: {e}"))
-        })?;
-
-        let cpu_percent = parse_percent(value.get("CPUPerc").and_then(|v| v.as_str()).unwrap_or(""));
-        let mem_percent = parse_percent(value.get("MemPerc").and_then(|v| v.as_str()).unwrap_or(""));
-        let pids = value
-            .get("PIDs")
-            .and_then(|v| v.as_str())
-            .and_then(|s| s.trim().parse::<u32>().ok())
-            .unwrap_or(0);
-
-        items.push(DockerStatsItem {
-            id: value
-                .get("ID")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            name: value
-                .get("Name")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            cpu_percent,
-            mem_percent,
-            mem_usage: value
-                .get("MemUsage")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            net_io: value
-                .get("NetIO")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            block_io: value
-                .get("BlockIO")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            pids,
-        });
-    }
-
-    serde_json::to_string(&items).map_err(|e| OrbitCoreError::Internal(e.to_string()))
+    docker::fetch_stats(&session.base).await
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -747,26 +635,8 @@ pub async fn docker_action(
     container_id: String,
     action: String,
 ) -> Result<String, OrbitCoreError> {
-    if container_id.trim().is_empty() || action.trim().is_empty() {
-        return Err(OrbitCoreError::InvalidInput);
-    }
-
-    let normalized_action = action.trim().to_lowercase();
-    if !matches!(
-        normalized_action.as_str(),
-        "start" | "stop" | "restart" | "kill" | "remove"
-    ) {
-        return Err(OrbitCoreError::InvalidInput);
-    }
-
     let session = get_sftp_session(session_id)?;
-    let cmd = if normalized_action == "remove" {
-        format!("docker rm -f {}", container_id.trim())
-    } else {
-        format!("docker {} {}", normalized_action, container_id.trim())
-    };
-    let result = run_remote_command(&session.base, &cmd).await?;
-    Ok(result)
+    docker::run_action(&session.base, &container_id, &action).await
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -775,20 +645,9 @@ pub async fn fetch_docker_logs(
     container_id: String,
     tail_lines: u32,
 ) -> Result<String, OrbitCoreError> {
-    if container_id.trim().is_empty() {
-        return Err(OrbitCoreError::InvalidInput);
-    }
-
     let session = get_sftp_session(session_id)?;
-    let safe_tail = if tail_lines == 0 { 200 } else { tail_lines.min(2000) };
-    let cmd = format!(
-        "docker logs --tail {} {} 2>&1",
-        safe_tail,
-        container_id.trim()
-    );
-    run_remote_command(&session.base, &cmd).await
+    docker::fetch_logs(&session.base, &container_id, tail_lines).await
 }
-
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn exec_command(session_id: u64, command: String) -> Result<String, OrbitCoreError> {
     if command.trim().is_empty() {
@@ -1000,13 +859,6 @@ pub(crate) async fn run_remote_command(
         stderr.len()
     );
     Ok(output)
-}
-
-fn parse_percent(raw: &str) -> f64 {
-    raw.trim()
-        .trim_end_matches('%')
-        .parse::<f64>()
-        .unwrap_or(0.0)
 }
 
 fn shell_single_quote(input: &str) -> String {
