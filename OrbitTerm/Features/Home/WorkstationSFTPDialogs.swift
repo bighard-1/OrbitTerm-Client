@@ -31,6 +31,11 @@ struct PendingSFTPFileEdit: Identifiable {
 
 struct WorkstationSFTPDialogs: ViewModifier {
     @ObservedObject var sessionManager: SessionManager
+    @State private var fileEditContent: String = ""
+    @State private var fileEditStatus: String = ""
+    @State private var fileEditLoading = false
+    @State private var fileEditSaving = false
+
     @Binding var pendingRename: PendingSFTPRename?
     @Binding var renameText: String
     @Binding var pendingCreate: PendingSFTPCreate?
@@ -38,12 +43,6 @@ struct WorkstationSFTPDialogs: ViewModifier {
     @Binding var pendingChmod: PendingSFTPChmod?
     @Binding var chmodText: String
     @Binding var pendingFileEdit: PendingSFTPFileEdit?
-    @Binding var fileEditContent: String
-    @Binding var fileEditStatus: String
-    @Binding var fileEditLoading: Bool
-    @Binding var fileEditSaving: Bool
-    let onLoadFileEdit: (PendingSFTPFileEdit) async -> Void
-    let onSaveFileEdit: () async -> Void
 
     func body(content: Content) -> some View {
         content
@@ -144,7 +143,7 @@ struct WorkstationSFTPDialogs: ViewModifier {
                             .buttonStyle(.bordered)
                             Spacer()
                             Button("保存") {
-                                Task { await onSaveFileEdit() }
+                                Task { await saveFileEdit() }
                             }
                             .buttonStyle(.borderedProminent)
                             .disabled(fileEditLoading || fileEditSaving)
@@ -153,12 +152,50 @@ struct WorkstationSFTPDialogs: ViewModifier {
                     .padding(14)
                     .navigationTitle("在线编辑")
                     .task(id: edit.id) {
-                        await onLoadFileEdit(edit)
+                        await loadFileEdit(edit)
                     }
                 }
 #if os(macOS)
                 .frame(minWidth: 700, minHeight: 520)
 #endif
             }
+    }
+
+    private func loadFileEdit(_ edit: PendingSFTPFileEdit) async {
+        guard let session = sessionManager.session(for: edit.sessionID) else {
+            fileEditStatus = "读取失败：会话不存在"
+            fileEditLoading = false
+            return
+        }
+
+        fileEditContent = ""
+        fileEditStatus = "正在读取文件..."
+        fileEditLoading = true
+        defer { fileEditLoading = false }
+
+        do {
+            fileEditContent = try await session.sftpManager.readTextFile(item: edit.item)
+            fileEditStatus = "读取成功"
+        } catch {
+            fileEditStatus = "读取失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func saveFileEdit() async {
+        guard let edit = pendingFileEdit,
+              let session = sessionManager.session(for: edit.sessionID) else {
+            fileEditStatus = "保存失败：会话不存在"
+            return
+        }
+
+        fileEditSaving = true
+        defer { fileEditSaving = false }
+
+        do {
+            try await session.sftpManager.writeTextFile(item: edit.item, content: fileEditContent)
+            fileEditStatus = "保存成功"
+        } catch {
+            fileEditStatus = "保存失败：\(error.localizedDescription)"
+        }
     }
 }

@@ -34,10 +34,6 @@ struct MainWorkstationView: View {
     @State private var pendingSFTPChmod: PendingSFTPChmod?
     @State private var pendingSFTPChmodText: String = ""
     @State private var pendingSFTPFileEdit: PendingSFTPFileEdit?
-    @State private var pendingSFTPFileEditContent: String = ""
-    @State private var pendingSFTPFileEditStatus: String = ""
-    @State private var pendingSFTPFileEditLoading = false
-    @State private var pendingSFTPFileEditSaving = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -158,17 +154,7 @@ struct MainWorkstationView: View {
             createText: $pendingSFTPCreateText,
             pendingChmod: $pendingSFTPChmod,
             chmodText: $pendingSFTPChmodText,
-            pendingFileEdit: $pendingSFTPFileEdit,
-            fileEditContent: $pendingSFTPFileEditContent,
-            fileEditStatus: $pendingSFTPFileEditStatus,
-            fileEditLoading: $pendingSFTPFileEditLoading,
-            fileEditSaving: $pendingSFTPFileEditSaving,
-            onLoadFileEdit: { edit in
-                await loadSFTPFileForEdit(edit)
-            },
-            onSaveFileEdit: {
-                await saveSFTPFileEdit()
-            }
+            pendingFileEdit: $pendingSFTPFileEdit
         ))
     }
 
@@ -278,7 +264,7 @@ struct MainWorkstationView: View {
                 pendingSFTPChmodText = String(format: "%o", item.permissionsOctal & 0o7777)
             },
             onOpenSFTPFile: { sessionID, item in
-                openSFTPFileEditor(sessionID: sessionID, item: item)
+                pendingSFTPFileEdit = PendingSFTPFileEdit(sessionID: sessionID, item: item)
             }
         )
     }
@@ -297,47 +283,6 @@ struct MainWorkstationView: View {
         let masterPassword = session.readMasterPassword()
         Task(priority: .background) {
             await syncService.deleteRemoteConfigs(for: [server], token: token, masterPassword: masterPassword)
-        }
-    }
-
-    private func openSFTPFileEditor(sessionID: UUID, item: FileItem) {
-        pendingSFTPFileEdit = PendingSFTPFileEdit(sessionID: sessionID, item: item)
-        pendingSFTPFileEditContent = ""
-        pendingSFTPFileEditStatus = "正在读取文件..."
-        pendingSFTPFileEditLoading = true
-    }
-
-    private func loadSFTPFileForEdit(_ edit: PendingSFTPFileEdit) async {
-        guard let session = sessionManager.session(for: edit.sessionID) else {
-            pendingSFTPFileEditStatus = "读取失败：会话不存在"
-            pendingSFTPFileEditLoading = false
-            return
-        }
-
-        pendingSFTPFileEditLoading = true
-        defer { pendingSFTPFileEditLoading = false }
-        do {
-            let text = try await session.sftpManager.readTextFile(item: edit.item)
-            pendingSFTPFileEditContent = text
-            pendingSFTPFileEditStatus = "读取成功"
-        } catch {
-            pendingSFTPFileEditStatus = "读取失败：\(error.localizedDescription)"
-        }
-    }
-
-    private func saveSFTPFileEdit() async {
-        guard let edit = pendingSFTPFileEdit,
-              let session = sessionManager.session(for: edit.sessionID) else {
-            pendingSFTPFileEditStatus = "保存失败：会话不存在"
-            return
-        }
-        pendingSFTPFileEditSaving = true
-        defer { pendingSFTPFileEditSaving = false }
-        do {
-            try await session.sftpManager.writeTextFile(item: edit.item, content: pendingSFTPFileEditContent)
-            pendingSFTPFileEditStatus = "保存成功"
-        } catch {
-            pendingSFTPFileEditStatus = "保存失败：\(error.localizedDescription)"
         }
     }
 
