@@ -13,8 +13,6 @@ use russh::ChannelMsg;
 use russh::Disconnect;
 use russh_sftp::client::SftpSession;
 use thiserror::Error;
-use tokio::io::{AsyncRead, ReadBuf};
-use tokio::sync::mpsc;
 
 #[cfg(target_os = "android")]
 mod android_ffi;
@@ -27,6 +25,7 @@ mod portable;
 mod portable_ffi;
 mod sftp;
 mod ssh_session;
+mod terminal;
 pub use crypto::{decrypt_config, encrypt_config};
 use monitor::NetSnapshot;
 
@@ -76,26 +75,15 @@ pub(crate) struct OrbitBaseSession {
     #[allow(dead_code)]
     username: String,
     key: String,
-    ssh: tokio::sync::Mutex<client::Handle<OrbitSshClientHandler>>,
+    pub(crate) ssh: tokio::sync::Mutex<client::Handle<OrbitSshClientHandler>>,
     net_snapshot: tokio::sync::Mutex<Option<NetSnapshot>>,
-    channel_ref_count: AtomicU64,
+    pub(crate) channel_ref_count: AtomicU64,
     keepalive_watch_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 pub(crate) struct OrbitSftpSession {
     pub(crate) base: Arc<OrbitBaseSession>,
     pub(crate) sftp: SftpSession,
-}
-
-enum TerminalCommand {
-    Write(Vec<u8>),
-    Resize { cols: u32, rows: u32 },
-    Close,
-}
-
-struct OrbitTerminalChannel {
-    base_id: u64,
-    tx: mpsc::UnboundedSender<TerminalCommand>,
 }
 
 pub(crate) static ORBIT_RUNTIME: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
@@ -115,45 +103,12 @@ static BASE_SESSION_KEY_INDEX: Lazy<Mutex<HashMap<String, u64>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 static SFTP_SESSIONS: Lazy<Mutex<HashMap<u64, Arc<OrbitSftpSession>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
-static TERMINAL_CHANNELS: Lazy<Mutex<HashMap<u64, OrbitTerminalChannel>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
 pub(crate) static TERMINAL_DATA_CALLBACK: Lazy<Mutex<Option<TerminalDataCallback>>> =
     Lazy::new(|| Mutex::new(None));
 pub(crate) static CONNECTION_EVENT_CALLBACK: Lazy<Mutex<Option<ConnectionEventCallback>>> =
     Lazy::new(|| Mutex::new(None));
 static NEXT_BASE_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_SFTP_CHANNEL_ID: AtomicU64 = AtomicU64::new(1);
-static NEXT_TERMINAL_CHANNEL_ID: AtomicU64 = AtomicU64::new(1);
-
-struct SliceAsyncReader {
-    data: Vec<u8>,
-    offset: usize,
-}
-
-impl SliceAsyncReader {
-    fn new(data: Vec<u8>) -> Self {
-        Self { data, offset: 0 }
-    }
-}
-
-impl AsyncRead for SliceAsyncReader {
-    fn poll_read(
-        mut self: std::pin::Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        if self.offset >= self.data.len() {
-            return std::task::Poll::Ready(Ok(()));
-        }
-
-        let remaining = self.data.len() - self.offset;
-        let to_copy = remaining.min(buf.remaining());
-        let end = self.offset + to_copy;
-        buf.put_slice(&self.data[self.offset..end]);
-        self.offset = end;
-        std::task::Poll::Ready(Ok(()))
-    }
-}
 
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn test_ssh_connection(
@@ -418,91 +373,14 @@ pub async fn request_channel(
             Ok(channel_id)
         }
         "exec" => Ok(base.id),
-        "pty" => open_terminal_channel(base, 120, 36).await,
+        "pty" => terminal::open_channel(base, 120, 36).await,
         _ => Err(OrbitCoreError::InvalidInput),
     }
 }
 
-async fn open_terminal_channel(
-    base: Arc<OrbitBaseSession>,
-    cols: u32,
-    rows: u32,
-) -> Result<u64, OrbitCoreError> {
-    let ssh = base.ssh.lock().await;
-    let channel = ssh
-        .channel_open_session()
-        .await
-        .map_err(|e| OrbitCoreError::SshFailed(e.to_string()))?;
-    drop(ssh);
-
-    channel
-        .request_pty(true, "xterm-256color", cols, rows, 0, 0, &[])
-        .await
-        .map_err(|e| OrbitCoreError::SshFailed(format!("request pty failed: {e}")))?;
-    channel
-        .request_shell(true)
-        .await
-        .map_err(|e| OrbitCoreError::SshFailed(format!("request shell failed: {e}")))?;
-
-    base.channel_ref_count.fetch_add(1, Ordering::SeqCst);
-    let (mut read_half, write_half) = channel.split();
-    let (tx, mut rx) = mpsc::unbounded_channel::<TerminalCommand>();
-    let terminal_id = NEXT_TERMINAL_CHANNEL_ID.fetch_add(1, Ordering::SeqCst);
-    let base_id = base.id;
-
-    lock_terminal_channels()?.insert(terminal_id, OrbitTerminalChannel { base_id, tx });
-
-    tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                cmd = rx.recv() => {
-                    match cmd {
-                        Some(TerminalCommand::Write(bytes)) => {
-                            if !bytes.is_empty() {
-                                let _ = write_half.data(SliceAsyncReader::new(bytes)).await;
-                            }
-                        }
-                        Some(TerminalCommand::Resize { cols, rows }) => {
-                            let _ = write_half.window_change(cols, rows, 0, 0).await;
-                        }
-                        Some(TerminalCommand::Close) | None => {
-                            let _ = write_half.eof().await;
-                            let _ = write_half.close().await;
-                            break;
-                        }
-                    }
-                }
-                msg = read_half.wait() => {
-                    match msg {
-                        Some(ChannelMsg::Data { data }) => emit_terminal_data(terminal_id, &data),
-                        Some(ChannelMsg::ExtendedData { data, .. }) => emit_terminal_data(terminal_id, &data),
-                        Some(ChannelMsg::ExitStatus { .. }) | Some(ChannelMsg::Eof) | None => {
-                            break;
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-
-        if let Ok(mut map) = TERMINAL_CHANNELS.lock() {
-            map.remove(&terminal_id);
-        }
-        let _ = release_base_session(base_id).await;
-    });
-
-    Ok(terminal_id)
-}
-
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn terminal_write(terminal_channel_id: u64, data: Vec<u8>) -> Result<(), OrbitCoreError> {
-    let tx = lock_terminal_channels()?
-        .get(&terminal_channel_id)
-        .map(|ch| ch.tx.clone())
-        .ok_or_else(|| OrbitCoreError::SshFailed("terminal channel not found".to_string()))?;
-
-    tx.send(TerminalCommand::Write(data))
-        .map_err(|_| OrbitCoreError::SshFailed("terminal write channel closed".to_string()))
+    terminal::write(terminal_channel_id, data).await
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -511,25 +389,12 @@ pub async fn terminal_resize(
     cols: u32,
     rows: u32,
 ) -> Result<(), OrbitCoreError> {
-    let tx = lock_terminal_channels()?
-        .get(&terminal_channel_id)
-        .map(|ch| ch.tx.clone())
-        .ok_or_else(|| OrbitCoreError::SshFailed("terminal channel not found".to_string()))?;
-
-    tx.send(TerminalCommand::Resize { cols, rows })
-        .map_err(|_| OrbitCoreError::SshFailed("terminal resize channel closed".to_string()))
+    terminal::resize(terminal_channel_id, cols, rows).await
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn terminal_close(terminal_channel_id: u64) -> Result<(), OrbitCoreError> {
-    let channel = lock_terminal_channels()?.remove(&terminal_channel_id);
-    if let Some(ch) = channel {
-        let _ = ch.tx.send(TerminalCommand::Close);
-        return Ok(());
-    }
-    Err(OrbitCoreError::SshFailed(
-        "terminal channel not found".to_string(),
-    ))
+    terminal::close(terminal_channel_id).await
 }
 
 pub(crate) async fn run_remote_command(
@@ -617,21 +482,6 @@ fn lock_base_key_index(
     BASE_SESSION_KEY_INDEX
         .lock()
         .map_err(|_| OrbitCoreError::Internal("base key index lock poisoned".to_string()))
-}
-
-fn lock_terminal_channels(
-) -> Result<std::sync::MutexGuard<'static, HashMap<u64, OrbitTerminalChannel>>, OrbitCoreError> {
-    TERMINAL_CHANNELS
-        .lock()
-        .map_err(|_| OrbitCoreError::Internal("terminal channel lock poisoned".to_string()))
-}
-
-fn emit_terminal_data(channel_id: u64, bytes: &[u8]) {
-    let cb_opt = TERMINAL_DATA_CALLBACK.lock().ok().and_then(|guard| *guard);
-
-    if let Some(cb) = cb_opt {
-        cb(channel_id, bytes.as_ptr(), bytes.len());
-    }
 }
 
 fn emit_connection_event(base_id: u64, message: &str) {
@@ -751,8 +601,8 @@ fn resolve_base_session(
     if let Some(sftp) = lock_sftp_sessions()?.get(&session_or_channel_id).cloned() {
         return Ok(sftp.base.clone());
     }
-    if let Some(term) = lock_terminal_channels()?.get(&session_or_channel_id) {
-        if let Some(base) = lock_base_sessions()?.get(&term.base_id).cloned() {
+    if let Some(base_id) = terminal::base_id_for_channel(session_or_channel_id)? {
+        if let Some(base) = lock_base_sessions()?.get(&base_id).cloned() {
             return Ok(base);
         }
     }
