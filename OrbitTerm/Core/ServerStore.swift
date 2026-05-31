@@ -444,6 +444,42 @@ final class ServerStore: ObservableObject {
         persist()
     }
 
+    @MainActor
+    func applySyncedServersIncrementally(_ synced: [ServerEntry], batchSize: Int = 8) async -> Int {
+        guard !synced.isEmpty else { return 0 }
+
+        var changedCount = 0
+        let safeBatchSize = max(1, batchSize)
+        for batchStart in stride(from: 0, to: synced.count, by: safeBatchSize) {
+            let batchEnd = min(batchStart + safeBatchSize, synced.count)
+            let batch = synced[batchStart..<batchEnd]
+            var table = Dictionary(uniqueKeysWithValues: servers.map { ($0.id, $0) })
+            var batchChanged = false
+
+            for item in batch where table[item.id] != item {
+                table[item.id] = item
+                batchChanged = true
+                changedCount += 1
+            }
+
+            if batchChanged {
+                servers = table.values.sorted {
+                    $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+                }
+                if selectedServerID == nil {
+                    selectedServerID = servers.first?.id
+                }
+                persist()
+            }
+
+            // 主动让出主线程，让首屏、滚动和点击不被大量资产合并抢占。
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        return changedCount
+    }
+
     func containsSameServers(_ synced: [ServerEntry]) -> Bool {
         guard !synced.isEmpty else { return true }
         let table = Dictionary(uniqueKeysWithValues: servers.map { ($0.id, $0) })

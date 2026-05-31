@@ -185,10 +185,15 @@ final class MonitorService: ObservableObject {
         port: Int = 22,
         username: String,
         credentials: ServerCredentials,
-        allowPasswordFallback: Bool
+        allowPasswordFallback: Bool,
+        baseSessionID: UInt64? = nil
     ) async -> UUID {
         let id = ensureTarget(name: name, host: host, port: port, username: username, credentials: credentials)
-        await connect(id, allowPasswordFallback: allowPasswordFallback, credentialsOverride: credentials)
+        if let baseSessionID {
+            await connect(id, baseSessionID: baseSessionID, allowPasswordFallback: allowPasswordFallback)
+        } else {
+            await connect(id, allowPasswordFallback: allowPasswordFallback, credentialsOverride: credentials)
+        }
         return id
     }
 
@@ -261,6 +266,37 @@ final class MonitorService: ObservableObject {
             panels[index].status = "监控中"
             startPolling(targetID)
             logger.debug("[MON] connected target=\(target.name, privacy: .public) sid=\(sessionID)")
+        } catch {
+            panels[index].status = "连接失败: \(error.localizedDescription)"
+            panels[index].isRunning = false
+        }
+    }
+
+    func connect(
+        _ targetID: UUID,
+        baseSessionID: UInt64,
+        allowPasswordFallback: Bool = true
+    ) async {
+        guard let index = panels.firstIndex(where: { $0.id == targetID }) else { return }
+
+        do {
+            let payload = try await callRustWithTimeout(seconds: 8, label: "reuse_connect") {
+                "sftp".withCString { channelType in
+                    orbit_request_channel(baseSessionID, channelType)
+                }
+            }
+
+            guard let sessionID = UInt64(payload) else {
+                throw SFTPError.invalidResponse
+            }
+
+            sessions[targetID] = sessionID
+            consecutiveFailures[targetID] = 0
+            allowPasswordFallbackByTarget[targetID] = allowPasswordFallback
+            panels[index].isRunning = true
+            panels[index].status = "监控中"
+            startPolling(targetID)
+            logger.debug("[MON] reused base session target=\(self.panels[index].target.name, privacy: .public) sid=\(sessionID)")
         } catch {
             panels[index].status = "连接失败: \(error.localizedDescription)"
             panels[index].isRunning = false

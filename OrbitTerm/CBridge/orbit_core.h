@@ -33,6 +33,7 @@ char *orbit_ssh_connect(
     const char *private_key_passphrase,
     int32_t allow_password_fallback
 );
+char *orbit_ssh_disconnect(uint64_t base_session_id);
 
 char *orbit_sftp_connect(
     const char *ip,

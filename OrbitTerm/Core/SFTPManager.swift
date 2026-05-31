@@ -227,6 +227,40 @@ final class SFTPManager: ObservableObject {
         }
     }
 
+    func connect(baseSessionID: UInt64, initialPath: String = "/") async {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let sessionPayload = try await runBlockingWithTimeout(seconds: 8) {
+                try Self.parseOKPayload(
+                    Self.callRust {
+                        "sftp".withCString { channelType in
+                            orbit_request_channel(baseSessionID, channelType)
+                        }
+                    }
+                )
+            }
+
+            guard let sid = UInt64(sessionPayload) else {
+                throw SFTPError.invalidResponse
+            }
+
+            sessionID = sid
+            isUsingMockData = false
+            isConnected = true
+            statusText = "已复用 SSH 会话"
+            debugLog("connect_reuse_ok", ["base": "\(baseSessionID)", "session": "\(sid)"])
+            try await refresh(path: initialPath)
+            successHaptic()
+        } catch {
+            statusText = "连接失败: \(error.localizedDescription)"
+            isConnected = false
+            sessionID = nil
+            debugLog("connect_reuse_failed", ["base": "\(baseSessionID)", "error": error.localizedDescription])
+        }
+    }
+
     func disconnect() async {
         if isUsingMockData {
             items = []

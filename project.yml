@@ -35,18 +35,34 @@ targets:
           - $(inherited)
           - $(SRCROOT)/OrbitTerm/CBridge
           - $(SRCROOT)/orbit-core/include
-        OTHER_LDFLAGS[sdk=macosx*]:
-          - $(inherited)
-          - $(SRCROOT)/orbit-core/target/aarch64-apple-darwin/debug/liborbit_core.a
-        OTHER_LDFLAGS[sdk=iphonesimulator*]:
-          - $(inherited)
-          - $(SRCROOT)/orbit-core/target/aarch64-apple-ios-sim/debug/liborbit_core.a
-        OTHER_LDFLAGS[sdk=iphoneos*]:
-          - $(inherited)
-          - $(SRCROOT)/orbit-core/target/aarch64-apple-ios/debug/liborbit_core.a
         SUPPORTED_PLATFORMS: iphonesimulator iphoneos macosx
         TARGETED_DEVICE_FAMILY: "1,2"
         ENABLE_HARDENED_RUNTIME: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ARCHS[sdk=macosx*]: arm64
+        ONLY_ACTIVE_ARCH[sdk=macosx*]: YES
+        ARCHS[sdk=iphonesimulator*]: arm64
+        ONLY_ACTIVE_ARCH[sdk=iphonesimulator*]: YES
+      configs:
+        Debug:
+          OTHER_LDFLAGS[sdk=macosx*]:
+            - $(inherited)
+            - $(SRCROOT)/orbit-core/target/aarch64-apple-darwin/debug/liborbit_core.a
+          OTHER_LDFLAGS[sdk=iphonesimulator*]:
+            - $(inherited)
+            - $(SRCROOT)/orbit-core/target/aarch64-apple-ios-sim/debug/liborbit_core.a
+          OTHER_LDFLAGS[sdk=iphoneos*]:
+            - $(inherited)
+            - $(SRCROOT)/orbit-core/target/aarch64-apple-ios/debug/liborbit_core.a
+        Release:
+          OTHER_LDFLAGS[sdk=macosx*]:
+            - $(inherited)
+            - $(SRCROOT)/orbit-core/target/aarch64-apple-darwin/release/liborbit_core.a
+          OTHER_LDFLAGS[sdk=iphonesimulator*]:
+            - $(inherited)
+            - $(SRCROOT)/orbit-core/target/aarch64-apple-ios-sim/release/liborbit_core.a
+          OTHER_LDFLAGS[sdk=iphoneos*]:
+            - $(inherited)
+            - $(SRCROOT)/orbit-core/target/aarch64-apple-ios/release/liborbit_core.a
     scheme:
       testTargets: []

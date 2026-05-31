@@ -29,9 +29,10 @@ struct ContentView: View {
         .task(id: autoSyncTaskKey) {
             // 每次鉴权/解锁/token变更后都允许重试拉取，避免“仅首轮触发”导致不再同步。
             #if os(iOS)
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            try? await Task.sleep(nanoseconds: 700_000_000)
             #else
-            try? await Task.sleep(nanoseconds: 300_000_000)
+            // 首屏先展示本地缓存资产，云端同步以后台增量方式补齐。
+            try? await Task.sleep(nanoseconds: 900_000_000)
             #endif
             await runAutoSyncIfPossible()
         }
@@ -87,7 +88,11 @@ struct ContentView: View {
     private func runAutoSyncIfPossible() async {
         guard !isAutoSyncRunning else { return }
         // 避免前台频繁触发导致页面切换与首屏渲染抖动。
+        #if os(macOS)
+        guard Date().timeIntervalSince(lastAutoSyncAt) > 12 else { return }
+        #else
         guard Date().timeIntervalSince(lastAutoSyncAt) > 2.5 else { return }
+        #endif
 
         // 全端统一注册离线队列鉴权，避免仅桌面端可重试。
         SyncQueue.shared.setAuthTokenProvider {
@@ -102,27 +107,31 @@ struct ContentView: View {
         }
 
         isAutoSyncRunning = true
-        defer {
-            isAutoSyncRunning = false
-            lastAutoSyncAt = Date()
-        }
+        lastAutoSyncAt = Date()
 
-        let ok = await syncService.pullAndApplyConfigs(
-            token: token,
-            masterPassword: masterPassword,
-            store: serverStore
-        )
-        Task(priority: .utility) {
+        // 自动同步不阻塞首屏：本地资产先可用，云端配置和片段在后台静默补齐。
+        Task(priority: .background) {
+            let ok = await syncService.pullAndApplyConfigs(
+                token: token,
+                masterPassword: masterPassword,
+                store: serverStore,
+                incremental: true,
+                silentStart: true
+            )
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             await snippetStore.pullFromCloud(token: token, masterPassword: masterPassword)
-        }
-        if !ok {
-            if syncService.lastSyncMessage.contains("过期") {
-                session.showTransientStatus("登录已过期，正在返回登录页")
-                session.logout()
-                return
+
+            await MainActor.run {
+                isAutoSyncRunning = false
+                if !ok {
+                    if syncService.lastSyncMessage.contains("过期") {
+                        session.showTransientStatus("登录已过期，正在返回登录页")
+                        session.logout()
+                        return
+                    }
+                    session.showTransientStatus("云端拉取失败，已保留本地数据")
+                }
             }
-            session.showTransientStatus("云端拉取失败，已保留本地数据")
         }
     }
 }

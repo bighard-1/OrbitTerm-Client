@@ -175,10 +175,14 @@ final class SyncService: ObservableObject {
     func pullAndApplyConfigs(
         token: String,
         masterPassword: String,
-        store: ServerStore
+        store: ServerStore,
+        incremental: Bool = false,
+        silentStart: Bool = false
     ) async -> Bool {
         do {
-            lastSyncMessage = "正在后台同步..."
+            if !silentStart {
+                lastSyncMessage = "正在后台同步..."
+            }
             let remoteItems = try await network.pullConfigs(token: token)
             if remoteItems.isEmpty {
                 lastSyncMessage = "拉取完成: 云端暂无配置"
@@ -196,21 +200,26 @@ final class SyncService: ObservableObject {
 
             let servers = preparation.items.map(\.server)
             let portables = preparation.items.map(\.portable)
-            let metadataChanged = !store.containsSameServers(servers)
-
-            if metadataChanged {
-                store.applySyncedServers(servers)
+            let appliedServerCount: Int
+            if incremental {
+                appliedServerCount = await store.applySyncedServersIncrementally(servers, batchSize: 6)
+            } else {
+                let metadataChanged = !store.containsSameServers(servers)
+                if metadataChanged {
+                    store.applySyncedServers(servers)
+                }
+                appliedServerCount = metadataChanged ? servers.count : 0
             }
             shadowStore.saveMany(portables)
 
             deleteRemoteConfigsInBackground(ids: preparation.remoteConfigIDsToDelete)
 
-            let changedCount = preparation.credentialWriteCount + (metadataChanged ? servers.count : 0)
+            let changedCount = preparation.credentialWriteCount + appliedServerCount
             if changedCount == 0 {
                 lastSyncMessage = "后台同步完成: 云端无变化"
             } else {
                 let ignored = preparation.skipped + preparation.tombstoneSkipped + preparation.duplicateSkipped
-                lastSyncMessage = "后台同步完成: 更新 \(servers.count) 条，凭据变更 \(preparation.credentialWriteCount) 条，忽略 \(ignored) 条"
+                lastSyncMessage = "后台同步完成: 更新 \(appliedServerCount) 条，凭据变更 \(preparation.credentialWriteCount) 条，忽略 \(ignored) 条"
             }
             return !servers.isEmpty || preparation.skipped == 0
         } catch {

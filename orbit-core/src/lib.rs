@@ -2359,6 +2359,15 @@ pub extern "C" fn orbit_sftp_connect(
     }
 }
 
+#[no_mangle]
+pub extern "C" fn orbit_ssh_disconnect(base_session_id: u64) -> *mut c_char {
+    let result = ORBIT_RUNTIME.block_on(release_base_session(base_session_id));
+    match result {
+        Ok(_) => to_c_string_ptr("OK:disconnected".to_string()),
+        Err(e) => to_c_string_ptr(format!("ERR:{}", e)),
+    }
+}
+
 fn normalize_port(port: i32) -> Result<u16, OrbitCoreError> {
     if (1..=65535).contains(&port) {
         Ok(port as u16)

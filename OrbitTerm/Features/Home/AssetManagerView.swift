@@ -14,6 +14,7 @@ struct AssetManagerView: View {
     @State private var noticeColor: Color = .secondary
     @State private var policyChangingID: UUID?
     @State private var keySetupServer: ServerEntry?
+    @State private var showingBulkAdd = false
 
     private let vault = CredentialVault.shared
     @StateObject private var orbitManager = OrbitManager()
@@ -100,6 +101,13 @@ struct AssetManagerView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("关闭") { dismiss() }
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showingBulkAdd = true
+                    } label: {
+                        Label("批量添加", systemImage: "square.stack.3d.up.fill")
+                    }
+                }
             }
         }
         .sheet(item: $keySetupServer) { server in
@@ -113,6 +121,13 @@ struct AssetManagerView: View {
                     noticeText = message
                 }
             }
+        }
+        .sheet(isPresented: $showingBulkAdd) {
+            BulkAddAssetsSheet(store: store) { count in
+                noticeColor = count > 0 ? .green : .orange
+                noticeText = count > 0 ? "已批量添加 \(count) 个资产，并已进入后台同步" : "未添加资产，请检查输入格式"
+            }
+            .environmentObject(session)
         }
 #if os(macOS)
         .frame(minWidth: 760, minHeight: 520)
@@ -212,6 +227,175 @@ struct AssetManagerView: View {
     }
 }
 
+private struct BulkAddAssetsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var session: AppSession
+
+    @ObservedObject var store: ServerStore
+    let onFinish: (Int) -> Void
+
+    @StateObject private var syncService = SyncService.shared
+    @State private var rawText = """
+    名称,分组,主机,端口,用户名,密码,协议,认证方式,私钥内容
+    Web-01,生产,192.168.1.10,22,root,change-me,ssh,password,
+    Switch-01,网络,192.168.1.20,23,admin,change-me,telnet,password,
+    """
+    @State private var statusText = "支持逗号、Tab 或分号分隔。一行一个资产。"
+    @State private var isSaving = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("字段顺序：名称、分组、主机、端口、用户名、密码、协议、认证方式、私钥内容")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                TextEditor(text: $rawText)
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(minHeight: 260)
+                    .padding(8)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                HStack(spacing: 8) {
+                    if isSaving {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    Text(statusText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+
+                HStack {
+                    Button("取消") { dismiss() }
+                        .buttonStyle(.bordered)
+                    Spacer()
+                    Button("导入并同步") {
+                        Task { await importAssets() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isSaving)
+                }
+            }
+            .padding(16)
+            .navigationTitle("批量添加资产")
+        }
+#if os(macOS)
+        .frame(minWidth: 760, minHeight: 520)
+#endif
+    }
+
+    @MainActor
+    private func importAssets() async {
+        guard !isSaving else { return }
+        isSaving = true
+        defer { isSaving = false }
+
+        let parsed = parseRows(rawText)
+        guard !parsed.isEmpty else {
+            statusText = "没有解析到有效资产"
+            onFinish(0)
+            return
+        }
+
+        for item in parsed {
+            store.addOrUpdate(item.server, credentials: item.credentials)
+        }
+
+        statusText = "已保存 \(parsed.count) 个资产，正在后台同步..."
+        await syncImported(parsed)
+        onFinish(parsed.count)
+        dismiss()
+    }
+
+    private func parseRows(_ text: String) -> [(server: ServerEntry, credentials: ServerCredentials)] {
+        text
+            .split(whereSeparator: \.isNewline)
+            .compactMap { rawLine -> (ServerEntry, ServerCredentials)? in
+                let line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !line.isEmpty, !line.hasPrefix("#") else { return nil }
+
+                let fields = splitRow(line)
+                guard fields.count >= 5 else { return nil }
+                if fields[0].localizedCaseInsensitiveContains("名称") ||
+                    fields[0].localizedCaseInsensitiveContains("name") {
+                    return nil
+                }
+
+                let name = fields[safe: 0].trimmed
+                let group = fields[safe: 1].trimmed
+                let host = fields[safe: 2].trimmed
+                let port = Int(fields[safe: 3].trimmed) ?? 22
+                let username = fields[safe: 4].trimmed
+                let password = fields[safe: 5].trimmed
+                let transportRaw = fields[safe: 6].trimmed.lowercased()
+                let authRaw = fields[safe: 7].trimmed.lowercased()
+                let keyContent = fields.dropFirst(8).joined(separator: ",").trimmingCharacters(in: .whitespacesAndNewlines)
+
+                guard !host.isEmpty, !username.isEmpty else { return nil }
+                let transport: ServerTransportProtocol = transportRaw == "telnet" ? .telnet : .ssh
+                let authMethod: ServerAuthMethod = authRaw == "key" || !keyContent.isEmpty ? .key : .password
+                let server = ServerEntry(
+                    name: name.isEmpty ? host : name,
+                    group: group,
+                    host: host,
+                    port: max(1, min(65535, port)),
+                    username: username,
+                    authMethod: authMethod,
+                    transport: transport,
+                    allowPasswordFallback: !password.isEmpty
+                )
+                let credentials = ServerCredentials(password: password, privateKeyContent: keyContent)
+                return (server, credentials)
+            }
+    }
+
+    private func splitRow(_ line: String) -> [String] {
+        if line.contains("\t") {
+            return line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+        }
+        if line.contains(";") && !line.contains(",") {
+            return line.split(separator: ";", omittingEmptySubsequences: false).map(String.init)
+        }
+        return line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
+    }
+
+    private func syncImported(_ items: [(server: ServerEntry, credentials: ServerCredentials)]) async {
+        guard let token = session.readToken(),
+              let masterPassword = session.readMasterPassword() else { return }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        for item in items {
+            let portable = item.server.makePortableConfig(
+                savedAtUnix: Int(Date().timeIntervalSince1970),
+                credentials: item.credentials
+            )
+            guard let data = try? encoder.encode(portable),
+                  let plain = String(data: data, encoding: .utf8) else { continue }
+            _ = await syncService.uploadEncryptedConfig(
+                token: token,
+                masterPassword: masterPassword,
+                plaintextConfig: plain,
+                vectorClock: ["client": Int(Date().timeIntervalSince1970)],
+                allowQueueOnNetworkFailure: true
+            )
+        }
+    }
+}
+
+private extension Array where Element == String {
+    subscript(safe index: Int) -> String {
+        indices.contains(index) ? self[index] : ""
+    }
+}
+
+private extension String {
+    var trimmed: String {
+        trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 private enum QuickKeySetupResult {
     case saved(String)
     case failed(String)
@@ -247,6 +431,7 @@ private struct QuickKeySetupSheet: View {
     @State private var selectedKeyFileName = ""
     @State private var showKeyFileImporter = false
     @State private var isTesting = false
+    @State private var isDeploying = false
     @State private var keyVerified = false
     @State private var saving = false
     @State private var closePasswordLogin = false
@@ -300,7 +485,7 @@ private struct QuickKeySetupSheet: View {
                     }
 
                 HStack(spacing: 8) {
-                    if isTesting || saving {
+                    if isTesting || isDeploying || saving {
                         ProgressView()
                             .controlSize(.small)
                     }
@@ -315,6 +500,13 @@ private struct QuickKeySetupSheet: View {
                     Button("取消") { dismiss() }
                         .buttonStyle(.bordered)
                     Spacer()
+#if os(macOS)
+                    Button("生成并部署密钥") {
+                        Task { await generateAndDeployKey() }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isTesting || isDeploying || saving)
+#endif
                     Button("测试密钥") {
                         Task { await testKeyConnection() }
                     }
@@ -390,6 +582,110 @@ private struct QuickKeySetupSheet: View {
             statusColor = .red
         }
     }
+
+#if os(macOS)
+    @MainActor
+    private func generateAndDeployKey() async {
+        guard !isDeploying else { return }
+        guard let old = try? vault.read(for: server.credentialID),
+              !old.password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            statusText = "生成部署失败：需要先保存密码凭据，才能把公钥写入远端"
+            statusColor = .orange
+            return
+        }
+
+        isDeploying = true
+        keyVerified = false
+        statusText = "正在生成本地 Ed25519 密钥..."
+        statusColor = .secondary
+        defer { isDeploying = false }
+
+        do {
+            let pair = try await generateEd25519KeyPair(passphrase: privateKeyPassphrase)
+            privateKeyContent = pair.privateKey
+            statusText = "正在部署公钥到远端 authorized_keys..."
+
+            let deployCommand = authorizedKeysCommand(publicKey: pair.publicKey)
+            _ = try await orbitManager.executeRemoteCommandAsync(
+                ip: server.host,
+                port: server.port,
+                username: server.username,
+                password: old.password,
+                privateKeyContent: "",
+                privateKeyPassphrase: "",
+                allowPasswordFallback: true,
+                command: deployCommand
+            )
+
+            let result = await orbitManager.testConnectionAsync(
+                ip: server.host,
+                port: server.port,
+                username: server.username,
+                password: "",
+                privateKeyContent: pair.privateKey,
+                privateKeyPassphrase: privateKeyPassphrase,
+                allowPasswordFallback: false
+            )
+
+            guard result.hasPrefix("成功") else {
+                statusText = "公钥已写入，但密钥测试失败：\(result)"
+                statusColor = .orange
+                return
+            }
+
+            keyVerified = true
+            statusText = "密钥已生成、部署并测试成功，可选择关闭密码登录"
+            statusColor = .green
+        } catch {
+            statusText = "生成部署失败：\(error.localizedDescription)"
+            statusColor = .red
+        }
+    }
+
+    private func generateEd25519KeyPair(passphrase: String) async throws -> (privateKey: String, publicKey: String) {
+        try await Task.detached(priority: .userInitiated) {
+            let dir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("orbitterm-key-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            let keyURL = dir.appendingPathComponent("id_ed25519")
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh-keygen")
+            process.arguments = [
+                "-t", "ed25519",
+                "-a", "64",
+                "-N", passphrase,
+                "-C", "orbitterm-\(server.id.uuidString)",
+                "-f", keyURL.path
+            ]
+            let errorPipe = Pipe()
+            process.standardError = errorPipe
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else {
+                let err = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "ssh-keygen 执行失败"
+                throw OrbitManagerError.rustError(err.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+
+            let privateKey = try String(contentsOf: keyURL, encoding: .utf8)
+            let publicKey = try String(contentsOf: keyURL.appendingPathExtension("pub"), encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return (privateKey, publicKey)
+        }.value
+    }
+
+    private func authorizedKeysCommand(publicKey: String) -> String {
+        let quoted = shellSingleQuote(publicKey)
+        return """
+        umask 077; mkdir -p ~/.ssh && touch ~/.ssh/authorized_keys && grep -qxF \(quoted) ~/.ssh/authorized_keys || printf '%s\\n' \(quoted) >> ~/.ssh/authorized_keys; chmod 700 ~/.ssh; chmod 600 ~/.ssh/authorized_keys
+        """
+    }
+
+    private func shellSingleQuote(_ text: String) -> String {
+        "'" + text.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+#endif
 
     private func save() async {
         guard hasValidKey else { return }

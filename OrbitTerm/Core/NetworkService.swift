@@ -267,12 +267,13 @@ final class NetworkService: NSObject {
         request.httpBody = try JSONEncoder().encode(body)
 
         let (data, httpResp, latencyMs, attempts) = try await executeRequest(request)
+        let requestURLString = request.url?.absoluteString ?? path
 
         let envelope = try? JSONDecoder().decode(APIEnvelope<Resp>.self, from: data)
         await MainActor.run {
             DiagnosticsManager.shared.record(
                 method: method,
-                url: request.url?.absoluteString ?? path,
+                url: requestURLString,
                 statusCode: httpResp.statusCode,
                 latencyMs: latencyMs,
                 errorType: nil,
@@ -312,11 +313,12 @@ final class NetworkService: NSObject {
         }
 
         let (data, httpResp, latencyMs, attempts) = try await executeRequest(request)
+        let requestURLString = request.url?.absoluteString ?? path
         let envelope = try? JSONDecoder().decode(APIEnvelope<EmptyResponseData>.self, from: data)
         await MainActor.run {
             DiagnosticsManager.shared.record(
                 method: method,
-                url: request.url?.absoluteString ?? path,
+                url: requestURLString,
                 statusCode: httpResp.statusCode,
                 latencyMs: latencyMs,
                 errorType: nil,
@@ -354,12 +356,13 @@ final class NetworkService: NSObject {
         }
 
         let (data, httpResp, latencyMs, attempts) = try await executeRequest(request)
+        let requestURLString = request.url?.absoluteString ?? path
 
         let envelope = try? JSONDecoder().decode(APIEnvelope<Resp>.self, from: data)
         await MainActor.run {
             DiagnosticsManager.shared.record(
                 method: method,
-                url: request.url?.absoluteString ?? path,
+                url: requestURLString,
                 statusCode: httpResp.statusCode,
                 latencyMs: latencyMs,
                 errorType: nil,

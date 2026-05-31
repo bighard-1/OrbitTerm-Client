@@ -44,8 +44,11 @@ echo "[3/9] 构建 Rust 核心库..."
 cd orbit-core
 rustup target add aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim >/dev/null
 cargo build --target aarch64-apple-darwin >/dev/null
+cargo build --release --target aarch64-apple-darwin >/dev/null
 cargo build --target aarch64-apple-ios >/dev/null
+cargo build --release --target aarch64-apple-ios >/dev/null
 cargo build --target aarch64-apple-ios-sim >/dev/null
+cargo build --release --target aarch64-apple-ios-sim >/dev/null
 cd "$ROOT_DIR"
 
 echo "[4/9] 归档 macOS..."

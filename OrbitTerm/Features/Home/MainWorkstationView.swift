@@ -30,9 +30,12 @@ struct MainWorkstationView: View {
 
     @State private var showingAddServer = false
     @State private var editingServer: ServerEntry?
+    @State private var pendingDeleteServer: ServerEntry?
     @State private var showingAssetManager = false
     @State private var showingSettings = false
+    @State private var showingDiagnostics = false
     @State private var showingBatchCommand = false
+    @State private var leftSearchText = ""
     @State private var isLeftPanelCollapsed = false
     @State private var isRightPanelCollapsed = false
     @State private var showMonitorPanel = true
@@ -133,6 +136,9 @@ struct MainWorkstationView: View {
                 Button("设置") { showingSettings = true }
             }
             ToolbarItem(placement: .primaryAction) {
+                Button("诊断") { showingDiagnostics = true }
+            }
+            ToolbarItem(placement: .primaryAction) {
                 Button("退出登录") { session.logout() }
             }
         }
@@ -172,6 +178,12 @@ struct MainWorkstationView: View {
             SettingsView()
 #if os(macOS)
                 .frame(minWidth: 520, minHeight: 480)
+#endif
+        }
+        .sheet(isPresented: $showingDiagnostics) {
+            DiagnosticsExportView()
+#if os(macOS)
+                .frame(minWidth: 620, minHeight: 520)
 #endif
         }
         .sheet(isPresented: $showingBatchCommand) {
@@ -259,6 +271,19 @@ struct MainWorkstationView: View {
         } message: {
             Text("请输入 3-4 位八进制权限")
         }
+        .alert("确认删除资产", isPresented: Binding(
+            get: { pendingDeleteServer != nil },
+            set: { if !$0 { pendingDeleteServer = nil } }
+        )) {
+            Button("取消", role: .cancel) { pendingDeleteServer = nil }
+            Button("删除", role: .destructive) {
+                guard let server = pendingDeleteServer else { return }
+                pendingDeleteServer = nil
+                deleteServer(server)
+            }
+        } message: {
+            Text("将删除“\(pendingDeleteServer?.name ?? "该资产")”的本地记录，并尝试同步云端删除。此操作不可撤销。")
+        }
         .sheet(item: $pendingSFTPFileEdit) { edit in
             NavigationStack {
                 VStack(alignment: .leading, spacing: 10) {
@@ -341,8 +366,13 @@ struct MainWorkstationView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
+                TextField("搜索名称、IP、用户或分组", text: $leftSearchText)
+                    .textFieldStyle(.roundedBorder)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+
                 List {
-                    ForEach(serverStore.groupedServers, id: \.group) { section in
+                    ForEach(filteredGroupedServers, id: \.group) { section in
                         Section(section.group) {
                             ForEach(section.items) { server in
                                 Button {
@@ -350,29 +380,48 @@ struct MainWorkstationView: View {
                                     sessionManager.quickOpenServer = server
                                 } label: {
                                     HStack(spacing: 8) {
-                                        Circle()
-                                            .fill(serverStore.selectedServerID == server.id ? Color.green : Color.gray.opacity(0.4))
-                                            .frame(width: 8, height: 8)
+                                        ServerConnectionBadge(session: sessionForServer(server))
                                         VStack(alignment: .leading, spacing: 2) {
-                                            Text(server.name)
-                                                .lineLimit(1)
-                                            Text(server.endpointText)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
+                                            HStack(spacing: 5) {
+                                                Text(server.name)
+                                                    .lineLimit(1)
+                                                Text(server.transport.displayName)
+                                                    .font(.caption2.weight(.semibold))
+                                                    .padding(.horizontal, 5)
+                                                    .padding(.vertical, 1)
+                                                    .background(.thinMaterial, in: Capsule())
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                            HStack(spacing: 6) {
+                                                Text(server.endpointText)
+                                                    .lineLimit(1)
+                                                ServerConnectionText(session: sessionForServer(server))
+                                            }
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
                                         }
                                     }
                                     .padding(.vertical, 4)
                                 }
                                 .buttonStyle(.plain)
+                                .listRowBackground(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(serverStore.selectedServerID == server.id ? Color.accentColor.opacity(0.13) : Color.clear)
+                                )
+                                .simultaneousGesture(
+                                    TapGesture(count: 2).onEnded {
+                                        openServerSession(server)
+                                    }
+                                )
                                 .contextMenu {
                                     Button("新建会话") {
-                                        sessionManager.openTab(for: server, autoConnect: true)
+                                        openServerSession(server)
                                     }
                                     Button("编辑凭据") {
                                         serverStore.select(server)
                                         editingServer = server
                                     }
-                                    Button("删除", role: .destructive) { deleteServer(server) }
+                                    Button("删除", role: .destructive) { pendingDeleteServer = server }
                                 }
                             }
                         }
@@ -381,6 +430,43 @@ struct MainWorkstationView: View {
                 .listStyle(.sidebar)
             }
         }
+    }
+
+    private func sessionForServer(_ server: ServerEntry) -> WorkspaceSession? {
+        sessionManager.tabs.first { $0.server.id == server.id }
+    }
+
+    private func openServerSession(_ server: ServerEntry) {
+        serverStore.select(server)
+        sessionManager.quickOpenServer = server
+        sessionManager.openTab(for: server, autoConnect: true)
+    }
+
+    private var filteredGroupedServers: [(group: String, items: [ServerEntry])] {
+        let query = leftSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return serverStore.groupedServers }
+
+        let lowered = query.lowercased()
+        let filtered = serverStore.servers.filter { server in
+            server.name.lowercased().contains(lowered) ||
+            server.host.lowercased().contains(lowered) ||
+            server.username.lowercased().contains(lowered) ||
+            server.displayGroup.lowercased().contains(lowered) ||
+            server.endpointText.lowercased().contains(lowered)
+        }
+        let grouped = Dictionary(grouping: filtered, by: { $0.displayGroup })
+        return grouped
+            .map { group, items in
+                (
+                    group: group,
+                    items: items.sorted {
+                        $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+                    }
+                )
+            }
+            .sorted {
+                $0.group.localizedCaseInsensitiveCompare($1.group) == .orderedAscending
+            }
     }
 
     private var collapsedLeftRail: some View {
@@ -427,6 +513,8 @@ struct MainWorkstationView: View {
                     onSplitStateChanged: { isSplitEnabled in
                         if isSplitEnabled {
                             showSFTPPanel = false
+                        } else {
+                            showSFTPPanel = true
                         }
                     },
                     onToggleStress: { target in
@@ -959,13 +1047,27 @@ struct MainWorkstationView: View {
         let leftRail: CGFloat = 34
         let rightRail: CGFloat = 34
 
-        let leftBase = available * 0.20
-        let middleBase = available * 0.50
-        let rightBase = max(0, available - leftBase - middleBase)
+        var left = leftCollapsed ? leftRail : min(max(220, available * 0.20), 320)
+        var right = rightCollapsed ? rightRail : min(max(260, available * 0.30), 420)
+        let minMiddle: CGFloat = 420
 
-        let left = leftCollapsed ? leftRail : max(220, leftBase)
-        let right = rightCollapsed ? rightRail : max(260, rightBase)
-        let middle = max(320, available - left - right)
+        // Keep the terminal usable on narrower macOS windows by shrinking side panels
+        // before the center workspace is allowed to overflow.
+        let sideMinimum = (leftCollapsed ? leftRail : 200) + (rightCollapsed ? rightRail : 220)
+        let targetMiddle = min(minMiddle, max(0, available - sideMinimum))
+        let overflow = max(0, left + right + targetMiddle - available)
+        if overflow > 0 {
+            let rightFloor = rightCollapsed ? rightRail : 220
+            let rightShrink = min(overflow, max(0, right - rightFloor))
+            right -= rightShrink
+
+            let remainingOverflow = overflow - rightShrink
+            let leftFloor = leftCollapsed ? leftRail : 200
+            let leftShrink = min(remainingOverflow, max(0, left - leftFloor))
+            left -= leftShrink
+        }
+
+        let middle = max(0, available - left - right)
         return (left, middle, right)
     }
 }
@@ -976,6 +1078,52 @@ private struct PendingSFTPRename: Identifiable {
 
     var id: String {
         "\(sessionID.uuidString)::\(item.id)"
+    }
+}
+
+private struct ServerConnectionBadge: View {
+    let session: WorkspaceSession?
+
+    var body: some View {
+        if let session {
+            ObservedServerConnectionBadge(session: session)
+        } else {
+            Circle()
+                .fill(Color.gray.opacity(0.35))
+                .frame(width: 8, height: 8)
+        }
+    }
+}
+
+private struct ObservedServerConnectionBadge: View {
+    @ObservedObject var session: WorkspaceSession
+
+    var body: some View {
+        Circle()
+            .fill(session.isConnected ? Color.green : Color.orange.opacity(0.75))
+            .frame(width: 8, height: 8)
+            .shadow(color: session.isConnected ? .green.opacity(0.45) : .clear, radius: 4)
+    }
+}
+
+private struct ServerConnectionText: View {
+    let session: WorkspaceSession?
+
+    var body: some View {
+        if let session {
+            ObservedServerConnectionText(session: session)
+        } else {
+            Text("未连接")
+        }
+    }
+}
+
+private struct ObservedServerConnectionText: View {
+    @ObservedObject var session: WorkspaceSession
+
+    var body: some View {
+        Text(session.isConnected ? "已连接" : session.terminalStatus)
+            .foregroundStyle(session.isConnected ? .green : .secondary)
     }
 }
 
@@ -1515,6 +1663,11 @@ private struct BatchCommandReceipt: Identifiable {
     let output: String
 }
 
+private struct BatchCommandTarget {
+    let server: ServerEntry
+    let credentials: ServerCredentials?
+}
+
 private struct BatchCommandRunnerView: View {
     @ObservedObject var store: ServerStore
     @Environment(\.dismiss) private var dismiss
@@ -1705,17 +1858,24 @@ private struct BatchCommandRunnerView: View {
         isRunning = true
         receipts = []
         summaryText = "正在并发执行：\(targets.count) 台资产..."
+        let batchTargets = targets.map { server in
+            BatchCommandTarget(
+                server: server,
+                credentials: try? vault.read(for: server.credentialID)
+            )
+        }
+        let orbit = orbit
 
         await withTaskGroup(of: BatchCommandReceipt.self) { group in
-            for server in targets {
+            for target in batchTargets {
                 group.addTask {
+                    let server = target.server
                     let start = Date()
                     do {
-                        guard let credentials = try self.vault.read(for: server.credentialID),
-                              !credentials.isEmpty else {
+                        guard let credentials = target.credentials, !credentials.isEmpty else {
                             throw OrbitManagerError.invalidInput("凭据不存在")
                         }
-                        let output = try await self.orbit.executeRemoteCommandAsync(
+                        let output = try await orbit.executeRemoteCommandAsync(
                             ip: server.host,
                             port: server.port,
                             username: server.username,

@@ -123,6 +123,51 @@ final class TerminalService {
         return ptyID
     }
 
+    func openSSHSession(
+        host: String,
+        port: Int,
+        username: String,
+        password: String,
+        privateKeyContent: String,
+        privateKeyPassphrase: String,
+        allowPasswordFallback: Bool
+    ) async -> UInt64? {
+        installCallbackIfNeeded()
+        let cleanHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanUser = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanKey = privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let sessionPtr = await performFFI {
+            cleanHost.withCString { h in
+                cleanUser.withCString { u in
+                    password.withCString { p in
+                        cleanKey.withCString { k in
+                            privateKeyPassphrase.withCString { passphrase in
+                                orbit_ssh_connect(
+                                    h,
+                                    Int32(max(1, min(65535, port))),
+                                    u,
+                                    p,
+                                    k,
+                                    passphrase,
+                                    allowPasswordFallback ? 1 : 0
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return parseChannelID(from: sessionPtr)
+    }
+
+    func closeSSHSession(baseSessionID: UInt64) async {
+        let ptr = await performFFI {
+            orbit_ssh_disconnect(baseSessionID)
+        }
+        _ = parseOK("ssh_disconnect", rawPtr: ptr)
+    }
+
     func resolveBaseSessionID(sessionOrChannelID: UInt64) -> UInt64? {
         parseChannelID(
             from: "exec".withCString { typePtr in
@@ -238,7 +283,10 @@ final class TerminalService {
 
     private func parseChannelID(from ptr: UnsafeMutablePointer<CChar>?) -> UInt64? {
         guard let raw = parseRaw(ptr), raw.hasPrefix("OK:") else { return nil }
-        let payload = String(raw.dropFirst(3))
+        var payload = String(raw.dropFirst(3))
+        if payload.hasPrefix("session:") {
+            payload = String(payload.dropFirst("session:".count))
+        }
         return UInt64(payload)
     }
 

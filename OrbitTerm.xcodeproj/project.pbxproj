@@ -192,13 +192,6 @@
 			path = Home;
 			sourceTree = "<group>";
 		};
-		2F3F735B5BF69835F3F47E0D /* Connection */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = Connection;
-			sourceTree = "<group>";
-		};
 		3D708A1AEECA8BCA1AE1F6A2 /* Security */ = {
 			isa = PBXGroup;
 			children = (
@@ -255,7 +248,6 @@
 			isa = PBXGroup;
 			children = (
 				951A304BB80BBEE8C5D88345 /* Auth */,
-				2F3F735B5BF69835F3F47E0D /* Connection */,
 				173BC5B3F73CD6F401A097AF /* Home */,
 				3D708A1AEECA8BCA1AE1F6A2 /* Security */,
 			);
@@ -467,6 +459,8 @@
 		236E19E4BCA2B244C6030CD1 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"ARCHS[sdk=iphonesimulator*]" = arm64;
+				"ARCHS[sdk=macosx*]" = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -480,6 +474,8 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				"ONLY_ACTIVE_ARCH[sdk=iphonesimulator*]" = YES;
+				"ONLY_ACTIVE_ARCH[sdk=macosx*]" = YES;
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"$(inherited)",
 					"$(SRCROOT)/orbit-core/target/aarch64-apple-ios/debug/liborbit_core.a",
@@ -503,6 +499,8 @@
 		2C55C06FA0AB54969D895A38 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"ARCHS[sdk=iphonesimulator*]" = arm64;
+				"ARCHS[sdk=macosx*]" = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -516,17 +514,19 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				"ONLY_ACTIVE_ARCH[sdk=iphonesimulator*]" = YES;
+				"ONLY_ACTIVE_ARCH[sdk=macosx*]" = YES;
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"$(inherited)",
-					"$(SRCROOT)/orbit-core/target/aarch64-apple-ios/debug/liborbit_core.a",
+					"$(SRCROOT)/orbit-core/target/aarch64-apple-ios/release/liborbit_core.a",
 				);
 				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
 					"$(inherited)",
-					"$(SRCROOT)/orbit-core/target/aarch64-apple-ios-sim/debug/liborbit_core.a",
+					"$(SRCROOT)/orbit-core/target/aarch64-apple-ios-sim/release/liborbit_core.a",
 				);
 				"OTHER_LDFLAGS[sdk=macosx*]" = (
 					"$(inherited)",
-					"$(SRCROOT)/orbit-core/target/aarch64-apple-darwin/debug/liborbit_core.a",
+					"$(SRCROOT)/orbit-core/target/aarch64-apple-darwin/release/liborbit_core.a",
 				);
 				PRODUCT_NAME = OrbitTerm;
 				SDKROOT = macosx;
@@ -539,6 +539,8 @@
 		511D39B69F34FAF05AF32075 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"ARCHS[sdk=iphonesimulator*]" = arm64;
+				"ARCHS[sdk=macosx*]" = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -552,6 +554,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				"ONLY_ACTIVE_ARCH[sdk=iphonesimulator*]" = YES;
+				"ONLY_ACTIVE_ARCH[sdk=macosx*]" = YES;
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"$(inherited)",
 					"$(SRCROOT)/orbit-core/target/aarch64-apple-ios/debug/liborbit_core.a",
@@ -704,6 +708,8 @@
 		CE4247C37956DA442B100BF2 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"ARCHS[sdk=iphonesimulator*]" = arm64;
+				"ARCHS[sdk=macosx*]" = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -717,17 +723,19 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				"ONLY_ACTIVE_ARCH[sdk=iphonesimulator*]" = YES;
+				"ONLY_ACTIVE_ARCH[sdk=macosx*]" = YES;
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"$(inherited)",
-					"$(SRCROOT)/orbit-core/target/aarch64-apple-ios/debug/liborbit_core.a",
+					"$(SRCROOT)/orbit-core/target/aarch64-apple-ios/release/liborbit_core.a",
 				);
 				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
 					"$(inherited)",
-					"$(SRCROOT)/orbit-core/target/aarch64-apple-ios-sim/debug/liborbit_core.a",
+					"$(SRCROOT)/orbit-core/target/aarch64-apple-ios-sim/release/liborbit_core.a",
 				);
 				"OTHER_LDFLAGS[sdk=macosx*]" = (
 					"$(inherited)",
-					"$(SRCROOT)/orbit-core/target/aarch64-apple-darwin/debug/liborbit_core.a",
+					"$(SRCROOT)/orbit-core/target/aarch64-apple-darwin/release/liborbit_core.a",
 				);
 				PRODUCT_NAME = OrbitTerm;
 				SDKROOT = iphoneos;

@@ -21,8 +21,11 @@ rm -rf build
 cd orbit-core
 rustup target add aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim
 cargo build --target aarch64-apple-darwin
+cargo build --release --target aarch64-apple-darwin
 cargo build --target aarch64-apple-ios
+cargo build --release --target aarch64-apple-ios
 cargo build --target aarch64-apple-ios-sim
+cargo build --release --target aarch64-apple-ios-sim
 cd "$ROOT_DIR"
 
 # 2) 构建 macOS Release（ARM64）。

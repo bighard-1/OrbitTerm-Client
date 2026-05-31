@@ -171,6 +171,45 @@ final class DockerService: ObservableObject {
         }
     }
 
+    func connect(baseSessionID: UInt64) async {
+        isLoading = true
+        isScanning = true
+        dockerEnvironmentMissing = false
+        statusText = "正在扫描容器..."
+        defer { isLoading = false }
+
+        do {
+            let payload = try await callRustWithTimeout(seconds: 8) {
+                "sftp".withCString { channelType in
+                    orbit_request_channel(baseSessionID, channelType)
+                }
+            }
+
+            guard let sid = UInt64(payload) else {
+                throw SFTPError.invalidResponse
+            }
+
+            sessionID = sid
+            isConnected = true
+            statusText = "正在扫描容器..."
+            startRefreshLoop()
+            try await refreshNow()
+            isScanning = false
+        } catch {
+            isScanning = false
+            let message = error.localizedDescription.lowercased()
+            if message.contains("docker") || message.contains("command") || message.contains("not found") {
+                dockerEnvironmentMissing = true
+                statusText = "未检测到 Docker 环境"
+            } else {
+                dockerEnvironmentMissing = false
+                statusText = "连接失败: \(error.localizedDescription)"
+            }
+            isConnected = false
+            sessionID = nil
+        }
+    }
+
     func disconnect() async {
         refreshTask?.cancel()
         refreshTask = nil

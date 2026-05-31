@@ -260,23 +260,29 @@ final class SessionManager: ObservableObject {
             return
         }
 
+        if session.baseSessionID != nil ||
+            session.terminalChannelID != nil ||
+            !session.terminalChannelIDs.isEmpty ||
+            session.sftpManager.isConnected ||
+            session.dockerService.isConnected {
+            session.appendTerminal("[ssh] 正在重建连接，先清理旧通道")
+            await disconnect(session: session)
+        }
+
         session.terminalStatus = "连接中..."
         session.appendTerminal("[ssh] 正在连接 \(session.server.username)@\(session.server.endpointText)")
 
-        await session.sftpManager.connect(
+        guard let baseID = await terminalService.openSSHSession(
             host: session.server.host,
             port: session.server.port,
             username: session.server.username,
             password: credentials.password,
             privateKeyContent: credentials.privateKeyContent,
             privateKeyPassphrase: credentials.privateKeyPassphrase,
-            allowPasswordFallback: session.server.allowPasswordFallback,
-            preferMock: false
-        )
-
-        guard session.sftpManager.isConnected, !session.sftpManager.isUsingMockData else {
+            allowPasswordFallback: session.server.allowPasswordFallback
+        ) else {
             session.terminalStatus = "连接失败"
-            session.appendTerminal("[error] \(session.sftpManager.statusText)")
+            session.appendTerminal("[error] SSH 连接失败，请检查主机、端口、用户名或凭据")
             session.isConnected = false
             return
         }
@@ -284,6 +290,12 @@ final class SessionManager: ObservableObject {
         session.terminalStatus = "终端在线"
         session.isConnected = true
         session.appendTerminal("[ok] SSH 握手成功")
+
+        if let oldBase = session.baseSessionID, oldBase != baseID {
+            sessionByBaseID.removeValue(forKey: oldBase)
+        }
+        session.baseSessionID = baseID
+        sessionByBaseID[baseID] = session.id
 
         if let oldTerminalID = session.terminalChannelID {
             await terminalService.unbindAndClose(channelID: oldTerminalID)
@@ -295,22 +307,18 @@ final class SessionManager: ObservableObject {
         session.terminalChannelIDs = []
         session.activeTerminalPaneIndex = 0
 
-        if let sftpChannelID = session.sftpManager.activeSessionID {
-            if let baseID = terminalService.resolveBaseSessionID(sessionOrChannelID: sftpChannelID) {
-                if let oldBase = session.baseSessionID, oldBase != baseID {
-                    sessionByBaseID.removeValue(forKey: oldBase)
-                }
-                session.baseSessionID = baseID
-                sessionByBaseID[baseID] = session.id
-            }
-            if let terminalID = await terminalService.openPTY(sessionOrChannelID: sftpChannelID, cols: 120, rows: 36) {
-                session.terminalChannelID = terminalID
-                session.terminalChannelIDs = [terminalID]
-                session.activeTerminalPaneIndex = 0
-                session.appendTerminal("[pty] 交互终端已建立")
-            } else {
-                session.appendTerminal("[pty] 交互终端建立失败，当前仅保留监控/SFTP通道")
-            }
+        if let terminalID = await terminalService.openPTY(sessionOrChannelID: baseID, cols: 120, rows: 36) {
+            session.terminalChannelID = terminalID
+            session.terminalChannelIDs = [terminalID]
+            session.activeTerminalPaneIndex = 0
+            session.appendTerminal("[pty] 交互终端已建立")
+        } else {
+            session.appendTerminal("[pty] 交互终端建立失败，SFTP/Docker/监控将继续尝试")
+        }
+
+        await session.sftpManager.connect(baseSessionID: baseID)
+        if !session.sftpManager.isConnected || session.sftpManager.isUsingMockData {
+            session.appendTerminal("[sftp] \(session.sftpManager.statusText)")
         }
 
         session.activeMonitorPanelID = await monitorService.startMonitoring(
@@ -319,18 +327,11 @@ final class SessionManager: ObservableObject {
             port: session.server.port,
             username: session.server.username,
             credentials: credentials,
-            allowPasswordFallback: session.server.allowPasswordFallback
+            allowPasswordFallback: session.server.allowPasswordFallback,
+            baseSessionID: baseID
         )
 
-        await session.dockerService.connect(
-            host: session.server.host,
-            port: session.server.port,
-            username: session.server.username,
-            password: credentials.password,
-            privateKeyContent: credentials.privateKeyContent,
-            privateKeyPassphrase: credentials.privateKeyPassphrase,
-            allowPasswordFallback: session.server.allowPasswordFallback
-        )
+        await session.dockerService.connect(baseSessionID: baseID)
         session.appendTerminal("[docker] \(session.dockerService.statusText)")
     }
 
@@ -359,7 +360,7 @@ final class SessionManager: ObservableObject {
             profile: session.server.networkDeviceProfile
         )
         let client = TelnetClient(host: session.server.host, port: session.server.port)
-        let virtualChannelID = await terminalService.createVirtualChannel { [weak self, weak client] bytes in
+        let virtualChannelID = terminalService.createVirtualChannel { [weak self, weak client] bytes in
             guard self != nil, let client else { return false }
             return await client.send(bytes)
         }
@@ -652,8 +653,14 @@ final class SessionManager: ObservableObject {
         if let panelID = session.activeMonitorPanelID {
             await monitorService.disconnect(panelID)
         }
+        if let baseID = session.baseSessionID {
+            await terminalService.closeSSHSession(baseSessionID: baseID)
+            sessionByBaseID.removeValue(forKey: baseID)
+        }
         session.terminalChannelIDs = []
         session.terminalChannelID = nil
+        session.baseSessionID = nil
+        session.activeMonitorPanelID = nil
         session.isConnected = false
         session.terminalStatus = "未连接"
     }

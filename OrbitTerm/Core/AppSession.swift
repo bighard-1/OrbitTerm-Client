@@ -19,6 +19,7 @@ final class AppSession: ObservableObject {
     private let tokenService = "com.orbitterm.auth"
     private let tokenAccount = "jwt_token"
     private let refreshTokenAccount = "jwt_refresh_token"
+    private let usernameAccount = "username"
     private let passwordService = "com.orbitterm.security"
     private let legacyPasswordAccount = "master_password"
     private let passwordVerifierAccount = "master_password_verifier_v2"
@@ -35,13 +36,16 @@ final class AppSession: ObservableObject {
         do {
             let token = try keychain.readString(service: tokenService, account: tokenAccount)
             isAuthenticated = !(token?.isEmpty ?? true)
+            username = (try? keychain.readString(service: tokenService, account: usernameAccount)) ?? ""
             if !isAuthenticated {
                 isUnlocked = false
+                username = ""
             }
             authRevision += 1
         } catch {
             isAuthenticated = false
             isUnlocked = false
+            username = ""
             authRevision += 1
         }
     }
@@ -51,6 +55,7 @@ final class AppSession: ObservableObject {
         if let refreshToken, !refreshToken.isEmpty {
             try keychain.saveString(refreshToken, service: tokenService, account: refreshTokenAccount)
         }
+        try keychain.saveString(username, service: tokenService, account: usernameAccount)
         self.username = username
         isAuthenticated = true
         authRevision += 1
@@ -78,6 +83,7 @@ final class AppSession: ObservableObject {
         do {
             try keychain.delete(service: tokenService, account: tokenAccount)
             try keychain.delete(service: tokenService, account: refreshTokenAccount)
+            try keychain.delete(service: tokenService, account: usernameAccount)
             try keychain.delete(service: passwordService, account: passwordBlobAccount)
         } catch {
             // 忽略删除异常，仍执行本地状态重置。
