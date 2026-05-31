@@ -7,12 +7,8 @@ use std::sync::{
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use aes_gcm::aead::{Aead, KeyInit};
-use aes_gcm::{Aes256Gcm, Nonce};
-use argon2::{Algorithm, Argon2, Params, Version};
 use base64::Engine;
 use once_cell::sync::Lazy;
-use rand::{rngs::OsRng, RngCore};
 use regex::Regex;
 use russh::client;
 use russh::ChannelMsg;
@@ -20,12 +16,18 @@ use russh::Disconnect;
 use russh::keys::{decode_secret_key, PrivateKeyWithHashAlg};
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::OpenFlags;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, ReadBuf};
 use tokio::process::Command;
 use tokio::sync::mpsc;
+
+mod crypto;
+mod portable;
+pub use crypto::{decrypt_config, encrypt_config};
+use crypto::derive_key_strong;
+use portable::{parse_portable_config, portable_changed_fields, portable_merge};
 
 #[cfg(target_os = "android")]
 use jni::objects::{JByteArray, JString, JObject};
@@ -34,9 +36,6 @@ use jni::sys::{jlong, jstring};
 #[cfg(target_os = "android")]
 use jni::JNIEnv;
 
-const SALT_LEN: usize = 16;
-const NONCE_LEN: usize = 12;
-const HEADER_MAGIC: &[u8; 4] = b"OTC1";
 const SFTP_IO_BUF_SIZE: usize = 64 * 1024;
 
 uniffi::setup_scaffolding!();
@@ -55,49 +54,6 @@ pub enum OrbitCoreError {
     SftpFailed(String),
     #[error("内部错误: {0}")]
     Internal(String),
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PortableServerConfigV1 {
-    id: String,
-    #[serde(default)]
-    credential_id: String,
-    name: String,
-    #[serde(default)]
-    group: String,
-    host: String,
-    port: u16,
-    username: String,
-    auth_method: String,
-    #[serde(default = "default_transport")]
-    transport: String,
-    #[serde(default = "default_network_device_profile")]
-    network_device_profile: String,
-    #[serde(default = "default_allow_password_fallback")]
-    allow_password_fallback: bool,
-    #[serde(default)]
-    password: String,
-    #[serde(default)]
-    private_key_content: String,
-    #[serde(default)]
-    private_key_passphrase: String,
-    #[serde(default)]
-    key_reference: String,
-    #[serde(default)]
-    saved_at_unix: u64,
-}
-
-fn default_transport() -> String {
-    "ssh".to_string()
-}
-
-fn default_network_device_profile() -> String {
-    "auto".to_string()
-}
-
-fn default_allow_password_fallback() -> bool {
-    true
 }
 
 impl From<russh::Error> for OrbitCoreError {
@@ -260,80 +216,6 @@ struct DockerStatsItem {
     net_io: String,
     block_io: String,
     pids: u32,
-}
-
-#[uniffi::export]
-pub fn encrypt_config(
-    master_password: String,
-    plaintext: Vec<u8>,
-) -> Result<Vec<u8>, OrbitCoreError> {
-    if master_password.is_empty() {
-        return Err(OrbitCoreError::InvalidInput);
-    }
-
-    let mut salt = [0u8; SALT_LEN];
-    let mut nonce = [0u8; NONCE_LEN];
-    OsRng.fill_bytes(&mut salt);
-    OsRng.fill_bytes(&mut nonce);
-
-    let key = derive_key(master_password.as_bytes(), &salt)?;
-    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|_| OrbitCoreError::EncryptFailed)?;
-
-    let encrypted = cipher
-        .encrypt(Nonce::from_slice(&nonce), plaintext.as_slice())
-        .map_err(|_| OrbitCoreError::EncryptFailed)?;
-
-    let mut out = Vec::with_capacity(4 + 1 + 1 + SALT_LEN + NONCE_LEN + encrypted.len());
-    out.extend_from_slice(HEADER_MAGIC);
-    out.push(SALT_LEN as u8);
-    out.push(NONCE_LEN as u8);
-    out.extend_from_slice(&salt);
-    out.extend_from_slice(&nonce);
-    out.extend_from_slice(&encrypted);
-
-    Ok(out)
-}
-
-#[uniffi::export]
-pub fn decrypt_config(
-    master_password: String,
-    encrypted_blob: Vec<u8>,
-) -> Result<Vec<u8>, OrbitCoreError> {
-    if master_password.is_empty() || encrypted_blob.len() < 4 + 1 + 1 + SALT_LEN + NONCE_LEN {
-        return Err(OrbitCoreError::InvalidInput);
-    }
-
-    if &encrypted_blob[0..4] != HEADER_MAGIC {
-        return Err(OrbitCoreError::DecryptFailed);
-    }
-
-    let salt_len = encrypted_blob[4] as usize;
-    let nonce_len = encrypted_blob[5] as usize;
-
-    if salt_len == 0 || nonce_len != NONCE_LEN {
-        return Err(OrbitCoreError::DecryptFailed);
-    }
-
-    let salt_start = 6;
-    let nonce_start = salt_start + salt_len;
-    let cipher_start = nonce_start + nonce_len;
-
-    if encrypted_blob.len() <= cipher_start {
-        return Err(OrbitCoreError::DecryptFailed);
-    }
-
-    let salt = &encrypted_blob[salt_start..nonce_start];
-    let nonce = &encrypted_blob[nonce_start..cipher_start];
-    let ciphertext = &encrypted_blob[cipher_start..];
-
-    let key = derive_key(master_password.as_bytes(), salt)?;
-    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|_| OrbitCoreError::DecryptFailed)?;
-
-    let plaintext = cipher
-        .decrypt(Nonce::from_slice(nonce), ciphertext)
-        .map_err(|_| OrbitCoreError::DecryptFailed)?;
-
-    Ok(plaintext)
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -1411,35 +1293,11 @@ fn host_without_port(host: &str) -> &str {
     trimmed
 }
 
-fn current_unix_secs() -> u64 {
+pub(crate) fn current_unix_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
-}
-
-fn derive_key(master_password: &[u8], salt: &[u8]) -> Result<[u8; 32], OrbitCoreError> {
-    let params = Params::new(64 * 1024, 3, 2, Some(32))
-        .map_err(|e| OrbitCoreError::Internal(e.to_string()))?;
-    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
-
-    let mut key = [0u8; 32];
-    argon2
-        .hash_password_into(master_password, salt, &mut key)
-        .map_err(|_| OrbitCoreError::Internal("Argon2 key derivation failed".to_string()))?;
-    Ok(key)
-}
-
-fn derive_key_strong(master_password: &[u8], salt: &[u8]) -> Result<[u8; 32], OrbitCoreError> {
-    let params = Params::new(64 * 1024, 3, 4, Some(32))
-        .map_err(|e| OrbitCoreError::Internal(e.to_string()))?;
-    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
-
-    let mut key = [0u8; 32];
-    argon2
-        .hash_password_into(master_password, salt, &mut key)
-        .map_err(|_| OrbitCoreError::Internal("Argon2 key derivation failed".to_string()))?;
-    Ok(key)
 }
 
 #[no_mangle]
@@ -1787,89 +1645,6 @@ fn to_c_string_ptr(value: String) -> *mut c_char {
             CString::new("internal string error").expect("fallback CString must be valid")
         })
         .into_raw()
-}
-
-fn parse_portable_config(raw: &str) -> Result<PortableServerConfigV1, OrbitCoreError> {
-    let mut config: PortableServerConfigV1 = serde_json::from_str(raw)
-        .map_err(|_| OrbitCoreError::Internal("PortableServerConfig JSON 格式不合法".to_string()))?;
-
-    if config.id.trim().is_empty()
-        || config.name.trim().is_empty()
-        || config.host.trim().is_empty()
-        || config.username.trim().is_empty()
-        || config.port == 0
-    {
-        return Err(OrbitCoreError::InvalidInput);
-    }
-    if config.credential_id.trim().is_empty() {
-        config.credential_id = config.id.clone();
-    }
-    if config.saved_at_unix == 0 {
-        config.saved_at_unix = current_unix_secs();
-    }
-    Ok(config)
-}
-
-fn portable_changed_fields(
-    base: &PortableServerConfigV1,
-    newer: &PortableServerConfigV1,
-) -> Vec<&'static str> {
-    let mut fields = Vec::new();
-    if base.name != newer.name { fields.push("name"); }
-    if base.group != newer.group { fields.push("group"); }
-    if base.host != newer.host { fields.push("host"); }
-    if base.port != newer.port { fields.push("port"); }
-    if base.username != newer.username { fields.push("username"); }
-    if base.auth_method != newer.auth_method { fields.push("authMethod"); }
-    if base.transport != newer.transport { fields.push("transport"); }
-    if base.network_device_profile != newer.network_device_profile { fields.push("networkDeviceProfile"); }
-    if base.allow_password_fallback != newer.allow_password_fallback { fields.push("allowPasswordFallback"); }
-    if base.password != newer.password { fields.push("password"); }
-    if base.private_key_content != newer.private_key_content { fields.push("privateKeyContent"); }
-    if base.private_key_passphrase != newer.private_key_passphrase { fields.push("privateKeyPassphrase"); }
-    fields
-}
-
-fn portable_merge(
-    remote: PortableServerConfigV1,
-    local: PortableServerConfigV1,
-    local_changed: &[String],
-) -> PortableServerConfigV1 {
-    let changed = |field: &str| local_changed.iter().any(|item| item == field);
-    PortableServerConfigV1 {
-        id: remote.id,
-        credential_id: local.credential_id,
-        name: if changed("name") { local.name } else { remote.name },
-        group: if changed("group") { local.group } else { remote.group },
-        host: if changed("host") { local.host } else { remote.host },
-        port: if changed("port") { local.port } else { remote.port },
-        username: if changed("username") { local.username } else { remote.username },
-        auth_method: if changed("authMethod") { local.auth_method } else { remote.auth_method },
-        transport: if changed("transport") { local.transport } else { remote.transport },
-        network_device_profile: if changed("networkDeviceProfile") {
-            local.network_device_profile
-        } else {
-            remote.network_device_profile
-        },
-        allow_password_fallback: if changed("allowPasswordFallback") {
-            local.allow_password_fallback
-        } else {
-            remote.allow_password_fallback
-        },
-        password: if changed("password") { local.password } else { remote.password },
-        private_key_content: if changed("privateKeyContent") {
-            local.private_key_content
-        } else {
-            remote.private_key_content
-        },
-        private_key_passphrase: if changed("privateKeyPassphrase") {
-            local.private_key_passphrase
-        } else {
-            remote.private_key_passphrase
-        },
-        key_reference: local.key_reference,
-        saved_at_unix: current_unix_secs(),
-    }
 }
 
 #[no_mangle]
