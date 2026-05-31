@@ -124,56 +124,18 @@ struct MainWorkstationView: View {
                 Button("退出登录") { session.logout() }
             }
         }
-        .sheet(isPresented: $showingAddServer) {
-            AddServerView(store: serverStore) { server in
-                serverStore.select(server)
-                sessionManager.quickOpenServer = server
-                sessionManager.openTab(for: server, autoConnect: true)
-            }
-            .environmentObject(session)
-#if os(macOS)
-            .frame(minWidth: 500, minHeight: 650)
-#endif
-        }
-        .sheet(item: $editingServer) { server in
-            AddServerView(store: serverStore, editingServer: server) { updated in
-                serverStore.select(updated)
-                sessionManager.quickOpenServer = updated
-                sessionManager.openTab(for: updated, autoConnect: true)
-            }
-            .environmentObject(session)
-#if os(macOS)
-            .frame(minWidth: 500, minHeight: 650)
-#endif
-        }
-        .sheet(isPresented: $showingAssetManager) {
-            AssetManagerView(
-                store: serverStore,
-                onEdit: { server in editingServer = server },
-                onConnect: { server in
-                    serverStore.select(server)
-                    sessionManager.openTab(for: server, autoConnect: true)
-                }
-            )
-        }
-        .sheet(isPresented: $showingSettings) {
-            SettingsView()
-#if os(macOS)
-                .frame(minWidth: 520, minHeight: 480)
-#endif
-        }
-        .sheet(isPresented: $showingDiagnostics) {
-            DiagnosticsExportView()
-#if os(macOS)
-                .frame(minWidth: 620, minHeight: 520)
-#endif
-        }
-        .sheet(isPresented: $showingBatchCommand) {
-            BatchCommandRunnerView(store: serverStore)
-#if os(macOS)
-                .frame(minWidth: 980, minHeight: 680)
-#endif
-        }
+        .modifier(WorkstationSheetsAndAlerts(
+            serverStore: serverStore,
+            showingAddServer: $showingAddServer,
+            editingServer: $editingServer,
+            pendingDeleteServer: $pendingDeleteServer,
+            showingAssetManager: $showingAssetManager,
+            showingSettings: $showingSettings,
+            showingDiagnostics: $showingDiagnostics,
+            showingBatchCommand: $showingBatchCommand,
+            onOpenServer: { server in openServerSession(server) },
+            onDeleteServer: { server in deleteServer(server) }
+        ))
         .overlay(alignment: .bottom) {
             if !session.transientStatus.isEmpty {
                 Text(session.transientStatus)
@@ -208,19 +170,6 @@ struct MainWorkstationView: View {
                 await saveSFTPFileEdit()
             }
         ))
-        .alert("确认删除资产", isPresented: Binding(
-            get: { pendingDeleteServer != nil },
-            set: { if !$0 { pendingDeleteServer = nil } }
-        )) {
-            Button("取消", role: .cancel) { pendingDeleteServer = nil }
-            Button("删除", role: .destructive) {
-                guard let server = pendingDeleteServer else { return }
-                pendingDeleteServer = nil
-                deleteServer(server)
-            }
-        } message: {
-            Text("将删除“\(pendingDeleteServer?.name ?? "该资产")”的本地记录，并尝试同步云端删除。此操作不可撤销。")
-        }
     }
 
     private var leftColumn: some View {
