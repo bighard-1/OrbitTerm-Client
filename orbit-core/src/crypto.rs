@@ -95,7 +95,10 @@ fn derive_key(master_password: &[u8], salt: &[u8]) -> Result<[u8; 32], OrbitCore
     Ok(key)
 }
 
-pub(crate) fn derive_key_strong(master_password: &[u8], salt: &[u8]) -> Result<[u8; 32], OrbitCoreError> {
+pub(crate) fn derive_key_strong(
+    master_password: &[u8],
+    salt: &[u8],
+) -> Result<[u8; 32], OrbitCoreError> {
     let params = Params::new(64 * 1024, 3, 4, Some(32))
         .map_err(|e| OrbitCoreError::Internal(e.to_string()))?;
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);

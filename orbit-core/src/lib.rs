@@ -9,35 +9,31 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use once_cell::sync::Lazy;
-use regex::Regex;
 use russh::client;
+use russh::keys::{decode_secret_key, PrivateKeyWithHashAlg};
 use russh::ChannelMsg;
 use russh::Disconnect;
-use russh::keys::{decode_secret_key, PrivateKeyWithHashAlg};
 use russh_sftp::client::SftpSession;
-use russh_sftp::protocol::OpenFlags;
-use serde::Serialize;
 use thiserror::Error;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, ReadBuf};
+use tokio::io::{AsyncRead, ReadBuf};
 use tokio::sync::mpsc;
 
 mod crypto;
 mod docker;
 mod monitor;
 mod portable;
-pub use crypto::{decrypt_config, encrypt_config};
+mod sftp;
 use crypto::derive_key_strong;
+pub use crypto::{decrypt_config, encrypt_config};
 use monitor::NetSnapshot;
 use portable::{parse_portable_config, portable_changed_fields, portable_merge};
 
 #[cfg(target_os = "android")]
-use jni::objects::{JByteArray, JString, JObject};
+use jni::objects::{JByteArray, JObject, JString};
 #[cfg(target_os = "android")]
 use jni::sys::{jlong, jstring};
 #[cfg(target_os = "android")]
 use jni::JNIEnv;
-
-const SFTP_IO_BUF_SIZE: usize = 64 * 1024;
 
 uniffi::setup_scaffolding!();
 
@@ -79,7 +75,7 @@ impl client::Handler for OrbitSshClientHandler {
     }
 }
 
-struct OrbitBaseSession {
+pub(crate) struct OrbitBaseSession {
     id: u64,
     host: String,
     #[allow(dead_code)]
@@ -91,9 +87,9 @@ struct OrbitBaseSession {
     keepalive_watch_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
-struct OrbitSftpSession {
-    base: Arc<OrbitBaseSession>,
-    sftp: SftpSession,
+pub(crate) struct OrbitSftpSession {
+    pub(crate) base: Arc<OrbitBaseSession>,
+    pub(crate) sftp: SftpSession,
 }
 
 enum TerminalCommand {
@@ -162,20 +158,6 @@ impl AsyncRead for SliceAsyncReader {
         self.offset = end;
         std::task::Poll::Ready(Ok(()))
     }
-}
-
-#[derive(Debug, Serialize)]
-struct SftpListItem {
-    name: String,
-    size: u64,
-    permissions: String,
-    permissions_octal: u32,
-    modified_at_unix: u64,
-}
-
-#[derive(Debug, Serialize)]
-struct SftpTransferResult {
-    bytes: u64,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -254,10 +236,7 @@ pub async fn sftp_connect(
         .map_err(|e| OrbitCoreError::SftpFailed(e.to_string()))?;
 
     let session_id = NEXT_SFTP_CHANNEL_ID.fetch_add(1, Ordering::SeqCst);
-    let wrapper = Arc::new(OrbitSftpSession {
-        base,
-        sftp,
-    });
+    let wrapper = Arc::new(OrbitSftpSession { base, sftp });
 
     let mut sessions = lock_sftp_sessions()?;
     sessions.insert(session_id, wrapper);
@@ -285,39 +264,8 @@ pub async fn sftp_disconnect(session_id: u64) -> Result<(), OrbitCoreError> {
 
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn sftp_list_dir(session_id: u64, path: String) -> Result<String, OrbitCoreError> {
-    if path.trim().is_empty() {
-        return Err(OrbitCoreError::InvalidInput);
-    }
-
     let session = get_sftp_session(session_id)?;
-    let path_for_log = path.clone();
-    let entries = session
-        .sftp
-        .read_dir(path)
-        .await
-        .map_err(|e| OrbitCoreError::SftpFailed(e.to_string()))?;
-
-    let items: Vec<SftpListItem> = entries
-        .map(|entry| {
-            let metadata = entry.metadata();
-            SftpListItem {
-                name: entry.file_name(),
-                size: metadata.size.unwrap_or(0),
-                permissions: metadata.permissions().to_string(),
-                permissions_octal: metadata.permissions.unwrap_or(0),
-                modified_at_unix: metadata.mtime.unwrap_or(0) as u64,
-            }
-        })
-        .collect();
-
-    eprintln!(
-        "[orbit-core][sftp_list_dir] session={} path={} items={}",
-        session_id,
-        path_for_log,
-        items.len()
-    );
-
-    serde_json::to_string(&items).map_err(|e| OrbitCoreError::Internal(e.to_string()))
+    sftp::list_dir(session_id, &session, path).await
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -326,57 +274,8 @@ pub async fn sftp_upload_file(
     local_path: String,
     remote_path: String,
 ) -> Result<String, OrbitCoreError> {
-    if local_path.trim().is_empty() || remote_path.trim().is_empty() {
-        return Err(OrbitCoreError::InvalidInput);
-    }
-
     let session = get_sftp_session(session_id)?;
-
-    let mut local = tokio::fs::File::open(local_path)
-        .await
-        .map_err(|e| OrbitCoreError::SftpFailed(format!("open local file failed: {e}")))?;
-
-    let remote_for_log = remote_path.clone();
-    let mut remote = session
-        .sftp
-        .open_with_flags(
-            remote_path,
-            OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE,
-        )
-        .await
-        .map_err(|e| OrbitCoreError::SftpFailed(format!("open remote file failed: {e}")))?;
-
-    let mut buf = vec![0u8; SFTP_IO_BUF_SIZE];
-    let mut total: u64 = 0;
-
-    loop {
-        let n = local
-            .read(&mut buf)
-            .await
-            .map_err(|e| OrbitCoreError::SftpFailed(format!("read local file failed: {e}")))?;
-        if n == 0 {
-            break;
-        }
-
-        eprintln!(
-            "[orbit-core][sftp_upload_file] session={} chunk_bytes={} remote={}",
-            session_id, n, remote_for_log
-        );
-
-        remote
-            .write_all(&buf[..n])
-            .await
-            .map_err(|e| OrbitCoreError::SftpFailed(format!("write remote file failed: {e}")))?;
-        total += n as u64;
-    }
-
-    remote
-        .shutdown()
-        .await
-        .map_err(|e| OrbitCoreError::SftpFailed(format!("shutdown remote file failed: {e}")))?;
-
-    serde_json::to_string(&SftpTransferResult { bytes: total })
-        .map_err(|e| OrbitCoreError::Internal(e.to_string()))
+    sftp::upload_file(session_id, &session, local_path, remote_path).await
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -386,104 +285,17 @@ pub async fn sftp_download_file(
     local_path: String,
     resume_offset: u64,
 ) -> Result<String, OrbitCoreError> {
-    if local_path.trim().is_empty() || remote_path.trim().is_empty() {
-        return Err(OrbitCoreError::InvalidInput);
-    }
-
     let session = get_sftp_session(session_id)?;
-
-    let remote_for_log = remote_path.clone();
-    let mut remote = session
-        .sftp
-        .open(remote_path)
-        .await
-        .map_err(|e| OrbitCoreError::SftpFailed(format!("open remote file failed: {e}")))?;
-
-    if resume_offset > 0 {
-        remote
-            .seek(std::io::SeekFrom::Start(resume_offset))
-            .await
-            .map_err(|e| OrbitCoreError::SftpFailed(format!("seek remote failed: {e}")))?;
-    }
-
-    let mut local = tokio::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .read(true)
-        .open(local_path)
-        .await
-        .map_err(|e| OrbitCoreError::SftpFailed(format!("open local file failed: {e}")))?;
-
-    if resume_offset == 0 {
-        local
-            .set_len(0)
-            .await
-            .map_err(|e| OrbitCoreError::SftpFailed(format!("truncate local file failed: {e}")))?;
-    }
-
-    local
-        .seek(std::io::SeekFrom::Start(resume_offset))
-        .await
-        .map_err(|e| OrbitCoreError::SftpFailed(format!("seek local failed: {e}")))?;
-
-    let mut buf = vec![0u8; SFTP_IO_BUF_SIZE];
-    let mut downloaded: u64 = 0;
-
-    loop {
-        let n = remote
-            .read(&mut buf)
-            .await
-            .map_err(|e| OrbitCoreError::SftpFailed(format!("read remote file failed: {e}")))?;
-        if n == 0 {
-            break;
-        }
-
-        eprintln!(
-            "[orbit-core][sftp_download_file] session={} chunk_bytes={} remote={}",
-            session_id, n, remote_for_log
-        );
-
-        local
-            .write_all(&buf[..n])
-            .await
-            .map_err(|e| OrbitCoreError::SftpFailed(format!("write local file failed: {e}")))?;
-        downloaded += n as u64;
-    }
-
-    local
-        .flush()
-        .await
-        .map_err(|e| OrbitCoreError::SftpFailed(format!("flush local file failed: {e}")))?;
-
-    serde_json::to_string(&SftpTransferResult { bytes: downloaded })
-        .map_err(|e| OrbitCoreError::Internal(e.to_string()))
+    sftp::download_file(session_id, &session, remote_path, local_path, resume_offset).await
 }
 
 #[uniffi::export(async_runtime = "tokio")]
-pub async fn sftp_read_text_file(session_id: u64, remote_path: String) -> Result<String, OrbitCoreError> {
-    if remote_path.trim().is_empty() {
-        return Err(OrbitCoreError::InvalidInput);
-    }
-
+pub async fn sftp_read_text_file(
+    session_id: u64,
+    remote_path: String,
+) -> Result<String, OrbitCoreError> {
     let session = get_sftp_session(session_id)?;
-    let mut remote = session
-        .sftp
-        .open(remote_path)
-        .await
-        .map_err(|e| OrbitCoreError::SftpFailed(format!("open remote file failed: {e}")))?;
-
-    let mut data = Vec::new();
-    remote
-        .read_to_end(&mut data)
-        .await
-        .map_err(|e| OrbitCoreError::SftpFailed(format!("read remote file failed: {e}")))?;
-
-    if data.len() > 2 * 1024 * 1024 {
-        return Err(OrbitCoreError::SftpFailed("文件超过 2MB，暂不支持在线编辑".to_string()));
-    }
-
-    String::from_utf8(data)
-        .map_err(|_| OrbitCoreError::SftpFailed("文件不是 UTF-8 文本，暂不支持在线编辑".to_string()))
+    sftp::read_text_file(&session, remote_path).await
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -492,58 +304,14 @@ pub async fn sftp_write_text_file(
     remote_path: String,
     content: String,
 ) -> Result<String, OrbitCoreError> {
-    if remote_path.trim().is_empty() {
-        return Err(OrbitCoreError::InvalidInput);
-    }
-
     let session = get_sftp_session(session_id)?;
-    let mut remote = session
-        .sftp
-        .open_with_flags(
-            remote_path,
-            OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE,
-        )
-        .await
-        .map_err(|e| OrbitCoreError::SftpFailed(format!("open remote file failed: {e}")))?;
-
-    let bytes = content.into_bytes();
-    remote
-        .write_all(&bytes)
-        .await
-        .map_err(|e| OrbitCoreError::SftpFailed(format!("write remote file failed: {e}")))?;
-    remote
-        .shutdown()
-        .await
-        .map_err(|e| OrbitCoreError::SftpFailed(format!("shutdown remote file failed: {e}")))?;
-
-    serde_json::to_string(&SftpTransferResult {
-        bytes: bytes.len() as u64,
-    })
-    .map_err(|e| OrbitCoreError::Internal(e.to_string()))
+    sftp::write_text_file(&session, remote_path, content).await
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn sftp_remove_file(session_id: u64, remote_path: String) -> Result<(), OrbitCoreError> {
-    if remote_path.trim().is_empty() {
-        return Err(OrbitCoreError::InvalidInput);
-    }
-
     let session = get_sftp_session(session_id)?;
-    if session
-        .sftp
-        .remove_file(remote_path.clone())
-        .await
-        .is_ok()
-    {
-        return Ok(());
-    }
-
-    // 兼容目录删除：先尝试删文件，失败后再尝试删空目录。
-    session
-        .sftp
-        .remove_dir(remote_path)
-        .await
-        .map_err(|e| OrbitCoreError::SftpFailed(e.to_string()))
+    sftp::remove_file(&session, remote_path).await
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -552,38 +320,20 @@ pub async fn sftp_rename(
     old_remote_path: String,
     new_remote_path: String,
 ) -> Result<(), OrbitCoreError> {
-    if old_remote_path.trim().is_empty() || new_remote_path.trim().is_empty() {
-        return Err(OrbitCoreError::InvalidInput);
-    }
-
     let session = get_sftp_session(session_id)?;
-    session
-        .sftp
-        .rename(old_remote_path, new_remote_path)
-        .await
-        .map_err(|e| OrbitCoreError::SftpFailed(e.to_string()))
+    sftp::rename(&session, old_remote_path, new_remote_path).await
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn sftp_mkdir(session_id: u64, remote_path: String) -> Result<(), OrbitCoreError> {
-    if remote_path.trim().is_empty() {
-        return Err(OrbitCoreError::InvalidInput);
-    }
     let session = get_sftp_session(session_id)?;
-    let cmd = format!("mkdir -p -- {}", shell_single_quote(remote_path.trim()));
-    let _ = run_remote_command(&session.base, &cmd).await?;
-    Ok(())
+    sftp::mkdir(&session, remote_path).await
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn sftp_create_file(session_id: u64, remote_path: String) -> Result<(), OrbitCoreError> {
-    if remote_path.trim().is_empty() {
-        return Err(OrbitCoreError::InvalidInput);
-    }
     let session = get_sftp_session(session_id)?;
-    let cmd = format!("touch -- {}", shell_single_quote(remote_path.trim()));
-    let _ = run_remote_command(&session.base, &cmd).await?;
-    Ok(())
+    sftp::create_file(&session, remote_path).await
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -592,24 +342,8 @@ pub async fn sftp_chmod(
     remote_path: String,
     mode_octal: String,
 ) -> Result<(), OrbitCoreError> {
-    if remote_path.trim().is_empty() {
-        return Err(OrbitCoreError::InvalidInput);
-    }
-    let mode = mode_octal.trim();
-    let mode_re = Regex::new(r"^[0-7]{3,4}$")
-        .map_err(|e| OrbitCoreError::Internal(e.to_string()))?;
-    if !mode_re.is_match(mode) {
-        return Err(OrbitCoreError::InvalidInput);
-    }
-
     let session = get_sftp_session(session_id)?;
-    let cmd = format!(
-        "chmod {} -- {}",
-        mode,
-        shell_single_quote(remote_path.trim())
-    );
-    let _ = run_remote_command(&session.base, &cmd).await?;
-    Ok(())
+    sftp::chmod(&session, remote_path, mode_octal).await
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -674,10 +408,9 @@ pub async fn request_channel(
                 .map_err(|e| OrbitCoreError::SshFailed(e.to_string()))?;
             drop(ssh);
 
-            channel
-                .request_subsystem(true, "sftp")
-                .await
-                .map_err(|e| OrbitCoreError::SftpFailed(format!("request subsystem failed: {e}")))?;
+            channel.request_subsystem(true, "sftp").await.map_err(|e| {
+                OrbitCoreError::SftpFailed(format!("request subsystem failed: {e}"))
+            })?;
 
             let sftp = SftpSession::new(channel.into_stream())
                 .await
@@ -685,10 +418,7 @@ pub async fn request_channel(
 
             base.channel_ref_count.fetch_add(1, Ordering::SeqCst);
             let channel_id = NEXT_SFTP_CHANNEL_ID.fetch_add(1, Ordering::SeqCst);
-            let wrapper = Arc::new(OrbitSftpSession {
-                base,
-                sftp,
-            });
+            let wrapper = Arc::new(OrbitSftpSession { base, sftp });
             lock_sftp_sessions()?.insert(channel_id, wrapper);
             Ok(channel_id)
         }
@@ -725,10 +455,7 @@ async fn open_terminal_channel(
     let terminal_id = NEXT_TERMINAL_CHANNEL_ID.fetch_add(1, Ordering::SeqCst);
     let base_id = base.id;
 
-    lock_terminal_channels()?.insert(
-        terminal_id,
-        OrbitTerminalChannel { base_id, tx },
-    );
+    lock_terminal_channels()?.insert(terminal_id, OrbitTerminalChannel { base_id, tx });
 
     tokio::spawn(async move {
         loop {
@@ -861,10 +588,6 @@ pub(crate) async fn run_remote_command(
     Ok(output)
 }
 
-fn shell_single_quote(input: &str) -> String {
-    format!("'{}'", input.replace('\'', "'\"'\"'"))
-}
-
 pub(crate) fn current_unix_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -955,10 +678,7 @@ fn lock_terminal_channels(
 }
 
 fn emit_terminal_data(channel_id: u64, bytes: &[u8]) {
-    let cb_opt = TERMINAL_DATA_CALLBACK
-        .lock()
-        .ok()
-        .and_then(|guard| *guard);
+    let cb_opt = TERMINAL_DATA_CALLBACK.lock().ok().and_then(|guard| *guard);
 
     if let Some(cb) = cb_opt {
         cb(channel_id, bytes.as_ptr(), bytes.len());
@@ -1076,7 +796,9 @@ async fn get_or_create_base_session(
     Ok(base)
 }
 
-fn resolve_base_session(session_or_channel_id: u64) -> Result<Arc<OrbitBaseSession>, OrbitCoreError> {
+fn resolve_base_session(
+    session_or_channel_id: u64,
+) -> Result<Arc<OrbitBaseSession>, OrbitCoreError> {
     if let Some(base) = lock_base_sessions()?.get(&session_or_channel_id).cloned() {
         return Ok(base);
     }
@@ -1197,9 +919,7 @@ async fn authenticate_ssh(
                 "SSH 认证失败：密钥与密码均失败".to_string(),
             ));
         }
-        return Err(OrbitCoreError::SshFailed(
-            "SSH 密码认证失败".to_string(),
-        ));
+        return Err(OrbitCoreError::SshFailed("SSH 密码认证失败".to_string()));
     }
 
     if key_auth_failed {
@@ -1282,8 +1002,8 @@ pub extern "C" fn orbit_portable_merge(
 
     let result = parse_portable_config(&remote_raw).and_then(|remote| {
         parse_portable_config(&local_raw).and_then(|local| {
-            let fields: Vec<String> = serde_json::from_str(&fields_raw)
-                .map_err(|_| OrbitCoreError::InvalidInput)?;
+            let fields: Vec<String> =
+                serde_json::from_str(&fields_raw).map_err(|_| OrbitCoreError::InvalidInput)?;
             let merged = portable_merge(remote, local, &fields);
             serde_json::to_string(&merged)
                 .map_err(|e| OrbitCoreError::Internal(format!("合并结果编码失败: {e}")))
@@ -1356,7 +1076,10 @@ pub extern "system" fn Java_com_orbitterm_android_core_OrbitCoreBridge_orbitEncr
     match encrypt_config(password, bytes) {
         Ok(payload) => java_string(
             &mut env,
-            format!("OK:{}", base64::engine::general_purpose::STANDARD.encode(payload)),
+            format!(
+                "OK:{}",
+                base64::engine::general_purpose::STANDARD.encode(payload)
+            ),
         ),
         Err(e) => java_string(&mut env, format!("ERR:{}", e)),
     }
@@ -1385,7 +1108,10 @@ pub extern "system" fn Java_com_orbitterm_android_core_OrbitCoreBridge_orbitDecr
     match decrypt_config(password, encrypted) {
         Ok(payload) => java_string(
             &mut env,
-            format!("OK:{}", base64::engine::general_purpose::STANDARD.encode(payload)),
+            format!(
+                "OK:{}",
+                base64::engine::general_purpose::STANDARD.encode(payload)
+            ),
         ),
         Err(e) => java_string(&mut env, format!("ERR:{}", e)),
     }
@@ -1462,8 +1188,8 @@ pub extern "system" fn Java_com_orbitterm_android_core_OrbitCoreBridge_orbitPort
     };
     let result = parse_portable_config(&remote_raw).and_then(|remote| {
         parse_portable_config(&local_raw).and_then(|local| {
-            let fields: Vec<String> = serde_json::from_str(&fields_raw)
-                .map_err(|_| OrbitCoreError::InvalidInput)?;
+            let fields: Vec<String> =
+                serde_json::from_str(&fields_raw).map_err(|_| OrbitCoreError::InvalidInput)?;
             serde_json::to_string(&portable_merge(remote, local, &fields))
                 .map_err(|e| OrbitCoreError::Internal(format!("合并结果编码失败: {e}")))
         })
@@ -1495,7 +1221,10 @@ pub extern "system" fn Java_com_orbitterm_android_core_OrbitCoreBridge_orbitVect
         return java_string(&mut env, "ERR:参数不合法".to_string());
     }
     let mut map: HashMap<String, i64> = serde_json::from_str(&raw).unwrap_or_default();
-    map.insert(clean_actor.to_string(), map.get(clean_actor).copied().unwrap_or(0) + 1);
+    map.insert(
+        clean_actor.to_string(),
+        map.get(clean_actor).copied().unwrap_or(0) + 1,
+    );
     match serde_json::to_string(&map) {
         Ok(payload) => java_string(&mut env, format!("OK:{}", payload)),
         Err(e) => java_string(&mut env, format!("ERR:{}", e)),
@@ -1910,7 +1639,10 @@ pub extern "C" fn orbit_sftp_write_text_file(
 }
 
 #[no_mangle]
-pub extern "C" fn orbit_sftp_remove_file(session_id: u64, remote_path: *const c_char) -> *mut c_char {
+pub extern "C" fn orbit_sftp_remove_file(
+    session_id: u64,
+    remote_path: *const c_char,
+) -> *mut c_char {
     let remote_path = match c_ptr_to_string(remote_path) {
         Ok(v) => v,
         Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
@@ -1960,7 +1692,10 @@ pub extern "C" fn orbit_sftp_mkdir(session_id: u64, remote_path: *const c_char) 
 }
 
 #[no_mangle]
-pub extern "C" fn orbit_sftp_create_file(session_id: u64, remote_path: *const c_char) -> *mut c_char {
+pub extern "C" fn orbit_sftp_create_file(
+    session_id: u64,
+    remote_path: *const c_char,
+) -> *mut c_char {
     let remote_path = match c_ptr_to_string(remote_path) {
         Ok(v) => v,
         Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
@@ -2063,10 +1798,7 @@ pub extern "C" fn orbit_fetch_docker_logs(
 }
 
 #[no_mangle]
-pub extern "C" fn orbit_exec_command(
-    session_id: u64,
-    command: *const c_char,
-) -> *mut c_char {
+pub extern "C" fn orbit_exec_command(session_id: u64, command: *const c_char) -> *mut c_char {
     let command = match c_ptr_to_string(command) {
         Ok(v) => v,
         Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),

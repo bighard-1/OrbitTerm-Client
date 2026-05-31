@@ -203,10 +203,9 @@ async fn compute_network_rate_kbps(
     session: &Arc<OrbitBaseSession>,
     net_dev_output: &str,
 ) -> Result<(f64, f64), OrbitCoreError> {
-    let re = Regex::new(
-        r"(?m)^\s*([^:]+):\s*(\d+)\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s*(\d+)",
-    )
-    .map_err(|e| OrbitCoreError::Internal(e.to_string()))?;
+    let re =
+        Regex::new(r"(?m)^\s*([^:]+):\s*(\d+)\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s*(\d+)")
+            .map_err(|e| OrbitCoreError::Internal(e.to_string()))?;
 
     let mut rx_total = 0u64;
     let mut tx_total = 0u64;

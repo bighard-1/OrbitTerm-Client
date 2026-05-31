@@ -75,8 +75,7 @@ pub(crate) async fn fetch_containers(
 }
 
 pub(crate) async fn fetch_stats(base: &Arc<OrbitBaseSession>) -> Result<String, OrbitCoreError> {
-    let output =
-        run_remote_command(base, "docker stats --no-stream --format '{{json .}}'").await?;
+    let output = run_remote_command(base, "docker stats --no-stream --format '{{json .}}'").await?;
     let mut items: Vec<DockerStatsItem> = Vec::new();
 
     for line in output.lines().filter(|line| !line.trim().is_empty()) {
@@ -84,8 +83,10 @@ pub(crate) async fn fetch_stats(base: &Arc<OrbitBaseSession>) -> Result<String, 
             OrbitCoreError::Internal(format!("docker stats json parse failed: {e}"))
         })?;
 
-        let cpu_percent = parse_percent(value.get("CPUPerc").and_then(|v| v.as_str()).unwrap_or(""));
-        let mem_percent = parse_percent(value.get("MemPerc").and_then(|v| v.as_str()).unwrap_or(""));
+        let cpu_percent =
+            parse_percent(value.get("CPUPerc").and_then(|v| v.as_str()).unwrap_or(""));
+        let mem_percent =
+            parse_percent(value.get("MemPerc").and_then(|v| v.as_str()).unwrap_or(""));
         let pids = value
             .get("PIDs")
             .and_then(|v| v.as_str())
@@ -161,7 +162,11 @@ pub(crate) async fn fetch_logs(
         return Err(OrbitCoreError::InvalidInput);
     }
 
-    let safe_tail = if tail_lines == 0 { 200 } else { tail_lines.min(2000) };
+    let safe_tail = if tail_lines == 0 {
+        200
+    } else {
+        tail_lines.min(2000)
+    };
     let cmd = format!(
         "docker logs --tail {} {} 2>&1",
         safe_tail,
