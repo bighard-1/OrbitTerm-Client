@@ -556,7 +556,18 @@ struct MainWorkstationView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     if let active = sessionManager.activeSession {
                         if showMonitorPanel {
-                            monitorCard(for: active)
+                            WorkstationMonitorCardView(
+                                active: active,
+                                monitorService: sessionManager.monitorService,
+                                isDetailShown: showingMonitorDetailPanelID == active.activeMonitorPanelID,
+                                onHide: { showMonitorPanel = false },
+                                onShowDetail: {
+                                    if let panelID = active.activeMonitorPanelID {
+                                        showingMonitorDetailPanelID = panelID
+                                    }
+                                },
+                                onHideDetail: { showingMonitorDetailPanelID = nil }
+                            )
                             if let panelID = showingMonitorDetailPanelID,
                                panelID == active.activeMonitorPanelID {
                                 MonitorDetailInlineView(
@@ -566,27 +577,42 @@ struct MainWorkstationView: View {
                                 )
                             }
                         } else {
-                            collapsedFeatureRow(title: "系统监控") { showMonitorPanel = true }
+                            WorkstationCollapsedFeatureRow(title: "系统监控") { showMonitorPanel = true }
                         }
 
                         if active.terminalSplitCount > 0 {
-                            collapsedFeatureRow(title: "SFTP（分屏模式已禁用同步）") { }
+                            WorkstationCollapsedFeatureRow(title: "SFTP（分屏模式已禁用同步）") { }
                         } else if showSFTPPanel {
                             sftpCard(for: active)
                         } else {
-                            collapsedFeatureRow(title: "SFTP") { showSFTPPanel = true }
+                            WorkstationCollapsedFeatureRow(title: "SFTP") { showSFTPPanel = true }
                         }
 
                         if showDockerPanel {
-                            dockerCard(for: active)
+                            WorkstationDockerCardView(active: active) {
+                                showDockerPanel = false
+                            }
                         } else {
-                            collapsedFeatureRow(title: "Docker") { showDockerPanel = true }
+                            WorkstationCollapsedFeatureRow(title: "Docker") { showDockerPanel = true }
                         }
 
                         if showSnippetsPanel {
-                            snippetsCard(for: active)
+                            WorkstationSnippetsCardView(
+                                active: active,
+                                snippetStore: snippetStore,
+                                onHide: { showSnippetsPanel = false },
+                                onInsertCommand: { command, executeImmediately in
+                                    Task {
+                                        await sessionManager.dispatchSnippetCommand(
+                                            session: active,
+                                            command: command,
+                                            executeImmediately: executeImmediately
+                                        )
+                                    }
+                                }
+                            )
                         } else {
-                            collapsedFeatureRow(title: "Snippets") { showSnippetsPanel = true }
+                            WorkstationCollapsedFeatureRow(title: "Snippets") { showSnippetsPanel = true }
                         }
                     } else {
                         Text("连接终端后自动展示监控与 SFTP")
@@ -604,83 +630,12 @@ struct MainWorkstationView: View {
         .background(.regularMaterial)
     }
 
-    private func collapsedFeatureRow(title: String, onShow: @escaping () -> Void) -> some View {
-        HStack {
-            Text("\(title) 已隐藏")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Button("显示") { onShow() }
-                .buttonStyle(.bordered)
-        }
-        .padding(10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
     private var collapsedRail: some View {
-        VStack {
-            Button {
-                withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {
-                    isRightPanelCollapsed = false
-                }
-            } label: {
-                Image(systemName: "sidebar.right")
-                    .rotationEffect(.degrees(180))
-            }
-            .buttonStyle(.borderless)
-            .padding(.top, 12)
-            Spacer()
-        }
-    }
-
-    private func monitorCard(for active: WorkspaceSession) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("系统监控")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                Button {
-                    showMonitorPanel = false
-                } label: {
-                    Image(systemName: "eye.slash")
-                }
-                .buttonStyle(.borderless)
-                Button("查看详情") {
-                    if let panelID = active.activeMonitorPanelID {
-                        showingMonitorDetailPanelID = panelID
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(active.activeMonitorPanelID == nil)
-                if showingMonitorDetailPanelID == active.activeMonitorPanelID {
-                    Button("收起详情") {
-                        showingMonitorDetailPanelID = nil
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
-
-            if let panel = sessionManager.monitorService.panel(id: active.activeMonitorPanelID) {
-                Text(panel.status)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if let p = panel.points.last {
-                    metricRow(title: "CPU", value: String(format: "%.1f%%", p.cpuUsage))
-                    metricRow(title: "内存", value: String(format: "%.1f%%", p.memUsedPercent))
-                    metricRow(title: "磁盘", value: String(format: "%.1f%%", p.diskUsedPercent))
-                    metricRow(title: "延迟", value: p.pingLatencyMs.map { String(format: "%.0fms", $0) } ?? "--")
-                    metricRow(title: "下载", value: formatRate(p.rxRateKBps))
-                    metricRow(title: "上传", value: formatRate(p.txRateKBps))
-                }
-            } else {
-                Text("连接终端后自动开始监控")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        WorkstationRightRailView {
+            withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {
+                isRightPanelCollapsed = false
             }
         }
-        .padding(10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func sftpCard(for active: WorkspaceSession) -> some View {
@@ -811,136 +766,6 @@ struct MainWorkstationView: View {
         }
         .padding(10)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    private func dockerCard(for active: WorkspaceSession) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Docker")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                Button {
-                    showDockerPanel = false
-                } label: {
-                    Image(systemName: "eye.slash")
-                }
-                .buttonStyle(.borderless)
-            }
-
-            if active.dockerService.isScanning {
-                Text("正在扫描容器...")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else if active.dockerService.dockerEnvironmentMissing {
-                Text("环境待安装，是否查看一键安装教程？")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                if let docsURL = URL(string: "https://docs.docker.com/engine/install/") {
-                    Link("查看 Docker 官方安装文档", destination: docsURL)
-                        .font(.caption)
-                }
-            } else if active.dockerService.cards.isEmpty {
-                Text(active.dockerService.statusText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(active.dockerService.cards.prefix(6)) { card in
-                    HStack {
-                        Circle()
-                            .fill(card.isRunning ? Color.green : Color.red)
-                            .frame(width: 8, height: 8)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(card.name).lineLimit(1)
-                            Text(card.image).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                            Text(card.isRunning ? "运行中" : "已停止")
-                                .font(.caption2)
-                                .foregroundStyle(card.isRunning ? .green : .red)
-                        }
-                        Spacer()
-                        Text(card.isRunning ? "运行中" : "已停止")
-                            .font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background((card.isRunning ? Color.green : Color.red).opacity(0.14), in: Capsule())
-                            .foregroundStyle(card.isRunning ? .green : .red)
-                        Text(String(format: "CPU %.1f%%", card.cpuPercent))
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                    .contextMenu {
-                        Button("查看日志") {
-                            Task {
-                                do {
-                                    let logs = try await active.dockerService.fetchLogs(containerID: card.id, tailLines: 200)
-                                    active.appendTerminal("[docker-logs][\(card.name)]")
-                                    logs.split(separator: "\n").suffix(60).forEach { line in
-                                        active.appendTerminal(String(line))
-                                    }
-                                } catch {
-                                    active.appendTerminal("[docker-logs][error] \(error.localizedDescription)")
-                                }
-                            }
-                        }
-                        ForEach(DockerAction.allCases, id: \.self) { action in
-                            Button(action.label) {
-                                Task { await active.dockerService.performAction(containerID: card.id, action: action) }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        .padding(10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    private func snippetsCard(for active: WorkspaceSession) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Snippets")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                Button {
-                    showSnippetsPanel = false
-                } label: {
-                    Image(systemName: "eye.slash")
-                }
-                .buttonStyle(.borderless)
-            }
-
-            SnippetsPanelView(
-                snippetStore: snippetStore,
-                session: active,
-                onInsertCommand: { command, executeImmediately in
-                    Task {
-                        await sessionManager.dispatchSnippetCommand(
-                            session: active,
-                            command: command,
-                            executeImmediately: executeImmediately
-                        )
-                    }
-                }
-            )
-        }
-        .padding(10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    private func metricRow(title: String, value: String) -> some View {
-        HStack {
-            Text(title)
-            Spacer()
-            Text(value)
-                .monospacedDigit()
-        }
-        .font(.caption)
-    }
-
-    private func formatRate(_ kbps: Double) -> String {
-        if kbps >= 1024 {
-            return String(format: "%.2f MB/s", kbps / 1024.0)
-        }
-        return String(format: "%.0f KB/s", kbps)
     }
 
     private func desktopURL(fileName: String) -> URL {
