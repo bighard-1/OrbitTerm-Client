@@ -3,12 +3,11 @@ use std::os::raw::c_char;
 
 use crate::{
     c_ptr_to_string, docker_action, exec_command, fetch_docker_containers, fetch_docker_logs,
-    fetch_docker_stats, fetch_system_stats, get_or_create_base_session, release_base_session,
-    request_channel, sftp_chmod, sftp_connect, sftp_create_file, sftp_disconnect,
-    sftp_download_file, sftp_list_dir, sftp_mkdir, sftp_read_text_file, sftp_remove_file,
-    sftp_rename, sftp_upload_file, sftp_write_text_file, terminal_close, terminal_resize,
-    terminal_write, test_ssh_connection, to_c_string_ptr, OrbitCoreError,
-    CONNECTION_EVENT_CALLBACK, ORBIT_RUNTIME, TERMINAL_DATA_CALLBACK,
+    fetch_docker_stats, fetch_system_stats, request_channel, session_pool, sftp_chmod,
+    sftp_connect, sftp_create_file, sftp_disconnect, sftp_download_file, sftp_list_dir, sftp_mkdir,
+    sftp_read_text_file, sftp_remove_file, sftp_rename, sftp_upload_file, sftp_write_text_file,
+    terminal_close, terminal_resize, terminal_write, test_ssh_connection, to_c_string_ptr,
+    OrbitCoreError, CONNECTION_EVENT_CALLBACK, ORBIT_RUNTIME, TERMINAL_DATA_CALLBACK,
 };
 
 #[no_mangle]
@@ -96,7 +95,7 @@ pub extern "C" fn orbit_ssh_connect(
         Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
     };
 
-    let result = ORBIT_RUNTIME.block_on(get_or_create_base_session(
+    let result = ORBIT_RUNTIME.block_on(session_pool::get_or_create_base_session(
         &ip,
         port,
         &username,
@@ -163,7 +162,7 @@ pub extern "C" fn orbit_sftp_connect(
 
 #[no_mangle]
 pub extern "C" fn orbit_ssh_disconnect(base_session_id: u64) -> *mut c_char {
-    let result = ORBIT_RUNTIME.block_on(release_base_session(base_session_id));
+    let result = ORBIT_RUNTIME.block_on(session_pool::release_base_session(base_session_id));
     match result {
         Ok(_) => to_c_string_ptr("OK:disconnected".to_string()),
         Err(e) => to_c_string_ptr(format!("ERR:{}", e)),

@@ -6,7 +6,7 @@ use russh::ChannelMsg;
 use tokio::io::{AsyncRead, ReadBuf};
 use tokio::sync::mpsc;
 
-use crate::{release_base_session, OrbitBaseSession, OrbitCoreError, TERMINAL_DATA_CALLBACK};
+use crate::{session_pool, OrbitBaseSession, OrbitCoreError, TERMINAL_DATA_CALLBACK};
 
 enum TerminalCommand {
     Write(Vec<u8>),
@@ -119,7 +119,7 @@ pub(crate) async fn open_channel(
         if let Ok(mut map) = TERMINAL_CHANNELS.lock() {
             map.remove(&terminal_id);
         }
-        let _ = release_base_session(base_id).await;
+        let _ = session_pool::release_base_session(base_id).await;
     });
 
     Ok(terminal_id)
