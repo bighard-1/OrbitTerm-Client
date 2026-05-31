@@ -20,6 +20,7 @@
 		274A6C9E05F226D23980A92B /* WorkstationSnippetsCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8EC0F86958319CF2CAC049C /* WorkstationSnippetsCardView.swift */; };
 		274E45B4B0BE1E3D047A0301 /* WorkstationRightPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 274E45B4B0BE1E3D047A0300 /* WorkstationRightPanelView.swift */; };
 		B8A100000000000000000002 /* WorkstationSheetsAndAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000001 /* WorkstationSheetsAndAlerts.swift */; };
+		B8A100000000000000000005 /* WorkstationStressController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000004 /* WorkstationStressController.swift */; };
 		28AE8531E7ADB862080A2502 /* DiagnosticsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6BA478CCB76C4787B9E87D9 /* DiagnosticsManager.swift */; };
 		30964E866A545DA1A90499AD /* OrbitTermApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */; };
 		31895C1956E5C7C1F3A12F8F /* DeepLinkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C9A8C3DE225D64B8E39E2BA /* DeepLinkManager.swift */; };
@@ -93,6 +94,7 @@
 		AD6D297C9DE3F41779D516C6 /* WorkstationSnippetsCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8EC0F86958319CF2CAC049C /* WorkstationSnippetsCardView.swift */; };
 		AD8E1A9588059B0F0CE41021 /* WorkstationRightPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 274E45B4B0BE1E3D047A0300 /* WorkstationRightPanelView.swift */; };
 		B8A100000000000000000003 /* WorkstationSheetsAndAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000001 /* WorkstationSheetsAndAlerts.swift */; };
+		B8A100000000000000000006 /* WorkstationStressController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000004 /* WorkstationStressController.swift */; };
 		AFF1D8B2C45D35B9B44C3285 /* SnippetsPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1117F7A981D07A249B0CDBD7 /* SnippetsPanelView.swift */; };
 		B04BBC89E70A62AAF9095CEA /* WorkstationTerminalSessionPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3DE23E2FB664A118F6B8646 /* WorkstationTerminalSessionPane.swift */; };
 		B0702EC01B476677C22715E6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0599BB6B03494D8A6791ABA /* Assets.xcassets */; };
@@ -176,6 +178,7 @@
 		A8EC0F86958319CF2CAC049C /* WorkstationSnippetsCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationSnippetsCardView.swift; sourceTree = "<group>"; };
 		274E45B4B0BE1E3D047A0300 /* WorkstationRightPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationRightPanelView.swift; sourceTree = "<group>"; };
 		B8A100000000000000000001 /* WorkstationSheetsAndAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationSheetsAndAlerts.swift; sourceTree = "<group>"; };
+		B8A100000000000000000004 /* WorkstationStressController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationStressController.swift; sourceTree = "<group>"; };
 		AED26C552B7072D2AAC4669F /* ServerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerStore.swift; sourceTree = "<group>"; };
 		B4D7532938F0DC9FF02B25D6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		BC35C4CE7198F143C318FB84 /* WorkstationAssetSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationAssetSidebarView.swift; sourceTree = "<group>"; };
@@ -272,6 +275,7 @@
 				0406A2602C8DCBFAD157B5E5 /* WorkstationMonitorDetailViews.swift */,
 				274E45B4B0BE1E3D047A0300 /* WorkstationRightPanelView.swift */,
 				B8A100000000000000000001 /* WorkstationSheetsAndAlerts.swift */,
+				B8A100000000000000000004 /* WorkstationStressController.swift */,
 				FAA681CD5E929D54BAF59BA3 /* WorkstationSFTPCardView.swift */,
 				EBF252B95C1A0A974038062E /* WorkstationSFTPDialogs.swift */,
 				A8EC0F86958319CF2CAC049C /* WorkstationSnippetsCardView.swift */,
@@ -514,6 +518,7 @@
 				5486AB2E26E30B6C331A4C1B /* WorkstationMonitorDetailViews.swift in Sources */,
 				274E45B4B0BE1E3D047A0301 /* WorkstationRightPanelView.swift in Sources */,
 				B8A100000000000000000002 /* WorkstationSheetsAndAlerts.swift in Sources */,
+				B8A100000000000000000005 /* WorkstationStressController.swift in Sources */,
 				D6439AEECD4CACDF386120B4 /* WorkstationSFTPCardView.swift in Sources */,
 				E42A9A249C32B1E0FEF03732 /* WorkstationSFTPDialogs.swift in Sources */,
 				274A6C9E05F226D23980A92B /* WorkstationSnippetsCardView.swift in Sources */,
@@ -578,6 +583,7 @@
 				96E09D4124DD6D872620222F /* WorkstationMonitorDetailViews.swift in Sources */,
 				AD8E1A9588059B0F0CE41021 /* WorkstationRightPanelView.swift in Sources */,
 				B8A100000000000000000003 /* WorkstationSheetsAndAlerts.swift in Sources */,
+				B8A100000000000000000006 /* WorkstationStressController.swift in Sources */,
 				94B6DD52F6058B3F1B49B0BA /* WorkstationSFTPCardView.swift in Sources */,
 				79C01AB0151A55725DB45DC8 /* WorkstationSFTPDialogs.swift in Sources */,
 				AD6D297C9DE3F41779D516C6 /* WorkstationSnippetsCardView.swift in Sources */,

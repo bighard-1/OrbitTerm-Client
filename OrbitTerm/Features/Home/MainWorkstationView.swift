@@ -9,6 +9,7 @@ struct MainWorkstationView: View {
     @StateObject private var syncService = SyncService.shared
     @StateObject private var diagnostics = DiagnosticsManager.shared
     @StateObject private var snippetStore = SnippetStore.shared
+    @StateObject private var stressController = WorkstationStressController()
 
     @State private var showingAddServer = false
     @State private var editingServer: ServerEntry?
@@ -24,8 +25,6 @@ struct MainWorkstationView: View {
     @State private var showSFTPPanel = true
     @State private var showDockerPanel = true
     @State private var showSnippetsPanel = true
-    @State private var isStressRunning = false
-    @State private var stressTask: Task<Void, Never>?
     @State private var showingMonitorDetailPanelID: UUID?
     @State private var pendingSFTPRename: PendingSFTPRename?
     @State private var pendingSFTPRenameText: String = ""
@@ -144,7 +143,7 @@ struct MainWorkstationView: View {
             }
         }
         .onDisappear {
-            stopStressTest()
+            stressController.stop()
         }
         .modifier(WorkstationSFTPDialogs(
             sessionManager: sessionManager,
@@ -213,7 +212,7 @@ struct MainWorkstationView: View {
                 TerminalSessionPane(
                     session: active,
                     sessionManager: sessionManager,
-                    isStressRunning: $isStressRunning,
+                    isStressRunning: $stressController.isRunning,
                     onSplitStateChanged: { isSplitEnabled in
                         if isSplitEnabled {
                             showSFTPPanel = false
@@ -222,7 +221,7 @@ struct MainWorkstationView: View {
                         }
                     },
                     onToggleStress: { target in
-                        toggleStressTest(for: target)
+                        stressController.toggle(for: target)
                     }
                 )
                 .padding(12)
@@ -284,38 +283,6 @@ struct MainWorkstationView: View {
         Task(priority: .background) {
             await syncService.deleteRemoteConfigs(for: [server], token: token, masterPassword: masterPassword)
         }
-    }
-
-    private func toggleStressTest(for active: WorkspaceSession) {
-        if isStressRunning {
-            stopStressTest()
-            active.appendTerminal("[stress] 压测已停止")
-            return
-        }
-
-        isStressRunning = true
-        active.appendTerminal("[stress] 开始 yes 字符流压测")
-
-        let targetID = active.id
-        stressTask = Task.detached(priority: .utility) {
-            var lineNo = 0
-            while !Task.isCancelled {
-                lineNo += 1
-                let line = "yes yes yes yes | chunk \(lineNo)"
-                await MainActor.run {
-                    if let session = SessionManager.shared.session(for: targetID) {
-                        session.appendTerminal(line)
-                    }
-                }
-                try? await Task.sleep(nanoseconds: 8_000_000)
-            }
-        }
-    }
-
-    private func stopStressTest() {
-        stressTask?.cancel()
-        stressTask = nil
-        isStressRunning = false
     }
 
 }
