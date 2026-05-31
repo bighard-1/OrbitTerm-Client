@@ -52,6 +52,7 @@
 		6952D2F9DB5485D20F9D799D /* SessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 530F2F2B65A5D82BAE62ED55 /* SessionManager.swift */; };
 		749429BFF654F1AB265411AF /* View+InputPolish.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */; };
 		7537219233F149DD96EE566D /* NetworkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */; };
+		A7E3F1B2C4D5968701020305 /* RustFFI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7E3F1B2C4D5968701020304 /* RustFFI.swift */; };
 		76E0101D1870FB15B265D176 /* TabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62847EC28220849324529ECF /* TabBarView.swift */; };
 		791C864C97C94860BC072BA1 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DC29E7DEA20362E09F501D3 /* AppSession.swift */; };
 		79C01AB0151A55725DB45DC8 /* WorkstationSFTPDialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF252B95C1A0A974038062E /* WorkstationSFTPDialogs.swift */; };
@@ -92,6 +93,7 @@
 		C3F661036F847112CA11C87D /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20EA2AC1C67C6744ECBB46BD /* AuthView.swift */; };
 		CA301A189253FDCB70F0BB14 /* WorkstationDockerCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BF8175E63892D99108F4789 /* WorkstationDockerCardView.swift */; };
 		D32A2630B47540D9846461F9 /* NetworkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */; };
+		A7E3F1B2C4D5968701020306 /* RustFFI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7E3F1B2C4D5968701020304 /* RustFFI.swift */; };
 		D6439AEECD4CACDF386120B4 /* WorkstationSFTPCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA681CD5E929D54BAF59BA3 /* WorkstationSFTPCardView.swift */; };
 		D73945F35D103F36900752C6 /* DockerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B49A5D57724B8383BD06C96 /* DockerService.swift */; };
 		D7582594F04FB2E4C5812CCC /* FileSizeFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9727DF6BCB4A2DC3FFF9644E /* FileSizeFormatter.swift */; };
@@ -123,6 +125,7 @@
 		381EB860DD822B532F60A2E4 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		38CC52AC1F19BBC544F8D872 /* DiagnosticsExportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsExportView.swift; sourceTree = "<group>"; };
 		3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkService.swift; sourceTree = "<group>"; };
+		A7E3F1B2C4D5968701020304 /* RustFFI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RustFFI.swift; sourceTree = "<group>"; };
 		4C9A8C3DE225D64B8E39E2BA /* DeepLinkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLinkManager.swift; sourceTree = "<group>"; };
 		530F2F2B65A5D82BAE62ED55 /* SessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionManager.swift; sourceTree = "<group>"; };
 		5B0DB0DE0CCDDA52D06A792C /* TelnetClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelnetClient.swift; sourceTree = "<group>"; };
@@ -197,6 +200,7 @@
 				9F14341CBA2F36F648BF5800 /* MonitorService.swift */,
 				3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */,
 				E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */,
+				A7E3F1B2C4D5968701020304 /* RustFFI.swift */,
 				AED26C552B7072D2AAC4669F /* ServerStore.swift */,
 				530F2F2B65A5D82BAE62ED55 /* SessionManager.swift */,
 				77D09730A51A26B9E686F253 /* SFTPManager.swift */,
@@ -443,6 +447,7 @@
 				3DBFDFBCF613C85F01A8B88D /* MonitorService.swift in Sources */,
 				7537219233F149DD96EE566D /* NetworkService.swift in Sources */,
 				8FB790CC339CDD3B1B2136B2 /* OrbitManager.swift in Sources */,
+				A7E3F1B2C4D5968701020305 /* RustFFI.swift in Sources */,
 				64F544A29C8DC4526D624C8F /* OrbitTermApp.swift in Sources */,
 				3720F726734FDE2BA5EA3491 /* SFTPBrowserView.swift in Sources */,
 				58E2DD7AB605954D9FB0A998 /* SFTPManager.swift in Sources */,
@@ -497,6 +502,7 @@
 				B809495F666036CEF46DA5F7 /* MonitorService.swift in Sources */,
 				D32A2630B47540D9846461F9 /* NetworkService.swift in Sources */,
 				8835C97A39B6523BD90EA986 /* OrbitManager.swift in Sources */,
+				A7E3F1B2C4D5968701020306 /* RustFFI.swift in Sources */,
 				30964E866A545DA1A90499AD /* OrbitTermApp.swift in Sources */,
 				85652ACC0968D7AF4EF480CD /* SFTPBrowserView.swift in Sources */,
 				B1547A01247E01C13B756C9E /* SFTPManager.swift in Sources */,

@@ -97,26 +97,6 @@ struct BatchDownloadResult {
     var downloadedURLs: [URL]
 }
 
-enum SFTPError: LocalizedError {
-    case notConnected
-    case timeout
-    case invalidResponse
-    case rustError(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .notConnected:
-            return "SFTP 未连接"
-        case .timeout:
-            return "网络连接超时，请检查 SSH 服务状态后重试"
-        case .invalidResponse:
-            return "Rust 返回了无效响应"
-        case let .rustError(message):
-            return message
-        }
-    }
-}
-
 @MainActor
 final class SFTPManager: ObservableObject {
     private struct BatchDownloadEntry {
@@ -817,22 +797,8 @@ final class SFTPManager: ObservableObject {
         transfers[index].isDone = isDone
     }
 
-    private func runBlockingWithTimeout<T>(seconds: TimeInterval, _ work: @escaping () throws -> T) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask(priority: .userInitiated) {
-                try work()
-            }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                throw SFTPError.timeout
-            }
-
-            guard let first = try await group.next() else {
-                throw SFTPError.invalidResponse
-            }
-            group.cancelAll()
-            return first
-        }
+    private func runBlockingWithTimeout<T>(seconds: TimeInterval, _ work: @escaping @Sendable () throws -> T) async throws -> T {
+        try await RustFFI.runWithTimeout(seconds: seconds, work)
     }
 
     private func useMockData(path: String, status: String) {
@@ -852,42 +818,18 @@ final class SFTPManager: ObservableObject {
     }
 
     private nonisolated static func callRust(_ call: () -> UnsafeMutablePointer<CChar>?) -> String {
-        guard let ptr = call() else {
-            return "ERR:Rust 返回空指针"
-        }
-
-        defer { orbit_free_string(ptr) }
-        return String(cString: ptr)
+        RustFFI.call(call)
     }
 
     private nonisolated static func parseOKPayload(_ raw: String) throws -> String {
-        if raw.hasPrefix("OK:") {
-            return String(raw.dropFirst(3))
-        }
-        if raw.hasPrefix("ERR:") {
-            throw SFTPError.rustError(String(raw.dropFirst(4)))
-        }
-        throw SFTPError.invalidResponse
+        try RustFFI.parseOKPayload(raw)
     }
 
     private nonisolated static func runWithTimeout<T>(
         seconds: TimeInterval,
         _ work: @escaping @Sendable () throws -> T
     ) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask(priority: .userInitiated) {
-                try work()
-            }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                throw SFTPError.timeout
-            }
-            guard let first = try await group.next() else {
-                throw SFTPError.invalidResponse
-            }
-            group.cancelAll()
-            return first
-        }
+        try await RustFFI.runWithTimeout(seconds: seconds, work)
     }
 
     private nonisolated static func downloadEntry(

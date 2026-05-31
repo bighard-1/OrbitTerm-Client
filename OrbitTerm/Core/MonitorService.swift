@@ -536,37 +536,10 @@ final class MonitorService: ObservableObject {
     private func callRustWithTimeout(
         seconds: TimeInterval,
         label: String,
-        _ call: @escaping () -> UnsafeMutablePointer<CChar>?
+        _ call: @escaping @Sendable () -> UnsafeMutablePointer<CChar>?
     ) async throws -> String {
-        try await withThrowingTaskGroup(of: String.self) { group in
-            group.addTask(priority: .userInitiated) {
-                try Self.parseOKPayload(Self.callRust(call))
-            }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                throw SFTPError.timeout
-            }
-
-            guard let first = try await group.next() else {
-                throw SFTPError.invalidResponse
-            }
-            group.cancelAll()
-            logger.debug("[MON] rust_call=\(label, privacy: .public) bytes=\(first.utf8.count)")
-            return first
-        }
-    }
-
-    private nonisolated static func callRust(_ call: () -> UnsafeMutablePointer<CChar>?) -> String {
-        guard let ptr = call() else {
-            return "ERR:Rust 返回空指针"
-        }
-        defer { orbit_free_string(ptr) }
-        return String(cString: ptr)
-    }
-
-    private nonisolated static func parseOKPayload(_ raw: String) throws -> String {
-        if raw.hasPrefix("OK:") { return String(raw.dropFirst(3)) }
-        if raw.hasPrefix("ERR:") { throw SFTPError.rustError(String(raw.dropFirst(4))) }
-        throw SFTPError.invalidResponse
+        let payload = try await RustFFI.callWithTimeout(seconds: seconds, call)
+        logger.debug("[MON] rust_call=\(label, privacy: .public) bytes=\(payload.utf8.count)")
+        return payload
     }
 }
