@@ -303,157 +303,35 @@ struct MainWorkstationView: View {
     }
 
     private var rightColumn: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("监控 + SFTP")
-                    .font(.headline)
-                Spacer()
-                Button {
-                    withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {
-                        isRightPanelCollapsed = true
-                    }
-                } label: {
-                    Image(systemName: "sidebar.right")
+        WorkstationRightPanelView(
+            sessionManager: sessionManager,
+            snippetStore: snippetStore,
+            showMonitorPanel: $showMonitorPanel,
+            showSFTPPanel: $showSFTPPanel,
+            showDockerPanel: $showDockerPanel,
+            showSnippetsPanel: $showSnippetsPanel,
+            showingMonitorDetailPanelID: $showingMonitorDetailPanelID,
+            onCollapse: {
+                withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {
+                    isRightPanelCollapsed = true
                 }
-                .buttonStyle(.borderless)
+            },
+            onCreateSFTPItem: { sessionID, kind in
+                pendingSFTPCreate = PendingSFTPCreate(sessionID: sessionID, kind: kind)
+                pendingSFTPCreateText = ""
+            },
+            onRenameSFTPItem: { sessionID, item in
+                pendingSFTPRename = PendingSFTPRename(sessionID: sessionID, item: item)
+                pendingSFTPRenameText = item.name
+            },
+            onChmodSFTPItem: { sessionID, item in
+                pendingSFTPChmod = PendingSFTPChmod(sessionID: sessionID, item: item)
+                pendingSFTPChmodText = String(format: "%o", item.permissionsOctal & 0o7777)
+            },
+            onOpenSFTPFile: { sessionID, item in
+                openSFTPFileEditor(sessionID: sessionID, item: item)
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 12)
-            .padding(.bottom, 8)
-
-            ScrollView(.vertical, showsIndicators: true) {
-                VStack(alignment: .leading, spacing: 12) {
-                    if let active = sessionManager.activeSession {
-                        if showMonitorPanel {
-                            WorkstationMonitorCardView(
-                                active: active,
-                                monitorService: sessionManager.monitorService,
-                                isDetailShown: showingMonitorDetailPanelID == active.activeMonitorPanelID,
-                                onHide: { showMonitorPanel = false },
-                                onShowDetail: {
-                                    if let panelID = active.activeMonitorPanelID {
-                                        showingMonitorDetailPanelID = panelID
-                                    }
-                                },
-                                onHideDetail: { showingMonitorDetailPanelID = nil }
-                            )
-                            if let panelID = showingMonitorDetailPanelID,
-                               panelID == active.activeMonitorPanelID {
-                                MonitorDetailInlineView(
-                                    panelID: panelID,
-                                    service: sessionManager.monitorService,
-                                    onClose: { showingMonitorDetailPanelID = nil }
-                                )
-                            }
-                        } else {
-                            WorkstationCollapsedFeatureRow(title: "系统监控") { showMonitorPanel = true }
-                        }
-
-                        if active.terminalSplitCount > 0 {
-                            WorkstationCollapsedFeatureRow(title: "SFTP（分屏模式已禁用同步）") { }
-                        } else if showSFTPPanel {
-                            WorkstationSFTPCardView(
-                                active: active,
-                                onHide: { showSFTPPanel = false },
-                                onRefresh: {
-                                    Task { try? await active.sftpManager.refresh() }
-                                },
-                                onCreateDirectory: {
-                                    pendingSFTPCreate = PendingSFTPCreate(sessionID: active.id, kind: .directory)
-                                    pendingSFTPCreateText = ""
-                                },
-                                onCreateFile: {
-                                    pendingSFTPCreate = PendingSFTPCreate(sessionID: active.id, kind: .file)
-                                    pendingSFTPCreateText = ""
-                                },
-                                onUp: {
-                                    Task {
-                                        let current = active.sftpManager.currentPath
-                                        let parent: String
-                                        if current == "/" {
-                                            parent = "/"
-                                        } else {
-                                            let deletingLast = (current as NSString).deletingLastPathComponent
-                                            parent = deletingLast.isEmpty ? "/" : deletingLast
-                                        }
-                                        await active.sftpManager.goToPath(parent)
-                                        await sessionManager.syncTerminalPathFromSFTP(session: active, newPath: active.sftpManager.currentPath)
-                                    }
-                                },
-                                onEnterDirectory: { item in
-                                    Task {
-                                        await active.sftpManager.enterDirectory(item)
-                                        await sessionManager.syncTerminalPathFromSFTP(session: active, newPath: active.sftpManager.currentPath)
-                                    }
-                                },
-                                onOpenFile: { item in
-                                    openSFTPFileEditor(sessionID: active.id, item: item)
-                                },
-                                onDownload: { item in
-                                    Task {
-                                        let dst = desktopURL(fileName: item.name)
-                                        await active.sftpManager.download(item: item, to: dst)
-                                    }
-                                },
-                                onRename: { item in
-                                    pendingSFTPRename = PendingSFTPRename(sessionID: active.id, item: item)
-                                    pendingSFTPRenameText = item.name
-                                },
-                                onChmod: { item in
-                                    pendingSFTPChmod = PendingSFTPChmod(sessionID: active.id, item: item)
-                                    pendingSFTPChmodText = String(format: "%o", item.permissionsOctal & 0o7777)
-                                },
-                                onSetMode: { item, mode in
-                                    Task { await active.sftpManager.chmod(item: item, modeOctal: mode) }
-                                },
-                                onDelete: { item in
-                                    Task { await active.sftpManager.delete(item: item) }
-                                }
-                            )
-                        } else {
-                            WorkstationCollapsedFeatureRow(title: "SFTP") { showSFTPPanel = true }
-                        }
-
-                        if showDockerPanel {
-                            WorkstationDockerCardView(active: active) {
-                                showDockerPanel = false
-                            }
-                        } else {
-                            WorkstationCollapsedFeatureRow(title: "Docker") { showDockerPanel = true }
-                        }
-
-                        if showSnippetsPanel {
-                            WorkstationSnippetsCardView(
-                                active: active,
-                                snippetStore: snippetStore,
-                                onHide: { showSnippetsPanel = false },
-                                onInsertCommand: { command, executeImmediately in
-                                    Task {
-                                        await sessionManager.dispatchSnippetCommand(
-                                            session: active,
-                                            command: command,
-                                            executeImmediately: executeImmediately
-                                        )
-                                    }
-                                }
-                            )
-                        } else {
-                            WorkstationCollapsedFeatureRow(title: "Snippets") { showSnippetsPanel = true }
-                        }
-                    } else {
-                        Text("连接终端后自动展示监控与 SFTP")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
-            }
-        }
-        .background(.regularMaterial)
+        )
     }
 
     private var collapsedRail: some View {
@@ -462,18 +340,6 @@ struct MainWorkstationView: View {
                 isRightPanelCollapsed = false
             }
         }
-    }
-
-    private func desktopURL(fileName: String) -> URL {
-#if os(macOS)
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Desktop", isDirectory: true)
-            .appendingPathComponent(fileName, isDirectory: false)
-#else
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        return docs.appendingPathComponent(fileName, isDirectory: false)
-#endif
     }
 
     private func deleteServer(_ server: ServerEntry) {
