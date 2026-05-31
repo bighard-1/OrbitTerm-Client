@@ -21,13 +21,7 @@ struct TerminalSessionPane: View {
                 onToggleStress: onToggleStress
             )
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(session.server.name)
-                    .font(.title3.weight(.semibold))
-                Text("\(session.server.username)@\(session.server.endpointText)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
+            WorkstationTerminalSessionHeaderView(session: session)
 
             if showSearchOverlay {
                 WorkstationTerminalSearchOverlay(
@@ -59,13 +53,11 @@ struct TerminalSessionPane: View {
                 sessionManager: sessionManager
             ))
             .modifier(WorkstationTerminalSearchShortcutModifier(isPresented: $showSearchOverlay))
-            .onAppear {
-                Task {
-                    onSplitStateChanged(session.terminalSplitCount > 0)
-                    await sessionManager.ensureTerminalSplitChannels(session: session)
-                    await sessionManager.resizeTerminal(session: session, cols: 120, rows: 36)
-                }
-            }
+            .modifier(WorkstationTerminalStartupModifier(
+                session: session,
+                sessionManager: sessionManager,
+                onSplitStateChanged: onSplitStateChanged
+            ))
 
             Text("状态：\(session.terminalStatus)")
                 .font(.caption)
