@@ -206,71 +206,26 @@ struct MainWorkstationView: View {
         .onDisappear {
             stopStressTest()
         }
-        .alert("重命名", isPresented: Binding(
-            get: { pendingSFTPRename != nil },
-            set: { if !$0 { pendingSFTPRename = nil } }
-        )) {
-            TextField("新名称", text: $pendingSFTPRenameText)
-            Button("取消", role: .cancel) {
-                pendingSFTPRename = nil
+        .modifier(WorkstationSFTPDialogs(
+            sessionManager: sessionManager,
+            pendingRename: $pendingSFTPRename,
+            renameText: $pendingSFTPRenameText,
+            pendingCreate: $pendingSFTPCreate,
+            createText: $pendingSFTPCreateText,
+            pendingChmod: $pendingSFTPChmod,
+            chmodText: $pendingSFTPChmodText,
+            pendingFileEdit: $pendingSFTPFileEdit,
+            fileEditContent: $pendingSFTPFileEditContent,
+            fileEditStatus: $pendingSFTPFileEditStatus,
+            fileEditLoading: $pendingSFTPFileEditLoading,
+            fileEditSaving: $pendingSFTPFileEditSaving,
+            onLoadFileEdit: { edit in
+                await loadSFTPFileForEdit(edit)
+            },
+            onSaveFileEdit: {
+                await saveSFTPFileEdit()
             }
-            Button("确认") {
-                guard let rename = pendingSFTPRename,
-                      let session = sessionManager.session(for: rename.sessionID) else {
-                    pendingSFTPRename = nil
-                    return
-                }
-                let newName = pendingSFTPRenameText.trimmingCharacters(in: .whitespacesAndNewlines)
-                pendingSFTPRename = nil
-                Task { await session.sftpManager.rename(item: rename.item, to: newName) }
-            }
-        } message: {
-            Text("请输入新的文件名")
-        }
-        .alert("新建项目", isPresented: Binding(
-            get: { pendingSFTPCreate != nil },
-            set: { if !$0 { pendingSFTPCreate = nil } }
-        )) {
-            TextField("名称", text: $pendingSFTPCreateText)
-            Button("取消", role: .cancel) { pendingSFTPCreate = nil }
-            Button("创建") {
-                guard let create = pendingSFTPCreate,
-                      let target = sessionManager.session(for: create.sessionID) else {
-                    pendingSFTPCreate = nil
-                    return
-                }
-                let name = pendingSFTPCreateText.trimmingCharacters(in: .whitespacesAndNewlines)
-                pendingSFTPCreate = nil
-                Task {
-                    if create.kind == .directory {
-                        await target.sftpManager.createDirectory(named: name)
-                    } else {
-                        await target.sftpManager.createFile(named: name)
-                    }
-                }
-            }
-        } message: {
-            Text("将在当前目录创建\(pendingSFTPCreate?.kind == .directory ? "目录" : "文件")")
-        }
-        .alert("修改权限", isPresented: Binding(
-            get: { pendingSFTPChmod != nil },
-            set: { if !$0 { pendingSFTPChmod = nil } }
-        )) {
-            TextField("八进制权限（例如 644 / 755）", text: $pendingSFTPChmodText)
-            Button("取消", role: .cancel) { pendingSFTPChmod = nil }
-            Button("应用") {
-                guard let chmod = pendingSFTPChmod,
-                      let target = sessionManager.session(for: chmod.sessionID) else {
-                    pendingSFTPChmod = nil
-                    return
-                }
-                let mode = pendingSFTPChmodText.trimmingCharacters(in: .whitespacesAndNewlines)
-                pendingSFTPChmod = nil
-                Task { await target.sftpManager.chmod(item: chmod.item, modeOctal: mode) }
-            }
-        } message: {
-            Text("请输入 3-4 位八进制权限")
-        }
+        ))
         .alert("确认删除资产", isPresented: Binding(
             get: { pendingDeleteServer != nil },
             set: { if !$0 { pendingDeleteServer = nil } }
@@ -824,15 +779,6 @@ struct MainWorkstationView: View {
     }
 }
 
-private struct PendingSFTPRename: Identifiable {
-    let sessionID: UUID
-    let item: FileItem
-
-    var id: String {
-        "\(sessionID.uuidString)::\(item.id)"
-    }
-}
-
 private struct ServerConnectionBadge: View {
     let session: WorkspaceSession?
 
@@ -877,29 +823,6 @@ private struct ObservedServerConnectionText: View {
         Text(session.isConnected ? "已连接" : session.terminalStatus)
             .foregroundStyle(session.isConnected ? .green : .secondary)
     }
-}
-
-private enum SFTPCreateKind {
-    case file
-    case directory
-}
-
-private struct PendingSFTPCreate: Identifiable {
-    let sessionID: UUID
-    let kind: SFTPCreateKind
-    let id = UUID()
-}
-
-private struct PendingSFTPChmod: Identifiable {
-    let sessionID: UUID
-    let item: FileItem
-    let id = UUID()
-}
-
-private struct PendingSFTPFileEdit: Identifiable {
-    let sessionID: UUID
-    let item: FileItem
-    var id: String { "\(sessionID.uuidString)::\(item.id)" }
 }
 
 private struct TerminalDropToast: Identifiable {
