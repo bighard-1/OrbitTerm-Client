@@ -45,6 +45,7 @@
 		B7E3F1B2C4D5968701020303 /* SFTPManager+Mock.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020301 /* SFTPManager+Mock.swift */; };
 		B7E3F1B2C4D5968701020304 /* SFTPModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020302 /* SFTPModels.swift */; };
 		B7E3F1B2C4D5968701020308 /* SFTPBatchDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020307 /* SFTPBatchDownloader.swift */; };
+		B7E3F1B2C4D5968701020311 /* SFTPManager+FileOperations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020310 /* SFTPManager+FileOperations.swift */; };
 		59DDA7271AFC11CD75C39606 /* BatchCommandRunnerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23CDE6AF8E0550184AC99A12 /* BatchCommandRunnerView.swift */; };
 		5B4B0A4E7FD8556F5557BC7C /* SessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 530F2F2B65A5D82BAE62ED55 /* SessionManager.swift */; };
 		5C144C6F938F96E9A34F819F /* View+InputPolish.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */; };
@@ -92,6 +93,7 @@
 		B7E3F1B2C4D5968701020305 /* SFTPManager+Mock.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020301 /* SFTPManager+Mock.swift */; };
 		B7E3F1B2C4D5968701020306 /* SFTPModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020302 /* SFTPModels.swift */; };
 		B7E3F1B2C4D5968701020309 /* SFTPBatchDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020307 /* SFTPBatchDownloader.swift */; };
+		B7E3F1B2C4D5968701020312 /* SFTPManager+FileOperations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020310 /* SFTPManager+FileOperations.swift */; };
 		B809495F666036CEF46DA5F7 /* MonitorService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F14341CBA2F36F648BF5800 /* MonitorService.swift */; };
 		B9B69373552C389EA0D991D7 /* SnippetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A91FAC92F6EEB51AACE1DEB /* SnippetStore.swift */; };
 		BBED422CCFC31B5F7D38D725 /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA155A9F65638E6194ADA93 /* KeychainManager.swift */; };
@@ -142,6 +144,7 @@
 		B7E3F1B2C4D5968701020301 /* SFTPManager+Mock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+Mock.swift"; sourceTree = "<group>"; };
 		B7E3F1B2C4D5968701020302 /* SFTPModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPModels.swift; sourceTree = "<group>"; };
 		B7E3F1B2C4D5968701020307 /* SFTPBatchDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBatchDownloader.swift; sourceTree = "<group>"; };
+		B7E3F1B2C4D5968701020310 /* SFTPManager+FileOperations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+FileOperations.swift"; sourceTree = "<group>"; };
 		78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterPasswordGateView.swift; sourceTree = "<group>"; };
 		79C98A67B69AA654CC5A6B77 /* DetachedSessionWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedSessionWindowView.swift; sourceTree = "<group>"; };
 		82956A0F1C5D1E30A78D1E37 /* TerminalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalService.swift; sourceTree = "<group>"; };
@@ -214,6 +217,7 @@
 				530F2F2B65A5D82BAE62ED55 /* SessionManager.swift */,
 				77D09730A51A26B9E686F253 /* SFTPManager.swift */,
 				B7E3F1B2C4D5968701020307 /* SFTPBatchDownloader.swift */,
+				B7E3F1B2C4D5968701020310 /* SFTPManager+FileOperations.swift */,
 				B7E3F1B2C4D5968701020301 /* SFTPManager+Mock.swift */,
 				B7E3F1B2C4D5968701020302 /* SFTPModels.swift */,
 				9A91FAC92F6EEB51AACE1DEB /* SnippetStore.swift */,
@@ -464,6 +468,7 @@
 				3720F726734FDE2BA5EA3491 /* SFTPBrowserView.swift in Sources */,
 				58E2DD7AB605954D9FB0A998 /* SFTPManager.swift in Sources */,
 				B7E3F1B2C4D5968701020308 /* SFTPBatchDownloader.swift in Sources */,
+				B7E3F1B2C4D5968701020311 /* SFTPManager+FileOperations.swift in Sources */,
 				B7E3F1B2C4D5968701020303 /* SFTPManager+Mock.swift in Sources */,
 				B7E3F1B2C4D5968701020304 /* SFTPModels.swift in Sources */,
 				014ADC98587FFEEED9146A77 /* ServerListView.swift in Sources */,
@@ -522,6 +527,7 @@
 				85652ACC0968D7AF4EF480CD /* SFTPBrowserView.swift in Sources */,
 				B1547A01247E01C13B756C9E /* SFTPManager.swift in Sources */,
 				B7E3F1B2C4D5968701020309 /* SFTPBatchDownloader.swift in Sources */,
+				B7E3F1B2C4D5968701020312 /* SFTPManager+FileOperations.swift in Sources */,
 				B7E3F1B2C4D5968701020305 /* SFTPManager+Mock.swift in Sources */,
 				B7E3F1B2C4D5968701020306 /* SFTPModels.swift in Sources */,
 				3410CEE4ED16A4BBDB851E8A /* ServerListView.swift in Sources */,
