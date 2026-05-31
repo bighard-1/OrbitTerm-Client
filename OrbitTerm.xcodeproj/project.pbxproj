@@ -14,6 +14,7 @@
 		0AD79FEB4AD1DF5ABCA1FB30 /* AddServerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BDEC92E6B4B8974125CB64A /* AddServerView.swift */; };
 		128C9369AA7FAA7BDDC505FE /* WorkstationMonitorCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24CD1624F5A719FD6E790B98 /* WorkstationMonitorCardView.swift */; };
 		13D1330ECE0E17F6F27753EA /* MasterPasswordGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */; };
+		166B59A8E24960CC5E398252 /* WorkstationLayoutMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91CF5B57FA41C8FB507E27B6 /* WorkstationLayoutMetrics.swift */; };
 		2449C17F29FFCB7D459E7F14 /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20EA2AC1C67C6744ECBB46BD /* AuthView.swift */; };
 		25A69CC08E8B9F245C88948A /* TabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62847EC28220849324529ECF /* TabBarView.swift */; };
 		274A6C9E05F226D23980A92B /* WorkstationSnippetsCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8EC0F86958319CF2CAC049C /* WorkstationSnippetsCardView.swift */; };
@@ -33,6 +34,7 @@
 		3DBFDFBCF613C85F01A8B88D /* MonitorService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F14341CBA2F36F648BF5800 /* MonitorService.swift */; };
 		4021421D690695D056F88B95 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10B229BED0B0F3176FF87E7A /* SettingsView.swift */; };
 		5212877D1742D0E62BF5BF0A /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 5C0FE5421C2C7F89752C7FBD /* SwiftTerm */; };
+		528562FF18CF1DF45221B0E7 /* WorkstationLayoutMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91CF5B57FA41C8FB507E27B6 /* WorkstationLayoutMetrics.swift */; };
 		52FCAA84026D316FC64704FC /* DetachedSessionWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79C98A67B69AA654CC5A6B77 /* DetachedSessionWindowView.swift */; };
 		5317C2D57A549A07C99F2426 /* TelnetClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0DB0DE0CCDDA52D06A792C /* TelnetClient.swift */; };
 		5486AB2E26E30B6C331A4C1B /* WorkstationMonitorDetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0406A2602C8DCBFAD157B5E5 /* WorkstationMonitorDetailViews.swift */; };
@@ -134,6 +136,7 @@
 		841FF37C9A712E391D0B0781 /* WorkstationCollapsedFeatureRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationCollapsedFeatureRow.swift; sourceTree = "<group>"; };
 		8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitTermApp.swift; sourceTree = "<group>"; };
 		8B49A5D57724B8383BD06C96 /* DockerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerService.swift; sourceTree = "<group>"; };
+		91CF5B57FA41C8FB507E27B6 /* WorkstationLayoutMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationLayoutMetrics.swift; sourceTree = "<group>"; };
 		924DF400619ABD0FB4150133 /* BiometricAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricAuthService.swift; sourceTree = "<group>"; };
 		9727DF6BCB4A2DC3FFF9644E /* FileSizeFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSizeFormatter.swift; sourceTree = "<group>"; };
 		9A91FAC92F6EEB51AACE1DEB /* SnippetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetStore.swift; sourceTree = "<group>"; };
@@ -226,6 +229,7 @@
 				BC35C4CE7198F143C318FB84 /* WorkstationAssetSidebarView.swift */,
 				841FF37C9A712E391D0B0781 /* WorkstationCollapsedFeatureRow.swift */,
 				9BF8175E63892D99108F4789 /* WorkstationDockerCardView.swift */,
+				91CF5B57FA41C8FB507E27B6 /* WorkstationLayoutMetrics.swift */,
 				24CD1624F5A719FD6E790B98 /* WorkstationMonitorCardView.swift */,
 				0406A2602C8DCBFAD157B5E5 /* WorkstationMonitorDetailViews.swift */,
 				FAA681CD5E929D54BAF59BA3 /* WorkstationSFTPCardView.swift */,
@@ -457,6 +461,7 @@
 				F120A962EA8C41B07A6E9457 /* WorkstationAssetSidebarView.swift in Sources */,
 				F9554E92C4614C8CFDC6F3BE /* WorkstationCollapsedFeatureRow.swift in Sources */,
 				DA03ABEB5754E7E8BC42E676 /* WorkstationDockerCardView.swift in Sources */,
+				166B59A8E24960CC5E398252 /* WorkstationLayoutMetrics.swift in Sources */,
 				128C9369AA7FAA7BDDC505FE /* WorkstationMonitorCardView.swift in Sources */,
 				5486AB2E26E30B6C331A4C1B /* WorkstationMonitorDetailViews.swift in Sources */,
 				D6439AEECD4CACDF386120B4 /* WorkstationSFTPCardView.swift in Sources */,
@@ -510,6 +515,7 @@
 				06B5A6A1C64180548A72FBF3 /* WorkstationAssetSidebarView.swift in Sources */,
 				9F1366E7205ADC8CF2850D1D /* WorkstationCollapsedFeatureRow.swift in Sources */,
 				CA301A189253FDCB70F0BB14 /* WorkstationDockerCardView.swift in Sources */,
+				528562FF18CF1DF45221B0E7 /* WorkstationLayoutMetrics.swift in Sources */,
 				875E84D50E1D56A200A5CBA1 /* WorkstationMonitorCardView.swift in Sources */,
 				96E09D4124DD6D872620222F /* WorkstationMonitorDetailViews.swift in Sources */,
 				94B6DD52F6058B3F1B49B0BA /* WorkstationSFTPCardView.swift in Sources */,

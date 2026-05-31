@@ -41,7 +41,7 @@ struct MainWorkstationView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let widths = workstationWidths(
+            let widths = WorkstationLayoutMetrics.widths(
                 totalWidth: proxy.size.width,
                 leftCollapsed: isLeftPanelCollapsed,
                 rightCollapsed: isRightPanelCollapsed
@@ -220,54 +220,6 @@ struct MainWorkstationView: View {
             }
         } message: {
             Text("将删除“\(pendingDeleteServer?.name ?? "该资产")”的本地记录，并尝试同步云端删除。此操作不可撤销。")
-        }
-        .sheet(item: $pendingSFTPFileEdit) { edit in
-            NavigationStack {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text(edit.item.name)
-                            .font(.headline)
-                            .lineLimit(1)
-                        Spacer()
-                        if pendingSFTPFileEditLoading || pendingSFTPFileEditSaving {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                    }
-
-                    if !pendingSFTPFileEditStatus.isEmpty {
-                        Text(pendingSFTPFileEditStatus)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    TextEditor(text: $pendingSFTPFileEditContent)
-                        .font(.system(.body, design: .monospaced))
-                        .padding(6)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-
-                    HStack {
-                        Button("关闭") {
-                            pendingSFTPFileEdit = nil
-                        }
-                        .buttonStyle(.bordered)
-                        Spacer()
-                        Button("保存") {
-                            Task { await saveSFTPFileEdit() }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(pendingSFTPFileEditLoading || pendingSFTPFileEditSaving)
-                    }
-                }
-                .padding(14)
-                .navigationTitle("在线编辑")
-                .task(id: edit.id) {
-                    await loadSFTPFileForEdit(edit)
-                }
-            }
-#if os(macOS)
-            .frame(minWidth: 700, minHeight: 520)
-#endif
         }
     }
 
@@ -606,37 +558,4 @@ struct MainWorkstationView: View {
         isStressRunning = false
     }
 
-    private func workstationWidths(
-        totalWidth: CGFloat,
-        leftCollapsed: Bool,
-        rightCollapsed: Bool
-    ) -> (left: CGFloat, middle: CGFloat, right: CGFloat) {
-        let dividerSpace: CGFloat = 2
-        let available = max(0, totalWidth - dividerSpace)
-        let leftRail: CGFloat = 34
-        let rightRail: CGFloat = 34
-
-        var left = leftCollapsed ? leftRail : min(max(220, available * 0.20), 320)
-        var right = rightCollapsed ? rightRail : min(max(260, available * 0.30), 420)
-        let minMiddle: CGFloat = 420
-
-        // Keep the terminal usable on narrower macOS windows by shrinking side panels
-        // before the center workspace is allowed to overflow.
-        let sideMinimum = (leftCollapsed ? leftRail : 200) + (rightCollapsed ? rightRail : 220)
-        let targetMiddle = min(minMiddle, max(0, available - sideMinimum))
-        let overflow = max(0, left + right + targetMiddle - available)
-        if overflow > 0 {
-            let rightFloor = rightCollapsed ? rightRail : 220
-            let rightShrink = min(overflow, max(0, right - rightFloor))
-            right -= rightShrink
-
-            let remainingOverflow = overflow - rightShrink
-            let leftFloor = leftCollapsed ? leftRail : 200
-            let leftShrink = min(remainingOverflow, max(0, left - leftFloor))
-            left -= leftShrink
-        }
-
-        let middle = max(0, available - left - right)
-        return (left, middle, right)
-    }
 }
