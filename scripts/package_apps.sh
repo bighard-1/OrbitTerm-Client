@@ -73,7 +73,7 @@ fi
 
 rm -f "$REL_MAC/OrbitTerm-macOS-unsigned.dmg" "$REL_MAC/OrbitTerm-macOS-unsigned.zip"
 ditto -c -k --sequesterRsrc --keepParent "$MAC_APP" "$REL_MAC/OrbitTerm-macOS-unsigned.zip"
-hdiutil create -volname "OrbitTerm" -srcfolder "$MAC_APP" -ov -format UDZO "$REL_MAC/OrbitTerm-macOS-unsigned.dmg" >/dev/null
+"$ROOT_DIR/scripts/create_macos_drag_dmg.sh" "$MAC_APP" "$REL_MAC/OrbitTerm-macOS-unsigned.dmg" "OrbitTerm" >/dev/null
 
 echo "[6/8] 归档 iOS (Release, unsigned)..."
 xcodebuild \
