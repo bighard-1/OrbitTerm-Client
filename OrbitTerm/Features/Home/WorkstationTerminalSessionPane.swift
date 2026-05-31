@@ -10,7 +10,6 @@ struct TerminalSessionPane: View {
     @State private var searchText = ""
     @State private var searchCommand: TerminalSearchCommand?
     @State private var searchStatusText = ""
-    @FocusState private var isSearchFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -69,48 +68,12 @@ struct TerminalSessionPane: View {
             }
 
             if showSearchOverlay {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    TextField("搜索终端历史", text: $searchText)
-                        .textFieldStyle(.roundedBorder)
-                        .focused($isSearchFocused)
-                        .onSubmit { triggerSearch(.next) }
-
-                    Button {
-                        triggerSearch(.previous)
-                    } label: {
-                        Image(systemName: "chevron.up")
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button {
-                        triggerSearch(.next)
-                    } label: {
-                        Image(systemName: "chevron.down")
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button {
-                        searchText = ""
-                        triggerSearch(.clear)
-                    } label: {
-                        Image(systemName: "xmark.circle")
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button("关闭") {
-                        showSearchOverlay = false
-                        searchStatusText = ""
-                    }
-                    .buttonStyle(.bordered)
-                }
-
-                if !searchStatusText.isEmpty {
-                    Text(searchStatusText)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
+                WorkstationTerminalSearchOverlay(
+                    isPresented: $showSearchOverlay,
+                    searchText: $searchText,
+                    searchCommand: $searchCommand,
+                    searchStatusText: $searchStatusText
+                )
             }
 
             WorkstationTerminalSplitLayoutView(
@@ -133,6 +96,7 @@ struct TerminalSessionPane: View {
                 session: session,
                 sessionManager: sessionManager
             ))
+            .modifier(WorkstationTerminalSearchShortcutModifier(isPresented: $showSearchOverlay))
             .onAppear {
                 Task {
                     onSplitStateChanged(session.terminalSplitCount > 0)
@@ -140,27 +104,10 @@ struct TerminalSessionPane: View {
                     await sessionManager.resizeTerminal(session: session, cols: 120, rows: 36)
                 }
             }
-            .overlay(alignment: .topLeading) {
-#if os(macOS)
-                Button("") {
-                    showSearchOverlay = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                        isSearchFocused = true
-                    }
-                }
-                .keyboardShortcut("f", modifiers: .command)
-                .opacity(0.001)
-                .frame(width: 1, height: 1)
-#endif
-            }
 
             Text("状态：\(session.terminalStatus)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-    }
-
-    private func triggerSearch(_ action: TerminalSearchAction) {
-        searchCommand = TerminalSearchCommand(action: action)
     }
 }
