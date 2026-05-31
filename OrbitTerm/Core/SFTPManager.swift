@@ -165,25 +165,15 @@ final class SFTPManager: ObservableObject {
             let sessionPayload = try await runBlockingWithTimeout(seconds: 12) {
                 try Self.parseOKPayload(
                     Self.callRust {
-                        cleanedHost.withCString { h in
-                            cleanedUsername.withCString { u in
-                                password.withCString { p in
-                                    cleanedKey.withCString { k in
-                                        privateKeyPassphrase.withCString { passphrase in
-                                            orbit_sftp_connect(
-                                                h,
-                                                Int32(max(1, min(65535, port))),
-                                                u,
-                                                p,
-                                                k,
-                                                passphrase,
-                                                allowPasswordFallback ? 1 : 0
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        RustFFI.connectSFTP(
+                            host: cleanedHost,
+                            port: port,
+                            username: cleanedUsername,
+                            password: password,
+                            privateKeyContent: cleanedKey,
+                            privateKeyPassphrase: privateKeyPassphrase,
+                            allowPasswordFallback: allowPasswordFallback
+                        )
                     }
                 )
             }
@@ -215,9 +205,7 @@ final class SFTPManager: ObservableObject {
             let sessionPayload = try await runBlockingWithTimeout(seconds: 8) {
                 try Self.parseOKPayload(
                     Self.callRust {
-                        "sftp".withCString { channelType in
-                            orbit_request_channel(baseSessionID, channelType)
-                        }
+                        RustFFI.requestChannel(baseSessionID: baseSessionID, type: "sftp")
                     }
                 )
             }

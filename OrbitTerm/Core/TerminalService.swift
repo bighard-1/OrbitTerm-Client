@@ -108,9 +108,7 @@ final class TerminalService {
     func openPTY(sessionOrChannelID: UInt64, cols: UInt32, rows: UInt32) async -> UInt64? {
         installCallbackIfNeeded()
         let ptyPtr = await performFFI {
-            "pty".withCString { typePtr in
-                orbit_request_channel(sessionOrChannelID, typePtr)
-            }
+            RustFFI.requestChannel(baseSessionID: sessionOrChannelID, type: "pty")
         }
         guard let ptyID = parseChannelID(from: ptyPtr) else {
             return nil
@@ -133,30 +131,16 @@ final class TerminalService {
         allowPasswordFallback: Bool
     ) async -> UInt64? {
         installCallbackIfNeeded()
-        let cleanHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanUser = username.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanKey = privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines)
-
         let sessionPtr = await performFFI {
-            cleanHost.withCString { h in
-                cleanUser.withCString { u in
-                    password.withCString { p in
-                        cleanKey.withCString { k in
-                            privateKeyPassphrase.withCString { passphrase in
-                                orbit_ssh_connect(
-                                    h,
-                                    Int32(max(1, min(65535, port))),
-                                    u,
-                                    p,
-                                    k,
-                                    passphrase,
-                                    allowPasswordFallback ? 1 : 0
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+            RustFFI.connectSSH(
+                host: host,
+                port: port,
+                username: username,
+                password: password,
+                privateKeyContent: privateKeyContent,
+                privateKeyPassphrase: privateKeyPassphrase,
+                allowPasswordFallback: allowPasswordFallback
+            )
         }
         return parseChannelID(from: sessionPtr)
     }
@@ -170,9 +154,7 @@ final class TerminalService {
 
     func resolveBaseSessionID(sessionOrChannelID: UInt64) -> UInt64? {
         parseChannelID(
-            from: "exec".withCString { typePtr in
-                orbit_request_channel(sessionOrChannelID, typePtr)
-            }
+            from: RustFFI.requestChannel(baseSessionID: sessionOrChannelID, type: "exec")
         )
     }
 
@@ -282,12 +264,9 @@ final class TerminalService {
     }
 
     private func parseChannelID(from ptr: UnsafeMutablePointer<CChar>?) -> UInt64? {
-        guard let raw = parseRaw(ptr), raw.hasPrefix("OK:") else { return nil }
-        var payload = String(raw.dropFirst(3))
-        if payload.hasPrefix("session:") {
-            payload = String(payload.dropFirst("session:".count))
-        }
-        return UInt64(payload)
+        guard let raw = parseRaw(ptr),
+              let payload = try? RustFFI.parseOKPayload(raw) else { return nil }
+        return RustFFI.parseSessionID(payload)
     }
 
     private func parseOK(_ action: String, rawPtr: UnsafeMutablePointer<CChar>?) -> Bool {

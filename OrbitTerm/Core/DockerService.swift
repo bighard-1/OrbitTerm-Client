@@ -125,25 +125,15 @@ final class DockerService: ObservableObject {
 
         do {
             let payload = try await callRustWithTimeout(seconds: 12) {
-                host.withCString { h in
-                    username.withCString { u in
-                        password.withCString { p in
-                            key.withCString { k in
-                                privateKeyPassphrase.withCString { passphrase in
-                                    orbit_sftp_connect(
-                                        h,
-                                        Int32(max(1, min(65535, port))),
-                                        u,
-                                        p,
-                                        k,
-                                        passphrase,
-                                        allowPasswordFallback ? 1 : 0
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
+                RustFFI.connectSFTP(
+                    host: host,
+                    port: port,
+                    username: username,
+                    password: password,
+                    privateKeyContent: key,
+                    privateKeyPassphrase: privateKeyPassphrase,
+                    allowPasswordFallback: allowPasswordFallback
+                )
             }
 
             guard let sid = UInt64(payload) else {
@@ -180,9 +170,7 @@ final class DockerService: ObservableObject {
 
         do {
             let payload = try await callRustWithTimeout(seconds: 8) {
-                "sftp".withCString { channelType in
-                    orbit_request_channel(baseSessionID, channelType)
-                }
+                RustFFI.requestChannel(baseSessionID: baseSessionID, type: "sftp")
             }
 
             guard let sid = UInt64(payload) else {

@@ -234,25 +234,15 @@ final class MonitorService: ObservableObject {
 
         do {
             let payload = try await callRustWithTimeout(seconds: 12, label: "connect") {
-                target.host.withCString { host in
-                    target.username.withCString { user in
-                        credentials.password.withCString { password in
-                                credentials.privateKeyContent.withCString { k in
-                                    credentials.privateKeyPassphrase.withCString { passphrase in
-                                        orbit_sftp_connect(
-                                            host,
-                                            Int32(max(1, min(65535, target.port))),
-                                            user,
-                                            password,
-                                            k,
-                                            passphrase,
-                                            allowPasswordFallback ? 1 : 0
-                                        )
-                                    }
-                                }
-                            }
-                    }
-                }
+                RustFFI.connectSFTP(
+                    host: target.host,
+                    port: target.port,
+                    username: target.username,
+                    password: credentials.password,
+                    privateKeyContent: credentials.privateKeyContent,
+                    privateKeyPassphrase: credentials.privateKeyPassphrase,
+                    allowPasswordFallback: allowPasswordFallback
+                )
             }
 
             guard let sessionID = UInt64(payload) else {
@@ -281,9 +271,7 @@ final class MonitorService: ObservableObject {
 
         do {
             let payload = try await callRustWithTimeout(seconds: 8, label: "reuse_connect") {
-                "sftp".withCString { channelType in
-                    orbit_request_channel(baseSessionID, channelType)
-                }
+                RustFFI.requestChannel(baseSessionID: baseSessionID, type: "sftp")
             }
 
             guard let sessionID = UInt64(payload) else {
@@ -447,25 +435,15 @@ final class MonitorService: ObservableObject {
             }
 
             let payload = try await callRustWithTimeout(seconds: 12, label: "reconnect_connect") {
-                target.host.withCString { host in
-                    target.username.withCString { user in
-                        credentials.password.withCString { password in
-                                credentials.privateKeyContent.withCString { k in
-                                    credentials.privateKeyPassphrase.withCString { passphrase in
-                                        orbit_sftp_connect(
-                                            host,
-                                            Int32(max(1, min(65535, target.port))),
-                                            user,
-                                            password,
-                                            k,
-                                            passphrase,
-                                            allowFallback ? 1 : 0
-                                        )
-                                    }
-                                }
-                            }
-                    }
-                }
+                RustFFI.connectSFTP(
+                    host: target.host,
+                    port: target.port,
+                    username: target.username,
+                    password: credentials.password,
+                    privateKeyContent: credentials.privateKeyContent,
+                    privateKeyPassphrase: credentials.privateKeyPassphrase,
+                    allowPasswordFallback: allowFallback
+                )
             }
 
             guard let newSID = UInt64(payload) else {

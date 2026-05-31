@@ -60,7 +60,7 @@ final class OrbitManager: ObservableObject {
                let passphraseCString = privateKeyPassphrase.cString(using: .utf8) {
                 let ptr = orbit_test_ssh_connection(
                     ipCString,
-                    Int32(max(1, min(65535, port))),
+                    RustFFI.clampedPort(port),
                     usernameCString,
                     passwordCString,
                     keyCString,
@@ -96,7 +96,7 @@ final class OrbitManager: ObservableObject {
                let passphraseCString = privateKeyPassphrase.cString(using: .utf8) {
                 let ptr = orbit_test_ssh_connection(
                     ipCString,
-                    Int32(max(1, min(65535, port))),
+                    RustFFI.clampedPort(port),
                     usernameCString,
                     passwordCString,
                     keyCString,
@@ -121,23 +121,18 @@ final class OrbitManager: ObservableObject {
         command: String
     ) async throws -> String {
         try await Task.detached(priority: .userInitiated) {
-            guard let ipCString = ip.cString(using: .utf8),
-                  let usernameCString = username.cString(using: .utf8),
-                  let passwordCString = password.cString(using: .utf8),
-                  let keyCString = privateKeyContent.cString(using: .utf8),
-                  let passphraseCString = privateKeyPassphrase.cString(using: .utf8),
-                  let commandCString = command.cString(using: .utf8) else {
+            guard let commandCString = command.cString(using: .utf8) else {
                 throw OrbitManagerError.invalidInput("参数编码失败")
             }
 
-            let connectPtr = orbit_sftp_connect(
-                ipCString,
-                Int32(max(1, min(65535, port))),
-                usernameCString,
-                passwordCString,
-                keyCString,
-                passphraseCString,
-                allowPasswordFallback ? 1 : 0
+            let connectPtr = RustFFI.connectSFTP(
+                host: ip,
+                port: port,
+                username: username,
+                password: password,
+                privateKeyContent: privateKeyContent,
+                privateKeyPassphrase: privateKeyPassphrase,
+                allowPasswordFallback: allowPasswordFallback
             )
             let sessionPayload = try Self.parseOKPayloadStatic(connectPtr)
             guard let sessionID = UInt64(sessionPayload) else {
@@ -154,7 +149,7 @@ final class OrbitManager: ObservableObject {
     }
 
     private func parseResultAsData(_ resultPtr: UnsafeMutablePointer<CChar>?) throws -> Data {
-        let raw = Self.parseRaw(resultPtr)
+        let raw = RustFFI.call { resultPtr }
         if raw.hasPrefix("OK:") {
             let payload = String(raw.dropFirst(3))
             guard let decoded = Data(base64Encoded: payload) else {
@@ -168,7 +163,7 @@ final class OrbitManager: ObservableObject {
     }
 
     nonisolated private static func parseResultAsStringStatic(_ resultPtr: UnsafeMutablePointer<CChar>?) -> String {
-        let raw = parseRaw(resultPtr)
+        let raw = RustFFI.call { resultPtr }
         if raw.hasPrefix("OK:") {
             return "成功"
         }
@@ -177,22 +172,14 @@ final class OrbitManager: ObservableObject {
         return "失败: \(message)"
     }
 
-    nonisolated private static func parseRaw(_ resultPtr: UnsafeMutablePointer<CChar>?) -> String {
-        guard let resultPtr else {
-            return "ERR:Rust 返回空指针"
-        }
-
-        defer { orbit_free_string(resultPtr) }
-        return String(cString: resultPtr)
-    }
-
     nonisolated private static func parseOKPayloadStatic(_ resultPtr: UnsafeMutablePointer<CChar>?) throws -> String {
-        let raw = parseRaw(resultPtr)
-        if raw.hasPrefix("OK:") {
-            return String(raw.dropFirst(3))
+        do {
+            return try RustFFI.parseOKPayload(RustFFI.call { resultPtr })
+        } catch let SFTPError.rustError(message) {
+            throw OrbitManagerError.rustError(message)
+        } catch {
+            throw OrbitManagerError.invalidResponse("Rust 返回了无效响应")
         }
-        let message = raw.hasPrefix("ERR:") ? String(raw.dropFirst(4)) : raw
-        throw OrbitManagerError.rustError(message)
     }
 }
 
