@@ -583,7 +583,64 @@ struct MainWorkstationView: View {
                         if active.terminalSplitCount > 0 {
                             WorkstationCollapsedFeatureRow(title: "SFTP（分屏模式已禁用同步）") { }
                         } else if showSFTPPanel {
-                            sftpCard(for: active)
+                            WorkstationSFTPCardView(
+                                active: active,
+                                onHide: { showSFTPPanel = false },
+                                onRefresh: {
+                                    Task { try? await active.sftpManager.refresh() }
+                                },
+                                onCreateDirectory: {
+                                    pendingSFTPCreate = PendingSFTPCreate(sessionID: active.id, kind: .directory)
+                                    pendingSFTPCreateText = ""
+                                },
+                                onCreateFile: {
+                                    pendingSFTPCreate = PendingSFTPCreate(sessionID: active.id, kind: .file)
+                                    pendingSFTPCreateText = ""
+                                },
+                                onUp: {
+                                    Task {
+                                        let current = active.sftpManager.currentPath
+                                        let parent: String
+                                        if current == "/" {
+                                            parent = "/"
+                                        } else {
+                                            let deletingLast = (current as NSString).deletingLastPathComponent
+                                            parent = deletingLast.isEmpty ? "/" : deletingLast
+                                        }
+                                        await active.sftpManager.goToPath(parent)
+                                        await sessionManager.syncTerminalPathFromSFTP(session: active, newPath: active.sftpManager.currentPath)
+                                    }
+                                },
+                                onEnterDirectory: { item in
+                                    Task {
+                                        await active.sftpManager.enterDirectory(item)
+                                        await sessionManager.syncTerminalPathFromSFTP(session: active, newPath: active.sftpManager.currentPath)
+                                    }
+                                },
+                                onOpenFile: { item in
+                                    openSFTPFileEditor(sessionID: active.id, item: item)
+                                },
+                                onDownload: { item in
+                                    Task {
+                                        let dst = desktopURL(fileName: item.name)
+                                        await active.sftpManager.download(item: item, to: dst)
+                                    }
+                                },
+                                onRename: { item in
+                                    pendingSFTPRename = PendingSFTPRename(sessionID: active.id, item: item)
+                                    pendingSFTPRenameText = item.name
+                                },
+                                onChmod: { item in
+                                    pendingSFTPChmod = PendingSFTPChmod(sessionID: active.id, item: item)
+                                    pendingSFTPChmodText = String(format: "%o", item.permissionsOctal & 0o7777)
+                                },
+                                onSetMode: { item, mode in
+                                    Task { await active.sftpManager.chmod(item: item, modeOctal: mode) }
+                                },
+                                onDelete: { item in
+                                    Task { await active.sftpManager.delete(item: item) }
+                                }
+                            )
                         } else {
                             WorkstationCollapsedFeatureRow(title: "SFTP") { showSFTPPanel = true }
                         }
@@ -636,136 +693,6 @@ struct MainWorkstationView: View {
                 isRightPanelCollapsed = false
             }
         }
-    }
-
-    private func sftpCard(for active: WorkspaceSession) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("SFTP")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                Button {
-                    showSFTPPanel = false
-                } label: {
-                    Image(systemName: "eye.slash")
-                }
-                .buttonStyle(.borderless)
-                Button("刷新") {
-                    Task { try? await active.sftpManager.refresh() }
-                }
-                .buttonStyle(.bordered)
-                Button("新建目录") {
-                    pendingSFTPCreate = PendingSFTPCreate(sessionID: active.id, kind: .directory)
-                    pendingSFTPCreateText = ""
-                }
-                .buttonStyle(.bordered)
-                Button("新建文件") {
-                    pendingSFTPCreate = PendingSFTPCreate(sessionID: active.id, kind: .file)
-                    pendingSFTPCreateText = ""
-                }
-                .buttonStyle(.bordered)
-                Button("上级") {
-                    Task {
-                        let current = active.sftpManager.currentPath
-                        let parent: String
-                        if current == "/" {
-                            parent = "/"
-                        } else {
-                            let deletingLast = (current as NSString).deletingLastPathComponent
-                            parent = deletingLast.isEmpty ? "/" : deletingLast
-                        }
-                        await active.sftpManager.goToPath(parent)
-                        await sessionManager.syncTerminalPathFromSFTP(session: active, newPath: active.sftpManager.currentPath)
-                    }
-                }
-                .buttonStyle(.bordered)
-            }
-
-            Text(active.sftpManager.statusText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 10) {
-                Text("总计 \(active.sftpManager.items.count)")
-                Text("目录 \(active.sftpManager.items.filter { $0.isDirectory }.count)")
-                Text("文件 \(active.sftpManager.items.filter { !$0.isDirectory }.count)")
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-
-            if active.sftpManager.items.isEmpty {
-                Text("连接后自动展示远程文件")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(active.sftpManager.items) { item in
-                    HStack {
-                        Image(systemName: item.iconName)
-                            .foregroundStyle(item.isDirectory ? .blue : .secondary)
-                        Text(item.name)
-                            .lineLimit(1)
-                        Spacer()
-                        Text(item.formattedSize)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        guard item.isDirectory else { return }
-                        Task {
-                            await active.sftpManager.enterDirectory(item)
-                            await sessionManager.syncTerminalPathFromSFTP(session: active, newPath: active.sftpManager.currentPath)
-                        }
-                    }
-                    .onTapGesture(count: 2) {
-                        guard !item.isDirectory else { return }
-                        openSFTPFileEditor(sessionID: active.id, item: item)
-                    }
-                    .contextMenu {
-                        if item.isDirectory {
-                            Button("进入目录") {
-                                Task {
-                                    await active.sftpManager.enterDirectory(item)
-                                    await sessionManager.syncTerminalPathFromSFTP(session: active, newPath: active.sftpManager.currentPath)
-                                }
-                            }
-                        } else {
-                            Button("打开并编辑") {
-                                openSFTPFileEditor(sessionID: active.id, item: item)
-                            }
-                            Button("下载到桌面") {
-                                Task {
-                                    let dst = desktopURL(fileName: item.name)
-                                    await active.sftpManager.download(item: item, to: dst)
-                                }
-                            }
-                        }
-                        Button("重命名") {
-                            pendingSFTPRename = PendingSFTPRename(sessionID: active.id, item: item)
-                            pendingSFTPRenameText = item.name
-                        }
-                        Button("权限...") {
-                            pendingSFTPChmod = PendingSFTPChmod(sessionID: active.id, item: item)
-                            pendingSFTPChmodText = String(format: "%o", item.permissionsOctal & 0o7777)
-                        }
-                        Button("设为 644") {
-                            Task { await active.sftpManager.chmod(item: item, modeOctal: "644") }
-                        }
-                        Button("设为 755") {
-                            Task { await active.sftpManager.chmod(item: item, modeOctal: "755") }
-                        }
-                        Button("设为 600") {
-                            Task { await active.sftpManager.chmod(item: item, modeOctal: "600") }
-                        }
-                        Button("删除", role: .destructive) {
-                            Task { await active.sftpManager.delete(item: item) }
-                        }
-                    }
-                }
-            }
-        }
-        .padding(10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func desktopURL(fileName: String) -> URL {

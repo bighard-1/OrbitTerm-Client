@@ -62,6 +62,7 @@
 		8BDBD2BE0DADEEF7F7E2AAAF /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E0EFB34CACD29FEB53B377 /* SyncService.swift */; };
 		8FB790CC339CDD3B1B2136B2 /* OrbitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */; };
 		915DEF261D70D05F1E1A58CA /* SnippetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A91FAC92F6EEB51AACE1DEB /* SnippetStore.swift */; };
+		94B6DD52F6058B3F1B49B0BA /* WorkstationSFTPCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA681CD5E929D54BAF59BA3 /* WorkstationSFTPCardView.swift */; };
 		95AA66DE4E5FB3134C135579 /* DeepLinkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C9A8C3DE225D64B8E39E2BA /* DeepLinkManager.swift */; };
 		9650F6C78AD055B8782127F0 /* DiagnosticsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6BA478CCB76C4787B9E87D9 /* DiagnosticsManager.swift */; };
 		9B0F0B374F2C7C7BB4014906 /* DiagnosticsExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38CC52AC1F19BBC544F8D872 /* DiagnosticsExportView.swift */; };
@@ -83,6 +84,7 @@
 		C3F661036F847112CA11C87D /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20EA2AC1C67C6744ECBB46BD /* AuthView.swift */; };
 		CA301A189253FDCB70F0BB14 /* WorkstationDockerCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BF8175E63892D99108F4789 /* WorkstationDockerCardView.swift */; };
 		D32A2630B47540D9846461F9 /* NetworkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */; };
+		D6439AEECD4CACDF386120B4 /* WorkstationSFTPCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA681CD5E929D54BAF59BA3 /* WorkstationSFTPCardView.swift */; };
 		D73945F35D103F36900752C6 /* DockerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B49A5D57724B8383BD06C96 /* DockerService.swift */; };
 		D7582594F04FB2E4C5812CCC /* FileSizeFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9727DF6BCB4A2DC3FFF9644E /* FileSizeFormatter.swift */; };
 		DA03ABEB5754E7E8BC42E676 /* WorkstationDockerCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BF8175E63892D99108F4789 /* WorkstationDockerCardView.swift */; };
@@ -143,6 +145,7 @@
 		E6BA478CCB76C4787B9E87D9 /* DiagnosticsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsManager.swift; sourceTree = "<group>"; };
 		ED34A104EBBDBA17DC64A535 /* OrbitTerm-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "OrbitTerm-Bridging-Header.h"; sourceTree = "<group>"; };
 		EEA155A9F65638E6194ADA93 /* KeychainManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainManager.swift; sourceTree = "<group>"; };
+		FAA681CD5E929D54BAF59BA3 /* WorkstationSFTPCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationSFTPCardView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -211,6 +214,7 @@
 				841FF37C9A712E391D0B0781 /* WorkstationCollapsedFeatureRow.swift */,
 				9BF8175E63892D99108F4789 /* WorkstationDockerCardView.swift */,
 				24CD1624F5A719FD6E790B98 /* WorkstationMonitorCardView.swift */,
+				FAA681CD5E929D54BAF59BA3 /* WorkstationSFTPCardView.swift */,
 				A8EC0F86958319CF2CAC049C /* WorkstationSnippetsCardView.swift */,
 			);
 			path = Home;
@@ -437,6 +441,7 @@
 				F9554E92C4614C8CFDC6F3BE /* WorkstationCollapsedFeatureRow.swift in Sources */,
 				DA03ABEB5754E7E8BC42E676 /* WorkstationDockerCardView.swift in Sources */,
 				128C9369AA7FAA7BDDC505FE /* WorkstationMonitorCardView.swift in Sources */,
+				D6439AEECD4CACDF386120B4 /* WorkstationSFTPCardView.swift in Sources */,
 				274A6C9E05F226D23980A92B /* WorkstationSnippetsCardView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -485,6 +490,7 @@
 				9F1366E7205ADC8CF2850D1D /* WorkstationCollapsedFeatureRow.swift in Sources */,
 				CA301A189253FDCB70F0BB14 /* WorkstationDockerCardView.swift in Sources */,
 				875E84D50E1D56A200A5CBA1 /* WorkstationMonitorCardView.swift in Sources */,
+				94B6DD52F6058B3F1B49B0BA /* WorkstationSFTPCardView.swift in Sources */,
 				AD6D297C9DE3F41779D516C6 /* WorkstationSnippetsCardView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
