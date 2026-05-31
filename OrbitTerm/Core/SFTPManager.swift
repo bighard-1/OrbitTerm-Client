@@ -2,19 +2,6 @@ import Foundation
 import os
 @MainActor
 final class SFTPManager: ObservableObject {
-    private struct BatchDownloadEntry {
-        let item: FileItem
-        let remotePath: String
-        let localURL: URL
-    }
-
-    private struct BatchDownloadSingleResult {
-        let fileName: String
-        let localURL: URL
-        let bytes: UInt64?
-        let error: String?
-    }
-
     @Published var items: [FileItem] = []
     @Published var currentPath: String = "/"
     @Published var isConnected: Bool = false
@@ -609,36 +596,19 @@ final class SFTPManager: ObservableObject {
             return BatchDownloadResult(summary: BatchOperationSummary(succeeded: [], failed: failed), downloadedURLs: [])
         }
 
-        let entries: [BatchDownloadEntry] = items.map { item in
-            BatchDownloadEntry(
+        let entries: [SFTPBatchDownloadEntry] = items.map { item in
+            SFTPBatchDownloadEntry(
                 item: item,
                 remotePath: makeChildPath(name: item.name),
                 localURL: destinationDirectory.appendingPathComponent(item.name)
             )
         }
 
-        var results: [BatchDownloadSingleResult] = []
-        results.reserveCapacity(entries.count)
-
-        var iterator = entries.makeIterator()
-        let workerCount = max(1, min(maxConcurrent, entries.count))
-        await withTaskGroup(of: BatchDownloadSingleResult.self) { group in
-            for _ in 0..<workerCount {
-                guard let next = iterator.next() else { break }
-                group.addTask {
-                    await Self.downloadEntry(sessionID: sid, entry: next)
-                }
-            }
-
-            while let result = await group.next() {
-                results.append(result)
-                if let next = iterator.next() {
-                    group.addTask {
-                        await Self.downloadEntry(sessionID: sid, entry: next)
-                    }
-                }
-            }
-        }
+        let results = await SFTPBatchDownloader.run(
+            sessionID: sid,
+            entries: entries,
+            maxConcurrent: maxConcurrent
+        )
 
         var summary = BatchOperationSummary()
         var urls: [URL] = []
@@ -714,58 +684,6 @@ final class SFTPManager: ObservableObject {
 
     private nonisolated static func parseOKPayload(_ raw: String) throws -> String {
         try RustFFI.parseOKPayload(raw)
-    }
-
-    private nonisolated static func runWithTimeout<T>(
-        seconds: TimeInterval,
-        _ work: @escaping @Sendable () throws -> T
-    ) async throws -> T {
-        try await RustFFI.runWithTimeout(seconds: seconds, work)
-    }
-
-    private nonisolated static func downloadEntry(
-        sessionID: UInt64,
-        entry: BatchDownloadEntry
-    ) async -> BatchDownloadSingleResult {
-        if entry.item.isDirectory {
-            return BatchDownloadSingleResult(
-                fileName: entry.item.name,
-                localURL: entry.localURL,
-                bytes: nil,
-                error: "目录暂不支持批量下载"
-            )
-        }
-
-        do {
-            let payload = try await runWithTimeout(seconds: 50) {
-                try parseOKPayload(
-                    callRust {
-                        entry.remotePath.withCString { remote in
-                            entry.localURL.path.withCString { local in
-                                orbit_sftp_download_file(sessionID, remote, local, 0)
-                            }
-                        }
-                    }
-                )
-            }
-
-            struct TransferResp: Decodable { let bytes: UInt64 }
-            let bytes = (try? JSONDecoder().decode(TransferResp.self, from: Data(payload.utf8)).bytes) ?? 0
-
-            return BatchDownloadSingleResult(
-                fileName: entry.item.name,
-                localURL: entry.localURL,
-                bytes: bytes,
-                error: nil
-            )
-        } catch {
-            return BatchDownloadSingleResult(
-                fileName: entry.item.name,
-                localURL: entry.localURL,
-                bytes: nil,
-                error: error.localizedDescription
-            )
-        }
     }
 
 }
