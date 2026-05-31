@@ -148,6 +148,7 @@ pub(crate) async fn download_file(
         .create(true)
         .write(true)
         .read(true)
+        .truncate(false)
         .open(local_path)
         .await
         .map_err(|e| OrbitCoreError::SftpFailed(format!("open local file failed: {e}")))?;

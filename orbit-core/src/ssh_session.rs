@@ -29,9 +29,11 @@ pub(crate) fn normalize_host_port(ip: &str, port: u16) -> String {
 }
 
 pub(crate) fn new_client_config() -> Arc<client::Config> {
-    let mut config = client::Config::default();
-    config.keepalive_interval = Some(Duration::from_secs(30));
-    config.keepalive_max = 3;
+    let config = client::Config {
+        keepalive_interval: Some(Duration::from_secs(30)),
+        keepalive_max: 3,
+        ..Default::default()
+    };
     Arc::new(config)
 }
 
