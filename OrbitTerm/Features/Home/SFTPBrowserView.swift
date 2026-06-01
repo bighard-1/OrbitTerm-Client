@@ -362,29 +362,20 @@ struct SFTPBrowserView: View {
     }
 
     private func performBatchDelete() async {
-        let paths = selectedItems.map { item in
-            if effectiveManager.currentPath == "/" {
-                return "/\(item.name)"
-            }
-            return "\(effectiveManager.currentPath)/\(item.name)"
-        }
-
+        let paths = SFTPBatchOperationFormatter.remotePaths(
+            for: selectedItems,
+            currentPath: effectiveManager.currentPath
+        )
         let summary = await effectiveManager.batchDelete(paths: paths)
         selectedIDs.removeAll()
-
-        if summary.hasFailure {
-            let topErrors = summary.failed.prefix(3).map { "\($0.key): \($0.value)" }.joined(separator: "\n")
-            batchResultMessage = "成功 \(summary.successCount) 项，失败 \(summary.failureCount) 项。\n\n\(topErrors)"
-        } else {
-            batchResultMessage = "已删除 \(summary.successCount) 项。"
-        }
+        batchResultMessage = SFTPBatchOperationFormatter.deleteResultMessage(for: summary)
         showingBatchResult = true
     }
 
     private func performBatchDownload() async {
-        let targets = selectedItems.filter { !$0.isDirectory }
+        let targets = SFTPBatchOperationFormatter.downloadableItems(from: selectedItems)
         guard !targets.isEmpty else {
-            batchResultMessage = "未选择可下载文件（目录暂不支持批量下载）。"
+            batchResultMessage = SFTPBatchOperationFormatter.noDownloadableFilesMessage
             showingBatchResult = true
             return
         }
@@ -407,12 +398,7 @@ struct SFTPBrowserView: View {
         isBatchRunning = false
         selectedIDs.removeAll()
 
-        if result.summary.hasFailure {
-            let topErrors = result.summary.failed.prefix(3).map { "\($0.key): \($0.value)" }.joined(separator: "\n")
-            batchResultMessage = "下载完成：成功 \(result.summary.successCount) 项，失败 \(result.summary.failureCount) 项。\n\n\(topErrors)"
-        } else {
-            batchResultMessage = "下载完成：共 \(result.summary.successCount) 项。"
-        }
+        batchResultMessage = SFTPBatchOperationFormatter.downloadResultMessage(for: result.summary)
         showingBatchResult = true
 
 #if os(macOS)
