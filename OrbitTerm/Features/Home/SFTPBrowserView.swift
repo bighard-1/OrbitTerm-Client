@@ -2,8 +2,6 @@ import SwiftUI
 import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
-#else
-import UIKit
 #endif
 
 struct SFTPBrowserView: View {
@@ -111,7 +109,7 @@ struct SFTPBrowserView: View {
         }
 #if os(iOS)
         .sheet(isPresented: $showingShareSheet) {
-            ActivityShareSheet(activityItems: shareURLs)
+            SFTPActivityShareSheet(activityItems: shareURLs)
         }
 #endif
     }
@@ -426,16 +424,3 @@ struct SFTPBrowserView: View {
         )
     }
 }
-
-#if os(iOS)
-private struct ActivityShareSheet: UIViewControllerRepresentable {
-    let activityItems: [Any]
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
-    }
-
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {
-    }
-}
-#endif
