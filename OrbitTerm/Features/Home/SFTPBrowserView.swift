@@ -7,13 +7,6 @@ import UIKit
 #endif
 
 struct SFTPBrowserView: View {
-    private struct Breadcrumb: Identifiable {
-        let id: Int
-        let title: String
-        let path: String
-        let isLast: Bool
-    }
-
     @StateObject private var manager = SFTPManager()
     @ObservedObject private var sessionManager = SessionManager.shared
     private let vault = CredentialVault.shared
@@ -193,33 +186,26 @@ struct SFTPBrowserView: View {
             VStack(spacing: 8) {
 #if os(macOS)
                 if let revealURL = revealInFinderURL {
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                        Text("批量下载完成")
-                            .font(.caption)
-                        Button("在访达中显示") {
+                    SFTPRevealInFinderToast(revealURL: revealURL) {
                             NSWorkspace.shared.activateFileViewerSelecting([revealURL])
                             revealInFinderURL = nil
-                        }
-                        .buttonStyle(.link)
                     }
-                    .padding(10)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
-                    )
-                    .padding(.horizontal, 12)
                 }
 #endif
 
                 if !selectedIDs.isEmpty {
-                    batchToolbar
+                    SFTPBatchToolbar(
+                        selectedCount: selectedIDs.count,
+                        progress: batchProgress,
+                        isRunning: isBatchRunning,
+                        onCancel: { selectedIDs.removeAll() },
+                        onDownload: { Task { await performBatchDownload() } },
+                        onDelete: { showingBatchDeleteConfirm = true }
+                    )
                         .padding(.horizontal, 12)
                 }
 
-                transferBoard
+                SFTPTransferBoard(transfers: effectiveManager.transfers)
                     .padding(.horizontal, 12)
                     .padding(.bottom, 10)
             }
@@ -284,7 +270,11 @@ struct SFTPBrowserView: View {
 
     private var fileList: some View {
         List(effectiveManager.items) { item in
-            fileRow(item)
+            SFTPFileRow(
+                item: item,
+                isSelected: selectedIDs.contains(item.id),
+                onToggleSelection: { toggleSelection(item) }
+            )
                 .contentShape(Rectangle())
                 .onTapGesture {
                     if !selectedIDs.isEmpty {
@@ -333,96 +323,27 @@ struct SFTPBrowserView: View {
         }
     }
 
-    private var batchToolbar: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("已选中 \(selectedIDs.count) 项")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                Button("取消") { selectedIDs.removeAll() }
-                    .buttonStyle(.bordered)
-            }
-
-            if let p = batchProgress, isBatchRunning {
-                VStack(alignment: .leading, spacing: 4) {
-                    ProgressView(value: p.fraction)
-                    Text("下载进度 \(p.completed)/\(p.total) · \(FileSizeFormatter.humanReadable(p.bytesTransferred))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            HStack(spacing: 8) {
-                Button("下载") {
-                    Task { await performBatchDownload() }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(isBatchRunning)
-
-                Button("删除", role: .destructive) {
-                    showingBatchDeleteConfirm = true
-                }
-                .buttonStyle(.bordered)
-                .disabled(isBatchRunning)
-            }
-        }
-        .padding(12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
-        )
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-        .animation(.easeInOut(duration: 0.2), value: selectedIDs.count)
-    }
-
     private var breadcrumbBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(pathCrumbs) { crumb in
-                    Button(action: {
-                        Task {
-                            await effectiveManager.goToPath(crumb.path)
-                            selectedIDs.removeAll()
-                        }
-                    }) {
-                        Text(crumb.title)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(crumb.isLast ? Color.primary : Color.blue)
-
-                    if !crumb.isLast {
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+        SFTPBreadcrumbBar(crumbs: pathCrumbs) { crumb in
+            Task {
+                await effectiveManager.goToPath(crumb.path)
+                selectedIDs.removeAll()
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
         }
-        .background(.ultraThinMaterial)
     }
 
     private var summaryBar: some View {
-        HStack(spacing: 12) {
-            Text("总计 \(effectiveManager.items.count)")
-            Text("目录 \(effectiveManager.items.filter { $0.isDirectory }.count)")
-            Text("文件 \(effectiveManager.items.filter { !$0.isDirectory }.count)")
-            Spacer()
-            Text(effectiveManager.currentPath)
-                .lineLimit(1)
-                .foregroundStyle(.secondary)
-        }
-        .font(.caption)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.thinMaterial)
+        SFTPSummaryBar(
+            itemCount: effectiveManager.items.count,
+            directoryCount: effectiveManager.items.filter { $0.isDirectory }.count,
+            fileCount: effectiveManager.items.filter { !$0.isDirectory }.count,
+            currentPath: effectiveManager.currentPath
+        )
     }
 
-    private var pathCrumbs: [Breadcrumb] {
+    private var pathCrumbs: [SFTPBreadcrumb] {
         if effectiveManager.currentPath == "/" {
-            return [Breadcrumb(id: 0, title: "Root", path: "/", isLast: true)]
+            return [SFTPBreadcrumb(id: 0, title: "Root", path: "/", isLast: true)]
         }
 
         let parts = effectiveManager.currentPath.split(separator: "/").map(String.init)
@@ -434,7 +355,7 @@ struct SFTPBrowserView: View {
             result.append((part, runningPath))
         }
         return result.enumerated().map { index, element in
-            Breadcrumb(
+            SFTPBreadcrumb(
                 id: index,
                 title: element.0,
                 path: element.1,
@@ -443,96 +364,8 @@ struct SFTPBrowserView: View {
         }
     }
 
-    private func fileRow(_ item: FileItem) -> some View {
-        HStack(spacing: 12) {
-            Button {
-                toggleSelection(item)
-            } label: {
-                Image(systemName: selectedIDs.contains(item.id) ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(selectedIDs.contains(item.id) ? .blue : .secondary)
-                    .font(.body)
-            }
-            .buttonStyle(.plain)
-
-            Image(systemName: item.iconName)
-                .foregroundStyle(item.isDirectory ? .blue : .secondary)
-                .frame(width: 18)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.name)
-                    .lineLimit(1)
-                Text("\(item.permissions)  ·  \(item.formattedDate)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            if !item.isDirectory {
-                Text(item.formattedSize)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.vertical, 4)
-        .background(
-            selectedIDs.contains(item.id)
-            ? Color.accentColor.opacity(0.12)
-            : Color.clear
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-
     private var emptyFolderView: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "folder.badge.questionmark")
-                .font(.system(size: 48, weight: .semibold))
-                .foregroundStyle(.secondary)
-            Text("Empty Folder")
-                .font(.title3.weight(.semibold))
-            Text("当前目录没有任何文件。可以尝试上传，或者切换到其他路径。")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 360)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
-        .background(
-            LinearGradient(
-                colors: [Color.blue.opacity(0.05), Color.clear],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
-    }
-
-    @ViewBuilder
-    private var transferBoard: some View {
-        if !effectiveManager.transfers.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("传输任务")
-                    .font(.headline)
-
-                ForEach(effectiveManager.transfers.prefix(3)) { task in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("\(task.direction.rawValue): \(task.fileName)")
-                            .font(.subheadline)
-                            .lineLimit(1)
-                        ProgressView(value: task.progress)
-                        Text(task.statusText)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .padding(12)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
-            )
-        }
+        SFTPEmptyFolderView()
     }
 
     private var selectedItems: [FileItem] {

@@ -115,6 +115,8 @@
 		B8A100000000000000000021 /* AssetQuickKeySetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000001F /* AssetQuickKeySetupSheet.swift */; };
 		B8A100000000000000000023 /* AddServerFormComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000022 /* AddServerFormComponents.swift */; };
 		B8A100000000000000000024 /* AddServerFormComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000022 /* AddServerFormComponents.swift */; };
+		B8A100000000000000000026 /* SFTPBrowserComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000025 /* SFTPBrowserComponents.swift */; };
+		B8A100000000000000000027 /* SFTPBrowserComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000025 /* SFTPBrowserComponents.swift */; };
 		AFF1D8B2C45D35B9B44C3285 /* SnippetsPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1117F7A981D07A249B0CDBD7 /* SnippetsPanelView.swift */; };
 		B04BBC89E70A62AAF9095CEA /* WorkstationTerminalSessionPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3DE23E2FB664A118F6B8646 /* WorkstationTerminalSessionPane.swift */; };
 		B0702EC01B476677C22715E6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0599BB6B03494D8A6791ABA /* Assets.xcassets */; };
@@ -209,6 +211,7 @@
 		B8A10000000000000000001C /* AssetBulkAddSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetBulkAddSheet.swift; sourceTree = "<group>"; };
 		B8A10000000000000000001F /* AssetQuickKeySetupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetQuickKeySetupSheet.swift; sourceTree = "<group>"; };
 		B8A100000000000000000022 /* AddServerFormComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerFormComponents.swift; sourceTree = "<group>"; };
+		B8A100000000000000000025 /* SFTPBrowserComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserComponents.swift; sourceTree = "<group>"; };
 		AED26C552B7072D2AAC4669F /* ServerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerStore.swift; sourceTree = "<group>"; };
 		B4D7532938F0DC9FF02B25D6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		BC35C4CE7198F143C318FB84 /* WorkstationAssetSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationAssetSidebarView.swift; sourceTree = "<group>"; };
@@ -297,6 +300,7 @@
 				21BA8750BFF4212C103320E8 /* ServerListView.swift */,
 				10B229BED0B0F3176FF87E7A /* SettingsView.swift */,
 				CF8482667CCEAB37877728A8 /* SFTPBrowserView.swift */,
+				B8A100000000000000000025 /* SFTPBrowserComponents.swift */,
 				1117F7A981D07A249B0CDBD7 /* SnippetsPanelView.swift */,
 				DAFDE71AA1A69539BB2EA7CD /* SwiftTermTerminalView.swift */,
 				62847EC28220849324529ECF /* TabBarView.swift */,
@@ -534,6 +538,7 @@
 				A7E3F1B2C4D5968701020305 /* RustFFI.swift in Sources */,
 				64F544A29C8DC4526D624C8F /* OrbitTermApp.swift in Sources */,
 				3720F726734FDE2BA5EA3491 /* SFTPBrowserView.swift in Sources */,
+				B8A100000000000000000026 /* SFTPBrowserComponents.swift in Sources */,
 				58E2DD7AB605954D9FB0A998 /* SFTPManager.swift in Sources */,
 				B7E3F1B2C4D5968701020308 /* SFTPBatchDownloader.swift in Sources */,
 				B7E3F1B2C4D5968701020317 /* SFTPManager+Connection.swift in Sources */,
@@ -609,6 +614,7 @@
 				A7E3F1B2C4D5968701020306 /* RustFFI.swift in Sources */,
 				30964E866A545DA1A90499AD /* OrbitTermApp.swift in Sources */,
 				85652ACC0968D7AF4EF480CD /* SFTPBrowserView.swift in Sources */,
+				B8A100000000000000000027 /* SFTPBrowserComponents.swift in Sources */,
 				B1547A01247E01C13B756C9E /* SFTPManager.swift in Sources */,
 				B7E3F1B2C4D5968701020309 /* SFTPBatchDownloader.swift in Sources */,
 				B7E3F1B2C4D5968701020318 /* SFTPManager+Connection.swift in Sources */,
