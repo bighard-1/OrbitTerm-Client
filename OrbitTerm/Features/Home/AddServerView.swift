@@ -60,18 +60,18 @@ struct AddServerView: View {
             VStack(spacing: 0) {
                 ScrollView(.vertical, showsIndicators: true) {
                     VStack(spacing: 14) {
-                        sectionCard(title: "主机信息") {
-                            formRow(icon: "tag.fill", title: "名称") {
-                                inputField("例如：生产服务器", text: $name)
+                        AddServerSectionCard(title: "主机信息") {
+                            AddServerFormRow(icon: "tag.fill", title: "名称") {
+                                AddServerTextField("例如：生产服务器", text: $name)
                             }
-                            formRow(icon: "tray.full.fill", title: "分组（可选）") {
-                                inputField("例如：线上", text: $group)
+                            AddServerFormRow(icon: "tray.full.fill", title: "分组（可选）") {
+                                AddServerTextField("例如：线上", text: $group)
                             }
-                            formRow(icon: "network", title: "IP 地址") {
-                                inputField("例如：192.168.1.10", text: $host)
+                            AddServerFormRow(icon: "network", title: "IP 地址") {
+                                AddServerTextField("例如：192.168.1.10", text: $host)
                             }
-                            formRow(icon: "point.3.connected.trianglepath.dotted", title: "端口") {
-                                inputField("默认 22，可自定义高位端口", text: $portText, numeric: true)
+                            AddServerFormRow(icon: "point.3.connected.trianglepath.dotted", title: "端口") {
+                                AddServerTextField("默认 22，可自定义高位端口", text: $portText, numeric: true)
                             }
                         }
 
@@ -90,7 +90,7 @@ struct AddServerView: View {
                         }
                         
 
-                        sectionCard(title: "高级设置") {
+                        AddServerSectionCard(title: "高级设置") {
                             DisclosureGroup("连接测试参数", isExpanded: $showAdvanced) {
                                 Stepper(value: $testTimeoutSec, in: 3...20) {
                                     Text("连接测试超时：\(testTimeoutSec) 秒")
@@ -105,7 +105,14 @@ struct AddServerView: View {
                 .scrollDismissesKeyboard(.interactively)
                 .font(.system(.body, design: .rounded))
 
-                statusBar
+                AddServerStatusBar(
+                    isTestingConnection: isTestingConnection,
+                    isConnectionVerified: isConnectionVerified,
+                    testStatus: testStatus,
+                    canTestConnection: canTestConnection
+                ) {
+                    Task { await testConnection() }
+                }
 
                 HStack(spacing: 10) {
                     Button("取消") { dismiss() }
@@ -212,12 +219,12 @@ struct AddServerView: View {
     }
 
     private var authSection: some View {
-        sectionCard(title: "认证") {
-            formRow(icon: "person.fill", title: "用户名") {
-                inputField("例如：root", text: $username)
+        AddServerSectionCard(title: "认证") {
+            AddServerFormRow(icon: "person.fill", title: "用户名") {
+                AddServerTextField("例如：root", text: $username)
             }
 
-            formRow(icon: "switch.2", title: "认证方式") {
+            AddServerFormRow(icon: "switch.2", title: "认证方式") {
                 VStack(alignment: .leading, spacing: 6) {
                     Picker("认证方式", selection: $authMethod) {
                         ForEach(ServerAuthMethod.allCases) { method in
@@ -236,7 +243,7 @@ struct AddServerView: View {
                 }
             }
 
-            formRow(icon: "network", title: "传输协议") {
+            AddServerFormRow(icon: "network", title: "传输协议") {
                 VStack(alignment: .leading, spacing: 6) {
                     Picker("传输协议", selection: $transport) {
                         ForEach(ServerTransportProtocol.allCases) { proto in
@@ -259,8 +266,8 @@ struct AddServerView: View {
                 telnetProfileSection
             }
 
-            formRow(icon: "lock.fill", title: "密码") {
-                secureInputField(transport == .telnet ? "用于自动应答 Password 提示" : "可选：SSH 密码", text: $password)
+            AddServerFormRow(icon: "lock.fill", title: "密码") {
+                AddServerSecureField(transport == .telnet ? "用于自动应答 Password 提示" : "可选：SSH 密码", text: $password)
             }
 
             if transport == .ssh {
@@ -275,7 +282,7 @@ struct AddServerView: View {
 
     private var telnetProfileSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            formRow(icon: "switch.2", title: "设备模板") {
+            AddServerFormRow(icon: "switch.2", title: "设备模板") {
                 Picker("设备模板", selection: $networkDeviceProfile) {
                     ForEach(NetworkDeviceProfile.allCases) { profile in
                         Text(profile.displayName).tag(profile)
@@ -292,7 +299,7 @@ struct AddServerView: View {
 
     private var sshCredentialOptions: some View {
         VStack(alignment: .leading, spacing: 10) {
-            formRow(icon: "switch.2", title: "密钥输入") {
+            AddServerFormRow(icon: "switch.2", title: "密钥输入") {
                 Picker("密钥输入", selection: $keyInputMode) {
                     ForEach(KeyInputMode.allCases) { mode in
                         Text(mode.title).tag(mode)
@@ -302,7 +309,7 @@ struct AddServerView: View {
                 .pickerStyle(.segmented)
             }
 
-            formRow(icon: "key.fill", title: "私钥内容") {
+            AddServerFormRow(icon: "key.fill", title: "私钥内容") {
                 VStack(alignment: .leading, spacing: 8) {
                     if keyInputMode == .file {
                         Button {
@@ -329,11 +336,11 @@ struct AddServerView: View {
                 }
             }
 
-            formRow(icon: "lock.shield.fill", title: "私钥口令") {
-                secureInputField("可选：用于解密受保护私钥", text: $privateKeyPassphrase)
+            AddServerFormRow(icon: "lock.shield.fill", title: "私钥口令") {
+                AddServerSecureField("可选：用于解密受保护私钥", text: $privateKeyPassphrase)
             }
 
-            formRow(icon: "shield.lefthalf.filled", title: "登录策略") {
+            AddServerFormRow(icon: "shield.lefthalf.filled", title: "登录策略") {
                 Toggle(
                     "仅允许密钥登录",
                     isOn: Binding(
@@ -356,88 +363,6 @@ struct AddServerView: View {
         }
     }
 
-    private func sectionCard<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.headline)
-            content()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
-        )
-    }
-
-    private func formRow<Field: View>(icon: String, title: String, @ViewBuilder field: () -> Field) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 16)
-                Text(title)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.9)
-            }
-            .frame(width: 132, alignment: .leading)
-
-            field()
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func inputField(_ placeholder: String, text: Binding<String>, numeric: Bool = false) -> some View {
-        TextField(placeholder, text: text)
-            .textFieldStyle(.roundedBorder)
-#if os(iOS)
-            .keyboardType(numeric ? .numberPad : .default)
-            .textInputAutocapitalization(.never)
-#endif
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func secureInputField(_ placeholder: String, text: Binding<String>) -> some View {
-        SecureField(placeholder, text: text)
-            .textFieldStyle(.roundedBorder)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var statusBar: some View {
-        HStack(spacing: 10) {
-            if isTestingConnection {
-                ProgressView()
-                    .controlSize(.small)
-                Text("正在测试连接...")
-                    .foregroundStyle(.secondary)
-            } else if isConnectionVerified {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                Text("连接测试成功，可直接保存并连接")
-                    .foregroundStyle(.green)
-            } else {
-                Image(systemName: "bolt.horizontal.circle")
-                    .foregroundStyle(.secondary)
-                Text(testStatus)
-                    .foregroundStyle(statusColor(testStatus))
-            }
-
-            Spacer()
-
-            Button("测试连接") {
-                Task { await testConnection() }
-            }
-            .buttonStyle(.bordered)
-            .disabled(isTestingConnection || !canTestConnection)
-        }
-        .font(.system(.body, design: .rounded))
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .background(.thinMaterial)
-        .overlay(Rectangle().frame(height: 1).foregroundStyle(.secondary.opacity(0.1)), alignment: .top)
-    }
 
     private var canSave: Bool {
         let baseValid = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
@@ -718,12 +643,6 @@ struct AddServerView: View {
         }
     }
 
-    private func statusColor(_ text: String) -> Color {
-        if text.contains("成功") { return .green }
-        if text.contains("失败") { return .red }
-        if text.contains("测试") || text.contains("尚未") { return .secondary }
-        return .secondary
-    }
 
     private func loadPrivateKeyFile(_ url: URL) {
         let didStart = url.startAccessingSecurityScopedResource()
