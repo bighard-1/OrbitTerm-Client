@@ -136,6 +136,12 @@
 		B8A100000000000000000056 /* SFTPActivityShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000057 /* SFTPActivityShareSheet.swift */; };
 		B8A100000000000000000058 /* SFTPDropUploadHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000005A /* SFTPDropUploadHandler.swift */; };
 		B8A100000000000000000059 /* SFTPDropUploadHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000005A /* SFTPDropUploadHandler.swift */; };
+		B8A10000000000000000005B /* SnippetEditorDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000005D /* SnippetEditorDraft.swift */; };
+		B8A10000000000000000005C /* SnippetEditorDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000005D /* SnippetEditorDraft.swift */; };
+		B8A10000000000000000005E /* SnippetVariablePrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000060 /* SnippetVariablePrompt.swift */; };
+		B8A10000000000000000005F /* SnippetVariablePrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000060 /* SnippetVariablePrompt.swift */; };
+		B8A100000000000000000061 /* SnippetVariableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000063 /* SnippetVariableResolver.swift */; };
+		B8A100000000000000000062 /* SnippetVariableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000063 /* SnippetVariableResolver.swift */; };
 		B8A10000000000000000003A /* AddServerValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000003C /* AddServerValidation.swift */; };
 		B8A10000000000000000003B /* AddServerValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000003C /* AddServerValidation.swift */; };
 		B8A10000000000000000003D /* AddServerDraftBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000003F /* AddServerDraftBuilder.swift */; };
@@ -257,6 +263,9 @@
 		B8A100000000000000000054 /* SFTPBrowserConnectionDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserConnectionDraft.swift; sourceTree = "<group>"; };
 		B8A100000000000000000057 /* SFTPActivityShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPActivityShareSheet.swift; sourceTree = "<group>"; };
 		B8A10000000000000000005A /* SFTPDropUploadHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPDropUploadHandler.swift; sourceTree = "<group>"; };
+		B8A10000000000000000005D /* SnippetEditorDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetEditorDraft.swift; sourceTree = "<group>"; };
+		B8A100000000000000000060 /* SnippetVariablePrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetVariablePrompt.swift; sourceTree = "<group>"; };
+		B8A100000000000000000063 /* SnippetVariableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetVariableResolver.swift; sourceTree = "<group>"; };
 		B8A10000000000000000003C /* AddServerValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerValidation.swift; sourceTree = "<group>"; };
 		B8A10000000000000000003F /* AddServerDraftBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerDraftBuilder.swift; sourceTree = "<group>"; };
 		B8A10000000000000000001C /* AssetBulkAddSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetBulkAddSheet.swift; sourceTree = "<group>"; };
@@ -368,6 +377,9 @@
 				B8A100000000000000000057 /* SFTPActivityShareSheet.swift */,
 				B8A10000000000000000005A /* SFTPDropUploadHandler.swift */,
 				1117F7A981D07A249B0CDBD7 /* SnippetsPanelView.swift */,
+				B8A10000000000000000005D /* SnippetEditorDraft.swift */,
+				B8A100000000000000000060 /* SnippetVariablePrompt.swift */,
+				B8A100000000000000000063 /* SnippetVariableResolver.swift */,
 				DAFDE71AA1A69539BB2EA7CD /* SwiftTermTerminalView.swift */,
 				B8A10000000000000000002D /* SwiftTermPlatformSupport.swift */,
 				62847EC28220849324529ECF /* TabBarView.swift */,
@@ -637,6 +649,9 @@
 				3A17E58824BF9988E1AB1DBC /* SettingsView.swift in Sources */,
 				B9B69373552C389EA0D991D7 /* SnippetStore.swift in Sources */,
 				FEEBE43BE00573E47EF35283 /* SnippetsPanelView.swift in Sources */,
+				B8A10000000000000000005B /* SnippetEditorDraft.swift in Sources */,
+				B8A10000000000000000005E /* SnippetVariablePrompt.swift in Sources */,
+				B8A100000000000000000061 /* SnippetVariableResolver.swift in Sources */,
 				7F996E7D9810AEABC9BE7BCA /* SwiftTermTerminalView.swift in Sources */,
 				B8A10000000000000000002B /* SwiftTermPlatformSupport.swift in Sources */,
 				A39C5F36E325D6D11857435F /* SyncService.swift in Sources */,
@@ -730,6 +745,9 @@
 				4021421D690695D056F88B95 /* SettingsView.swift in Sources */,
 				915DEF261D70D05F1E1A58CA /* SnippetStore.swift in Sources */,
 				AFF1D8B2C45D35B9B44C3285 /* SnippetsPanelView.swift in Sources */,
+				B8A10000000000000000005C /* SnippetEditorDraft.swift in Sources */,
+				B8A10000000000000000005F /* SnippetVariablePrompt.swift in Sources */,
+				B8A100000000000000000062 /* SnippetVariableResolver.swift in Sources */,
 				390B44D1B24945CC4EBAB4C1 /* SwiftTermTerminalView.swift in Sources */,
 				B8A10000000000000000002C /* SwiftTermPlatformSupport.swift in Sources */,
 				8BDBD2BE0DADEEF7F7E2AAAF /* SyncService.swift in Sources */,

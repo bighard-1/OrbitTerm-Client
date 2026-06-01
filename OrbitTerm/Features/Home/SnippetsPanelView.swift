@@ -1,18 +1,5 @@
 import SwiftUI
 
-private struct SnippetEditorDraft {
-    var title: String = ""
-    var command: String = ""
-    var category: String = ""
-}
-
-private struct SnippetVariablePrompt: Identifiable {
-    let id = UUID()
-    let snippet: Snippet
-    let executeImmediately: Bool
-    var variableValues: [String: String]
-}
-
 struct SnippetsPanelView: View {
     @EnvironmentObject private var appSession: AppSession
     @ObservedObject var snippetStore: SnippetStore
@@ -231,7 +218,7 @@ struct SnippetsPanelView: View {
                         let title = editorDraft.title
                         let command = editorDraft.command
                         let category = editorDraft.category
-                        let isCreate = target.id == UUID.zero
+                        let isCreate = target.id == UUID.snippetDraftID
                         editorTarget = nil
                         Task {
                             if isCreate {
@@ -258,7 +245,7 @@ struct SnippetsPanelView: View {
                 }
             }
             .padding(14)
-            .navigationTitle(target.id == UUID.zero ? "新建 Snippet" : "编辑 Snippet")
+            .navigationTitle(target.id == UUID.snippetDraftID ? "新建 Snippet" : "编辑 Snippet")
         }
 #if os(macOS)
         .frame(minWidth: 600, minHeight: 420)
@@ -323,7 +310,7 @@ struct SnippetsPanelView: View {
 
     private func executeVariablePromptIfReady() {
         guard let variablePrompt else { return }
-        let command = resolveSnippetVariables(
+        let command = SnippetVariableResolver.resolve(
             variablePrompt.snippet.command,
             values: variablePrompt.variableValues
         )
@@ -337,7 +324,7 @@ struct SnippetsPanelView: View {
     }
 
     private func startCreateSnippet() {
-        let seed = Snippet(id: .zero, title: "", command: "", category: "未分类")
+        let seed = Snippet(id: .snippetDraftID, title: "", command: "", category: "未分类")
         editorDraft = SnippetEditorDraft()
         editorTarget = seed
     }
@@ -353,7 +340,7 @@ struct SnippetsPanelView: View {
 
     private func triggerSnippet(_ snippet: Snippet, executeImmediately: Bool) {
         guard session != nil else { return }
-        let keys = extractVariables(from: snippet.command)
+        let keys = SnippetVariableResolver.extractVariables(from: snippet.command)
         if !keys.isEmpty {
             var values: [String: String] = [:]
             keys.forEach { values[$0] = "" }
@@ -367,28 +354,4 @@ struct SnippetsPanelView: View {
 
         onInsertCommand(snippet.command, executeImmediately)
     }
-
-    private func extractVariables(from command: String) -> [String] {
-        let pattern = #"\{\{([a-zA-Z0-9_]+)\}\}"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return []
-        }
-        let ns = command as NSString
-        let matches = regex.matches(in: command, range: NSRange(location: 0, length: ns.length))
-        let keys = matches.compactMap { match -> String? in
-            guard match.numberOfRanges > 1 else { return nil }
-            return ns.substring(with: match.range(at: 1))
-        }
-        return Array(Set(keys)).sorted()
-    }
-
-    private func resolveSnippetVariables(_ command: String, values: [String: String]) -> String {
-        values.reduce(command) { partial, item in
-            partial.replacingOccurrences(of: "{{\(item.key)}}", with: item.value)
-        }
-    }
-}
-
-private extension UUID {
-    static let zero = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
 }
