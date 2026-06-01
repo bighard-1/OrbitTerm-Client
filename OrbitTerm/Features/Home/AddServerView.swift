@@ -421,32 +421,14 @@ struct AddServerView: View {
     }
 
     private func silentSync(_ server: ServerEntry, credentials: ServerCredentials, token: String?, masterPassword: String?) async {
-        guard let token, let masterPassword else {
-            session.showTransientStatus("已本地保存，登录后将自动同步")
-            return
-        }
-
-        let portable = server.makePortableConfig(savedAtUnix: Int(Date().timeIntervalSince1970), credentials: credentials)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-
-        guard let jsonData = try? encoder.encode(portable),
-              let plaintext = String(data: jsonData, encoding: .utf8) else {
-            session.showTransientStatus("同步暂不可用，已本地保存")
-            return
-        }
-
-        let vectorClock = ["client": Int(Date().timeIntervalSince1970)]
-        let ok = await syncService.uploadEncryptedConfig(
+        if let message = await AddServerSilentSync.uploadStatusMessage(
+            server: server,
+            credentials: credentials,
             token: token,
             masterPassword: masterPassword,
-            plaintextConfig: plaintext,
-            vectorClock: vectorClock,
-            allowQueueOnNetworkFailure: true
-        )
-
-        if !ok {
-            session.showTransientStatus("云端同步失败，稍后自动重试")
+            syncService: syncService
+        ) {
+            session.showTransientStatus(message)
         }
     }
 
