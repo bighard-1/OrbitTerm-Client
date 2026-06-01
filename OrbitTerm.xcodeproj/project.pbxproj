@@ -26,6 +26,7 @@
 		B8A10000000000000000000E /* WorkstationTerminalSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000000D /* WorkstationTerminalSearchOverlay.swift */; };
 		B8A100000000000000000011 /* WorkstationTerminalToolbarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000010 /* WorkstationTerminalToolbarView.swift */; };
 		B8A100000000000000000014 /* WorkstationTerminalSessionChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000013 /* WorkstationTerminalSessionChrome.swift */; };
+		B8A100000000000000000017 /* WorkstationToolbarModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000016 /* WorkstationToolbarModifier.swift */; };
 		28AE8531E7ADB862080A2502 /* DiagnosticsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6BA478CCB76C4787B9E87D9 /* DiagnosticsManager.swift */; };
 		30964E866A545DA1A90499AD /* OrbitTermApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */; };
 		31895C1956E5C7C1F3A12F8F /* DeepLinkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C9A8C3DE225D64B8E39E2BA /* DeepLinkManager.swift */; };
@@ -105,6 +106,7 @@
 		B8A10000000000000000000F /* WorkstationTerminalSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000000D /* WorkstationTerminalSearchOverlay.swift */; };
 		B8A100000000000000000012 /* WorkstationTerminalToolbarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000010 /* WorkstationTerminalToolbarView.swift */; };
 		B8A100000000000000000015 /* WorkstationTerminalSessionChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000013 /* WorkstationTerminalSessionChrome.swift */; };
+		B8A100000000000000000018 /* WorkstationToolbarModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000016 /* WorkstationToolbarModifier.swift */; };
 		AFF1D8B2C45D35B9B44C3285 /* SnippetsPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1117F7A981D07A249B0CDBD7 /* SnippetsPanelView.swift */; };
 		B04BBC89E70A62AAF9095CEA /* WorkstationTerminalSessionPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3DE23E2FB664A118F6B8646 /* WorkstationTerminalSessionPane.swift */; };
 		B0702EC01B476677C22715E6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0599BB6B03494D8A6791ABA /* Assets.xcassets */; };
@@ -194,6 +196,7 @@
 		B8A10000000000000000000D /* WorkstationTerminalSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSearchOverlay.swift; sourceTree = "<group>"; };
 		B8A100000000000000000010 /* WorkstationTerminalToolbarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalToolbarView.swift; sourceTree = "<group>"; };
 		B8A100000000000000000013 /* WorkstationTerminalSessionChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSessionChrome.swift; sourceTree = "<group>"; };
+		B8A100000000000000000016 /* WorkstationToolbarModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationToolbarModifier.swift; sourceTree = "<group>"; };
 		AED26C552B7072D2AAC4669F /* ServerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerStore.swift; sourceTree = "<group>"; };
 		B4D7532938F0DC9FF02B25D6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		BC35C4CE7198F143C318FB84 /* WorkstationAssetSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationAssetSidebarView.swift; sourceTree = "<group>"; };
@@ -299,6 +302,7 @@
 				B8A10000000000000000000D /* WorkstationTerminalSearchOverlay.swift */,
 				B8A100000000000000000010 /* WorkstationTerminalToolbarView.swift */,
 				B8A100000000000000000013 /* WorkstationTerminalSessionChrome.swift */,
+				B8A100000000000000000016 /* WorkstationToolbarModifier.swift */,
 				A3DE23E2FB664A118F6B8646 /* WorkstationTerminalSessionPane.swift */,
 			);
 			path = Home;
@@ -547,6 +551,7 @@
 				B8A10000000000000000000E /* WorkstationTerminalSearchOverlay.swift in Sources */,
 				B8A100000000000000000011 /* WorkstationTerminalToolbarView.swift in Sources */,
 				B8A100000000000000000014 /* WorkstationTerminalSessionChrome.swift in Sources */,
+				B8A100000000000000000017 /* WorkstationToolbarModifier.swift in Sources */,
 				7F38D279C57A1E4693BDA47D /* WorkstationTerminalSessionPane.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -617,6 +622,7 @@
 				B8A10000000000000000000F /* WorkstationTerminalSearchOverlay.swift in Sources */,
 				B8A100000000000000000012 /* WorkstationTerminalToolbarView.swift in Sources */,
 				B8A100000000000000000015 /* WorkstationTerminalSessionChrome.swift in Sources */,
+				B8A100000000000000000018 /* WorkstationToolbarModifier.swift in Sources */,
 				B04BBC89E70A62AAF9095CEA /* WorkstationTerminalSessionPane.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
