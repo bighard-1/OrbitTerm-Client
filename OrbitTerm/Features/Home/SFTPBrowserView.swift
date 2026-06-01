@@ -17,13 +17,7 @@ struct SFTPBrowserView: View {
     @State private var preferMockMode: Bool = false
     @State private var isDropTargeted: Bool = false
     @State private var editState = SFTPBrowserEditState()
-
-    @State private var selectedIDs: Set<String> = []
-    @State private var showingBatchDeleteConfirm = false
-    @State private var isBatchRunning = false
-    @State private var batchProgress: BatchDownloadProgress?
-    @State private var batchResultMessage: String = ""
-    @State private var showingBatchResult = false
+    @State private var batchState = SFTPBrowserBatchState()
 
 #if os(iOS)
     @State private var shareURLs: [URL] = []
@@ -101,7 +95,7 @@ struct SFTPBrowserView: View {
                 editState.finishCreateFile()
             }
         }
-        .alert("确认批量删除", isPresented: $showingBatchDeleteConfirm) {
+        .alert("确认批量删除", isPresented: $batchState.isDeleteConfirmPresented) {
             Button("取消", role: .cancel) {}
             Button("删除", role: .destructive) {
                 Task { await performBatchDelete() }
@@ -109,10 +103,10 @@ struct SFTPBrowserView: View {
         } message: {
             Text("即将删除 \(selectedItems.count) 项，删除后不可恢复。")
         }
-        .alert("批量操作结果", isPresented: $showingBatchResult) {
+        .alert("批量操作结果", isPresented: $batchState.isResultPresented) {
             Button("确定", role: .cancel) {}
         } message: {
-            Text(batchResultMessage)
+            Text(batchState.resultMessage)
         }
 #if os(iOS)
         .sheet(isPresented: $showingShareSheet) {
@@ -189,14 +183,14 @@ struct SFTPBrowserView: View {
                 }
 #endif
 
-                if !selectedIDs.isEmpty {
+                if batchState.hasSelection {
                     SFTPBatchToolbar(
-                        selectedCount: selectedIDs.count,
-                        progress: batchProgress,
-                        isRunning: isBatchRunning,
-                        onCancel: { selectedIDs.removeAll() },
+                        selectedCount: batchState.selectedIDs.count,
+                        progress: batchState.progress,
+                        isRunning: batchState.isRunning,
+                        onCancel: { batchState.clearSelection() },
                         onDownload: { Task { await performBatchDownload() } },
-                        onDelete: { showingBatchDeleteConfirm = true }
+                        onDelete: { batchState.requestDeleteConfirmation() }
                     )
                         .padding(.horizontal, 12)
                 }
@@ -211,7 +205,7 @@ struct SFTPBrowserView: View {
                 Button("刷新") {
                     Task {
                         try? await effectiveManager.refresh()
-                        selectedIDs.removeAll()
+                        batchState.clearSelection()
                     }
                 }
             }
@@ -219,7 +213,7 @@ struct SFTPBrowserView: View {
                 Button("断开") {
                     Task {
                         await effectiveManager.disconnect()
-                        selectedIDs.removeAll()
+                        batchState.clearSelection()
                     }
                 }
             }
@@ -242,7 +236,7 @@ struct SFTPBrowserView: View {
                     Task {
                         let parent = SFTPBrowserPathHelper.parentPath(of: effectiveManager.currentPath)
                         _ = await effectiveManager.goToPath(parent)
-                        selectedIDs.removeAll()
+                        batchState.clearSelection()
                     }
                 } label: {
                     Image(systemName: "arrow.up.left")
@@ -268,12 +262,12 @@ struct SFTPBrowserView: View {
         List(effectiveManager.items) { item in
             SFTPFileRow(
                 item: item,
-                isSelected: selectedIDs.contains(item.id),
+                isSelected: batchState.contains(item),
                 onToggleSelection: { toggleSelection(item) }
             )
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    if !selectedIDs.isEmpty {
+                    if batchState.hasSelection {
                         toggleSelection(item)
                     } else if item.isDirectory {
                         Task { await effectiveManager.enterDirectory(item) }
@@ -299,7 +293,7 @@ struct SFTPBrowserView: View {
                         editState.beginChmod(item)
                     }
 
-                    Button(selectedIDs.contains(item.id) ? "取消选择" : "选择") {
+                    Button(batchState.contains(item) ? "取消选择" : "选择") {
                         toggleSelection(item)
                     }
                 }
@@ -321,7 +315,7 @@ struct SFTPBrowserView: View {
         SFTPBreadcrumbBar(crumbs: pathCrumbs) { crumb in
             Task {
                 await effectiveManager.goToPath(crumb.path)
-                selectedIDs.removeAll()
+                batchState.clearSelection()
             }
         }
     }
@@ -344,15 +338,11 @@ struct SFTPBrowserView: View {
     }
 
     private var selectedItems: [FileItem] {
-        effectiveManager.items.filter { selectedIDs.contains($0.id) }
+        effectiveManager.items.filter { batchState.selectedIDs.contains($0.id) }
     }
 
     private func toggleSelection(_ item: FileItem) {
-        if selectedIDs.contains(item.id) {
-            selectedIDs.remove(item.id)
-        } else {
-            selectedIDs.insert(item.id)
-        }
+        batchState.toggleSelection(item)
     }
 
     private func performBatchDelete() async {
@@ -361,21 +351,18 @@ struct SFTPBrowserView: View {
             currentPath: effectiveManager.currentPath
         )
         let summary = await effectiveManager.batchDelete(paths: paths)
-        selectedIDs.removeAll()
-        batchResultMessage = SFTPBatchOperationFormatter.deleteResultMessage(for: summary)
-        showingBatchResult = true
+        batchState.clearSelection()
+        batchState.showResult(SFTPBatchOperationFormatter.deleteResultMessage(for: summary))
     }
 
     private func performBatchDownload() async {
         let targets = SFTPBatchOperationFormatter.downloadableItems(from: selectedItems)
         guard !targets.isEmpty else {
-            batchResultMessage = SFTPBatchOperationFormatter.noDownloadableFilesMessage
-            showingBatchResult = true
+            batchState.showResult(SFTPBatchOperationFormatter.noDownloadableFilesMessage)
             return
         }
 
-        isBatchRunning = true
-        batchProgress = BatchDownloadProgress(completed: 0, total: targets.count, bytesTransferred: 0, currentFile: "")
+        batchState.beginDownload(total: targets.count)
 
         let base = SFTPBrowserPathHelper.batchDownloadDirectory()
 
@@ -385,15 +372,11 @@ struct SFTPBrowserView: View {
             maxConcurrent: 3
         ) { progress in
             Task { @MainActor in
-                self.batchProgress = progress
+                self.batchState.updateProgress(progress)
             }
         }
 
-        isBatchRunning = false
-        selectedIDs.removeAll()
-
-        batchResultMessage = SFTPBatchOperationFormatter.downloadResultMessage(for: result.summary)
-        showingBatchResult = true
+        batchState.finishBatch(message: SFTPBatchOperationFormatter.downloadResultMessage(for: result.summary))
 
 #if os(macOS)
         if let first = result.downloadedURLs.first {
