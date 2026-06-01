@@ -16,15 +16,7 @@ struct SFTPBrowserView: View {
     @State private var password: String = ""
     @State private var preferMockMode: Bool = false
     @State private var isDropTargeted: Bool = false
-
-    @State private var renameItem: FileItem?
-    @State private var newName: String = ""
-    @State private var chmodItem: FileItem?
-    @State private var chmodMode: String = ""
-    @State private var showCreateFolder = false
-    @State private var showCreateFile = false
-    @State private var createFolderName: String = ""
-    @State private var createFileName: String = ""
+    @State private var editState = SFTPBrowserEditState()
 
     @State private var selectedIDs: Set<String> = []
     @State private var showingBatchDeleteConfirm = false
@@ -61,48 +53,52 @@ struct SFTPBrowserView: View {
             await autoBindActiveSessionIfNeeded()
         }
         .alert("重命名", isPresented: Binding(
-            get: { renameItem != nil },
-            set: { if !$0 { renameItem = nil } }
+            get: { editState.isRenaming },
+            set: { editState.isRenaming = $0 }
         )) {
-            TextField("新名称", text: $newName)
-            Button("取消", role: .cancel) { renameItem = nil }
+            TextField("新名称", text: $editState.renameName)
+            Button("取消", role: .cancel) { editState.cancelRename() }
             Button("确认") {
-                if let renameItem {
+                if let renameItem = editState.renameItem {
+                    let newName = editState.renameName
                     Task { await effectiveManager.rename(item: renameItem, to: newName) }
                 }
-                self.renameItem = nil
+                editState.cancelRename()
             }
         } message: {
             Text("输入新的文件名")
         }
         .alert("修改权限", isPresented: Binding(
-            get: { chmodItem != nil },
-            set: { if !$0 { chmodItem = nil } }
+            get: { editState.isChangingPermissions },
+            set: { editState.isChangingPermissions = $0 }
         )) {
-            TextField("例如 644 / 755 / 600", text: $chmodMode)
-            Button("取消", role: .cancel) {}
+            TextField("例如 644 / 755 / 600", text: $editState.chmodMode)
+            Button("取消", role: .cancel) { editState.cancelChmod() }
             Button("确认") {
-                guard let target = chmodItem else { return }
-                Task { await effectiveManager.chmod(item: target, modeOctal: chmodMode) }
-                chmodItem = nil
+                guard let target = editState.chmodItem else { return }
+                let mode = editState.chmodMode
+                Task { await effectiveManager.chmod(item: target, modeOctal: mode) }
+                editState.cancelChmod()
             }
         } message: {
             Text("请输入 3-4 位八进制权限")
         }
-        .alert("新建目录", isPresented: $showCreateFolder) {
-            TextField("目录名称", text: $createFolderName)
-            Button("取消", role: .cancel) {}
+        .alert("新建目录", isPresented: $editState.isCreatingFolder) {
+            TextField("目录名称", text: $editState.createFolderName)
+            Button("取消", role: .cancel) { editState.finishCreateFolder() }
             Button("创建") {
-                Task { await effectiveManager.createDirectory(named: createFolderName) }
-                createFolderName = ""
+                let folderName = editState.createFolderName
+                Task { await effectiveManager.createDirectory(named: folderName) }
+                editState.finishCreateFolder()
             }
         }
-        .alert("新建文件", isPresented: $showCreateFile) {
-            TextField("文件名称", text: $createFileName)
-            Button("取消", role: .cancel) {}
+        .alert("新建文件", isPresented: $editState.isCreatingFile) {
+            TextField("文件名称", text: $editState.createFileName)
+            Button("取消", role: .cancel) { editState.finishCreateFile() }
             Button("创建") {
-                Task { await effectiveManager.createFile(named: createFileName) }
-                createFileName = ""
+                let fileName = editState.createFileName
+                Task { await effectiveManager.createFile(named: fileName) }
+                editState.finishCreateFile()
             }
         }
         .alert("确认批量删除", isPresented: $showingBatchDeleteConfirm) {
@@ -229,14 +225,14 @@ struct SFTPBrowserView: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    showCreateFolder = true
+                    editState.beginCreateFolder()
                 } label: {
                     Image(systemName: "folder.badge.plus")
                 }
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    showCreateFile = true
+                    editState.beginCreateFile()
                 } label: {
                     Image(systemName: "doc.badge.plus")
                 }
@@ -296,13 +292,11 @@ struct SFTPBrowserView: View {
                     }
 
                     Button("重命名") {
-                        renameItem = item
-                        newName = item.name
+                        editState.beginRename(item)
                     }
 
                     Button("修改权限") {
-                        chmodItem = item
-                        chmodMode = String(format: "%03o", item.permissionsOctal & 0o777)
+                        editState.beginChmod(item)
                     }
 
                     Button(selectedIDs.contains(item.id) ? "取消选择" : "选择") {
