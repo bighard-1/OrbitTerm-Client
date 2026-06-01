@@ -452,20 +452,8 @@ struct AddServerView: View {
 
 
     private func loadPrivateKeyFile(_ url: URL) {
-        let didStart = url.startAccessingSecurityScopedResource()
-        defer {
-            if didStart {
-                url.stopAccessingSecurityScopedResource()
-            }
-        }
-
         do {
-            let data = try Data(contentsOf: url)
-            guard let key = String(data: data, encoding: .utf8) else {
-                testStatus = "私钥文件不是 UTF-8 文本"
-                return
-            }
-            privateKeyContent = key
+            privateKeyContent = try AddServerKeyFileLoader.loadUTF8PrivateKey(from: url)
         } catch {
             testStatus = "私钥文件读取失败: \(error.localizedDescription)"
         }
