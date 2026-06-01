@@ -6,19 +6,6 @@ enum QuickKeySetupResult {
     case failed(String)
 }
 
-private enum AssetKeyInputMode: String, CaseIterable, Identifiable {
-    case paste
-    case file
-
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .paste: return "粘贴字符串"
-        case .file: return "选择文件"
-        }
-    }
-}
-
 struct QuickKeySetupSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var session: AppSession
@@ -30,7 +17,7 @@ struct QuickKeySetupSheet: View {
     @StateObject private var orbitManager = OrbitManager()
     @StateObject private var syncService = SyncService.shared
 
-    @State private var keyInputMode: AssetKeyInputMode = .paste
+    @State private var keyInputMode: KeyInputMode = .paste
     @State private var privateKeyContent = ""
     @State private var privateKeyPassphrase = ""
     @State private var selectedKeyFileName = ""
@@ -55,7 +42,7 @@ struct QuickKeySetupSheet: View {
                     .foregroundStyle(.secondary)
 
                 Picker("密钥输入方式", selection: $keyInputMode) {
-                    ForEach(AssetKeyInputMode.allCases) { mode in
+                    ForEach(KeyInputMode.allCases) { mode in
                         Text(mode.title).tag(mode)
                     }
                 }
@@ -157,10 +144,7 @@ struct QuickKeySetupSheet: View {
     }
 
     private var hasValidKey: Bool {
-        let key = privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else { return false }
-        let pattern = #"(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*-----END [A-Z0-9 ]*PRIVATE KEY-----"#
-        return key.range(of: pattern, options: .regularExpression) != nil
+        PrivateKeyValidator.isValid(privateKeyContent)
     }
 
     private func testKeyConnection() async {

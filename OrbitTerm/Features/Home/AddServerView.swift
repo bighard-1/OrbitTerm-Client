@@ -1,19 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-enum KeyInputMode: String, CaseIterable, Identifiable {
-    case paste
-    case file
-
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .paste: return "粘贴字符串"
-        case .file: return "选择文件"
-        }
-    }
-}
-
 struct AddServerView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var session: AppSession
@@ -290,10 +277,7 @@ struct AddServerView: View {
     }
 
     private var isPrivateKeyFormatValid: Bool {
-        let key = privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else { return false }
-        let pattern = #"(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*-----END [A-Z0-9 ]*PRIVATE KEY-----"#
-        return key.range(of: pattern, options: .regularExpression) != nil
+        PrivateKeyValidator.isValid(privateKeyContent)
     }
 
     private var hasValidPrivateKey: Bool {
@@ -302,18 +286,11 @@ struct AddServerView: View {
     }
 
     private var privateKeyValidationMessage: String {
-        if privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "未提供私钥（可选）"
-        }
-        return isPrivateKeyFormatValid ? "私钥格式校验通过" : "私钥格式不合法，需包含 BEGIN/END PRIVATE KEY"
+        PrivateKeyValidator.validationMessage(for: privateKeyContent)
     }
 
     private var privateKeyValidationColor: Color {
-        let key = privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines)
-        if key.isEmpty {
-            return .secondary
-        }
-        return isPrivateKeyFormatValid ? .green : .red
+        PrivateKeyValidator.validationColor(for: privateKeyContent)
     }
 
     private func invalidateVerification() {

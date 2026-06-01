@@ -117,6 +117,8 @@
 		B8A10000000000000000002F /* WorkspaceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000030 /* WorkspaceSession.swift */; };
 		B8A100000000000000000031 /* ShellPathResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000033 /* ShellPathResolver.swift */; };
 		B8A100000000000000000032 /* ShellPathResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000033 /* ShellPathResolver.swift */; };
+		B8A100000000000000000034 /* CredentialInputHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000036 /* CredentialInputHelpers.swift */; };
+		B8A100000000000000000035 /* CredentialInputHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000036 /* CredentialInputHelpers.swift */; };
 		B8A10000000000000000001D /* AssetBulkAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000001C /* AssetBulkAddSheet.swift */; };
 		B8A10000000000000000001E /* AssetBulkAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000001C /* AssetBulkAddSheet.swift */; };
 		B8A100000000000000000020 /* AssetQuickKeySetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000001F /* AssetQuickKeySetupSheet.swift */; };
@@ -220,6 +222,7 @@
 		B8A10000000000000000002D /* SwiftTermPlatformSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftTermPlatformSupport.swift; sourceTree = "<group>"; };
 		B8A100000000000000000030 /* WorkspaceSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSession.swift; sourceTree = "<group>"; };
 		B8A100000000000000000033 /* ShellPathResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellPathResolver.swift; sourceTree = "<group>"; };
+		B8A100000000000000000036 /* CredentialInputHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialInputHelpers.swift; sourceTree = "<group>"; };
 		B8A10000000000000000001C /* AssetBulkAddSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetBulkAddSheet.swift; sourceTree = "<group>"; };
 		B8A10000000000000000001F /* AssetQuickKeySetupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetQuickKeySetupSheet.swift; sourceTree = "<group>"; };
 		B8A100000000000000000022 /* AddServerFormComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerFormComponents.swift; sourceTree = "<group>"; };
@@ -267,6 +270,7 @@
 				2DC29E7DEA20362E09F501D3 /* AppSession.swift */,
 				924DF400619ABD0FB4150133 /* BiometricAuthService.swift */,
 				190E90A490AB0BEFD1B5F1EA /* CredentialVault.swift */,
+				B8A100000000000000000036 /* CredentialInputHelpers.swift */,
 				4C9A8C3DE225D64B8E39E2BA /* DeepLinkManager.swift */,
 				E6BA478CCB76C4787B9E87D9 /* DiagnosticsManager.swift */,
 				8B49A5D57724B8383BD06C96 /* DockerService.swift */,
@@ -569,6 +573,7 @@
 				5B4B0A4E7FD8556F5557BC7C /* SessionManager.swift in Sources */,
 				B8A10000000000000000002E /* WorkspaceSession.swift in Sources */,
 				B8A100000000000000000031 /* ShellPathResolver.swift in Sources */,
+				B8A100000000000000000034 /* CredentialInputHelpers.swift in Sources */,
 				3A17E58824BF9988E1AB1DBC /* SettingsView.swift in Sources */,
 				B9B69373552C389EA0D991D7 /* SnippetStore.swift in Sources */,
 				FEEBE43BE00573E47EF35283 /* SnippetsPanelView.swift in Sources */,
@@ -649,6 +654,7 @@
 				6952D2F9DB5485D20F9D799D /* SessionManager.swift in Sources */,
 				B8A10000000000000000002F /* WorkspaceSession.swift in Sources */,
 				B8A100000000000000000032 /* ShellPathResolver.swift in Sources */,
+				B8A100000000000000000035 /* CredentialInputHelpers.swift in Sources */,
 				4021421D690695D056F88B95 /* SettingsView.swift in Sources */,
 				915DEF261D70D05F1E1A58CA /* SnippetStore.swift in Sources */,
 				AFF1D8B2C45D35B9B44C3285 /* SnippetsPanelView.swift in Sources */,
