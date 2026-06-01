@@ -295,9 +295,8 @@ final class MonitorService: ObservableObject {
                 await self.pollTargetOnce(targetID)
 
                 // 背压策略：上一轮完成（成功或超时）后，再等待剩余时间补齐配置周期。
-                let configuredInterval = max(1.0, min(10.0, UserDefaults.standard.double(forKey: self.intervalKey) == 0 ? 1.0 : UserDefaults.standard.double(forKey: self.intervalKey)))
-                let elapsed = Date().timeIntervalSince(start)
-                let delay = max(0, configuredInterval - elapsed)
+                let configuredInterval = MonitorPollingPolicy.configuredInterval(key: self.intervalKey)
+                let delay = MonitorPollingPolicy.delayAfterRequest(startedAt: start, interval: configuredInterval)
                 if delay > 0 {
                     try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 }
@@ -345,22 +344,11 @@ final class MonitorService: ObservableObject {
                 panels[panelIndex].status = "采集超时，正在重试..."
             }
 
-            if shouldAutoHeal(error: error, failureCount: count) {
+            if MonitorPollingPolicy.shouldAutoHeal(error: error, failureCount: count) {
                 panels[panelIndex].status = "采集中断，后台静默重连中..."
                 scheduleSilentReconnect(targetID)
             }
         }
-    }
-
-    private func shouldAutoHeal(error: Error, failureCount: Int) -> Bool {
-        guard failureCount >= 2 else { return false }
-        if case let SFTPError.rustError(message) = error {
-            let lower = message.lowercased()
-            if lower.contains("auth") || lower.contains("permission denied") || lower.contains("private key") {
-                return false
-            }
-        }
-        return true
     }
 
     private func scheduleSilentReconnect(_ targetID: UUID) {
@@ -370,8 +358,7 @@ final class MonitorService: ObservableObject {
             guard let self else { return }
             defer { self.reconnectTasks[targetID] = nil }
 
-            let backoffSeconds: [UInt64] = [2, 5, 10, 20, 30]
-            for sec in backoffSeconds {
+            for sec in MonitorPollingPolicy.reconnectBackoffSeconds {
                 if Task.isCancelled { return }
                 try? await Task.sleep(nanoseconds: sec * 1_000_000_000)
                 let ok = await reconnectMonitorSession(targetID)

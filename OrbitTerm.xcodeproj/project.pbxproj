@@ -42,6 +42,7 @@
 		3AA24B2C0C58DB4864AFE901 /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA155A9F65638E6194ADA93 /* KeychainManager.swift */; };
 		3DBFDFBCF613C85F01A8B88D /* MonitorService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F14341CBA2F36F648BF5800 /* MonitorService.swift */; };
 		B8A100000000000000000040 /* MonitorStatsPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000042 /* MonitorStatsPayload.swift */; };
+		B8A100000000000000000043 /* MonitorPollingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000045 /* MonitorPollingPolicy.swift */; };
 		4021421D690695D056F88B95 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10B229BED0B0F3176FF87E7A /* SettingsView.swift */; };
 		5212877D1742D0E62BF5BF0A /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 5C0FE5421C2C7F89752C7FBD /* SwiftTerm */; };
 		528562FF18CF1DF45221B0E7 /* WorkstationLayoutMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91CF5B57FA41C8FB507E27B6 /* WorkstationLayoutMetrics.swift */; };
@@ -147,6 +148,7 @@
 		B7E3F1B2C4D5968701020321 /* SFTPManager+Directory.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020319 /* SFTPManager+Directory.swift */; };
 		B809495F666036CEF46DA5F7 /* MonitorService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F14341CBA2F36F648BF5800 /* MonitorService.swift */; };
 		B8A100000000000000000041 /* MonitorStatsPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000042 /* MonitorStatsPayload.swift */; };
+		B8A100000000000000000044 /* MonitorPollingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000045 /* MonitorPollingPolicy.swift */; };
 		B9B69373552C389EA0D991D7 /* SnippetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A91FAC92F6EEB51AACE1DEB /* SnippetStore.swift */; };
 		BBED422CCFC31B5F7D38D725 /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA155A9F65638E6194ADA93 /* KeychainManager.swift */; };
 		BBF64F6A16727778986E2B24 /* DockerManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7156371597A178C490DF8ABD /* DockerManagerView.swift */; };
@@ -213,6 +215,7 @@
 		9BF8175E63892D99108F4789 /* WorkstationDockerCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationDockerCardView.swift; sourceTree = "<group>"; };
 		9F14341CBA2F36F648BF5800 /* MonitorService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorService.swift; sourceTree = "<group>"; };
 		B8A100000000000000000042 /* MonitorStatsPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorStatsPayload.swift; sourceTree = "<group>"; };
+		B8A100000000000000000045 /* MonitorPollingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorPollingPolicy.swift; sourceTree = "<group>"; };
 		A0599BB6B03494D8A6791ABA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A3DE23E2FB664A118F6B8646 /* WorkstationTerminalSessionPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSessionPane.swift; sourceTree = "<group>"; };
 		A622FE572935B57F21E6515A /* OrbitTerm.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = OrbitTerm.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -290,6 +293,7 @@
 				EEA155A9F65638E6194ADA93 /* KeychainManager.swift */,
 				9F14341CBA2F36F648BF5800 /* MonitorService.swift */,
 				B8A100000000000000000042 /* MonitorStatsPayload.swift */,
+				B8A100000000000000000045 /* MonitorPollingPolicy.swift */,
 				3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */,
 				E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */,
 				A7E3F1B2C4D5968701020304 /* RustFFI.swift */,
@@ -573,6 +577,7 @@
 				690C05D5E1CAC7BCB13D8D3E /* MonitorDashboardView.swift in Sources */,
 				3DBFDFBCF613C85F01A8B88D /* MonitorService.swift in Sources */,
 				B8A100000000000000000040 /* MonitorStatsPayload.swift in Sources */,
+				B8A100000000000000000043 /* MonitorPollingPolicy.swift in Sources */,
 				7537219233F149DD96EE566D /* NetworkService.swift in Sources */,
 				8FB790CC339CDD3B1B2136B2 /* OrbitManager.swift in Sources */,
 				A7E3F1B2C4D5968701020305 /* RustFFI.swift in Sources */,
@@ -658,6 +663,7 @@
 				EFED4745678E56EB1D29BDEE /* MonitorDashboardView.swift in Sources */,
 				B809495F666036CEF46DA5F7 /* MonitorService.swift in Sources */,
 				B8A100000000000000000041 /* MonitorStatsPayload.swift in Sources */,
+				B8A100000000000000000044 /* MonitorPollingPolicy.swift in Sources */,
 				D32A2630B47540D9846461F9 /* NetworkService.swift in Sources */,
 				8835C97A39B6523BD90EA986 /* OrbitManager.swift in Sources */,
 				A7E3F1B2C4D5968701020306 /* RustFFI.swift in Sources */,
