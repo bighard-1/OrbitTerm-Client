@@ -224,34 +224,11 @@ struct AddServerView: View {
 
 
     private var canSave: Bool {
-        let baseValid = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            isPortValid &&
-            !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-
-        guard baseValid else { return false }
-        if transport == .telnet {
-            return !password.isEmpty
-        }
-        if !allowPasswordFallback && !hasValidPrivateKey {
-            return false
-        }
-
-        switch authMethod {
-        case .password:
-            return !password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        case .key:
-            return hasValidPrivateKey
-        }
+        AddServerValidation.canSave(validationInput)
     }
 
     private var parsedPort: Int? {
-        Int(portText)
-    }
-
-    private var isPortValid: Bool {
-        guard let p = parsedPort else { return false }
-        return (1...65535).contains(p)
+        AddServerValidation.parsedPort(from: portText)
     }
 
     private var saveButtonEnabled: Bool {
@@ -259,30 +236,11 @@ struct AddServerView: View {
     }
 
     private var canTestConnection: Bool {
-        let baseReady = !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        guard baseReady else { return false }
-        if transport == .telnet {
-            return !password.isEmpty
-        }
-
-        if !allowPasswordFallback {
-            return hasValidPrivateKey
-        }
-
-        if !password.isEmpty || hasValidPrivateKey {
-            return true
-        }
-        return false
-    }
-
-    private var isPrivateKeyFormatValid: Bool {
-        PrivateKeyValidator.isValid(privateKeyContent)
+        AddServerValidation.canTestConnection(validationInput)
     }
 
     private var hasValidPrivateKey: Bool {
-        let key = privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !key.isEmpty && isPrivateKeyFormatValid
+        AddServerValidation.hasValidPrivateKey(privateKeyContent)
     }
 
     private var privateKeyValidationMessage: String {
@@ -291,6 +249,20 @@ struct AddServerView: View {
 
     private var privateKeyValidationColor: Color {
         PrivateKeyValidator.validationColor(for: privateKeyContent)
+    }
+
+    private var validationInput: AddServerValidationInput {
+        AddServerValidationInput(
+            name: name,
+            host: host,
+            portText: portText,
+            username: username,
+            authMethod: authMethod,
+            transport: transport,
+            allowPasswordFallback: allowPasswordFallback,
+            password: password,
+            privateKeyContent: privateKeyContent
+        )
     }
 
     private func invalidateVerification() {

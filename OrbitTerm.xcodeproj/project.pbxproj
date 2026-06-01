@@ -121,6 +121,8 @@
 		B8A100000000000000000035 /* CredentialInputHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000036 /* CredentialInputHelpers.swift */; };
 		B8A100000000000000000037 /* SFTPBrowserPathHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000039 /* SFTPBrowserPathHelper.swift */; };
 		B8A100000000000000000038 /* SFTPBrowserPathHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000039 /* SFTPBrowserPathHelper.swift */; };
+		B8A10000000000000000003A /* AddServerValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000003C /* AddServerValidation.swift */; };
+		B8A10000000000000000003B /* AddServerValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000003C /* AddServerValidation.swift */; };
 		B8A10000000000000000001D /* AssetBulkAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000001C /* AssetBulkAddSheet.swift */; };
 		B8A10000000000000000001E /* AssetBulkAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000001C /* AssetBulkAddSheet.swift */; };
 		B8A100000000000000000020 /* AssetQuickKeySetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000001F /* AssetQuickKeySetupSheet.swift */; };
@@ -226,6 +228,7 @@
 		B8A100000000000000000033 /* ShellPathResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellPathResolver.swift; sourceTree = "<group>"; };
 		B8A100000000000000000036 /* CredentialInputHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialInputHelpers.swift; sourceTree = "<group>"; };
 		B8A100000000000000000039 /* SFTPBrowserPathHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserPathHelper.swift; sourceTree = "<group>"; };
+		B8A10000000000000000003C /* AddServerValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerValidation.swift; sourceTree = "<group>"; };
 		B8A10000000000000000001C /* AssetBulkAddSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetBulkAddSheet.swift; sourceTree = "<group>"; };
 		B8A10000000000000000001F /* AssetQuickKeySetupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetQuickKeySetupSheet.swift; sourceTree = "<group>"; };
 		B8A100000000000000000022 /* AddServerFormComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerFormComponents.swift; sourceTree = "<group>"; };
@@ -309,6 +312,7 @@
 			children = (
 				1BDEC92E6B4B8974125CB64A /* AddServerView.swift */,
 				B8A100000000000000000022 /* AddServerFormComponents.swift */,
+				B8A10000000000000000003C /* AddServerValidation.swift */,
 				04FFDB29556DE5419BEB4E78 /* AssetManagerView.swift */,
 				B8A10000000000000000001C /* AssetBulkAddSheet.swift */,
 				B8A10000000000000000001F /* AssetQuickKeySetupSheet.swift */,
@@ -535,6 +539,7 @@
 			files = (
 				0AD79FEB4AD1DF5ABCA1FB30 /* AddServerView.swift in Sources */,
 				B8A100000000000000000023 /* AddServerFormComponents.swift in Sources */,
+				B8A10000000000000000003A /* AddServerValidation.swift in Sources */,
 				84DCCEEBB105C8E4BB112AD3 /* AppSession.swift in Sources */,
 				FBAA1C6A14A37B5022F9D8CF /* AssetManagerView.swift in Sources */,
 				B8A10000000000000000001D /* AssetBulkAddSheet.swift in Sources */,
@@ -617,6 +622,7 @@
 			files = (
 				E7907F3D7B64FC7DEF6CA09C /* AddServerView.swift in Sources */,
 				B8A100000000000000000024 /* AddServerFormComponents.swift in Sources */,
+				B8A10000000000000000003B /* AddServerValidation.swift in Sources */,
 				791C864C97C94860BC072BA1 /* AppSession.swift in Sources */,
 				79C11DB569DDBD8E23356C35 /* AssetManagerView.swift in Sources */,
 				B8A10000000000000000001E /* AssetBulkAddSheet.swift in Sources */,
