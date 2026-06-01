@@ -109,6 +109,8 @@
 		B8A100000000000000000018 /* WorkstationToolbarModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000016 /* WorkstationToolbarModifier.swift */; };
 		B8A10000000000000000001A /* MobileSessionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000019 /* MobileSessionViews.swift */; };
 		B8A10000000000000000001B /* MobileSessionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000019 /* MobileSessionViews.swift */; };
+		B8A100000000000000000028 /* MobileSessionComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000002A /* MobileSessionComponents.swift */; };
+		B8A100000000000000000029 /* MobileSessionComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000002A /* MobileSessionComponents.swift */; };
 		B8A10000000000000000001D /* AssetBulkAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000001C /* AssetBulkAddSheet.swift */; };
 		B8A10000000000000000001E /* AssetBulkAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000001C /* AssetBulkAddSheet.swift */; };
 		B8A100000000000000000020 /* AssetQuickKeySetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000001F /* AssetQuickKeySetupSheet.swift */; };
@@ -208,6 +210,7 @@
 		B8A100000000000000000013 /* WorkstationTerminalSessionChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSessionChrome.swift; sourceTree = "<group>"; };
 		B8A100000000000000000016 /* WorkstationToolbarModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationToolbarModifier.swift; sourceTree = "<group>"; };
 		B8A100000000000000000019 /* MobileSessionViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSessionViews.swift; sourceTree = "<group>"; };
+		B8A10000000000000000002A /* MobileSessionComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSessionComponents.swift; sourceTree = "<group>"; };
 		B8A10000000000000000001C /* AssetBulkAddSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetBulkAddSheet.swift; sourceTree = "<group>"; };
 		B8A10000000000000000001F /* AssetQuickKeySetupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetQuickKeySetupSheet.swift; sourceTree = "<group>"; };
 		B8A100000000000000000022 /* AddServerFormComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerFormComponents.swift; sourceTree = "<group>"; };
@@ -366,6 +369,7 @@
 			children = (
 				381EB860DD822B532F60A2E4 /* ContentView.swift */,
 				B8A100000000000000000019 /* MobileSessionViews.swift */,
+				B8A10000000000000000002A /* MobileSessionComponents.swift */,
 				B4D7532938F0DC9FF02B25D6 /* Info.plist */,
 				8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */,
 			);
@@ -520,6 +524,7 @@
 				578F8F3554FEB1F83DF9B7CC /* BiometricAuthService.swift in Sources */,
 				EB18551F6941809822CC4368 /* ContentView.swift in Sources */,
 				B8A10000000000000000001A /* MobileSessionViews.swift in Sources */,
+				B8A100000000000000000028 /* MobileSessionComponents.swift in Sources */,
 				9F34C0206362FA67CED289A3 /* CredentialVault.swift in Sources */,
 				95AA66DE4E5FB3134C135579 /* DeepLinkManager.swift in Sources */,
 				086D528ACD82CB8CA67C1584 /* DetachedSessionWindowView.swift in Sources */,
@@ -596,6 +601,7 @@
 				A6A86BCCFF5A1E9CF688B9A8 /* BiometricAuthService.swift in Sources */,
 				00D11168A4219FA8EC587704 /* ContentView.swift in Sources */,
 				B8A10000000000000000001B /* MobileSessionViews.swift in Sources */,
+				B8A100000000000000000029 /* MobileSessionComponents.swift in Sources */,
 				A11F4C91A92CC0D933C8ACE7 /* CredentialVault.swift in Sources */,
 				31895C1956E5C7C1F3A12F8F /* DeepLinkManager.swift in Sources */,
 				52FCAA84026D316FC64704FC /* DetachedSessionWindowView.swift in Sources */,

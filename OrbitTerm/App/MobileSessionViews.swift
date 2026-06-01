@@ -1,54 +1,29 @@
 import SwiftUI
-#if canImport(Charts)
-import Charts
-#endif
-#if canImport(UIKit)
-import UIKit
-#endif
 
 #if os(iOS)
 struct MobileSessionView: View {
-    private struct QuickCommand: Identifiable, Codable, Hashable {
-        let id: UUID
-        var title: String
-        var command: String
-
-        init(id: UUID = UUID(), title: String, command: String) {
-            self.id = id
-            self.title = title
-            self.command = command
-        }
-    }
-
-    private enum Module: String, CaseIterable, Identifiable {
-        case terminal = "终端"
-        case shortcuts = "快捷指令"
-        case monitor = "监控"
-        var id: String { rawValue }
-    }
-
     let onBackToAssets: () -> Void
     @Binding var selectedTab: MobileShellTab
     @EnvironmentObject private var appSession: AppSession
     @ObservedObject private var manager = SessionManager.shared
     @StateObject private var snippetStore = SnippetStore.shared
-    @State private var selectedModule: Module = .terminal
+    @State private var selectedModule: MobileSessionModule = .terminal
     @AppStorage("orbitterm.mobile.quickcommands") private var quickCommandsData: String = ""
-    @State private var customQuickCommands: [QuickCommand] = []
+    @State private var customQuickCommands: [MobileQuickCommand] = []
     @State private var showAddQuickCommand = false
     @State private var newQuickTitle = ""
     @State private var newQuickCommand = ""
     @State private var hasLoadedRemoteSnippets = false
 
-    private let builtInQuickCommands: [QuickCommand] = [
-        QuickCommand(title: "更新源", command: "sudo apt update"),
-        QuickCommand(title: "系统升级", command: "sudo apt upgrade -y"),
-        QuickCommand(title: "查看负载", command: "uptime"),
-        QuickCommand(title: "查看磁盘", command: "df -h"),
-        QuickCommand(title: "查看内存", command: "free -m"),
-        QuickCommand(title: "查看端口", command: "ss -tulpen"),
-        QuickCommand(title: "重载 Nginx", command: "sudo systemctl reload nginx"),
-        QuickCommand(title: "查看 Docker", command: "docker ps -a")
+    private let builtInQuickCommands: [MobileQuickCommand] = [
+        MobileQuickCommand(title: "更新源", command: "sudo apt update"),
+        MobileQuickCommand(title: "系统升级", command: "sudo apt upgrade -y"),
+        MobileQuickCommand(title: "查看负载", command: "uptime"),
+        MobileQuickCommand(title: "查看磁盘", command: "df -h"),
+        MobileQuickCommand(title: "查看内存", command: "free -m"),
+        MobileQuickCommand(title: "查看端口", command: "ss -tulpen"),
+        MobileQuickCommand(title: "重载 Nginx", command: "sudo systemctl reload nginx"),
+        MobileQuickCommand(title: "查看 Docker", command: "docker ps -a")
     ]
 
     var body: some View {
@@ -56,7 +31,7 @@ struct MobileSessionView: View {
             if let active = manager.activeSession {
                 VStack(alignment: .leading, spacing: 10) {
                     Picker("模块", selection: $selectedModule) {
-                        ForEach(Module.allCases) { module in
+                        ForEach(MobileSessionModule.allCases) { module in
                             Text(module.rawValue).tag(module)
                         }
                     }
@@ -88,7 +63,7 @@ struct MobileSessionView: View {
                             .opacity(selectedModule == .shortcuts ? 1 : 0)
                             .allowsHitTesting(selectedModule == .shortcuts)
 
-                        mobileMonitorPanel(for: active)
+                        MobileMonitorPanel(manager: manager, session: active)
                             .opacity(selectedModule == .monitor ? 1 : 0)
                             .allowsHitTesting(selectedModule == .monitor)
                     }
@@ -250,7 +225,7 @@ struct MobileSessionView: View {
         }
     }
 
-    private func quickCommandRow(_ item: QuickCommand, session: WorkspaceSession, allowDelete: Bool) -> some View {
+    private func quickCommandRow(_ item: MobileQuickCommand, session: WorkspaceSession, allowDelete: Bool) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(item.title)
@@ -295,7 +270,7 @@ struct MobileSessionView: View {
 
     private func loadQuickCommands() {
         guard let data = quickCommandsData.data(using: .utf8),
-              let decoded = try? JSONDecoder().decode([QuickCommand].self, from: data) else {
+              let decoded = try? JSONDecoder().decode([MobileQuickCommand].self, from: data) else {
             customQuickCommands = []
             return
         }
@@ -312,7 +287,7 @@ struct MobileSessionView: View {
         let title = newQuickTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let command = newQuickCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty, !command.isEmpty else { return }
-        customQuickCommands.append(QuickCommand(title: title, command: command))
+        customQuickCommands.append(MobileQuickCommand(title: title, command: command))
         persistQuickCommands()
         newQuickTitle = ""
         newQuickCommand = ""
@@ -324,160 +299,21 @@ struct MobileSessionView: View {
     }
 
     private func switchToNextModule() {
-        guard let idx = Module.allCases.firstIndex(of: selectedModule),
-              idx < Module.allCases.count - 1 else { return }
+        guard let idx = MobileSessionModule.allCases.firstIndex(of: selectedModule),
+              idx < MobileSessionModule.allCases.count - 1 else { return }
         withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.88)) {
-            selectedModule = Module.allCases[idx + 1]
+            selectedModule = MobileSessionModule.allCases[idx + 1]
         }
     }
 
     private func switchToPreviousModule() {
-        guard let idx = Module.allCases.firstIndex(of: selectedModule),
+        guard let idx = MobileSessionModule.allCases.firstIndex(of: selectedModule),
               idx > 0 else { return }
         withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.88)) {
-            selectedModule = Module.allCases[idx - 1]
+            selectedModule = MobileSessionModule.allCases[idx - 1]
         }
     }
 
-    private func mobileMonitorPanel(for session: WorkspaceSession) -> some View {
-        ScrollView {
-        VStack(alignment: .leading, spacing: 10) {
-            if let panel = manager.monitorService.panel(id: session.activeMonitorPanelID) {
-                Text(panel.status).font(.caption).foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                if let last = panel.points.last {
-                    HStack(spacing: 10) {
-                        metric("CPU", String(format: "%.1f%%", last.cpuUsage))
-                        metric("内存", String(format: "%.1f%%", last.memUsedPercent))
-                        metric("磁盘", String(format: "%.1f%%", last.diskUsedPercent))
-                        metric("延迟", String(format: "%.0f ms", last.pingLatencyMs ?? 0))
-                        metric("下载", String(format: "%.1f KB/s", last.rxRateKBps))
-                        metric("上传", String(format: "%.1f KB/s", last.txRateKBps))
-                    }
-                    .padding(.horizontal, 12)
-                    monitorMiniCharts(panel)
-                } else {
-                    ContentUnavailableView("暂无监控数据", systemImage: "waveform.path.ecg")
-                }
-            } else {
-                ContentUnavailableView("监控未启动", systemImage: "chart.line.uptrend.xyaxis")
-            }
-            Spacer(minLength: 0)
-        }
-        }
-    }
-
-    @ViewBuilder
-    private func monitorMiniCharts(_ panel: MonitorPanelState) -> some View {
-        let points = Array(panel.points.suffix(300)) // 5分钟窗口
-#if canImport(Charts)
-        VStack(spacing: 8) {
-            miniChart(title: "CPU(5分钟)", points: points, value: { $0.cpuUsage }, unit: "%")
-            miniChart(title: "内存(5分钟)", points: points, value: { $0.memUsedPercent }, unit: "%")
-            miniChart(title: "磁盘(5分钟)", points: points, value: { $0.diskUsedPercent }, unit: "%")
-            miniChart(title: "延迟(5分钟)", points: points, value: { $0.pingLatencyMs ?? 0 }, unit: "ms")
-            miniChart(title: "下载(5分钟)", points: points, value: { $0.rxRateKBps }, unit: "KB/s")
-            miniChart(title: "上传(5分钟)", points: points, value: { $0.txRateKBps }, unit: "KB/s")
-        }
-        .padding(.horizontal, 12)
-#else
-        EmptyView()
-#endif
-    }
-
-#if canImport(Charts)
-    private func miniChart(
-        title: String,
-        points: [MonitorPoint],
-        value: @escaping (MonitorPoint) -> Double,
-        unit: String
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(title).font(.caption2).foregroundStyle(.secondary)
-                Spacer()
-                Text(String(format: "%.1f %@", value(points.last ?? MonitorPoint(time: .now, cpuUsage: 0, memUsedPercent: 0, diskUsedPercent: 0, pingLatencyMs: 0, rxRateKBps: 0, txRateKBps: 0)), unit))
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-            Chart(points) { point in
-                LineMark(
-                    x: .value("t", point.time),
-                    y: .value("v", value(point))
-                )
-                .interpolationMethod(.catmullRom)
-            }
-            .frame(height: 60)
-        }
-        .padding(8)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-#endif
-
-    private func metric(_ title: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.caption2).foregroundStyle(.secondary)
-            Text(value).font(.caption.monospacedDigit())
-        }
-        .padding(8)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-
-}
-
-private struct MobileTerminalKeyboardAccessory: View {
-    let onSend: ([UInt8]) -> Void
-
-    private let shortcuts: [(title: String, bytes: [UInt8])] = [
-        ("Tab", [9]),
-        ("Ctrl+C", [3]),
-        ("Esc", [27]),
-        ("Ctrl+D", [4])
-    ]
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(shortcuts, id: \.title) { item in
-                    Button {
-                        onSend(item.bytes)
-                    } label: {
-                        Text(item.title)
-                            .font(.caption.weight(.semibold))
-                            .lineLimit(1)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(.thinMaterial, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                Button {
-                    UIApplication.shared.sendAction(
-                        #selector(UIResponder.resignFirstResponder),
-                        to: nil,
-                        from: nil,
-                        for: nil
-                    )
-                } label: {
-                    Image(systemName: "keyboard.chevron.compact.down")
-                        .font(.caption.weight(.semibold))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(.thinMaterial, in: Capsule())
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-        }
-        .background(.ultraThinMaterial)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(Color.secondary.opacity(0.12))
-                .frame(height: 1)
-        }
-    }
 }
 
 struct MobileMoreView: View {
