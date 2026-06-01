@@ -114,10 +114,9 @@ final class MonitorService: ObservableObject {
     private var pollTasks: [UUID: Task<Void, Never>] = [:]
     private var allowPasswordFallbackByTarget: [UUID: Bool] = [:]
 
-    private let userDefaultsKey = "monitor.targets.v1"
-    private let migrationFlagKey = "monitor.targets.credentials.migrated.v1"
     private let intervalKey = "orbitterm.monitor.realtime.interval"
     private let vault = CredentialVault.shared
+    private let targetStore = MonitorTargetStore()
 
     init() {
         loadTargets()
@@ -420,52 +419,26 @@ final class MonitorService: ObservableObject {
     }
 
     private func loadTargets() {
-        guard let data = UserDefaults.standard.data(forKey: userDefaultsKey),
-              let targets = try? JSONDecoder().decode([MonitorTargetConfig].self, from: data),
-              !targets.isEmpty else {
-            let defaultTarget = MonitorTargetConfig(
-                name: "Default",
-                host: "",
-                username: ""
-            )
-            panels = [MonitorPanelState(id: defaultTarget.id, target: defaultTarget, isRunning: false, status: "请先配置服务器", points: [])]
-            buffers[defaultTarget.id] = CircularBuffer(capacity: 600)
-            return
-        }
-
-        var needsRewrite = false
-        if !UserDefaults.standard.bool(forKey: migrationFlagKey) {
-            for target in targets {
-                let legacy = target.legacyPassword?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if !legacy.isEmpty {
-                    try? vault.save(ServerCredentials(password: legacy, privateKeyContent: ""), for: target.credentialID)
-                    needsRewrite = true
-                }
-            }
-            UserDefaults.standard.set(true, forKey: migrationFlagKey)
-        }
-        if targets.contains(where: { $0.legacyPassword?.isEmpty == false }) {
-            needsRewrite = true
-        }
+        let result = targetStore.load()
+        let targets = result.targets
 
         panels = targets.map {
-            MonitorPanelState(id: $0.id, target: $0, isRunning: false, status: "未连接", points: [])
+            let status = $0.host.isEmpty ? "请先配置服务器" : "未连接"
+            return MonitorPanelState(id: $0.id, target: $0, isRunning: false, status: status, points: [])
         }
         for target in targets {
             buffers[target.id] = CircularBuffer(capacity: 600)
         }
 
-        if needsRewrite {
-            UserDefaults.standard.removeObject(forKey: userDefaultsKey)
+        if result.needsRewrite {
+            targetStore.clear()
             persistTargets()
         }
     }
 
     private func persistTargets() {
         let targets = panels.map(\.target)
-        if let data = try? JSONEncoder().encode(targets) {
-            UserDefaults.standard.set(data, forKey: userDefaultsKey)
-        }
+        targetStore.save(targets)
     }
 
     private func callRustWithTimeout(
