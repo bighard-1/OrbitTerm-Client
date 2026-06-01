@@ -244,7 +244,7 @@ struct SFTPBrowserView: View {
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     Task {
-                        let parent = parentPath(of: effectiveManager.currentPath)
+                        let parent = SFTPBrowserPathHelper.parentPath(of: effectiveManager.currentPath)
                         _ = await effectiveManager.goToPath(parent)
                         selectedIDs.removeAll()
                     }
@@ -286,7 +286,7 @@ struct SFTPBrowserView: View {
                 .contextMenu {
                     Button("下载") {
                         Task {
-                            let local = defaultDownloadURL(fileName: item.name)
+                            let local = SFTPBrowserPathHelper.defaultDownloadURL(fileName: item.name)
                             await effectiveManager.download(item: item, to: local)
                         }
                     }
@@ -342,26 +342,7 @@ struct SFTPBrowserView: View {
     }
 
     private var pathCrumbs: [SFTPBreadcrumb] {
-        if effectiveManager.currentPath == "/" {
-            return [SFTPBreadcrumb(id: 0, title: "Root", path: "/", isLast: true)]
-        }
-
-        let parts = effectiveManager.currentPath.split(separator: "/").map(String.init)
-        var result: [(String, String)] = [("Root", "/")]
-        var runningPath = ""
-
-        for part in parts {
-            runningPath += "/\(part)"
-            result.append((part, runningPath))
-        }
-        return result.enumerated().map { index, element in
-            SFTPBreadcrumb(
-                id: index,
-                title: element.0,
-                path: element.1,
-                isLast: index == result.count - 1
-            )
-        }
+        SFTPBrowserPathHelper.breadcrumbs(for: effectiveManager.currentPath)
     }
 
     private var emptyFolderView: some View {
@@ -411,15 +392,7 @@ struct SFTPBrowserView: View {
         isBatchRunning = true
         batchProgress = BatchDownloadProgress(completed: 0, total: targets.count, bytesTransferred: 0, currentFile: "")
 
-#if os(macOS)
-        let base = (FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory)
-            .appendingPathComponent("OrbitTerm", isDirectory: true)
-#else
-        let base = FileManager.default.temporaryDirectory
-            .appendingPathComponent("OrbitTerm-Exports", isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-#endif
+        let base = SFTPBrowserPathHelper.batchDownloadDirectory()
 
         let result = await effectiveManager.batchDownload(
             items: targets,
@@ -454,17 +427,6 @@ struct SFTPBrowserView: View {
 #endif
     }
 
-    private func defaultDownloadURL(fileName: String) -> URL {
-        #if os(macOS)
-        let base = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        #else
-        let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        #endif
-        return base.appendingPathComponent(fileName)
-    }
-
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         let accepted = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
         guard !accepted.isEmpty else { return false }
@@ -481,14 +443,6 @@ struct SFTPBrowserView: View {
         }
 
         return true
-    }
-
-    private func parentPath(of path: String) -> String {
-        guard path != "/", !path.isEmpty else { return "/" }
-        var comps = path.split(separator: "/").map(String.init)
-        if !comps.isEmpty { comps.removeLast() }
-        if comps.isEmpty { return "/" }
-        return "/" + comps.joined(separator: "/")
     }
 
     private func autoBindActiveSessionIfNeeded() async {
