@@ -109,6 +109,10 @@
 		B8A100000000000000000018 /* WorkstationToolbarModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000016 /* WorkstationToolbarModifier.swift */; };
 		B8A10000000000000000001A /* MobileSessionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000019 /* MobileSessionViews.swift */; };
 		B8A10000000000000000001B /* MobileSessionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000019 /* MobileSessionViews.swift */; };
+		B8A10000000000000000001D /* AssetBulkAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000001C /* AssetBulkAddSheet.swift */; };
+		B8A10000000000000000001E /* AssetBulkAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000001C /* AssetBulkAddSheet.swift */; };
+		B8A100000000000000000020 /* AssetQuickKeySetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000001F /* AssetQuickKeySetupSheet.swift */; };
+		B8A100000000000000000021 /* AssetQuickKeySetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000001F /* AssetQuickKeySetupSheet.swift */; };
 		AFF1D8B2C45D35B9B44C3285 /* SnippetsPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1117F7A981D07A249B0CDBD7 /* SnippetsPanelView.swift */; };
 		B04BBC89E70A62AAF9095CEA /* WorkstationTerminalSessionPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3DE23E2FB664A118F6B8646 /* WorkstationTerminalSessionPane.swift */; };
 		B0702EC01B476677C22715E6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0599BB6B03494D8A6791ABA /* Assets.xcassets */; };
@@ -200,6 +204,8 @@
 		B8A100000000000000000013 /* WorkstationTerminalSessionChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSessionChrome.swift; sourceTree = "<group>"; };
 		B8A100000000000000000016 /* WorkstationToolbarModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationToolbarModifier.swift; sourceTree = "<group>"; };
 		B8A100000000000000000019 /* MobileSessionViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSessionViews.swift; sourceTree = "<group>"; };
+		B8A10000000000000000001C /* AssetBulkAddSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetBulkAddSheet.swift; sourceTree = "<group>"; };
+		B8A10000000000000000001F /* AssetQuickKeySetupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetQuickKeySetupSheet.swift; sourceTree = "<group>"; };
 		AED26C552B7072D2AAC4669F /* ServerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerStore.swift; sourceTree = "<group>"; };
 		B4D7532938F0DC9FF02B25D6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		BC35C4CE7198F143C318FB84 /* WorkstationAssetSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationAssetSidebarView.swift; sourceTree = "<group>"; };
@@ -276,6 +282,8 @@
 			children = (
 				1BDEC92E6B4B8974125CB64A /* AddServerView.swift */,
 				04FFDB29556DE5419BEB4E78 /* AssetManagerView.swift */,
+				B8A10000000000000000001C /* AssetBulkAddSheet.swift */,
+				B8A10000000000000000001F /* AssetQuickKeySetupSheet.swift */,
 				23CDE6AF8E0550184AC99A12 /* BatchCommandRunnerView.swift */,
 				79C98A67B69AA654CC5A6B77 /* DetachedSessionWindowView.swift */,
 				38CC52AC1F19BBC544F8D872 /* DiagnosticsExportView.swift */,
@@ -496,6 +504,8 @@
 				0AD79FEB4AD1DF5ABCA1FB30 /* AddServerView.swift in Sources */,
 				84DCCEEBB105C8E4BB112AD3 /* AppSession.swift in Sources */,
 				FBAA1C6A14A37B5022F9D8CF /* AssetManagerView.swift in Sources */,
+				B8A10000000000000000001D /* AssetBulkAddSheet.swift in Sources */,
+				B8A100000000000000000020 /* AssetQuickKeySetupSheet.swift in Sources */,
 				2449C17F29FFCB7D459E7F14 /* AuthView.swift in Sources */,
 				7BCDEB379D2BCBD46813D516 /* BatchCommandRunnerView.swift in Sources */,
 				578F8F3554FEB1F83DF9B7CC /* BiometricAuthService.swift in Sources */,
@@ -568,6 +578,8 @@
 				E7907F3D7B64FC7DEF6CA09C /* AddServerView.swift in Sources */,
 				791C864C97C94860BC072BA1 /* AppSession.swift in Sources */,
 				79C11DB569DDBD8E23356C35 /* AssetManagerView.swift in Sources */,
+				B8A10000000000000000001E /* AssetBulkAddSheet.swift in Sources */,
+				B8A100000000000000000021 /* AssetQuickKeySetupSheet.swift in Sources */,
 				C3F661036F847112CA11C87D /* AuthView.swift in Sources */,
 				59DDA7271AFC11CD75C39606 /* BatchCommandRunnerView.swift in Sources */,
 				A6A86BCCFF5A1E9CF688B9A8 /* BiometricAuthService.swift in Sources */,
