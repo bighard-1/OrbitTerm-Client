@@ -11,10 +11,7 @@ struct SFTPBrowserView: View {
     @ObservedObject private var sessionManager = SessionManager.shared
     private let vault = CredentialVault.shared
 
-    @State private var host: String = ""
-    @State private var username: String = ""
-    @State private var password: String = ""
-    @State private var preferMockMode: Bool = false
+    @State private var connectionDraft = SFTPBrowserConnectionDraft()
     @State private var isDropTargeted: Bool = false
     @State private var editState = SFTPBrowserEditState()
     @State private var batchState = SFTPBrowserBatchState()
@@ -43,7 +40,11 @@ struct SFTPBrowserView: View {
         .navigationBarTitleDisplayMode(.inline)
 #endif
         .task {
-            effectiveManager.activateMockIfNeeded(host: host, username: username, password: password)
+            effectiveManager.activateMockIfNeeded(
+                host: connectionDraft.host,
+                username: connectionDraft.username,
+                password: connectionDraft.password
+            )
             await autoBindActiveSessionIfNeeded()
         }
         .alert("重命名", isPresented: Binding(
@@ -118,28 +119,28 @@ struct SFTPBrowserView: View {
     private var connectPanel: some View {
         Form {
             Section("连接信息") {
-                TextField("主机或 IP", text: $host)
+                TextField("主机或 IP", text: $connectionDraft.host)
                     .applyInputPolish()
-                TextField("用户名", text: $username)
+                TextField("用户名", text: $connectionDraft.username)
                     .applyInputPolish()
-                SecureField("密码", text: $password)
+                SecureField("密码", text: $connectionDraft.password)
             }
 
             Section("模式") {
-                Toggle("优先使用模拟数据", isOn: $preferMockMode)
+                Toggle("优先使用模拟数据", isOn: $connectionDraft.preferMockMode)
                 Text("若未配置 SSH，系统会自动进入 Mock 文件列表。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             Section("操作") {
-                Button(preferMockMode ? "进入模拟浏览" : "连接 SFTP") {
+                Button(connectionDraft.preferMockMode ? "进入模拟浏览" : "连接 SFTP") {
                     Task {
                         await effectiveManager.connect(
-                            host: host,
-                            username: username,
-                            password: password,
-                            preferMock: preferMockMode
+                            host: connectionDraft.host,
+                            username: connectionDraft.username,
+                            password: connectionDraft.password,
+                            preferMock: connectionDraft.preferMockMode
                         )
                     }
                 }
