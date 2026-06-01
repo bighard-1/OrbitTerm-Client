@@ -146,6 +146,8 @@
 		B8A100000000000000000065 /* DockerCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000066 /* DockerCardView.swift */; };
 		B8A100000000000000000067 /* DockerLogStreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000069 /* DockerLogStreamView.swift */; };
 		B8A100000000000000000068 /* DockerLogStreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000069 /* DockerLogStreamView.swift */; };
+		B8A10000000000000000006A /* DockerManagerDrafts.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000006C /* DockerManagerDrafts.swift */; };
+		B8A10000000000000000006B /* DockerManagerDrafts.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000006C /* DockerManagerDrafts.swift */; };
 		B8A10000000000000000003A /* AddServerValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000003C /* AddServerValidation.swift */; };
 		B8A10000000000000000003B /* AddServerValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000003C /* AddServerValidation.swift */; };
 		B8A10000000000000000003D /* AddServerDraftBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000003F /* AddServerDraftBuilder.swift */; };
@@ -272,6 +274,7 @@
 		B8A100000000000000000063 /* SnippetVariableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetVariableResolver.swift; sourceTree = "<group>"; };
 		B8A100000000000000000066 /* DockerCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerCardView.swift; sourceTree = "<group>"; };
 		B8A100000000000000000069 /* DockerLogStreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerLogStreamView.swift; sourceTree = "<group>"; };
+		B8A10000000000000000006C /* DockerManagerDrafts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerManagerDrafts.swift; sourceTree = "<group>"; };
 		B8A10000000000000000003C /* AddServerValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerValidation.swift; sourceTree = "<group>"; };
 		B8A10000000000000000003F /* AddServerDraftBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerDraftBuilder.swift; sourceTree = "<group>"; };
 		B8A10000000000000000001C /* AssetBulkAddSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetBulkAddSheet.swift; sourceTree = "<group>"; };
@@ -369,6 +372,7 @@
 				79C98A67B69AA654CC5A6B77 /* DetachedSessionWindowView.swift */,
 				38CC52AC1F19BBC544F8D872 /* DiagnosticsExportView.swift */,
 				7156371597A178C490DF8ABD /* DockerManagerView.swift */,
+				B8A10000000000000000006C /* DockerManagerDrafts.swift */,
 				B8A100000000000000000066 /* DockerCardView.swift */,
 				B8A100000000000000000069 /* DockerLogStreamView.swift */,
 				16F52E3B6E83F077783BEC22 /* MainWorkstationView.swift */,
@@ -617,6 +621,7 @@
 				38806BB8055D8F7FD995F17D /* DiagnosticsExportView.swift in Sources */,
 				28AE8531E7ADB862080A2502 /* DiagnosticsManager.swift in Sources */,
 				87B279A9934945274515773E /* DockerManagerView.swift in Sources */,
+				B8A10000000000000000006A /* DockerManagerDrafts.swift in Sources */,
 				B8A100000000000000000064 /* DockerCardView.swift in Sources */,
 				B8A100000000000000000067 /* DockerLogStreamView.swift in Sources */,
 				67536C13CA08E03FF3A12BA8 /* DockerService.swift in Sources */,
@@ -715,6 +720,7 @@
 				9B0F0B374F2C7C7BB4014906 /* DiagnosticsExportView.swift in Sources */,
 				9650F6C78AD055B8782127F0 /* DiagnosticsManager.swift in Sources */,
 				BBF64F6A16727778986E2B24 /* DockerManagerView.swift in Sources */,
+				B8A10000000000000000006B /* DockerManagerDrafts.swift in Sources */,
 				B8A100000000000000000065 /* DockerCardView.swift in Sources */,
 				B8A100000000000000000068 /* DockerLogStreamView.swift in Sources */,
 				D73945F35D103F36900752C6 /* DockerService.swift in Sources */,

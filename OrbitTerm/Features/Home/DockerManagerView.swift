@@ -4,15 +4,10 @@ struct DockerManagerView: View {
     @StateObject private var service = DockerService()
     @ObservedObject private var sessionManager = SessionManager.shared
 
-    @State private var host = ""
-    @State private var username = ""
-    @State private var password = ""
-    @State private var renamingContainer: DockerContainerCard?
-    @State private var renameTargetName: String = ""
+    @State private var connectionDraft = DockerConnectionDraft()
+    @State private var renameDraft = DockerContainerRenameDraft()
     @State private var editingContainer: DockerContainerCard?
-    @State private var restartPolicy: String = "unless-stopped"
-    @State private var memoryLimit: String = ""
-    @State private var cpuSharesText: String = ""
+    @State private var updateDraft = DockerContainerUpdateDraft()
     private let vault = CredentialVault.shared
     
     private var effectiveService: DockerService {
@@ -35,25 +30,23 @@ struct DockerManagerView: View {
             await autoBindActiveSessionIfNeeded()
         }
         .alert("编辑容器名称", isPresented: Binding(
-            get: { renamingContainer != nil },
+            get: { renameDraft.isPresented },
             set: { shown in
                 if !shown {
-                    renamingContainer = nil
-                    renameTargetName = ""
+                    renameDraft.reset()
                 }
             }
         )) {
-            TextField("新容器名称", text: $renameTargetName)
+            TextField("新容器名称", text: $renameDraft.name)
             Button("取消", role: .cancel) {}
             Button("确认") {
-                guard let target = renamingContainer else { return }
+                guard let target = renameDraft.target else { return }
                 Task {
-                    await effectiveService.renameContainer(containerID: target.id, newName: renameTargetName)
+                    await effectiveService.renameContainer(containerID: target.id, newName: renameDraft.name)
                 }
-                renamingContainer = nil
-                renameTargetName = ""
+                renameDraft.reset()
             }
-            .disabled(renameTargetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(!renameDraft.canSubmit)
         } message: {
             Text("请输入新的容器名称")
         }
@@ -61,7 +54,7 @@ struct DockerManagerView: View {
             NavigationStack {
                 Form {
                     Section("重启策略") {
-                        Picker("策略", selection: $restartPolicy) {
+                        Picker("策略", selection: $updateDraft.restartPolicy) {
                             Text("no").tag("no")
                             Text("on-failure").tag("on-failure")
                             Text("always").tag("always")
@@ -70,9 +63,9 @@ struct DockerManagerView: View {
                         .pickerStyle(.segmented)
                     }
                     Section("资源限制") {
-                        TextField("内存限制（如 512m / 1g）", text: $memoryLimit)
+                        TextField("内存限制（如 512m / 1g）", text: $updateDraft.memoryLimit)
                             .applyInputPolish()
-                        TextField("CPU Shares（如 128 / 512）", text: $cpuSharesText)
+                        TextField("CPU Shares（如 128 / 512）", text: $updateDraft.cpuSharesText)
 #if os(iOS)
                             .keyboardType(.numberPad)
 #endif
@@ -89,11 +82,7 @@ struct DockerManagerView: View {
                             Task {
                                 await effectiveService.updateContainer(
                                     containerID: container.id,
-                                    options: DockerContainerUpdateOptions(
-                                        restartPolicy: restartPolicy,
-                                        memoryLimit: memoryLimit,
-                                        cpuShares: Int(cpuSharesText)
-                                    )
+                                    options: updateDraft.options
                                 )
                                 editingContainer = nil
                             }
@@ -120,11 +109,11 @@ struct DockerManagerView: View {
                 }
             }
             Section("SSH 信息") {
-                TextField("主机/IP", text: $host)
+                TextField("主机/IP", text: $connectionDraft.host)
                     .applyInputPolish()
-                TextField("用户名", text: $username)
+                TextField("用户名", text: $connectionDraft.username)
                     .applyInputPolish()
-                SecureField("密码", text: $password)
+                SecureField("密码", text: $connectionDraft.password)
             }
 
             Section("操作") {
@@ -143,7 +132,11 @@ struct DockerManagerView: View {
                                 allowPasswordFallback: preferred.server.allowPasswordFallback
                             )
                         } else {
-                            await effectiveService.connect(host: host, username: username, password: password)
+                            await effectiveService.connect(
+                                host: connectionDraft.host,
+                                username: connectionDraft.username,
+                                password: connectionDraft.password
+                            )
                         }
                     }
                 }
@@ -172,13 +165,10 @@ struct DockerManagerView: View {
                             }
                         }
                         Button("编辑") {
-                            renamingContainer = card
-                            renameTargetName = card.name
+                            renameDraft.begin(card)
                         }
                         Button("高级编辑") {
-                            restartPolicy = "unless-stopped"
-                            memoryLimit = ""
-                            cpuSharesText = ""
+                            updateDraft.reset()
                             editingContainer = card
                         }
                     }
