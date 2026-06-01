@@ -265,6 +265,24 @@ struct AddServerView: View {
         )
     }
 
+    private var draftInput: AddServerDraftInput {
+        AddServerDraftInput(
+            name: name,
+            group: group,
+            host: host,
+            port: parsedPort ?? 22,
+            username: username,
+            authMethod: authMethod,
+            transport: transport,
+            networkDeviceProfile: networkDeviceProfile,
+            allowPasswordFallback: allowPasswordFallback,
+            password: password,
+            privateKeyContent: privateKeyContent,
+            privateKeyPassphrase: privateKeyPassphrase,
+            editingServer: editingServer
+        )
+    }
+
     private func invalidateVerification() {
         isConnectionVerified = false
         if !isTestingConnection {
@@ -341,41 +359,9 @@ struct AddServerView: View {
         isSaving = true
         defer { isSaving = false }
 
-        let credentials = ServerCredentials(
-            password: password,
-            privateKeyContent: transport == .ssh ? privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines) : "",
-            privateKeyPassphrase: transport == .ssh ? privateKeyPassphrase : ""
-        )
-
-        let server: ServerEntry
-        if let existing = editingServer {
-            server = ServerEntry(
-                id: existing.id,
-                name: name.trimmingCharacters(in: .whitespacesAndNewlines),
-                group: group.trimmingCharacters(in: .whitespacesAndNewlines),
-                host: host.trimmingCharacters(in: .whitespacesAndNewlines),
-                port: parsedPort ?? 22,
-                username: username.trimmingCharacters(in: .whitespacesAndNewlines),
-                authMethod: transport == .telnet ? .password : authMethod,
-                transport: transport,
-                networkDeviceProfile: networkDeviceProfile,
-                allowPasswordFallback: transport == .telnet ? true : allowPasswordFallback,
-                credentialID: existing.credentialID,
-                createdAt: existing.createdAt
-            )
-        } else {
-            server = ServerEntry(
-                name: name.trimmingCharacters(in: .whitespacesAndNewlines),
-                group: group.trimmingCharacters(in: .whitespacesAndNewlines),
-                host: host.trimmingCharacters(in: .whitespacesAndNewlines),
-                port: parsedPort ?? 22,
-                username: username.trimmingCharacters(in: .whitespacesAndNewlines),
-                authMethod: transport == .telnet ? .password : authMethod,
-                transport: transport,
-                networkDeviceProfile: networkDeviceProfile,
-                allowPasswordFallback: transport == .telnet ? true : allowPasswordFallback
-            )
-        }
+        let draft = AddServerDraftBuilder.build(from: draftInput)
+        let server = draft.server
+        let credentials = draft.credentials
 
         store.addOrUpdate(server, credentials: credentials)
         onSaveAndConnect(server)
