@@ -111,6 +111,8 @@
 		B8A10000000000000000001B /* MobileSessionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000019 /* MobileSessionViews.swift */; };
 		B8A100000000000000000028 /* MobileSessionComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000002A /* MobileSessionComponents.swift */; };
 		B8A100000000000000000029 /* MobileSessionComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000002A /* MobileSessionComponents.swift */; };
+		B8A10000000000000000002B /* SwiftTermPlatformSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000002D /* SwiftTermPlatformSupport.swift */; };
+		B8A10000000000000000002C /* SwiftTermPlatformSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000002D /* SwiftTermPlatformSupport.swift */; };
 		B8A10000000000000000001D /* AssetBulkAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000001C /* AssetBulkAddSheet.swift */; };
 		B8A10000000000000000001E /* AssetBulkAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000001C /* AssetBulkAddSheet.swift */; };
 		B8A100000000000000000020 /* AssetQuickKeySetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000001F /* AssetQuickKeySetupSheet.swift */; };
@@ -211,6 +213,7 @@
 		B8A100000000000000000016 /* WorkstationToolbarModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationToolbarModifier.swift; sourceTree = "<group>"; };
 		B8A100000000000000000019 /* MobileSessionViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSessionViews.swift; sourceTree = "<group>"; };
 		B8A10000000000000000002A /* MobileSessionComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSessionComponents.swift; sourceTree = "<group>"; };
+		B8A10000000000000000002D /* SwiftTermPlatformSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftTermPlatformSupport.swift; sourceTree = "<group>"; };
 		B8A10000000000000000001C /* AssetBulkAddSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetBulkAddSheet.swift; sourceTree = "<group>"; };
 		B8A10000000000000000001F /* AssetQuickKeySetupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetQuickKeySetupSheet.swift; sourceTree = "<group>"; };
 		B8A100000000000000000022 /* AddServerFormComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerFormComponents.swift; sourceTree = "<group>"; };
@@ -306,6 +309,7 @@
 				B8A100000000000000000025 /* SFTPBrowserComponents.swift */,
 				1117F7A981D07A249B0CDBD7 /* SnippetsPanelView.swift */,
 				DAFDE71AA1A69539BB2EA7CD /* SwiftTermTerminalView.swift */,
+				B8A10000000000000000002D /* SwiftTermPlatformSupport.swift */,
 				62847EC28220849324529ECF /* TabBarView.swift */,
 				BC35C4CE7198F143C318FB84 /* WorkstationAssetSidebarView.swift */,
 				841FF37C9A712E391D0B0781 /* WorkstationCollapsedFeatureRow.swift */,
@@ -559,6 +563,7 @@
 				B9B69373552C389EA0D991D7 /* SnippetStore.swift in Sources */,
 				FEEBE43BE00573E47EF35283 /* SnippetsPanelView.swift in Sources */,
 				7F996E7D9810AEABC9BE7BCA /* SwiftTermTerminalView.swift in Sources */,
+				B8A10000000000000000002B /* SwiftTermPlatformSupport.swift in Sources */,
 				A39C5F36E325D6D11857435F /* SyncService.swift in Sources */,
 				76E0101D1870FB15B265D176 /* TabBarView.swift in Sources */,
 				61BFC3FD1801C09266473767 /* TelnetClient.swift in Sources */,
@@ -636,6 +641,7 @@
 				915DEF261D70D05F1E1A58CA /* SnippetStore.swift in Sources */,
 				AFF1D8B2C45D35B9B44C3285 /* SnippetsPanelView.swift in Sources */,
 				390B44D1B24945CC4EBAB4C1 /* SwiftTermTerminalView.swift in Sources */,
+				B8A10000000000000000002C /* SwiftTermPlatformSupport.swift in Sources */,
 				8BDBD2BE0DADEEF7F7E2AAAF /* SyncService.swift in Sources */,
 				25A69CC08E8B9F245C88948A /* TabBarView.swift in Sources */,
 				5317C2D57A549A07C99F2426 /* TelnetClient.swift in Sources */,
