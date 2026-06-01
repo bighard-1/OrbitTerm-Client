@@ -299,7 +299,9 @@ struct SFTPBrowserView: View {
         }
         .listStyle(.plain)
         .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
-            handleDrop(providers: providers)
+            SFTPDropUploadHandler.handle(providers: providers) { localURL in
+                await effectiveManager.upload(localURL: localURL)
+            }
         }
         .overlay {
             if isDropTargeted {
@@ -387,24 +389,6 @@ struct SFTPBrowserView: View {
             showingShareSheet = true
         }
 #endif
-    }
-
-    private func handleDrop(providers: [NSItemProvider]) -> Bool {
-        let accepted = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
-        guard !accepted.isEmpty else { return false }
-
-        for provider in accepted {
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-                guard let data = item as? Data,
-                      let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
-
-                Task { @MainActor in
-                    await effectiveManager.upload(localURL: url)
-                }
-            }
-        }
-
-        return true
     }
 
     private func autoBindActiveSessionIfNeeded() async {
