@@ -161,9 +161,11 @@
 		B8A10000000000000000006D /* AddServerAuthSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000006F /* AddServerAuthSection.swift */; };
 		B8A100000000000000000070 /* AddServerKeyFileLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000072 /* AddServerKeyFileLoader.swift */; };
 		B8A100000000000000000073 /* AddServerSilentSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000075 /* AddServerSilentSync.swift */; };
+		B8A100000000000000000076 /* AddServerInitialState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000078 /* AddServerInitialState.swift */; };
 		B8A10000000000000000006E /* AddServerAuthSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000006F /* AddServerAuthSection.swift */; };
 		B8A100000000000000000071 /* AddServerKeyFileLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000072 /* AddServerKeyFileLoader.swift */; };
 		B8A100000000000000000074 /* AddServerSilentSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000075 /* AddServerSilentSync.swift */; };
+		B8A100000000000000000077 /* AddServerInitialState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000078 /* AddServerInitialState.swift */; };
 		B8A100000000000000000026 /* SFTPBrowserComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000025 /* SFTPBrowserComponents.swift */; };
 		B8A100000000000000000027 /* SFTPBrowserComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000025 /* SFTPBrowserComponents.swift */; };
 		AFF1D8B2C45D35B9B44C3285 /* SnippetsPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1117F7A981D07A249B0CDBD7 /* SnippetsPanelView.swift */; };
@@ -289,6 +291,7 @@
 		B8A10000000000000000006F /* AddServerAuthSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerAuthSection.swift; sourceTree = "<group>"; };
 		B8A100000000000000000072 /* AddServerKeyFileLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerKeyFileLoader.swift; sourceTree = "<group>"; };
 		B8A100000000000000000075 /* AddServerSilentSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerSilentSync.swift; sourceTree = "<group>"; };
+		B8A100000000000000000078 /* AddServerInitialState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerInitialState.swift; sourceTree = "<group>"; };
 		B8A100000000000000000025 /* SFTPBrowserComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserComponents.swift; sourceTree = "<group>"; };
 		AED26C552B7072D2AAC4669F /* ServerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerStore.swift; sourceTree = "<group>"; };
 		B4D7532938F0DC9FF02B25D6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -375,6 +378,7 @@
 				B8A10000000000000000006F /* AddServerAuthSection.swift */,
 				B8A100000000000000000072 /* AddServerKeyFileLoader.swift */,
 				B8A100000000000000000075 /* AddServerSilentSync.swift */,
+				B8A100000000000000000078 /* AddServerInitialState.swift */,
 				B8A10000000000000000003C /* AddServerValidation.swift */,
 				B8A10000000000000000003F /* AddServerDraftBuilder.swift */,
 				04FFDB29556DE5419BEB4E78 /* AssetManagerView.swift */,
@@ -618,6 +622,7 @@
 				B8A10000000000000000006D /* AddServerAuthSection.swift in Sources */,
 				B8A100000000000000000070 /* AddServerKeyFileLoader.swift in Sources */,
 				B8A100000000000000000073 /* AddServerSilentSync.swift in Sources */,
+				B8A100000000000000000076 /* AddServerInitialState.swift in Sources */,
 				B8A10000000000000000003A /* AddServerValidation.swift in Sources */,
 				B8A10000000000000000003D /* AddServerDraftBuilder.swift in Sources */,
 				84DCCEEBB105C8E4BB112AD3 /* AppSession.swift in Sources */,
@@ -720,6 +725,7 @@
 				B8A10000000000000000006E /* AddServerAuthSection.swift in Sources */,
 				B8A100000000000000000071 /* AddServerKeyFileLoader.swift in Sources */,
 				B8A100000000000000000074 /* AddServerSilentSync.swift in Sources */,
+				B8A100000000000000000077 /* AddServerInitialState.swift in Sources */,
 				B8A10000000000000000003B /* AddServerValidation.swift in Sources */,
 				B8A10000000000000000003E /* AddServerDraftBuilder.swift in Sources */,
 				791C864C97C94860BC072BA1 /* AppSession.swift in Sources */,

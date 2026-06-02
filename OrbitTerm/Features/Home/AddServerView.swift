@@ -381,43 +381,32 @@ struct AddServerView: View {
         guard !didLoadEditingServer else { return }
         didLoadEditingServer = true
         guard let existing = editingServer else { return }
+        let credentials = try? vault.read(for: existing.credentialID)
+        applyInitialState(AddServerInitialState.editing(server: existing, credentials: credentials))
+    }
 
-        name = existing.name
-        group = existing.group
-        host = existing.host
-        portText = String(existing.port)
-        username = existing.username
-        authMethod = existing.authMethod
-        transport = existing.transport
-        networkDeviceProfile = existing.networkDeviceProfile
-        if transport == .telnet {
-            authMethod = .password
-        }
-        allowPasswordFallback = existing.allowPasswordFallback
-
-        if let credentials = try? vault.read(for: existing.credentialID) {
-            password = credentials.password
-            privateKeyContent = credentials.privateKeyContent
-            privateKeyPassphrase = credentials.privateKeyPassphrase
-        }
-
-        if !privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            keyInputMode = .paste
-        }
-        testStatus = "已载入现有凭据"
+    private func applyInitialState(_ state: AddServerInitialState) {
+        name = state.name
+        group = state.group
+        host = state.host
+        portText = state.portText
+        username = state.username
+        authMethod = state.authMethod
+        transport = state.transport
+        networkDeviceProfile = state.networkDeviceProfile
+        allowPasswordFallback = state.allowPasswordFallback
+        password = state.password
+        privateKeyContent = state.privateKeyContent
+        privateKeyPassphrase = state.privateKeyPassphrase
+        keyInputMode = state.keyInputMode
+        testStatus = state.testStatus
     }
 
     private func applyPrefillIfNeeded() {
         guard !didApplyPrefill else { return }
         didApplyPrefill = true
         guard editingServer == nil, let prefill else { return }
-
-        name = prefill.name
-        group = prefill.group
-        host = prefill.host
-        portText = String(prefill.port)
-        username = prefill.username
-        testStatus = "已通过链接填充连接信息，请先测试再保存"
+        applyInitialState(AddServerInitialState.prefill(prefill))
     }
 
     private func silentSync(_ server: ServerEntry, credentials: ServerCredentials, token: String?, masterPassword: String?) async {
