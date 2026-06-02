@@ -283,6 +283,22 @@ struct AddServerView: View {
         )
     }
 
+    private var connectionTestInput: AddServerConnectionTestInput {
+        AddServerConnectionTestInput(
+            host: host,
+            port: parsedPort ?? (transport == .telnet ? 23 : 22),
+            username: username,
+            password: password,
+            authMethod: authMethod,
+            transport: transport,
+            networkDeviceProfile: networkDeviceProfile,
+            allowPasswordFallback: allowPasswordFallback,
+            privateKeyContent: privateKeyContent,
+            privateKeyPassphrase: privateKeyPassphrase,
+            timeoutSeconds: testTimeoutSec
+        )
+    }
+
     private func invalidateVerification() {
         isConnectionVerified = false
         if !isTestingConnection {
@@ -295,63 +311,9 @@ struct AddServerView: View {
         isTestingConnection = true
         defer { isTestingConnection = false }
 
-        if transport == .telnet {
-            let probe = TelnetClient(host: host, port: parsedPort ?? 23)
-            let autoLogin = TelnetClient.AutoLoginConfig(
-                username: username,
-                password: password,
-                profile: networkDeviceProfile
-            )
-            let ok = await probe.connect(autoLogin: autoLogin, onData: { _ in }, onState: { _ in })
-            await probe.disconnect()
-            if ok {
-                testStatus = autoLogin.isEnabled ? "连接测试成功 (Telnet，已尝试自动登录)" : "连接测试成功 (Telnet 端口可达)"
-                isConnectionVerified = true
-            } else {
-                testStatus = "连接测试失败: Telnet 端口不可达"
-                isConnectionVerified = false
-            }
-            return
-        }
-
-        do {
-            let result = try await withThrowingTaskGroup(of: String.self) { group in
-                let keyContent = privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines)
-                let keyPassphrase = privateKeyPassphrase
-                group.addTask(priority: .userInitiated) {
-                    await orbitManager.testConnectionAsync(
-                        ip: host,
-                        port: parsedPort ?? 22,
-                        username: username,
-                        password: password,
-                        privateKeyContent: keyContent,
-                        privateKeyPassphrase: keyPassphrase,
-                        allowPasswordFallback: allowPasswordFallback
-                    )
-                }
-                group.addTask {
-                    try await Task.sleep(nanoseconds: UInt64(testTimeoutSec) * 1_000_000_000)
-                    throw SFTPError.timeout
-                }
-
-                guard let first = try await group.next() else {
-                    throw SFTPError.invalidResponse
-                }
-                group.cancelAll()
-                return first
-            }
-
-            if result.hasPrefix("成功") {
-                testStatus = "连接测试成功"
-                isConnectionVerified = true
-            } else {
-                testStatus = result
-                isConnectionVerified = false
-            }
-        } catch {
-            testStatus = "连接测试失败: \(error.localizedDescription)"
-            isConnectionVerified = false
-        }
+        let result = await AddServerConnectionTester.test(input: connectionTestInput, orbitManager: orbitManager)
+        testStatus = result.status
+        isConnectionVerified = result.isVerified
     }
 
     private func saveAndConnect() async {
