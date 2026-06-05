@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
 #endif
@@ -28,7 +27,7 @@ struct SFTPBrowserView: View {
     var body: some View {
         VStack(spacing: 0) {
             if !effectiveManager.isConnected {
-                connectPanel
+                SFTPConnectPanel(draft: $connectionDraft, manager: effectiveManager)
             } else {
                 browserPanel
             }
@@ -112,47 +111,6 @@ struct SFTPBrowserView: View {
             SFTPActivityShareSheet(activityItems: shareURLs)
         }
 #endif
-    }
-
-    private var connectPanel: some View {
-        Form {
-            Section("连接信息") {
-                TextField("主机或 IP", text: $connectionDraft.host)
-                    .applyInputPolish()
-                TextField("用户名", text: $connectionDraft.username)
-                    .applyInputPolish()
-                SecureField("密码", text: $connectionDraft.password)
-            }
-
-            Section("模式") {
-                Toggle("优先使用模拟数据", isOn: $connectionDraft.preferMockMode)
-                Text("若未配置 SSH，系统会自动进入 Mock 文件列表。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("操作") {
-                Button(connectionDraft.preferMockMode ? "进入模拟浏览" : "连接 SFTP") {
-                    Task {
-                        await effectiveManager.connect(
-                            host: connectionDraft.host,
-                            username: connectionDraft.username,
-                            password: connectionDraft.password,
-                            preferMock: connectionDraft.preferMockMode
-                        )
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(effectiveManager.isLoading)
-            }
-
-            if !effectiveManager.statusText.isEmpty {
-                Section("状态") {
-                    Text(effectiveManager.statusText)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
     }
 
     private var browserPanel: some View {
@@ -258,58 +216,25 @@ struct SFTPBrowserView: View {
     }
 
     private var fileList: some View {
-        List(effectiveManager.items) { item in
-            SFTPFileRow(
-                item: item,
-                isSelected: batchState.contains(item),
-                onToggleSelection: { toggleSelection(item) }
-            )
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    if batchState.hasSelection {
-                        toggleSelection(item)
-                    } else if item.isDirectory {
-                        Task { await effectiveManager.enterDirectory(item) }
-                    }
-                }
-                .contextMenu {
-                    Button("下载") {
-                        Task {
-                            let local = SFTPBrowserPathHelper.defaultDownloadURL(fileName: item.name)
-                            await effectiveManager.download(item: item, to: local)
-                        }
-                    }
-
-                    Button("删除", role: .destructive) {
-                        Task { await effectiveManager.delete(item: item) }
-                    }
-
-                    Button("重命名") {
-                        editState.beginRename(item)
-                    }
-
-                    Button("修改权限") {
-                        editState.beginChmod(item)
-                    }
-
-                    Button(batchState.contains(item) ? "取消选择" : "选择") {
-                        toggleSelection(item)
-                    }
-                }
-        }
-        .listStyle(.plain)
-        .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
-            SFTPDropUploadHandler.handle(providers: providers) { localURL in
+        SFTPFileListView(
+            manager: effectiveManager,
+            batchState: $batchState,
+            editState: $editState,
+            isDropTargeted: $isDropTargeted,
+            onDownload: { item in
+                let local = SFTPBrowserPathHelper.defaultDownloadURL(fileName: item.name)
+                await effectiveManager.download(item: item, to: local)
+            },
+            onDelete: { item in
+                await effectiveManager.delete(item: item)
+            },
+            onEnterDirectory: { item in
+                await effectiveManager.enterDirectory(item)
+            },
+            onUpload: { localURL in
                 await effectiveManager.upload(localURL: localURL)
             }
-        }
-        .overlay {
-            if isDropTargeted {
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(.blue, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
-                    .padding(8)
-            }
-        }
+        )
     }
 
     private var breadcrumbBar: some View {

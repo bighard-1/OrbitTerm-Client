@@ -136,6 +136,8 @@
 		B8A100000000000000000056 /* SFTPActivityShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000057 /* SFTPActivityShareSheet.swift */; };
 		B8A100000000000000000058 /* SFTPDropUploadHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000005A /* SFTPDropUploadHandler.swift */; };
 		B8A100000000000000000059 /* SFTPDropUploadHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000005A /* SFTPDropUploadHandler.swift */; };
+		B8A10000000000000000007C /* SFTPBrowserPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000007E /* SFTPBrowserPanels.swift */; };
+		B8A10000000000000000007D /* SFTPBrowserPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000007E /* SFTPBrowserPanels.swift */; };
 		B8A10000000000000000005B /* SnippetEditorDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000005D /* SnippetEditorDraft.swift */; };
 		B8A10000000000000000005C /* SnippetEditorDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000005D /* SnippetEditorDraft.swift */; };
 		B8A10000000000000000005E /* SnippetVariablePrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000060 /* SnippetVariablePrompt.swift */; };
@@ -279,6 +281,7 @@
 		B8A100000000000000000054 /* SFTPBrowserConnectionDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserConnectionDraft.swift; sourceTree = "<group>"; };
 		B8A100000000000000000057 /* SFTPActivityShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPActivityShareSheet.swift; sourceTree = "<group>"; };
 		B8A10000000000000000005A /* SFTPDropUploadHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPDropUploadHandler.swift; sourceTree = "<group>"; };
+		B8A10000000000000000007E /* SFTPBrowserPanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserPanels.swift; sourceTree = "<group>"; };
 		B8A10000000000000000005D /* SnippetEditorDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetEditorDraft.swift; sourceTree = "<group>"; };
 		B8A100000000000000000060 /* SnippetVariablePrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetVariablePrompt.swift; sourceTree = "<group>"; };
 		B8A100000000000000000063 /* SnippetVariableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetVariableResolver.swift; sourceTree = "<group>"; };
@@ -408,6 +411,7 @@
 				B8A100000000000000000054 /* SFTPBrowserConnectionDraft.swift */,
 				B8A100000000000000000057 /* SFTPActivityShareSheet.swift */,
 				B8A10000000000000000005A /* SFTPDropUploadHandler.swift */,
+				B8A10000000000000000007E /* SFTPBrowserPanels.swift */,
 				1117F7A981D07A249B0CDBD7 /* SnippetsPanelView.swift */,
 				B8A10000000000000000005D /* SnippetEditorDraft.swift */,
 				B8A100000000000000000060 /* SnippetVariablePrompt.swift */,
@@ -672,6 +676,7 @@
 				B8A100000000000000000052 /* SFTPBrowserConnectionDraft.swift in Sources */,
 				B8A100000000000000000055 /* SFTPActivityShareSheet.swift in Sources */,
 				B8A100000000000000000058 /* SFTPDropUploadHandler.swift in Sources */,
+				B8A10000000000000000007C /* SFTPBrowserPanels.swift in Sources */,
 				58E2DD7AB605954D9FB0A998 /* SFTPManager.swift in Sources */,
 				B7E3F1B2C4D5968701020308 /* SFTPBatchDownloader.swift in Sources */,
 				B7E3F1B2C4D5968701020317 /* SFTPManager+Connection.swift in Sources */,
@@ -776,6 +781,7 @@
 				B8A100000000000000000053 /* SFTPBrowserConnectionDraft.swift in Sources */,
 				B8A100000000000000000056 /* SFTPActivityShareSheet.swift in Sources */,
 				B8A100000000000000000059 /* SFTPDropUploadHandler.swift in Sources */,
+				B8A10000000000000000007D /* SFTPBrowserPanels.swift in Sources */,
 				B1547A01247E01C13B756C9E /* SFTPManager.swift in Sources */,
 				B7E3F1B2C4D5968701020309 /* SFTPBatchDownloader.swift in Sources */,
 				B7E3F1B2C4D5968701020318 /* SFTPManager+Connection.swift in Sources */,
