@@ -16,6 +16,7 @@
 		13D1330ECE0E17F6F27753EA /* MasterPasswordGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */; };
 		166B59A8E24960CC5E398252 /* WorkstationLayoutMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91CF5B57FA41C8FB507E27B6 /* WorkstationLayoutMetrics.swift */; };
 		2449C17F29FFCB7D459E7F14 /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20EA2AC1C67C6744ECBB46BD /* AuthView.swift */; };
+		B8A10000000000000000007F /* AuthVisualComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000081 /* AuthVisualComponents.swift */; };
 		25A69CC08E8B9F245C88948A /* TabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62847EC28220849324529ECF /* TabBarView.swift */; };
 		274A6C9E05F226D23980A92B /* WorkstationSnippetsCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8EC0F86958319CF2CAC049C /* WorkstationSnippetsCardView.swift */; };
 		274E45B4B0BE1E3D047A0301 /* WorkstationRightPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 274E45B4B0BE1E3D047A0300 /* WorkstationRightPanelView.swift */; };
@@ -191,6 +192,7 @@
 		BBED422CCFC31B5F7D38D725 /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA155A9F65638E6194ADA93 /* KeychainManager.swift */; };
 		BBF64F6A16727778986E2B24 /* DockerManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7156371597A178C490DF8ABD /* DockerManagerView.swift */; };
 		C3F661036F847112CA11C87D /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20EA2AC1C67C6744ECBB46BD /* AuthView.swift */; };
+		B8A100000000000000000080 /* AuthVisualComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000081 /* AuthVisualComponents.swift */; };
 		CA301A189253FDCB70F0BB14 /* WorkstationDockerCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BF8175E63892D99108F4789 /* WorkstationDockerCardView.swift */; };
 		D32A2630B47540D9846461F9 /* NetworkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */; };
 		A7E3F1B2C4D5968701020306 /* RustFFI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7E3F1B2C4D5968701020304 /* RustFFI.swift */; };
@@ -218,6 +220,7 @@
 		190E90A490AB0BEFD1B5F1EA /* CredentialVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialVault.swift; sourceTree = "<group>"; };
 		1BDEC92E6B4B8974125CB64A /* AddServerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerView.swift; sourceTree = "<group>"; };
 		20EA2AC1C67C6744ECBB46BD /* AuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthView.swift; sourceTree = "<group>"; };
+		B8A100000000000000000081 /* AuthVisualComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthVisualComponents.swift; sourceTree = "<group>"; };
 		21BA8750BFF4212C103320E8 /* ServerListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerListView.swift; sourceTree = "<group>"; };
 		23CDE6AF8E0550184AC99A12 /* BatchCommandRunnerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchCommandRunnerView.swift; sourceTree = "<group>"; };
 		24CD1624F5A719FD6E790B98 /* WorkstationMonitorCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationMonitorCardView.swift; sourceTree = "<group>"; };
@@ -492,6 +495,7 @@
 			isa = PBXGroup;
 			children = (
 				20EA2AC1C67C6744ECBB46BD /* AuthView.swift */,
+				B8A100000000000000000081 /* AuthVisualComponents.swift */,
 			);
 			path = Auth;
 			sourceTree = "<group>";
@@ -639,6 +643,7 @@
 				B8A10000000000000000001D /* AssetBulkAddSheet.swift in Sources */,
 				B8A100000000000000000020 /* AssetQuickKeySetupSheet.swift in Sources */,
 				2449C17F29FFCB7D459E7F14 /* AuthView.swift in Sources */,
+				B8A10000000000000000007F /* AuthVisualComponents.swift in Sources */,
 				7BCDEB379D2BCBD46813D516 /* BatchCommandRunnerView.swift in Sources */,
 				578F8F3554FEB1F83DF9B7CC /* BiometricAuthService.swift in Sources */,
 				EB18551F6941809822CC4368 /* ContentView.swift in Sources */,
@@ -744,6 +749,7 @@
 				B8A10000000000000000001E /* AssetBulkAddSheet.swift in Sources */,
 				B8A100000000000000000021 /* AssetQuickKeySetupSheet.swift in Sources */,
 				C3F661036F847112CA11C87D /* AuthView.swift in Sources */,
+				B8A100000000000000000080 /* AuthVisualComponents.swift in Sources */,
 				59DDA7271AFC11CD75C39606 /* BatchCommandRunnerView.swift in Sources */,
 				A6A86BCCFF5A1E9CF688B9A8 /* BiometricAuthService.swift in Sources */,
 				00D11168A4219FA8EC587704 /* ContentView.swift in Sources */,
