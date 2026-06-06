@@ -87,6 +87,7 @@
 		87B279A9934945274515773E /* DockerManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7156371597A178C490DF8ABD /* DockerManagerView.swift */; };
 		8835C97A39B6523BD90EA986 /* OrbitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */; };
 		8BDBD2BE0DADEEF7F7E2AAAF /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E0EFB34CACD29FEB53B377 /* SyncService.swift */; };
+		B8A100000000000000000083 /* SyncQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000084 /* SyncQueue.swift */; };
 		8FB790CC339CDD3B1B2136B2 /* OrbitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */; };
 		915DEF261D70D05F1E1A58CA /* SnippetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A91FAC92F6EEB51AACE1DEB /* SnippetStore.swift */; };
 		94B6DD52F6058B3F1B49B0BA /* WorkstationSFTPCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA681CD5E929D54BAF59BA3 /* WorkstationSFTPCardView.swift */; };
@@ -98,6 +99,7 @@
 		9F34C0206362FA67CED289A3 /* CredentialVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 190E90A490AB0BEFD1B5F1EA /* CredentialVault.swift */; };
 		A11F4C91A92CC0D933C8ACE7 /* CredentialVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 190E90A490AB0BEFD1B5F1EA /* CredentialVault.swift */; };
 		A39C5F36E325D6D11857435F /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E0EFB34CACD29FEB53B377 /* SyncService.swift */; };
+		B8A100000000000000000082 /* SyncQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000084 /* SyncQueue.swift */; };
 		A6A86BCCFF5A1E9CF688B9A8 /* BiometricAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924DF400619ABD0FB4150133 /* BiometricAuthService.swift */; };
 		AA180C68437B90DAC47E8B14 /* MainWorkstationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16F52E3B6E83F077783BEC22 /* MainWorkstationView.swift */; };
 		AAA8E9F1710C3DED7287020F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0599BB6B03494D8A6791ABA /* Assets.xcassets */; };
@@ -306,6 +308,7 @@
 		B4D7532938F0DC9FF02B25D6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		BC35C4CE7198F143C318FB84 /* WorkstationAssetSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationAssetSidebarView.swift; sourceTree = "<group>"; };
 		C3E0EFB34CACD29FEB53B377 /* SyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncService.swift; sourceTree = "<group>"; };
+		B8A100000000000000000084 /* SyncQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncQueue.swift; sourceTree = "<group>"; };
 		C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+InputPolish.swift"; sourceTree = "<group>"; };
 		CF0C018CC927BA3B0E42EE18 /* orbit_core.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = orbit_core.h; sourceTree = "<group>"; };
 		CF8482667CCEAB37877728A8 /* SFTPBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserView.swift; sourceTree = "<group>"; };
@@ -372,6 +375,7 @@
 				B7E3F1B2C4D5968701020313 /* SFTPManager+Transfers.swift */,
 				9A91FAC92F6EEB51AACE1DEB /* SnippetStore.swift */,
 				C3E0EFB34CACD29FEB53B377 /* SyncService.swift */,
+				B8A100000000000000000084 /* SyncQueue.swift */,
 				5B0DB0DE0CCDDA52D06A792C /* TelnetClient.swift */,
 				82956A0F1C5D1E30A78D1E37 /* TerminalService.swift */,
 				C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */,
@@ -705,6 +709,7 @@
 				7F996E7D9810AEABC9BE7BCA /* SwiftTermTerminalView.swift in Sources */,
 				B8A10000000000000000002B /* SwiftTermPlatformSupport.swift in Sources */,
 				A39C5F36E325D6D11857435F /* SyncService.swift in Sources */,
+				B8A100000000000000000082 /* SyncQueue.swift in Sources */,
 				76E0101D1870FB15B265D176 /* TabBarView.swift in Sources */,
 				61BFC3FD1801C09266473767 /* TelnetClient.swift in Sources */,
 				37C9B427752B20DE73F01307 /* TerminalService.swift in Sources */,
@@ -811,6 +816,7 @@
 				390B44D1B24945CC4EBAB4C1 /* SwiftTermTerminalView.swift in Sources */,
 				B8A10000000000000000002C /* SwiftTermPlatformSupport.swift in Sources */,
 				8BDBD2BE0DADEEF7F7E2AAAF /* SyncService.swift in Sources */,
+				B8A100000000000000000083 /* SyncQueue.swift in Sources */,
 				25A69CC08E8B9F245C88948A /* TabBarView.swift in Sources */,
 				5317C2D57A549A07C99F2426 /* TelnetClient.swift in Sources */,
 				5640BE786C6F90A9FCC3203A /* TerminalService.swift in Sources */,
