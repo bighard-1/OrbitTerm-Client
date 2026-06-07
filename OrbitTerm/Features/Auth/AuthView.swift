@@ -187,6 +187,7 @@ struct AuthView: View {
                 refreshToken: loginData.refreshTokenValue,
                 username: username
             )
+            password = ""
             message = "成功: 已获取 JWT"
         } catch {
             message = "失败: \(error.localizedDescription)"

@@ -370,7 +370,9 @@ pub(crate) async fn run_remote_command(
         .exec(true, command)
         .await
         .map_err(|e| OrbitCoreError::SshFailed(format!("exec '{command}' failed: {e}")))?;
-    eprintln!("[orbit-core][exec] command={}", command);
+    if std::env::var_os("ORBIT_CORE_DEBUG").is_some() {
+        eprintln!("[orbit-core][exec] command={}", command);
+    }
 
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
@@ -397,13 +399,15 @@ pub(crate) async fn run_remote_command(
     }
 
     let output = String::from_utf8_lossy(&stdout).to_string();
-    eprintln!(
-        "[orbit-core][exec] command={} exit={} stdout_bytes={} stderr_bytes={}",
-        command,
-        exit_code,
-        stdout.len(),
-        stderr.len()
-    );
+    if std::env::var_os("ORBIT_CORE_DEBUG").is_some() {
+        eprintln!(
+            "[orbit-core][exec] command={} exit={} stdout_bytes={} stderr_bytes={}",
+            command,
+            exit_code,
+            stdout.len(),
+            stderr.len()
+        );
+    }
     Ok(output)
 }
 

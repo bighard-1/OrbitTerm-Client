@@ -52,12 +52,14 @@ pub(crate) async fn list_dir(
         })
         .collect();
 
-    eprintln!(
-        "[orbit-core][sftp_list_dir] session={} path={} items={}",
-        session_id,
-        path_for_log,
-        items.len()
-    );
+    if std::env::var_os("ORBIT_CORE_DEBUG").is_some() {
+        eprintln!(
+            "[orbit-core][sftp_list_dir] session={} path={} items={}",
+            session_id,
+            path_for_log,
+            items.len()
+        );
+    }
 
     serde_json::to_string(&items).map_err(|e| OrbitCoreError::Internal(e.to_string()))
 }
@@ -98,10 +100,12 @@ pub(crate) async fn upload_file(
             break;
         }
 
-        eprintln!(
-            "[orbit-core][sftp_upload_file] session={} chunk_bytes={} remote={}",
-            session_id, n, remote_for_log
-        );
+        if std::env::var_os("ORBIT_CORE_DEBUG").is_some() {
+            eprintln!(
+                "[orbit-core][sftp_upload_file] session={} chunk_bytes={} remote={}",
+                session_id, n, remote_for_log
+            );
+        }
 
         remote
             .write_all(&buf[..n])
@@ -177,10 +181,12 @@ pub(crate) async fn download_file(
             break;
         }
 
-        eprintln!(
-            "[orbit-core][sftp_download_file] session={} chunk_bytes={} remote={}",
-            session_id, n, remote_for_log
-        );
+        if std::env::var_os("ORBIT_CORE_DEBUG").is_some() {
+            eprintln!(
+                "[orbit-core][sftp_download_file] session={} chunk_bytes={} remote={}",
+                session_id, n, remote_for_log
+            );
+        }
 
         local
             .write_all(&buf[..n])
