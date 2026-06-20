@@ -244,7 +244,9 @@ struct MainWorkstationView: View {
         let token = session.readToken()
         let masterPassword = session.readMasterPassword()
         Task(priority: .background) {
-            await syncService.deleteRemoteConfigs(for: [server], token: token, masterPassword: masterPassword)
+            await syncService.deleteRemoteConfigs(
+                for: [server], token: token, masterPassword: masterPassword, accountID: session.username
+            )
         }
     }
 

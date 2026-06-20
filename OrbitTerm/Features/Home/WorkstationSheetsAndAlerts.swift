@@ -43,7 +43,9 @@ struct WorkstationSheetsAndAlerts: ViewModifier {
                 )
             }
             .sheet(isPresented: $showingSettings) {
-                SettingsView()
+                NavigationStack {
+                    SettingsView()
+                }
 #if os(macOS)
                     .frame(minWidth: 520, minHeight: 480)
 #endif

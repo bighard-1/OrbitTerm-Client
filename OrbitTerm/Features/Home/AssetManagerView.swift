@@ -165,7 +165,9 @@ struct AssetManagerView: View {
         let token = session.readToken()
         let masterPassword = session.readMasterPassword()
         Task(priority: .background) {
-            await syncService.deleteRemoteConfigs(for: [server], token: token, masterPassword: masterPassword)
+            await syncService.deleteRemoteConfigs(
+                for: [server], token: token, masterPassword: masterPassword, accountID: session.username
+            )
         }
     }
 
@@ -182,6 +184,7 @@ struct AssetManagerView: View {
             _ = await syncService.uploadEncryptedConfig(
                 token: token,
                 masterPassword: masterPassword,
+                accountID: session.username,
                 plaintextConfig: plain,
                 vectorClock: ["client": Int(Date().timeIntervalSince1970)],
                 allowQueueOnNetworkFailure: true

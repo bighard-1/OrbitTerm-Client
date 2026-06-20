@@ -4,9 +4,16 @@ import Network
 import SQLite3
 import os
 
+enum SyncQueueOperation: Codable {
+    case upload(UploadConfigRequest)
+    case delete(assetID: UUID, request: AssetMutationRequest)
+    case restore(assetID: UUID, request: AssetMutationRequest)
+    case purge(assetID: UUID, request: AssetMutationRequest)
+}
+
 struct SyncQueueItem: Codable, Identifiable {
     let id: UUID
-    let payload: UploadConfigRequest
+    let operation: SyncQueueOperation
     let requestHash: String
     let createdAt: Date
     var updatedAt: Date
@@ -16,7 +23,7 @@ struct SyncQueueItem: Codable, Identifiable {
 
     init(
         id: UUID = UUID(),
-        payload: UploadConfigRequest,
+        operation: SyncQueueOperation,
         requestHash: String,
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
@@ -25,7 +32,7 @@ struct SyncQueueItem: Codable, Identifiable {
         lastError: String? = nil
     ) {
         self.id = id
-        self.payload = payload
+        self.operation = operation
         self.requestHash = requestHash
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -71,7 +78,7 @@ actor SyncQueueStore {
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return }
         defer { sqlite3_finalize(stmt) }
 
-        let payloadData = (try? JSONEncoder().encode(item.payload)) ?? Data()
+        let payloadData = (try? JSONEncoder().encode(item.operation)) ?? Data()
         let payloadText = String(data: payloadData, encoding: .utf8) ?? "{}"
         bindText(item.id.uuidString, stmt: stmt, index: 1)
         bindText(item.requestHash, stmt: stmt, index: 2)
@@ -139,7 +146,7 @@ actor SyncQueueStore {
               let hashText = sqlite3_column_text(stmt, 1).map({ String(cString: $0) }),
               let payloadText = sqlite3_column_text(stmt, 2).map({ String(cString: $0) }),
               let payloadData = payloadText.data(using: .utf8),
-              let payload = try? JSONDecoder().decode(UploadConfigRequest.self, from: payloadData) else {
+              let operation = Self.decodeOperation(payloadData) else {
             return nil
         }
         let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 3))
@@ -150,7 +157,7 @@ actor SyncQueueStore {
 
         return SyncQueueItem(
             id: id,
-            payload: payload,
+            operation: operation,
             requestHash: hashText,
             createdAt: createdAt,
             updatedAt: updatedAt,
@@ -158,6 +165,17 @@ actor SyncQueueStore {
             nextRetryAt: nextRetryAt,
             lastError: lastError
         )
+    }
+
+    private static func decodeOperation(_ data: Data) -> SyncQueueOperation? {
+        if let operation = try? JSONDecoder().decode(SyncQueueOperation.self, from: data) {
+            return operation
+        }
+        // SQLite v1 仅保存 UploadConfigRequest，升级时原位兼容读取。
+        if let legacyUpload = try? JSONDecoder().decode(UploadConfigRequest.self, from: data) {
+            return .upload(legacyUpload)
+        }
+        return nil
     }
 
     private static func createTableIfNeeded(db: OpaquePointer?) {
@@ -221,9 +239,25 @@ final class SyncQueue {
     }
 
     func enqueueUpload(payload: UploadConfigRequest, reason: String?) async {
-        let hash = Self.requestHash(payload)
+        await enqueue(.upload(payload), reason: reason)
+    }
+
+    func enqueueDelete(assetID: UUID, request: AssetMutationRequest, reason: String?) async {
+        await enqueue(.delete(assetID: assetID, request: request), reason: reason)
+    }
+
+    func enqueueRestore(assetID: UUID, request: AssetMutationRequest, reason: String?) async {
+        await enqueue(.restore(assetID: assetID, request: request), reason: reason)
+    }
+
+    func enqueuePurge(assetID: UUID, request: AssetMutationRequest, reason: String?) async {
+        await enqueue(.purge(assetID: assetID, request: request), reason: reason)
+    }
+
+    private func enqueue(_ operation: SyncQueueOperation, reason: String?) async {
+        let hash = Self.requestHash(operation)
         let item = SyncQueueItem(
-            payload: payload,
+            operation: operation,
             requestHash: hash,
             attemptCount: 0,
             nextRetryAt: Date(),
@@ -281,7 +315,7 @@ final class SyncQueue {
             }
 
             do {
-                _ = try await network.uploadConfig(token: token, payload: head.payload)
+                try await send(head.operation, token: token)
                 await store.remove(id: head.id)
                 logger.debug("[SYNCQ] sent id=\(head.id.uuidString, privacy: .public)")
             } catch {
@@ -300,6 +334,19 @@ final class SyncQueue {
                 scheduleWake(at: failed.nextRetryAt)
                 return
             }
+        }
+    }
+
+    private func send(_ operation: SyncQueueOperation, token: String) async throws {
+        switch operation {
+        case let .upload(payload):
+            _ = try await network.uploadConfig(token: token, payload: payload)
+        case let .delete(assetID, request):
+            _ = try await network.moveAssetToTrash(assetID: assetID, request: request)
+        case let .restore(assetID, request):
+            _ = try await network.restoreAsset(assetID: assetID, request: request)
+        case let .purge(assetID, request):
+            _ = try await network.purgeAsset(assetID: assetID, request: request)
         }
     }
 
@@ -342,10 +389,11 @@ final class SyncQueue {
 
         Task {
             for item in items {
-                let hash = Self.requestHash(item.payload)
+                let operation = SyncQueueOperation.upload(item.payload)
+                let hash = Self.requestHash(operation)
                 let migrated = SyncQueueItem(
                     id: item.id,
-                    payload: item.payload,
+                    operation: operation,
                     requestHash: hash,
                     createdAt: item.createdAt,
                     updatedAt: item.updatedAt,
@@ -359,9 +407,17 @@ final class SyncQueue {
         }
     }
 
-    private static func requestHash(_ payload: UploadConfigRequest) -> String {
-        let base = "\(payload.id ?? 0)|\(payload.vector_clock)|\(payload.encrypted_blob_base64)"
-        let digest = SHA256.hash(data: Data(base.utf8))
+    private static func requestHash(_ operation: SyncQueueOperation) -> String {
+        if case let .upload(payload) = operation {
+            // 保持与 SQLite v1 相同的哈希，升级时不会重复入队已有上传任务。
+            let legacyBase = "\(payload.id ?? 0)|\(payload.vector_clock)|\(payload.encrypted_blob_base64)"
+            let digest = SHA256.hash(data: Data(legacyBase.utf8))
+            return digest.map { String(format: "%02x", $0) }.joined()
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let encoded = (try? encoder.encode(operation)) ?? Data()
+        let digest = SHA256.hash(data: encoded)
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 

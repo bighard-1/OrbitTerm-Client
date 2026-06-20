@@ -9,26 +9,35 @@
 /* Begin PBXBuildFile section */
 		00D11168A4219FA8EC587704 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 381EB860DD822B532F60A2E4 /* ContentView.swift */; };
 		014ADC98587FFEEED9146A77 /* ServerListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21BA8750BFF4212C103320E8 /* ServerListView.swift */; };
+		018ABE369CBC10D75F294011 /* SFTPBrowserEditState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39F14E3A78611D6EDB41479C /* SFTPBrowserEditState.swift */; };
+		0320B97B45B66026720898DB /* WorkspaceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83D32D4C054B4202BC9A24A0 /* WorkspaceSession.swift */; };
+		058A678711CF9EA48DF7D86E /* AssetQuickKeySetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DA03126726F8585CE9F3B82 /* AssetQuickKeySetupSheet.swift */; };
+		05B3FCDA5DDEC076BAF0EDAC /* SFTPBatchDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E32A07BCF85C4A7E8EF7CDE /* SFTPBatchDownloader.swift */; };
 		06B5A6A1C64180548A72FBF3 /* WorkstationAssetSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC35C4CE7198F143C318FB84 /* WorkstationAssetSidebarView.swift */; };
+		072AA9B4694BD69D0887BDC3 /* MobileSessionComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76AB95FB1E7D6619332A255A /* MobileSessionComponents.swift */; };
+		0746A780CA9CCC691B347D4F /* SyncMetadataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D39A4AEB90905AF3505A2948 /* SyncMetadataStore.swift */; };
 		086D528ACD82CB8CA67C1584 /* DetachedSessionWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79C98A67B69AA654CC5A6B77 /* DetachedSessionWindowView.swift */; };
 		0AD79FEB4AD1DF5ABCA1FB30 /* AddServerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BDEC92E6B4B8974125CB64A /* AddServerView.swift */; };
+		0B9BCB40607805D19D6ED5EA /* AddServerInitialState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56BF32292E4CB4F2E77CD669 /* AddServerInitialState.swift */; };
+		0C85D9659374297F5DE445CB /* SyncIdentityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0FAA4130AD937FDB99259DB /* SyncIdentityService.swift */; };
+		10C3468A6F2D0AE255954CD4 /* SFTPManager+Transfers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56D3F03810DC065AADA6A2C2 /* SFTPManager+Transfers.swift */; };
+		11EC0289C3E003A8D96EF7EE /* SFTPBrowserPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C07F3CC8B2B8064ED317D63 /* SFTPBrowserPanels.swift */; };
 		128C9369AA7FAA7BDDC505FE /* WorkstationMonitorCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24CD1624F5A719FD6E790B98 /* WorkstationMonitorCardView.swift */; };
 		13D1330ECE0E17F6F27753EA /* MasterPasswordGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */; };
 		166B59A8E24960CC5E398252 /* WorkstationLayoutMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91CF5B57FA41C8FB507E27B6 /* WorkstationLayoutMetrics.swift */; };
+		18619758F4910BBBEF71E2D8 /* AddServerConnectionTester.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8477779BBFFBE8F7C7B613F /* AddServerConnectionTester.swift */; };
+		19FBF035B680B9D5356F068A /* AuthVisualComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B97BFDF6F22DC746B3C1C6B0 /* AuthVisualComponents.swift */; };
+		1FB003E1A580F946881EE5CD /* DockerCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94CA85B4AEBF74F59E325CD1 /* DockerCardView.swift */; };
 		2449C17F29FFCB7D459E7F14 /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20EA2AC1C67C6744ECBB46BD /* AuthView.swift */; };
-		B8A10000000000000000007F /* AuthVisualComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000081 /* AuthVisualComponents.swift */; };
 		25A69CC08E8B9F245C88948A /* TabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62847EC28220849324529ECF /* TabBarView.swift */; };
 		274A6C9E05F226D23980A92B /* WorkstationSnippetsCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8EC0F86958319CF2CAC049C /* WorkstationSnippetsCardView.swift */; };
-		274E45B4B0BE1E3D047A0301 /* WorkstationRightPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 274E45B4B0BE1E3D047A0300 /* WorkstationRightPanelView.swift */; };
-		B8A100000000000000000002 /* WorkstationSheetsAndAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000001 /* WorkstationSheetsAndAlerts.swift */; };
-		B8A100000000000000000005 /* WorkstationStressController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000004 /* WorkstationStressController.swift */; };
-		B8A100000000000000000008 /* WorkstationTerminalSplitLayoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000007 /* WorkstationTerminalSplitLayoutView.swift */; };
-		B8A10000000000000000000B /* WorkstationTerminalDropUploadModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000000A /* WorkstationTerminalDropUploadModifier.swift */; };
-		B8A10000000000000000000E /* WorkstationTerminalSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000000D /* WorkstationTerminalSearchOverlay.swift */; };
-		B8A100000000000000000011 /* WorkstationTerminalToolbarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000010 /* WorkstationTerminalToolbarView.swift */; };
-		B8A100000000000000000014 /* WorkstationTerminalSessionChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000013 /* WorkstationTerminalSessionChrome.swift */; };
-		B8A100000000000000000017 /* WorkstationToolbarModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000016 /* WorkstationToolbarModifier.swift */; };
+		27A6180C2D81986BD90296A4 /* SFTPBrowserComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F5A3407984B279EF080673 /* SFTPBrowserComponents.swift */; };
+		27DC72D02F0E02ACD1BE9ACA /* AssetBulkAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D44C7BA4E8C0FF98A3D67ABC /* AssetBulkAddSheet.swift */; };
 		28AE8531E7ADB862080A2502 /* DiagnosticsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6BA478CCB76C4787B9E87D9 /* DiagnosticsManager.swift */; };
+		28E672FDA0369A2F602203CA /* SwiftTermPlatformSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D7F211EB934A0D5BCE2885D /* SwiftTermPlatformSupport.swift */; };
+		29E092287DEB4689A02D04C9 /* DockerCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94CA85B4AEBF74F59E325CD1 /* DockerCardView.swift */; };
+		2D5178B315D93BEBDDCE09EC /* AddServerAuthSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36296E55AE0C9150AC8BB729 /* AddServerAuthSection.swift */; };
+		2FEB079D8FFF4F50AE6F9850 /* SFTPBatchOperationFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0745CC8E9FCDB47926A280 /* SFTPBatchOperationFormatter.swift */; };
 		30964E866A545DA1A90499AD /* OrbitTermApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */; };
 		31895C1956E5C7C1F3A12F8F /* DeepLinkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C9A8C3DE225D64B8E39E2BA /* DeepLinkManager.swift */; };
 		329B0B9F26D8939958B1425E /* ServerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AED26C552B7072D2AAC4669F /* ServerStore.swift */; };
@@ -39,287 +48,287 @@
 		38806BB8055D8F7FD995F17D /* DiagnosticsExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38CC52AC1F19BBC544F8D872 /* DiagnosticsExportView.swift */; };
 		38D00146CCC257E6EDBA4582 /* FileSizeFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9727DF6BCB4A2DC3FFF9644E /* FileSizeFormatter.swift */; };
 		390B44D1B24945CC4EBAB4C1 /* SwiftTermTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAFDE71AA1A69539BB2EA7CD /* SwiftTermTerminalView.swift */; };
+		39D1F66C52782101FE34D86C /* AddServerAuthSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36296E55AE0C9150AC8BB729 /* AddServerAuthSection.swift */; };
 		3A17E58824BF9988E1AB1DBC /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10B229BED0B0F3176FF87E7A /* SettingsView.swift */; };
 		3AA24B2C0C58DB4864AFE901 /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA155A9F65638E6194ADA93 /* KeychainManager.swift */; };
+		3BB412787D76B6A8436ED0DD /* MobileSessionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA44539F264985D253A45D92 /* MobileSessionViews.swift */; };
+		3D85D3A635000A45A703B805 /* SFTPActivityShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A8CF8B6134CC76C9376A2B /* SFTPActivityShareSheet.swift */; };
 		3DBFDFBCF613C85F01A8B88D /* MonitorService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F14341CBA2F36F648BF5800 /* MonitorService.swift */; };
-		B8A100000000000000000040 /* MonitorStatsPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000042 /* MonitorStatsPayload.swift */; };
-		B8A100000000000000000043 /* MonitorPollingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000045 /* MonitorPollingPolicy.swift */; };
-		B8A100000000000000000046 /* MonitorTargetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000048 /* MonitorTargetStore.swift */; };
+		3EFC8F882A170FAC6D81264D /* SFTPManager+Transfers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56D3F03810DC065AADA6A2C2 /* SFTPManager+Transfers.swift */; };
 		4021421D690695D056F88B95 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10B229BED0B0F3176FF87E7A /* SettingsView.swift */; };
+		40815341261B60B3EA9B9D8F /* AddServerSilentSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C055C50647B75B71C5C81DA /* AddServerSilentSync.swift */; };
+		4346DA2F2B1697DC5E6CDB4A /* DockerLogStreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A37A7CD3B58D296A9E3AF54 /* DockerLogStreamView.swift */; };
+		440345A0676C5700FEA7DC7F /* SnippetVariableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA7AD58C1A1CED310B6875EE /* SnippetVariableResolver.swift */; };
+		4598DDE9919AD6E1B812E9BD /* SFTPManager+Mock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B74BC2A072244011E0AF309 /* SFTPManager+Mock.swift */; };
+		4D8E8455AF03DE1A4A42911A /* WorkstationToolbarModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CAC2E9B1546BFD66A6161FF /* WorkstationToolbarModifier.swift */; };
 		5212877D1742D0E62BF5BF0A /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 5C0FE5421C2C7F89752C7FBD /* SwiftTerm */; };
 		528562FF18CF1DF45221B0E7 /* WorkstationLayoutMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91CF5B57FA41C8FB507E27B6 /* WorkstationLayoutMetrics.swift */; };
 		52FCAA84026D316FC64704FC /* DetachedSessionWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79C98A67B69AA654CC5A6B77 /* DetachedSessionWindowView.swift */; };
 		5317C2D57A549A07C99F2426 /* TelnetClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0DB0DE0CCDDA52D06A792C /* TelnetClient.swift */; };
 		5486AB2E26E30B6C331A4C1B /* WorkstationMonitorDetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0406A2602C8DCBFAD157B5E5 /* WorkstationMonitorDetailViews.swift */; };
+		54E252A3965A4A30928B04B0 /* WorkspaceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83D32D4C054B4202BC9A24A0 /* WorkspaceSession.swift */; };
+		551A5B136E5320E888F11ECE /* WorkstationTerminalSplitLayoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DF9DDD34658EA3851E06DC7 /* WorkstationTerminalSplitLayoutView.swift */; };
 		55782C4392B3436284F01CCA /* ServerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AED26C552B7072D2AAC4669F /* ServerStore.swift */; };
 		5640BE786C6F90A9FCC3203A /* TerminalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82956A0F1C5D1E30A78D1E37 /* TerminalService.swift */; };
 		578F8F3554FEB1F83DF9B7CC /* BiometricAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924DF400619ABD0FB4150133 /* BiometricAuthService.swift */; };
 		58E2DD7AB605954D9FB0A998 /* SFTPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77D09730A51A26B9E686F253 /* SFTPManager.swift */; };
-		B7E3F1B2C4D5968701020303 /* SFTPManager+Mock.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020301 /* SFTPManager+Mock.swift */; };
-		B7E3F1B2C4D5968701020304 /* SFTPModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020302 /* SFTPModels.swift */; };
-		B7E3F1B2C4D5968701020308 /* SFTPBatchDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020307 /* SFTPBatchDownloader.swift */; };
-		B7E3F1B2C4D5968701020311 /* SFTPManager+FileOperations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020310 /* SFTPManager+FileOperations.swift */; };
-		B7E3F1B2C4D5968701020314 /* SFTPManager+Transfers.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020313 /* SFTPManager+Transfers.swift */; };
-		B7E3F1B2C4D5968701020317 /* SFTPManager+Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020316 /* SFTPManager+Connection.swift */; };
-		B7E3F1B2C4D5968701020320 /* SFTPManager+Directory.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020319 /* SFTPManager+Directory.swift */; };
 		59DDA7271AFC11CD75C39606 /* BatchCommandRunnerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23CDE6AF8E0550184AC99A12 /* BatchCommandRunnerView.swift */; };
+		59E614D0EDD4019802F6F005 /* ShellPathResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F564909FA3819599A35DA95E /* ShellPathResolver.swift */; };
 		5B4B0A4E7FD8556F5557BC7C /* SessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 530F2F2B65A5D82BAE62ED55 /* SessionManager.swift */; };
+		5B517D9960F3AE3AA540E5F4 /* SFTPBatchOperationFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0745CC8E9FCDB47926A280 /* SFTPBatchOperationFormatter.swift */; };
 		5C144C6F938F96E9A34F819F /* View+InputPolish.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */; };
+		5CD76ACDD9BEF9D839843476 /* CredentialInputHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 442AD4AADE13BA0E4204549B /* CredentialInputHelpers.swift */; };
+		5D96C914A888A7B30A93B1AF /* AddServerValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B73F5D9381F2705029E0D544 /* AddServerValidation.swift */; };
+		5DEFB6E623894B15CAD45DE4 /* WorkstationSheetsAndAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 745FBDA528F6B4F8EA9D4467 /* WorkstationSheetsAndAlerts.swift */; };
+		5F3DA2A0A7D40A78FDF1F64A /* CredentialInputHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 442AD4AADE13BA0E4204549B /* CredentialInputHelpers.swift */; };
+		5F5C346308A2F470DB40CF37 /* SFTPManager+Mock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B74BC2A072244011E0AF309 /* SFTPManager+Mock.swift */; };
+		5FE20A78A040BB814D22E3CE /* SnippetVariablePrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06259C5D1E3951CFFA6E3578 /* SnippetVariablePrompt.swift */; };
+		607FF897165AAB0B017E61AD /* SFTPActivityShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A8CF8B6134CC76C9376A2B /* SFTPActivityShareSheet.swift */; };
 		61BFC3FD1801C09266473767 /* TelnetClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0DB0DE0CCDDA52D06A792C /* TelnetClient.swift */; };
+		625724DE31C8A620A3E8175A /* WorkstationTerminalSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 690770EDC7E1AC93C9D9BDFD /* WorkstationTerminalSearchOverlay.swift */; };
 		64F544A29C8DC4526D624C8F /* OrbitTermApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */; };
+		6599D89B9C262F7D2644455D /* RustFFI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61D05FDE086817AEB654082D /* RustFFI.swift */; };
+		6608879835CA152C64A6758A /* WorkstationTerminalSplitLayoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DF9DDD34658EA3851E06DC7 /* WorkstationTerminalSplitLayoutView.swift */; };
+		674C91AC3FC66C978290E3C8 /* MonitorTargetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A780B78BD56BAD6B05BC3378 /* MonitorTargetStore.swift */; };
 		67536C13CA08E03FF3A12BA8 /* DockerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B49A5D57724B8383BD06C96 /* DockerService.swift */; };
 		690C05D5E1CAC7BCB13D8D3E /* MonitorDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEF1B8EB20CEE14349EB99A4 /* MonitorDashboardView.swift */; };
+		691B81D09F252A6137CFED7A /* WorkstationTerminalSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 690770EDC7E1AC93C9D9BDFD /* WorkstationTerminalSearchOverlay.swift */; };
 		6952D2F9DB5485D20F9D799D /* SessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 530F2F2B65A5D82BAE62ED55 /* SessionManager.swift */; };
+		6AE49CE6629CA4016FC49098 /* AuthVisualComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B97BFDF6F22DC746B3C1C6B0 /* AuthVisualComponents.swift */; };
+		6D0C0DD0922BB61F67A79EBD /* SFTPManager+Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9714382A7905BD9F6A4EFD8A /* SFTPManager+Connection.swift */; };
+		6DD9A2057FBD4F0745ECA5B1 /* SyncQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33E248A5FD3DD7C8F896ECA2 /* SyncQueue.swift */; };
+		6E0107D6FA5E91F706B50D9C /* MobileSessionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA44539F264985D253A45D92 /* MobileSessionViews.swift */; };
+		71231D79008DB61E9CE40F61 /* SnippetVariableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA7AD58C1A1CED310B6875EE /* SnippetVariableResolver.swift */; };
 		749429BFF654F1AB265411AF /* View+InputPolish.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */; };
 		7537219233F149DD96EE566D /* NetworkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */; };
-		A7E3F1B2C4D5968701020305 /* RustFFI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7E3F1B2C4D5968701020304 /* RustFFI.swift */; };
+		75C28C88306CE3B314FDC722 /* SFTPBrowserPathHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6DB68C1BB7FFE44287C2058 /* SFTPBrowserPathHelper.swift */; };
 		76E0101D1870FB15B265D176 /* TabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62847EC28220849324529ECF /* TabBarView.swift */; };
+		770A52F2023C7ED94E32F7D3 /* SyncMetadataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D39A4AEB90905AF3505A2948 /* SyncMetadataStore.swift */; };
+		770AE109C5B32B014662ABFD /* AddServerFormComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95D8066857521151FF1854B9 /* AddServerFormComponents.swift */; };
+		774AEC150F44DF342DFCC77F /* RecentlyDeletedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E32DBAB1DC7E1D140A221B7E /* RecentlyDeletedView.swift */; };
 		791C864C97C94860BC072BA1 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DC29E7DEA20362E09F501D3 /* AppSession.swift */; };
 		79C01AB0151A55725DB45DC8 /* WorkstationSFTPDialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF252B95C1A0A974038062E /* WorkstationSFTPDialogs.swift */; };
 		79C11DB569DDBD8E23356C35 /* AssetManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04FFDB29556DE5419BEB4E78 /* AssetManagerView.swift */; };
+		7B78C1ED8A77E79C38BA52EB /* MonitorPollingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DAB223E842154D2614BEFDB /* MonitorPollingPolicy.swift */; };
 		7BCDEB379D2BCBD46813D516 /* BatchCommandRunnerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23CDE6AF8E0550184AC99A12 /* BatchCommandRunnerView.swift */; };
+		7C666A92C422C5BFDF2054B0 /* SFTPManager+Directory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9575AA7E205CF09F7CE38E07 /* SFTPManager+Directory.swift */; };
 		7C977D075E101CF4239514D8 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 9C72235D0D53A8B38F2E0FA5 /* SwiftTerm */; };
 		7F38D279C57A1E4693BDA47D /* WorkstationTerminalSessionPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3DE23E2FB664A118F6B8646 /* WorkstationTerminalSessionPane.swift */; };
 		7F996E7D9810AEABC9BE7BCA /* SwiftTermTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAFDE71AA1A69539BB2EA7CD /* SwiftTermTerminalView.swift */; };
+		84197C9C7ACC8F7111C415CD /* AssetBulkAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D44C7BA4E8C0FF98A3D67ABC /* AssetBulkAddSheet.swift */; };
+		84289195393271759EB77452 /* WorkstationTerminalDropUploadModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33EF6481439C305953E69B86 /* WorkstationTerminalDropUploadModifier.swift */; };
 		84DCCEEBB105C8E4BB112AD3 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DC29E7DEA20362E09F501D3 /* AppSession.swift */; };
 		85652ACC0968D7AF4EF480CD /* SFTPBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF8482667CCEAB37877728A8 /* SFTPBrowserView.swift */; };
+		85C885B99FB84BE5EAAE9F91 /* DockerManagerDrafts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D45567695C4B41D14FEEBBDA /* DockerManagerDrafts.swift */; };
 		875E84D50E1D56A200A5CBA1 /* WorkstationMonitorCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24CD1624F5A719FD6E790B98 /* WorkstationMonitorCardView.swift */; };
 		87B279A9934945274515773E /* DockerManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7156371597A178C490DF8ABD /* DockerManagerView.swift */; };
 		8835C97A39B6523BD90EA986 /* OrbitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */; };
+		897072BE16A29F4D4C9D8FE8 /* SFTPDropUploadHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C6CC3823E022872639B0219 /* SFTPDropUploadHandler.swift */; };
 		8BDBD2BE0DADEEF7F7E2AAAF /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E0EFB34CACD29FEB53B377 /* SyncService.swift */; };
-		B8A100000000000000000083 /* SyncQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000084 /* SyncQueue.swift */; };
+		8D5B86FA0EB4B86477C13C5F /* AddServerKeyFileLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BE06A1C6F5FFBAFADD9A746 /* AddServerKeyFileLoader.swift */; };
 		8FB790CC339CDD3B1B2136B2 /* OrbitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */; };
+		9039C06E7D941ADA06A8C216 /* SFTPBrowserEditState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39F14E3A78611D6EDB41479C /* SFTPBrowserEditState.swift */; };
+		90F267CF91AA19F60A366B2F /* WorkstationRightPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6F3F01CCF826615CB008047 /* WorkstationRightPanelView.swift */; };
 		915DEF261D70D05F1E1A58CA /* SnippetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A91FAC92F6EEB51AACE1DEB /* SnippetStore.swift */; };
 		94B6DD52F6058B3F1B49B0BA /* WorkstationSFTPCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA681CD5E929D54BAF59BA3 /* WorkstationSFTPCardView.swift */; };
+		955DD5394B16994C1AAF58C3 /* DockerLogStreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A37A7CD3B58D296A9E3AF54 /* DockerLogStreamView.swift */; };
 		95AA66DE4E5FB3134C135579 /* DeepLinkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C9A8C3DE225D64B8E39E2BA /* DeepLinkManager.swift */; };
 		9650F6C78AD055B8782127F0 /* DiagnosticsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6BA478CCB76C4787B9E87D9 /* DiagnosticsManager.swift */; };
 		96E09D4124DD6D872620222F /* WorkstationMonitorDetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0406A2602C8DCBFAD157B5E5 /* WorkstationMonitorDetailViews.swift */; };
 		9B0F0B374F2C7C7BB4014906 /* DiagnosticsExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38CC52AC1F19BBC544F8D872 /* DiagnosticsExportView.swift */; };
+		9C306E0D4D6C0E6AAD0063D3 /* WorkstationTerminalSessionChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 403D0958371C1A8C3391BAA9 /* WorkstationTerminalSessionChrome.swift */; };
+		9E5D6D3C6FE8FBEE67FF0AC5 /* SFTPBrowserPathHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6DB68C1BB7FFE44287C2058 /* SFTPBrowserPathHelper.swift */; };
 		9F1366E7205ADC8CF2850D1D /* WorkstationCollapsedFeatureRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 841FF37C9A712E391D0B0781 /* WorkstationCollapsedFeatureRow.swift */; };
 		9F34C0206362FA67CED289A3 /* CredentialVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 190E90A490AB0BEFD1B5F1EA /* CredentialVault.swift */; };
+		A0155143734296B0E0EEC4BC /* SFTPBatchDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E32A07BCF85C4A7E8EF7CDE /* SFTPBatchDownloader.swift */; };
 		A11F4C91A92CC0D933C8ACE7 /* CredentialVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 190E90A490AB0BEFD1B5F1EA /* CredentialVault.swift */; };
+		A382764DF687B24F8DD96D51 /* AddServerFormComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95D8066857521151FF1854B9 /* AddServerFormComponents.swift */; };
 		A39C5F36E325D6D11857435F /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E0EFB34CACD29FEB53B377 /* SyncService.swift */; };
-		B8A100000000000000000082 /* SyncQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000084 /* SyncQueue.swift */; };
+		A4E96BAB0642D955931A7C81 /* SFTPBrowserConnectionDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F3A50B12C7EDA8BE4D4CF2F /* SFTPBrowserConnectionDraft.swift */; };
 		A6A86BCCFF5A1E9CF688B9A8 /* BiometricAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924DF400619ABD0FB4150133 /* BiometricAuthService.swift */; };
+		A6FAF4E1A4CC4519CEBD9E38 /* SyncIdentityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0FAA4130AD937FDB99259DB /* SyncIdentityService.swift */; };
+		A71E613C556C660348BF8795 /* WorkstationTerminalToolbarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC1301A8254D411A95E31A69 /* WorkstationTerminalToolbarView.swift */; };
+		A95C10C79E9AFFC37E80ED68 /* WorkstationTerminalToolbarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC1301A8254D411A95E31A69 /* WorkstationTerminalToolbarView.swift */; };
+		AA00F87908889CA084AD1D27 /* AssetQuickKeySetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DA03126726F8585CE9F3B82 /* AssetQuickKeySetupSheet.swift */; };
 		AA180C68437B90DAC47E8B14 /* MainWorkstationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16F52E3B6E83F077783BEC22 /* MainWorkstationView.swift */; };
 		AAA8E9F1710C3DED7287020F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0599BB6B03494D8A6791ABA /* Assets.xcassets */; };
+		AC7E6DC1B54D884076587405 /* ShellPathResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F564909FA3819599A35DA95E /* ShellPathResolver.swift */; };
 		AD6D297C9DE3F41779D516C6 /* WorkstationSnippetsCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8EC0F86958319CF2CAC049C /* WorkstationSnippetsCardView.swift */; };
-		AD8E1A9588059B0F0CE41021 /* WorkstationRightPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 274E45B4B0BE1E3D047A0300 /* WorkstationRightPanelView.swift */; };
-		B8A100000000000000000003 /* WorkstationSheetsAndAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000001 /* WorkstationSheetsAndAlerts.swift */; };
-		B8A100000000000000000006 /* WorkstationStressController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000004 /* WorkstationStressController.swift */; };
-		B8A100000000000000000009 /* WorkstationTerminalSplitLayoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000007 /* WorkstationTerminalSplitLayoutView.swift */; };
-		B8A10000000000000000000C /* WorkstationTerminalDropUploadModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000000A /* WorkstationTerminalDropUploadModifier.swift */; };
-		B8A10000000000000000000F /* WorkstationTerminalSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000000D /* WorkstationTerminalSearchOverlay.swift */; };
-		B8A100000000000000000012 /* WorkstationTerminalToolbarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000010 /* WorkstationTerminalToolbarView.swift */; };
-		B8A100000000000000000015 /* WorkstationTerminalSessionChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000013 /* WorkstationTerminalSessionChrome.swift */; };
-		B8A100000000000000000018 /* WorkstationToolbarModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000016 /* WorkstationToolbarModifier.swift */; };
-		B8A10000000000000000001A /* MobileSessionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000019 /* MobileSessionViews.swift */; };
-		B8A10000000000000000001B /* MobileSessionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000019 /* MobileSessionViews.swift */; };
-		B8A100000000000000000028 /* MobileSessionComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000002A /* MobileSessionComponents.swift */; };
-		B8A100000000000000000029 /* MobileSessionComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000002A /* MobileSessionComponents.swift */; };
-		B8A10000000000000000002B /* SwiftTermPlatformSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000002D /* SwiftTermPlatformSupport.swift */; };
-		B8A10000000000000000002C /* SwiftTermPlatformSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000002D /* SwiftTermPlatformSupport.swift */; };
-		B8A10000000000000000002E /* WorkspaceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000030 /* WorkspaceSession.swift */; };
-		B8A10000000000000000002F /* WorkspaceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000030 /* WorkspaceSession.swift */; };
-		B8A100000000000000000031 /* ShellPathResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000033 /* ShellPathResolver.swift */; };
-		B8A100000000000000000032 /* ShellPathResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000033 /* ShellPathResolver.swift */; };
-		B8A100000000000000000034 /* CredentialInputHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000036 /* CredentialInputHelpers.swift */; };
-		B8A100000000000000000035 /* CredentialInputHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000036 /* CredentialInputHelpers.swift */; };
-		B8A100000000000000000037 /* SFTPBrowserPathHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000039 /* SFTPBrowserPathHelper.swift */; };
-		B8A100000000000000000038 /* SFTPBrowserPathHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000039 /* SFTPBrowserPathHelper.swift */; };
-		B8A100000000000000000049 /* SFTPBatchOperationFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000004B /* SFTPBatchOperationFormatter.swift */; };
-		B8A10000000000000000004A /* SFTPBatchOperationFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000004B /* SFTPBatchOperationFormatter.swift */; };
-		B8A10000000000000000004C /* SFTPBrowserEditState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000004E /* SFTPBrowserEditState.swift */; };
-		B8A10000000000000000004D /* SFTPBrowserEditState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000004E /* SFTPBrowserEditState.swift */; };
-		B8A10000000000000000004F /* SFTPBrowserBatchState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000051 /* SFTPBrowserBatchState.swift */; };
-		B8A100000000000000000050 /* SFTPBrowserBatchState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000051 /* SFTPBrowserBatchState.swift */; };
-		B8A100000000000000000052 /* SFTPBrowserConnectionDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000054 /* SFTPBrowserConnectionDraft.swift */; };
-		B8A100000000000000000053 /* SFTPBrowserConnectionDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000054 /* SFTPBrowserConnectionDraft.swift */; };
-		B8A100000000000000000055 /* SFTPActivityShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000057 /* SFTPActivityShareSheet.swift */; };
-		B8A100000000000000000056 /* SFTPActivityShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000057 /* SFTPActivityShareSheet.swift */; };
-		B8A100000000000000000058 /* SFTPDropUploadHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000005A /* SFTPDropUploadHandler.swift */; };
-		B8A100000000000000000059 /* SFTPDropUploadHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000005A /* SFTPDropUploadHandler.swift */; };
-		B8A10000000000000000007C /* SFTPBrowserPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000007E /* SFTPBrowserPanels.swift */; };
-		B8A10000000000000000007D /* SFTPBrowserPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000007E /* SFTPBrowserPanels.swift */; };
-		B8A10000000000000000005B /* SnippetEditorDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000005D /* SnippetEditorDraft.swift */; };
-		B8A10000000000000000005C /* SnippetEditorDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000005D /* SnippetEditorDraft.swift */; };
-		B8A10000000000000000005E /* SnippetVariablePrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000060 /* SnippetVariablePrompt.swift */; };
-		B8A10000000000000000005F /* SnippetVariablePrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000060 /* SnippetVariablePrompt.swift */; };
-		B8A100000000000000000061 /* SnippetVariableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000063 /* SnippetVariableResolver.swift */; };
-		B8A100000000000000000062 /* SnippetVariableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000063 /* SnippetVariableResolver.swift */; };
-		B8A100000000000000000064 /* DockerCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000066 /* DockerCardView.swift */; };
-		B8A100000000000000000065 /* DockerCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000066 /* DockerCardView.swift */; };
-		B8A100000000000000000067 /* DockerLogStreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000069 /* DockerLogStreamView.swift */; };
-		B8A100000000000000000068 /* DockerLogStreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000069 /* DockerLogStreamView.swift */; };
-		B8A10000000000000000006A /* DockerManagerDrafts.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000006C /* DockerManagerDrafts.swift */; };
-		B8A10000000000000000006B /* DockerManagerDrafts.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000006C /* DockerManagerDrafts.swift */; };
-		B8A10000000000000000003A /* AddServerValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000003C /* AddServerValidation.swift */; };
-		B8A10000000000000000003B /* AddServerValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000003C /* AddServerValidation.swift */; };
-		B8A10000000000000000003D /* AddServerDraftBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000003F /* AddServerDraftBuilder.swift */; };
-		B8A10000000000000000003E /* AddServerDraftBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000003F /* AddServerDraftBuilder.swift */; };
-		B8A10000000000000000001D /* AssetBulkAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000001C /* AssetBulkAddSheet.swift */; };
-		B8A10000000000000000001E /* AssetBulkAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000001C /* AssetBulkAddSheet.swift */; };
-		B8A100000000000000000020 /* AssetQuickKeySetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000001F /* AssetQuickKeySetupSheet.swift */; };
-		B8A100000000000000000021 /* AssetQuickKeySetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000001F /* AssetQuickKeySetupSheet.swift */; };
-		B8A100000000000000000023 /* AddServerFormComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000022 /* AddServerFormComponents.swift */; };
-		B8A100000000000000000024 /* AddServerFormComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000022 /* AddServerFormComponents.swift */; };
-		B8A10000000000000000006D /* AddServerAuthSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000006F /* AddServerAuthSection.swift */; };
-		B8A100000000000000000070 /* AddServerKeyFileLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000072 /* AddServerKeyFileLoader.swift */; };
-		B8A100000000000000000073 /* AddServerSilentSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000075 /* AddServerSilentSync.swift */; };
-		B8A100000000000000000076 /* AddServerInitialState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000078 /* AddServerInitialState.swift */; };
-		B8A100000000000000000079 /* AddServerConnectionTester.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000007B /* AddServerConnectionTester.swift */; };
-		B8A10000000000000000006E /* AddServerAuthSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000006F /* AddServerAuthSection.swift */; };
-		B8A100000000000000000071 /* AddServerKeyFileLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000072 /* AddServerKeyFileLoader.swift */; };
-		B8A100000000000000000074 /* AddServerSilentSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000075 /* AddServerSilentSync.swift */; };
-		B8A100000000000000000077 /* AddServerInitialState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000078 /* AddServerInitialState.swift */; };
-		B8A10000000000000000007A /* AddServerConnectionTester.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A10000000000000000007B /* AddServerConnectionTester.swift */; };
-		B8A100000000000000000026 /* SFTPBrowserComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000025 /* SFTPBrowserComponents.swift */; };
-		B8A100000000000000000027 /* SFTPBrowserComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000025 /* SFTPBrowserComponents.swift */; };
+		ADE54CB34A97ED4840491315 /* SFTPBrowserBatchState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E248AF3D4742AFECB5DCCEEA /* SFTPBrowserBatchState.swift */; };
+		AE07E73A7CFE5A5C07F11398 /* SyncQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33E248A5FD3DD7C8F896ECA2 /* SyncQueue.swift */; };
+		AFCE34EB6491DF7C94EDB658 /* SnippetEditorDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB25A1786CA7328B371EC1EA /* SnippetEditorDraft.swift */; };
 		AFF1D8B2C45D35B9B44C3285 /* SnippetsPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1117F7A981D07A249B0CDBD7 /* SnippetsPanelView.swift */; };
 		B04BBC89E70A62AAF9095CEA /* WorkstationTerminalSessionPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3DE23E2FB664A118F6B8646 /* WorkstationTerminalSessionPane.swift */; };
 		B0702EC01B476677C22715E6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0599BB6B03494D8A6791ABA /* Assets.xcassets */; };
+		B114D852A96AF3863DC6BB53 /* WorkstationStressController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D30655BE66EE13549045BEF /* WorkstationStressController.swift */; };
 		B1547A01247E01C13B756C9E /* SFTPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77D09730A51A26B9E686F253 /* SFTPManager.swift */; };
-		B7E3F1B2C4D5968701020305 /* SFTPManager+Mock.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020301 /* SFTPManager+Mock.swift */; };
-		B7E3F1B2C4D5968701020306 /* SFTPModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020302 /* SFTPModels.swift */; };
-		B7E3F1B2C4D5968701020309 /* SFTPBatchDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020307 /* SFTPBatchDownloader.swift */; };
-		B7E3F1B2C4D5968701020312 /* SFTPManager+FileOperations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020310 /* SFTPManager+FileOperations.swift */; };
-		B7E3F1B2C4D5968701020315 /* SFTPManager+Transfers.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020313 /* SFTPManager+Transfers.swift */; };
-		B7E3F1B2C4D5968701020318 /* SFTPManager+Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020316 /* SFTPManager+Connection.swift */; };
-		B7E3F1B2C4D5968701020321 /* SFTPManager+Directory.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3F1B2C4D5968701020319 /* SFTPManager+Directory.swift */; };
+		B2DE4E30DE3E0471FC1A744B /* SFTPManager+Directory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9575AA7E205CF09F7CE38E07 /* SFTPManager+Directory.swift */; };
+		B76CC755BA5AA5EBBDA8C4CE /* MonitorTargetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A780B78BD56BAD6B05BC3378 /* MonitorTargetStore.swift */; };
 		B809495F666036CEF46DA5F7 /* MonitorService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F14341CBA2F36F648BF5800 /* MonitorService.swift */; };
-		B8A100000000000000000041 /* MonitorStatsPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000042 /* MonitorStatsPayload.swift */; };
-		B8A100000000000000000044 /* MonitorPollingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000045 /* MonitorPollingPolicy.swift */; };
-		B8A100000000000000000047 /* MonitorTargetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000048 /* MonitorTargetStore.swift */; };
+		B88E3B6E67571D388D356CFF /* MobileSessionComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76AB95FB1E7D6619332A255A /* MobileSessionComponents.swift */; };
+		B8AFE98151D00C5D8BEA9A70 /* WorkstationStressController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D30655BE66EE13549045BEF /* WorkstationStressController.swift */; };
+		B92B5BA15DD3A98E6CD8DDB6 /* RustFFI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61D05FDE086817AEB654082D /* RustFFI.swift */; };
 		B9B69373552C389EA0D991D7 /* SnippetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A91FAC92F6EEB51AACE1DEB /* SnippetStore.swift */; };
+		BB3CC25F517066968F068F48 /* MonitorStatsPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB6B5AD58F8D1496F4973531 /* MonitorStatsPayload.swift */; };
+		BBE08CBD8543F24F2E7FB832 /* WorkstationTerminalDropUploadModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33EF6481439C305953E69B86 /* WorkstationTerminalDropUploadModifier.swift */; };
 		BBED422CCFC31B5F7D38D725 /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA155A9F65638E6194ADA93 /* KeychainManager.swift */; };
 		BBF64F6A16727778986E2B24 /* DockerManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7156371597A178C490DF8ABD /* DockerManagerView.swift */; };
+		BC59B601C33B8242F8EB7DEF /* SFTPManager+FileOperations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 836E09EB574862420A560409 /* SFTPManager+FileOperations.swift */; };
+		BF54983EE60094BC16369D96 /* AddServerDraftBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F75E6C28523DF8A209339F6B /* AddServerDraftBuilder.swift */; };
 		C3F661036F847112CA11C87D /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20EA2AC1C67C6744ECBB46BD /* AuthView.swift */; };
-		B8A100000000000000000080 /* AuthVisualComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100000000000000000081 /* AuthVisualComponents.swift */; };
+		C4830A60642DB131712671DA /* SFTPManager+Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9714382A7905BD9F6A4EFD8A /* SFTPManager+Connection.swift */; };
+		C5FDED5ED408066B5AF7B2B8 /* SFTPBrowserConnectionDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F3A50B12C7EDA8BE4D4CF2F /* SFTPBrowserConnectionDraft.swift */; };
+		C81D9C828DDD4151085FCA46 /* SFTPBrowserBatchState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E248AF3D4742AFECB5DCCEEA /* SFTPBrowserBatchState.swift */; };
+		C8702A5799FF5E8FDC9B1096 /* SnippetEditorDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB25A1786CA7328B371EC1EA /* SnippetEditorDraft.swift */; };
+		C8BA9AE00EA7B0C10628037B /* AddServerValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B73F5D9381F2705029E0D544 /* AddServerValidation.swift */; };
 		CA301A189253FDCB70F0BB14 /* WorkstationDockerCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BF8175E63892D99108F4789 /* WorkstationDockerCardView.swift */; };
+		CA7FC5FBC52AE3F94EFAD31C /* SFTPBrowserComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F5A3407984B279EF080673 /* SFTPBrowserComponents.swift */; };
+		CFADA57AD98ECD0453997B3C /* RecentlyDeletedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E32DBAB1DC7E1D140A221B7E /* RecentlyDeletedView.swift */; };
 		D32A2630B47540D9846461F9 /* NetworkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */; };
-		A7E3F1B2C4D5968701020306 /* RustFFI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7E3F1B2C4D5968701020304 /* RustFFI.swift */; };
 		D6439AEECD4CACDF386120B4 /* WorkstationSFTPCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA681CD5E929D54BAF59BA3 /* WorkstationSFTPCardView.swift */; };
+		D6E91B071A1ABA42713BA27C /* SFTPModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D0958086BAEA5C2D32B4BA5 /* SFTPModels.swift */; };
 		D73945F35D103F36900752C6 /* DockerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B49A5D57724B8383BD06C96 /* DockerService.swift */; };
 		D7582594F04FB2E4C5812CCC /* FileSizeFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9727DF6BCB4A2DC3FFF9644E /* FileSizeFormatter.swift */; };
+		D928E5B6B947E41A9108CB67 /* AddServerSilentSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C055C50647B75B71C5C81DA /* AddServerSilentSync.swift */; };
 		DA03ABEB5754E7E8BC42E676 /* WorkstationDockerCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BF8175E63892D99108F4789 /* WorkstationDockerCardView.swift */; };
+		DBE8AE5DD2A5774DA24CB2D4 /* SwiftTermPlatformSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D7F211EB934A0D5BCE2885D /* SwiftTermPlatformSupport.swift */; };
+		DDAB043B5B13726607DB0795 /* DockerManagerDrafts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D45567695C4B41D14FEEBBDA /* DockerManagerDrafts.swift */; };
+		DEB806875F4B59BEDA97F491 /* SFTPManager+FileOperations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 836E09EB574862420A560409 /* SFTPManager+FileOperations.swift */; };
+		DEE977D310E0D398E93B8869 /* AddServerDraftBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F75E6C28523DF8A209339F6B /* AddServerDraftBuilder.swift */; };
+		DF4796C7D4DE570F330459AC /* WorkstationTerminalSessionChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 403D0958371C1A8C3391BAA9 /* WorkstationTerminalSessionChrome.swift */; };
+		E01BFDDB767B3D84B6D2D44E /* AddServerInitialState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56BF32292E4CB4F2E77CD669 /* AddServerInitialState.swift */; };
+		E1A78AF349D47238EEC489A9 /* SFTPModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D0958086BAEA5C2D32B4BA5 /* SFTPModels.swift */; };
+		E20BB97FDD367FD2FF6365ED /* WorkstationRightPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6F3F01CCF826615CB008047 /* WorkstationRightPanelView.swift */; };
 		E42A9A249C32B1E0FEF03732 /* WorkstationSFTPDialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF252B95C1A0A974038062E /* WorkstationSFTPDialogs.swift */; };
+		E4DF9ACCE808ED651E8B3001 /* SFTPBrowserPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C07F3CC8B2B8064ED317D63 /* SFTPBrowserPanels.swift */; };
+		E547884553C72C7C1E70F1BB /* AddServerConnectionTester.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8477779BBFFBE8F7C7B613F /* AddServerConnectionTester.swift */; };
+		E5BC038DD18BC0BCA94B00BB /* SFTPDropUploadHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C6CC3823E022872639B0219 /* SFTPDropUploadHandler.swift */; };
 		E7907F3D7B64FC7DEF6CA09C /* AddServerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BDEC92E6B4B8974125CB64A /* AddServerView.swift */; };
+		E94772C953A9212E9098872A /* WorkstationToolbarModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CAC2E9B1546BFD66A6161FF /* WorkstationToolbarModifier.swift */; };
 		EB18551F6941809822CC4368 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 381EB860DD822B532F60A2E4 /* ContentView.swift */; };
+		EB6965ECE971E76E4ACB41FA /* AddServerKeyFileLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BE06A1C6F5FFBAFADD9A746 /* AddServerKeyFileLoader.swift */; };
 		ECDE1ACDE1B1D6F7A0E078B5 /* MasterPasswordGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */; };
+		ED01DBAB821181DB5AB5FA71 /* SnippetVariablePrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06259C5D1E3951CFFA6E3578 /* SnippetVariablePrompt.swift */; };
 		EFED4745678E56EB1D29BDEE /* MonitorDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEF1B8EB20CEE14349EB99A4 /* MonitorDashboardView.swift */; };
 		F120A962EA8C41B07A6E9457 /* WorkstationAssetSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC35C4CE7198F143C318FB84 /* WorkstationAssetSidebarView.swift */; };
+		F77C77AC2901981A7DDBE1E1 /* WorkstationSheetsAndAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 745FBDA528F6B4F8EA9D4467 /* WorkstationSheetsAndAlerts.swift */; };
 		F9554E92C4614C8CFDC6F3BE /* WorkstationCollapsedFeatureRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 841FF37C9A712E391D0B0781 /* WorkstationCollapsedFeatureRow.swift */; };
 		FBAA1C6A14A37B5022F9D8CF /* AssetManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04FFDB29556DE5419BEB4E78 /* AssetManagerView.swift */; };
+		FCF23D982451D4A34FA66976 /* MonitorPollingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DAB223E842154D2614BEFDB /* MonitorPollingPolicy.swift */; };
+		FD0C6A4F574BFACD94B54770 /* MonitorStatsPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB6B5AD58F8D1496F4973531 /* MonitorStatsPayload.swift */; };
 		FEEBE43BE00573E47EF35283 /* SnippetsPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1117F7A981D07A249B0CDBD7 /* SnippetsPanelView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		0406A2602C8DCBFAD157B5E5 /* WorkstationMonitorDetailViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationMonitorDetailViews.swift; sourceTree = "<group>"; };
 		04FFDB29556DE5419BEB4E78 /* AssetManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetManagerView.swift; sourceTree = "<group>"; };
+		06259C5D1E3951CFFA6E3578 /* SnippetVariablePrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetVariablePrompt.swift; sourceTree = "<group>"; };
 		10B229BED0B0F3176FF87E7A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		1117F7A981D07A249B0CDBD7 /* SnippetsPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetsPanelView.swift; sourceTree = "<group>"; };
 		16F52E3B6E83F077783BEC22 /* MainWorkstationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWorkstationView.swift; sourceTree = "<group>"; };
+		17A8CF8B6134CC76C9376A2B /* SFTPActivityShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPActivityShareSheet.swift; sourceTree = "<group>"; };
 		190E90A490AB0BEFD1B5F1EA /* CredentialVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialVault.swift; sourceTree = "<group>"; };
 		1BDEC92E6B4B8974125CB64A /* AddServerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerView.swift; sourceTree = "<group>"; };
+		1BE06A1C6F5FFBAFADD9A746 /* AddServerKeyFileLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerKeyFileLoader.swift; sourceTree = "<group>"; };
+		1C07F3CC8B2B8064ED317D63 /* SFTPBrowserPanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserPanels.swift; sourceTree = "<group>"; };
 		20EA2AC1C67C6744ECBB46BD /* AuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthView.swift; sourceTree = "<group>"; };
-		B8A100000000000000000081 /* AuthVisualComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthVisualComponents.swift; sourceTree = "<group>"; };
 		21BA8750BFF4212C103320E8 /* ServerListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerListView.swift; sourceTree = "<group>"; };
 		23CDE6AF8E0550184AC99A12 /* BatchCommandRunnerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchCommandRunnerView.swift; sourceTree = "<group>"; };
 		24CD1624F5A719FD6E790B98 /* WorkstationMonitorCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationMonitorCardView.swift; sourceTree = "<group>"; };
+		2D7F211EB934A0D5BCE2885D /* SwiftTermPlatformSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftTermPlatformSupport.swift; sourceTree = "<group>"; };
 		2DC29E7DEA20362E09F501D3 /* AppSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSession.swift; sourceTree = "<group>"; };
+		33E248A5FD3DD7C8F896ECA2 /* SyncQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncQueue.swift; sourceTree = "<group>"; };
+		33EF6481439C305953E69B86 /* WorkstationTerminalDropUploadModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalDropUploadModifier.swift; sourceTree = "<group>"; };
+		36296E55AE0C9150AC8BB729 /* AddServerAuthSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerAuthSection.swift; sourceTree = "<group>"; };
 		381EB860DD822B532F60A2E4 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		38CC52AC1F19BBC544F8D872 /* DiagnosticsExportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsExportView.swift; sourceTree = "<group>"; };
+		39F14E3A78611D6EDB41479C /* SFTPBrowserEditState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserEditState.swift; sourceTree = "<group>"; };
 		3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkService.swift; sourceTree = "<group>"; };
-		A7E3F1B2C4D5968701020304 /* RustFFI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RustFFI.swift; sourceTree = "<group>"; };
+		403D0958371C1A8C3391BAA9 /* WorkstationTerminalSessionChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSessionChrome.swift; sourceTree = "<group>"; };
+		442AD4AADE13BA0E4204549B /* CredentialInputHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialInputHelpers.swift; sourceTree = "<group>"; };
+		4C055C50647B75B71C5C81DA /* AddServerSilentSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerSilentSync.swift; sourceTree = "<group>"; };
+		4C6CC3823E022872639B0219 /* SFTPDropUploadHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPDropUploadHandler.swift; sourceTree = "<group>"; };
 		4C9A8C3DE225D64B8E39E2BA /* DeepLinkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLinkManager.swift; sourceTree = "<group>"; };
+		4DF9DDD34658EA3851E06DC7 /* WorkstationTerminalSplitLayoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSplitLayoutView.swift; sourceTree = "<group>"; };
+		4F3A50B12C7EDA8BE4D4CF2F /* SFTPBrowserConnectionDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserConnectionDraft.swift; sourceTree = "<group>"; };
 		530F2F2B65A5D82BAE62ED55 /* SessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionManager.swift; sourceTree = "<group>"; };
+		56BF32292E4CB4F2E77CD669 /* AddServerInitialState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerInitialState.swift; sourceTree = "<group>"; };
+		56D3F03810DC065AADA6A2C2 /* SFTPManager+Transfers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+Transfers.swift"; sourceTree = "<group>"; };
+		5A37A7CD3B58D296A9E3AF54 /* DockerLogStreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerLogStreamView.swift; sourceTree = "<group>"; };
 		5B0DB0DE0CCDDA52D06A792C /* TelnetClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelnetClient.swift; sourceTree = "<group>"; };
+		61D05FDE086817AEB654082D /* RustFFI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RustFFI.swift; sourceTree = "<group>"; };
 		62574FF79DCC3A178EE8FDEC /* OrbitTerm.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OrbitTerm.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		62847EC28220849324529ECF /* TabBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabBarView.swift; sourceTree = "<group>"; };
+		690770EDC7E1AC93C9D9BDFD /* WorkstationTerminalSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSearchOverlay.swift; sourceTree = "<group>"; };
+		6D0958086BAEA5C2D32B4BA5 /* SFTPModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPModels.swift; sourceTree = "<group>"; };
+		6D30655BE66EE13549045BEF /* WorkstationStressController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationStressController.swift; sourceTree = "<group>"; };
 		7156371597A178C490DF8ABD /* DockerManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerManagerView.swift; sourceTree = "<group>"; };
+		745FBDA528F6B4F8EA9D4467 /* WorkstationSheetsAndAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationSheetsAndAlerts.swift; sourceTree = "<group>"; };
+		76AB95FB1E7D6619332A255A /* MobileSessionComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSessionComponents.swift; sourceTree = "<group>"; };
 		77D09730A51A26B9E686F253 /* SFTPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPManager.swift; sourceTree = "<group>"; };
-		B7E3F1B2C4D5968701020301 /* SFTPManager+Mock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+Mock.swift"; sourceTree = "<group>"; };
-		B7E3F1B2C4D5968701020302 /* SFTPModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPModels.swift; sourceTree = "<group>"; };
-		B7E3F1B2C4D5968701020307 /* SFTPBatchDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBatchDownloader.swift; sourceTree = "<group>"; };
-		B7E3F1B2C4D5968701020310 /* SFTPManager+FileOperations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+FileOperations.swift"; sourceTree = "<group>"; };
-		B7E3F1B2C4D5968701020313 /* SFTPManager+Transfers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+Transfers.swift"; sourceTree = "<group>"; };
-		B7E3F1B2C4D5968701020316 /* SFTPManager+Connection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+Connection.swift"; sourceTree = "<group>"; };
-		B7E3F1B2C4D5968701020319 /* SFTPManager+Directory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+Directory.swift"; sourceTree = "<group>"; };
 		78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterPasswordGateView.swift; sourceTree = "<group>"; };
 		79C98A67B69AA654CC5A6B77 /* DetachedSessionWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedSessionWindowView.swift; sourceTree = "<group>"; };
+		7B74BC2A072244011E0AF309 /* SFTPManager+Mock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+Mock.swift"; sourceTree = "<group>"; };
+		7DA03126726F8585CE9F3B82 /* AssetQuickKeySetupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetQuickKeySetupSheet.swift; sourceTree = "<group>"; };
+		7DAB223E842154D2614BEFDB /* MonitorPollingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorPollingPolicy.swift; sourceTree = "<group>"; };
 		82956A0F1C5D1E30A78D1E37 /* TerminalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalService.swift; sourceTree = "<group>"; };
+		836E09EB574862420A560409 /* SFTPManager+FileOperations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+FileOperations.swift"; sourceTree = "<group>"; };
+		83D32D4C054B4202BC9A24A0 /* WorkspaceSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSession.swift; sourceTree = "<group>"; };
 		841FF37C9A712E391D0B0781 /* WorkstationCollapsedFeatureRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationCollapsedFeatureRow.swift; sourceTree = "<group>"; };
 		8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitTermApp.swift; sourceTree = "<group>"; };
 		8B49A5D57724B8383BD06C96 /* DockerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerService.swift; sourceTree = "<group>"; };
 		91CF5B57FA41C8FB507E27B6 /* WorkstationLayoutMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationLayoutMetrics.swift; sourceTree = "<group>"; };
 		924DF400619ABD0FB4150133 /* BiometricAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricAuthService.swift; sourceTree = "<group>"; };
+		94CA85B4AEBF74F59E325CD1 /* DockerCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerCardView.swift; sourceTree = "<group>"; };
+		9575AA7E205CF09F7CE38E07 /* SFTPManager+Directory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+Directory.swift"; sourceTree = "<group>"; };
+		95D8066857521151FF1854B9 /* AddServerFormComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerFormComponents.swift; sourceTree = "<group>"; };
+		9714382A7905BD9F6A4EFD8A /* SFTPManager+Connection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+Connection.swift"; sourceTree = "<group>"; };
 		9727DF6BCB4A2DC3FFF9644E /* FileSizeFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSizeFormatter.swift; sourceTree = "<group>"; };
 		9A91FAC92F6EEB51AACE1DEB /* SnippetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetStore.swift; sourceTree = "<group>"; };
 		9BF8175E63892D99108F4789 /* WorkstationDockerCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationDockerCardView.swift; sourceTree = "<group>"; };
+		9CAC2E9B1546BFD66A6161FF /* WorkstationToolbarModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationToolbarModifier.swift; sourceTree = "<group>"; };
+		9E32A07BCF85C4A7E8EF7CDE /* SFTPBatchDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBatchDownloader.swift; sourceTree = "<group>"; };
 		9F14341CBA2F36F648BF5800 /* MonitorService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorService.swift; sourceTree = "<group>"; };
-		B8A100000000000000000042 /* MonitorStatsPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorStatsPayload.swift; sourceTree = "<group>"; };
-		B8A100000000000000000045 /* MonitorPollingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorPollingPolicy.swift; sourceTree = "<group>"; };
-		B8A100000000000000000048 /* MonitorTargetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorTargetStore.swift; sourceTree = "<group>"; };
 		A0599BB6B03494D8A6791ABA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A3DE23E2FB664A118F6B8646 /* WorkstationTerminalSessionPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSessionPane.swift; sourceTree = "<group>"; };
 		A622FE572935B57F21E6515A /* OrbitTerm.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = OrbitTerm.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A6F5A3407984B279EF080673 /* SFTPBrowserComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserComponents.swift; sourceTree = "<group>"; };
+		A780B78BD56BAD6B05BC3378 /* MonitorTargetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorTargetStore.swift; sourceTree = "<group>"; };
 		A8EC0F86958319CF2CAC049C /* WorkstationSnippetsCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationSnippetsCardView.swift; sourceTree = "<group>"; };
-		274E45B4B0BE1E3D047A0300 /* WorkstationRightPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationRightPanelView.swift; sourceTree = "<group>"; };
-		B8A100000000000000000001 /* WorkstationSheetsAndAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationSheetsAndAlerts.swift; sourceTree = "<group>"; };
-		B8A100000000000000000004 /* WorkstationStressController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationStressController.swift; sourceTree = "<group>"; };
-		B8A100000000000000000007 /* WorkstationTerminalSplitLayoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSplitLayoutView.swift; sourceTree = "<group>"; };
-		B8A10000000000000000000A /* WorkstationTerminalDropUploadModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalDropUploadModifier.swift; sourceTree = "<group>"; };
-		B8A10000000000000000000D /* WorkstationTerminalSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSearchOverlay.swift; sourceTree = "<group>"; };
-		B8A100000000000000000010 /* WorkstationTerminalToolbarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalToolbarView.swift; sourceTree = "<group>"; };
-		B8A100000000000000000013 /* WorkstationTerminalSessionChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSessionChrome.swift; sourceTree = "<group>"; };
-		B8A100000000000000000016 /* WorkstationToolbarModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationToolbarModifier.swift; sourceTree = "<group>"; };
-		B8A100000000000000000019 /* MobileSessionViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSessionViews.swift; sourceTree = "<group>"; };
-		B8A10000000000000000002A /* MobileSessionComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSessionComponents.swift; sourceTree = "<group>"; };
-		B8A10000000000000000002D /* SwiftTermPlatformSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftTermPlatformSupport.swift; sourceTree = "<group>"; };
-		B8A100000000000000000030 /* WorkspaceSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSession.swift; sourceTree = "<group>"; };
-		B8A100000000000000000033 /* ShellPathResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellPathResolver.swift; sourceTree = "<group>"; };
-		B8A100000000000000000036 /* CredentialInputHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialInputHelpers.swift; sourceTree = "<group>"; };
-		B8A100000000000000000039 /* SFTPBrowserPathHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserPathHelper.swift; sourceTree = "<group>"; };
-		B8A10000000000000000004B /* SFTPBatchOperationFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBatchOperationFormatter.swift; sourceTree = "<group>"; };
-		B8A10000000000000000004E /* SFTPBrowserEditState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserEditState.swift; sourceTree = "<group>"; };
-		B8A100000000000000000051 /* SFTPBrowserBatchState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserBatchState.swift; sourceTree = "<group>"; };
-		B8A100000000000000000054 /* SFTPBrowserConnectionDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserConnectionDraft.swift; sourceTree = "<group>"; };
-		B8A100000000000000000057 /* SFTPActivityShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPActivityShareSheet.swift; sourceTree = "<group>"; };
-		B8A10000000000000000005A /* SFTPDropUploadHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPDropUploadHandler.swift; sourceTree = "<group>"; };
-		B8A10000000000000000007E /* SFTPBrowserPanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserPanels.swift; sourceTree = "<group>"; };
-		B8A10000000000000000005D /* SnippetEditorDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetEditorDraft.swift; sourceTree = "<group>"; };
-		B8A100000000000000000060 /* SnippetVariablePrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetVariablePrompt.swift; sourceTree = "<group>"; };
-		B8A100000000000000000063 /* SnippetVariableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetVariableResolver.swift; sourceTree = "<group>"; };
-		B8A100000000000000000066 /* DockerCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerCardView.swift; sourceTree = "<group>"; };
-		B8A100000000000000000069 /* DockerLogStreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerLogStreamView.swift; sourceTree = "<group>"; };
-		B8A10000000000000000006C /* DockerManagerDrafts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerManagerDrafts.swift; sourceTree = "<group>"; };
-		B8A10000000000000000003C /* AddServerValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerValidation.swift; sourceTree = "<group>"; };
-		B8A10000000000000000003F /* AddServerDraftBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerDraftBuilder.swift; sourceTree = "<group>"; };
-		B8A10000000000000000001C /* AssetBulkAddSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetBulkAddSheet.swift; sourceTree = "<group>"; };
-		B8A10000000000000000001F /* AssetQuickKeySetupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetQuickKeySetupSheet.swift; sourceTree = "<group>"; };
-		B8A100000000000000000022 /* AddServerFormComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerFormComponents.swift; sourceTree = "<group>"; };
-		B8A10000000000000000006F /* AddServerAuthSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerAuthSection.swift; sourceTree = "<group>"; };
-		B8A100000000000000000072 /* AddServerKeyFileLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerKeyFileLoader.swift; sourceTree = "<group>"; };
-		B8A100000000000000000075 /* AddServerSilentSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerSilentSync.swift; sourceTree = "<group>"; };
-		B8A100000000000000000078 /* AddServerInitialState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerInitialState.swift; sourceTree = "<group>"; };
-		B8A10000000000000000007B /* AddServerConnectionTester.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerConnectionTester.swift; sourceTree = "<group>"; };
-		B8A100000000000000000025 /* SFTPBrowserComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserComponents.swift; sourceTree = "<group>"; };
+		AA7AD58C1A1CED310B6875EE /* SnippetVariableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetVariableResolver.swift; sourceTree = "<group>"; };
+		AB6B5AD58F8D1496F4973531 /* MonitorStatsPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorStatsPayload.swift; sourceTree = "<group>"; };
 		AED26C552B7072D2AAC4669F /* ServerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerStore.swift; sourceTree = "<group>"; };
 		B4D7532938F0DC9FF02B25D6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		B6DB68C1BB7FFE44287C2058 /* SFTPBrowserPathHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserPathHelper.swift; sourceTree = "<group>"; };
+		B73F5D9381F2705029E0D544 /* AddServerValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerValidation.swift; sourceTree = "<group>"; };
+		B97BFDF6F22DC746B3C1C6B0 /* AuthVisualComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthVisualComponents.swift; sourceTree = "<group>"; };
+		BA44539F264985D253A45D92 /* MobileSessionViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSessionViews.swift; sourceTree = "<group>"; };
 		BC35C4CE7198F143C318FB84 /* WorkstationAssetSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationAssetSidebarView.swift; sourceTree = "<group>"; };
 		C3E0EFB34CACD29FEB53B377 /* SyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncService.swift; sourceTree = "<group>"; };
-		B8A100000000000000000084 /* SyncQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncQueue.swift; sourceTree = "<group>"; };
 		C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+InputPolish.swift"; sourceTree = "<group>"; };
+		C8477779BBFFBE8F7C7B613F /* AddServerConnectionTester.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerConnectionTester.swift; sourceTree = "<group>"; };
 		CF0C018CC927BA3B0E42EE18 /* orbit_core.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = orbit_core.h; sourceTree = "<group>"; };
 		CF8482667CCEAB37877728A8 /* SFTPBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserView.swift; sourceTree = "<group>"; };
+		D39A4AEB90905AF3505A2948 /* SyncMetadataStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncMetadataStore.swift; sourceTree = "<group>"; };
+		D44C7BA4E8C0FF98A3D67ABC /* AssetBulkAddSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetBulkAddSheet.swift; sourceTree = "<group>"; };
+		D45567695C4B41D14FEEBBDA /* DockerManagerDrafts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerManagerDrafts.swift; sourceTree = "<group>"; };
 		DAFDE71AA1A69539BB2EA7CD /* SwiftTermTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftTermTerminalView.swift; sourceTree = "<group>"; };
+		DB25A1786CA7328B371EC1EA /* SnippetEditorDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetEditorDraft.swift; sourceTree = "<group>"; };
 		DEF1B8EB20CEE14349EB99A4 /* MonitorDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorDashboardView.swift; sourceTree = "<group>"; };
+		E0FAA4130AD937FDB99259DB /* SyncIdentityService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncIdentityService.swift; sourceTree = "<group>"; };
+		E248AF3D4742AFECB5DCCEEA /* SFTPBrowserBatchState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserBatchState.swift; sourceTree = "<group>"; };
+		E32DBAB1DC7E1D140A221B7E /* RecentlyDeletedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentlyDeletedView.swift; sourceTree = "<group>"; };
 		E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitManager.swift; sourceTree = "<group>"; };
 		E6BA478CCB76C4787B9E87D9 /* DiagnosticsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsManager.swift; sourceTree = "<group>"; };
+		E6F3F01CCF826615CB008047 /* WorkstationRightPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationRightPanelView.swift; sourceTree = "<group>"; };
 		EBF252B95C1A0A974038062E /* WorkstationSFTPDialogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationSFTPDialogs.swift; sourceTree = "<group>"; };
+		EC1301A8254D411A95E31A69 /* WorkstationTerminalToolbarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalToolbarView.swift; sourceTree = "<group>"; };
 		ED34A104EBBDBA17DC64A535 /* OrbitTerm-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "OrbitTerm-Bridging-Header.h"; sourceTree = "<group>"; };
 		EEA155A9F65638E6194ADA93 /* KeychainManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainManager.swift; sourceTree = "<group>"; };
+		F564909FA3819599A35DA95E /* ShellPathResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellPathResolver.swift; sourceTree = "<group>"; };
+		F75E6C28523DF8A209339F6B /* AddServerDraftBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerDraftBuilder.swift; sourceTree = "<group>"; };
 		FAA681CD5E929D54BAF59BA3 /* WorkstationSFTPCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationSFTPCardView.swift; sourceTree = "<group>"; };
+		FC0745CC8E9FCDB47926A280 /* SFTPBatchOperationFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBatchOperationFormatter.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -347,38 +356,40 @@
 			children = (
 				2DC29E7DEA20362E09F501D3 /* AppSession.swift */,
 				924DF400619ABD0FB4150133 /* BiometricAuthService.swift */,
+				442AD4AADE13BA0E4204549B /* CredentialInputHelpers.swift */,
 				190E90A490AB0BEFD1B5F1EA /* CredentialVault.swift */,
-				B8A100000000000000000036 /* CredentialInputHelpers.swift */,
 				4C9A8C3DE225D64B8E39E2BA /* DeepLinkManager.swift */,
 				E6BA478CCB76C4787B9E87D9 /* DiagnosticsManager.swift */,
 				8B49A5D57724B8383BD06C96 /* DockerService.swift */,
 				9727DF6BCB4A2DC3FFF9644E /* FileSizeFormatter.swift */,
 				EEA155A9F65638E6194ADA93 /* KeychainManager.swift */,
+				7DAB223E842154D2614BEFDB /* MonitorPollingPolicy.swift */,
 				9F14341CBA2F36F648BF5800 /* MonitorService.swift */,
-				B8A100000000000000000042 /* MonitorStatsPayload.swift */,
-				B8A100000000000000000045 /* MonitorPollingPolicy.swift */,
-				B8A100000000000000000048 /* MonitorTargetStore.swift */,
+				AB6B5AD58F8D1496F4973531 /* MonitorStatsPayload.swift */,
+				A780B78BD56BAD6B05BC3378 /* MonitorTargetStore.swift */,
 				3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */,
 				E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */,
-				A7E3F1B2C4D5968701020304 /* RustFFI.swift */,
+				61D05FDE086817AEB654082D /* RustFFI.swift */,
 				AED26C552B7072D2AAC4669F /* ServerStore.swift */,
 				530F2F2B65A5D82BAE62ED55 /* SessionManager.swift */,
-				B8A100000000000000000030 /* WorkspaceSession.swift */,
-				B8A100000000000000000033 /* ShellPathResolver.swift */,
+				9E32A07BCF85C4A7E8EF7CDE /* SFTPBatchDownloader.swift */,
 				77D09730A51A26B9E686F253 /* SFTPManager.swift */,
-				B7E3F1B2C4D5968701020307 /* SFTPBatchDownloader.swift */,
-				B7E3F1B2C4D5968701020316 /* SFTPManager+Connection.swift */,
-				B7E3F1B2C4D5968701020319 /* SFTPManager+Directory.swift */,
-				B7E3F1B2C4D5968701020310 /* SFTPManager+FileOperations.swift */,
-				B7E3F1B2C4D5968701020301 /* SFTPManager+Mock.swift */,
-				B7E3F1B2C4D5968701020302 /* SFTPModels.swift */,
-				B7E3F1B2C4D5968701020313 /* SFTPManager+Transfers.swift */,
+				9714382A7905BD9F6A4EFD8A /* SFTPManager+Connection.swift */,
+				9575AA7E205CF09F7CE38E07 /* SFTPManager+Directory.swift */,
+				836E09EB574862420A560409 /* SFTPManager+FileOperations.swift */,
+				7B74BC2A072244011E0AF309 /* SFTPManager+Mock.swift */,
+				56D3F03810DC065AADA6A2C2 /* SFTPManager+Transfers.swift */,
+				6D0958086BAEA5C2D32B4BA5 /* SFTPModels.swift */,
+				F564909FA3819599A35DA95E /* ShellPathResolver.swift */,
 				9A91FAC92F6EEB51AACE1DEB /* SnippetStore.swift */,
+				E0FAA4130AD937FDB99259DB /* SyncIdentityService.swift */,
+				D39A4AEB90905AF3505A2948 /* SyncMetadataStore.swift */,
+				33E248A5FD3DD7C8F896ECA2 /* SyncQueue.swift */,
 				C3E0EFB34CACD29FEB53B377 /* SyncService.swift */,
-				B8A100000000000000000084 /* SyncQueue.swift */,
 				5B0DB0DE0CCDDA52D06A792C /* TelnetClient.swift */,
 				82956A0F1C5D1E30A78D1E37 /* TerminalService.swift */,
 				C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */,
+				83D32D4C054B4202BC9A24A0 /* WorkspaceSession.swift */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -386,45 +397,46 @@
 		173BC5B3F73CD6F401A097AF /* Home */ = {
 			isa = PBXGroup;
 			children = (
+				36296E55AE0C9150AC8BB729 /* AddServerAuthSection.swift */,
+				C8477779BBFFBE8F7C7B613F /* AddServerConnectionTester.swift */,
+				F75E6C28523DF8A209339F6B /* AddServerDraftBuilder.swift */,
+				95D8066857521151FF1854B9 /* AddServerFormComponents.swift */,
+				56BF32292E4CB4F2E77CD669 /* AddServerInitialState.swift */,
+				1BE06A1C6F5FFBAFADD9A746 /* AddServerKeyFileLoader.swift */,
+				4C055C50647B75B71C5C81DA /* AddServerSilentSync.swift */,
+				B73F5D9381F2705029E0D544 /* AddServerValidation.swift */,
 				1BDEC92E6B4B8974125CB64A /* AddServerView.swift */,
-				B8A100000000000000000022 /* AddServerFormComponents.swift */,
-				B8A10000000000000000006F /* AddServerAuthSection.swift */,
-				B8A100000000000000000072 /* AddServerKeyFileLoader.swift */,
-				B8A100000000000000000075 /* AddServerSilentSync.swift */,
-				B8A100000000000000000078 /* AddServerInitialState.swift */,
-				B8A10000000000000000007B /* AddServerConnectionTester.swift */,
-				B8A10000000000000000003C /* AddServerValidation.swift */,
-				B8A10000000000000000003F /* AddServerDraftBuilder.swift */,
+				D44C7BA4E8C0FF98A3D67ABC /* AssetBulkAddSheet.swift */,
 				04FFDB29556DE5419BEB4E78 /* AssetManagerView.swift */,
-				B8A10000000000000000001C /* AssetBulkAddSheet.swift */,
-				B8A10000000000000000001F /* AssetQuickKeySetupSheet.swift */,
+				7DA03126726F8585CE9F3B82 /* AssetQuickKeySetupSheet.swift */,
 				23CDE6AF8E0550184AC99A12 /* BatchCommandRunnerView.swift */,
 				79C98A67B69AA654CC5A6B77 /* DetachedSessionWindowView.swift */,
 				38CC52AC1F19BBC544F8D872 /* DiagnosticsExportView.swift */,
+				94CA85B4AEBF74F59E325CD1 /* DockerCardView.swift */,
+				5A37A7CD3B58D296A9E3AF54 /* DockerLogStreamView.swift */,
+				D45567695C4B41D14FEEBBDA /* DockerManagerDrafts.swift */,
 				7156371597A178C490DF8ABD /* DockerManagerView.swift */,
-				B8A10000000000000000006C /* DockerManagerDrafts.swift */,
-				B8A100000000000000000066 /* DockerCardView.swift */,
-				B8A100000000000000000069 /* DockerLogStreamView.swift */,
 				16F52E3B6E83F077783BEC22 /* MainWorkstationView.swift */,
 				DEF1B8EB20CEE14349EB99A4 /* MonitorDashboardView.swift */,
+				E32DBAB1DC7E1D140A221B7E /* RecentlyDeletedView.swift */,
 				21BA8750BFF4212C103320E8 /* ServerListView.swift */,
 				10B229BED0B0F3176FF87E7A /* SettingsView.swift */,
+				17A8CF8B6134CC76C9376A2B /* SFTPActivityShareSheet.swift */,
+				FC0745CC8E9FCDB47926A280 /* SFTPBatchOperationFormatter.swift */,
+				E248AF3D4742AFECB5DCCEEA /* SFTPBrowserBatchState.swift */,
+				A6F5A3407984B279EF080673 /* SFTPBrowserComponents.swift */,
+				4F3A50B12C7EDA8BE4D4CF2F /* SFTPBrowserConnectionDraft.swift */,
+				39F14E3A78611D6EDB41479C /* SFTPBrowserEditState.swift */,
+				1C07F3CC8B2B8064ED317D63 /* SFTPBrowserPanels.swift */,
+				B6DB68C1BB7FFE44287C2058 /* SFTPBrowserPathHelper.swift */,
 				CF8482667CCEAB37877728A8 /* SFTPBrowserView.swift */,
-				B8A100000000000000000025 /* SFTPBrowserComponents.swift */,
-				B8A100000000000000000039 /* SFTPBrowserPathHelper.swift */,
-				B8A10000000000000000004B /* SFTPBatchOperationFormatter.swift */,
-				B8A10000000000000000004E /* SFTPBrowserEditState.swift */,
-				B8A100000000000000000051 /* SFTPBrowserBatchState.swift */,
-				B8A100000000000000000054 /* SFTPBrowserConnectionDraft.swift */,
-				B8A100000000000000000057 /* SFTPActivityShareSheet.swift */,
-				B8A10000000000000000005A /* SFTPDropUploadHandler.swift */,
-				B8A10000000000000000007E /* SFTPBrowserPanels.swift */,
+				4C6CC3823E022872639B0219 /* SFTPDropUploadHandler.swift */,
+				DB25A1786CA7328B371EC1EA /* SnippetEditorDraft.swift */,
 				1117F7A981D07A249B0CDBD7 /* SnippetsPanelView.swift */,
-				B8A10000000000000000005D /* SnippetEditorDraft.swift */,
-				B8A100000000000000000060 /* SnippetVariablePrompt.swift */,
-				B8A100000000000000000063 /* SnippetVariableResolver.swift */,
+				06259C5D1E3951CFFA6E3578 /* SnippetVariablePrompt.swift */,
+				AA7AD58C1A1CED310B6875EE /* SnippetVariableResolver.swift */,
+				2D7F211EB934A0D5BCE2885D /* SwiftTermPlatformSupport.swift */,
 				DAFDE71AA1A69539BB2EA7CD /* SwiftTermTerminalView.swift */,
-				B8A10000000000000000002D /* SwiftTermPlatformSupport.swift */,
 				62847EC28220849324529ECF /* TabBarView.swift */,
 				BC35C4CE7198F143C318FB84 /* WorkstationAssetSidebarView.swift */,
 				841FF37C9A712E391D0B0781 /* WorkstationCollapsedFeatureRow.swift */,
@@ -432,19 +444,19 @@
 				91CF5B57FA41C8FB507E27B6 /* WorkstationLayoutMetrics.swift */,
 				24CD1624F5A719FD6E790B98 /* WorkstationMonitorCardView.swift */,
 				0406A2602C8DCBFAD157B5E5 /* WorkstationMonitorDetailViews.swift */,
-				274E45B4B0BE1E3D047A0300 /* WorkstationRightPanelView.swift */,
-				B8A100000000000000000001 /* WorkstationSheetsAndAlerts.swift */,
-				B8A100000000000000000004 /* WorkstationStressController.swift */,
+				E6F3F01CCF826615CB008047 /* WorkstationRightPanelView.swift */,
 				FAA681CD5E929D54BAF59BA3 /* WorkstationSFTPCardView.swift */,
 				EBF252B95C1A0A974038062E /* WorkstationSFTPDialogs.swift */,
+				745FBDA528F6B4F8EA9D4467 /* WorkstationSheetsAndAlerts.swift */,
 				A8EC0F86958319CF2CAC049C /* WorkstationSnippetsCardView.swift */,
-				B8A100000000000000000007 /* WorkstationTerminalSplitLayoutView.swift */,
-				B8A10000000000000000000A /* WorkstationTerminalDropUploadModifier.swift */,
-				B8A10000000000000000000D /* WorkstationTerminalSearchOverlay.swift */,
-				B8A100000000000000000010 /* WorkstationTerminalToolbarView.swift */,
-				B8A100000000000000000013 /* WorkstationTerminalSessionChrome.swift */,
-				B8A100000000000000000016 /* WorkstationToolbarModifier.swift */,
+				6D30655BE66EE13549045BEF /* WorkstationStressController.swift */,
+				33EF6481439C305953E69B86 /* WorkstationTerminalDropUploadModifier.swift */,
+				690770EDC7E1AC93C9D9BDFD /* WorkstationTerminalSearchOverlay.swift */,
+				403D0958371C1A8C3391BAA9 /* WorkstationTerminalSessionChrome.swift */,
 				A3DE23E2FB664A118F6B8646 /* WorkstationTerminalSessionPane.swift */,
+				4DF9DDD34658EA3851E06DC7 /* WorkstationTerminalSplitLayoutView.swift */,
+				EC1301A8254D411A95E31A69 /* WorkstationTerminalToolbarView.swift */,
+				9CAC2E9B1546BFD66A6161FF /* WorkstationToolbarModifier.swift */,
 			);
 			path = Home;
 			sourceTree = "<group>";
@@ -487,9 +499,9 @@
 			isa = PBXGroup;
 			children = (
 				381EB860DD822B532F60A2E4 /* ContentView.swift */,
-				B8A100000000000000000019 /* MobileSessionViews.swift */,
-				B8A10000000000000000002A /* MobileSessionComponents.swift */,
 				B4D7532938F0DC9FF02B25D6 /* Info.plist */,
+				76AB95FB1E7D6619332A255A /* MobileSessionComponents.swift */,
+				BA44539F264985D253A45D92 /* MobileSessionViews.swift */,
 				8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */,
 			);
 			path = App;
@@ -499,7 +511,7 @@
 			isa = PBXGroup;
 			children = (
 				20EA2AC1C67C6744ECBB46BD /* AuthView.swift */,
-				B8A100000000000000000081 /* AuthVisualComponents.swift */,
+				B97BFDF6F22DC746B3C1C6B0 /* AuthVisualComponents.swift */,
 			);
 			path = Auth;
 			sourceTree = "<group>";
@@ -633,106 +645,109 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				39D1F66C52782101FE34D86C /* AddServerAuthSection.swift in Sources */,
+				E547884553C72C7C1E70F1BB /* AddServerConnectionTester.swift in Sources */,
+				DEE977D310E0D398E93B8869 /* AddServerDraftBuilder.swift in Sources */,
+				A382764DF687B24F8DD96D51 /* AddServerFormComponents.swift in Sources */,
+				E01BFDDB767B3D84B6D2D44E /* AddServerInitialState.swift in Sources */,
+				8D5B86FA0EB4B86477C13C5F /* AddServerKeyFileLoader.swift in Sources */,
+				D928E5B6B947E41A9108CB67 /* AddServerSilentSync.swift in Sources */,
+				C8BA9AE00EA7B0C10628037B /* AddServerValidation.swift in Sources */,
 				0AD79FEB4AD1DF5ABCA1FB30 /* AddServerView.swift in Sources */,
-				B8A100000000000000000023 /* AddServerFormComponents.swift in Sources */,
-				B8A10000000000000000006D /* AddServerAuthSection.swift in Sources */,
-				B8A100000000000000000070 /* AddServerKeyFileLoader.swift in Sources */,
-				B8A100000000000000000073 /* AddServerSilentSync.swift in Sources */,
-				B8A100000000000000000076 /* AddServerInitialState.swift in Sources */,
-				B8A100000000000000000079 /* AddServerConnectionTester.swift in Sources */,
-				B8A10000000000000000003A /* AddServerValidation.swift in Sources */,
-				B8A10000000000000000003D /* AddServerDraftBuilder.swift in Sources */,
 				84DCCEEBB105C8E4BB112AD3 /* AppSession.swift in Sources */,
+				84197C9C7ACC8F7111C415CD /* AssetBulkAddSheet.swift in Sources */,
 				FBAA1C6A14A37B5022F9D8CF /* AssetManagerView.swift in Sources */,
-				B8A10000000000000000001D /* AssetBulkAddSheet.swift in Sources */,
-				B8A100000000000000000020 /* AssetQuickKeySetupSheet.swift in Sources */,
+				058A678711CF9EA48DF7D86E /* AssetQuickKeySetupSheet.swift in Sources */,
 				2449C17F29FFCB7D459E7F14 /* AuthView.swift in Sources */,
-				B8A10000000000000000007F /* AuthVisualComponents.swift in Sources */,
+				19FBF035B680B9D5356F068A /* AuthVisualComponents.swift in Sources */,
 				7BCDEB379D2BCBD46813D516 /* BatchCommandRunnerView.swift in Sources */,
 				578F8F3554FEB1F83DF9B7CC /* BiometricAuthService.swift in Sources */,
 				EB18551F6941809822CC4368 /* ContentView.swift in Sources */,
-				B8A10000000000000000001A /* MobileSessionViews.swift in Sources */,
-				B8A100000000000000000028 /* MobileSessionComponents.swift in Sources */,
+				5F3DA2A0A7D40A78FDF1F64A /* CredentialInputHelpers.swift in Sources */,
 				9F34C0206362FA67CED289A3 /* CredentialVault.swift in Sources */,
 				95AA66DE4E5FB3134C135579 /* DeepLinkManager.swift in Sources */,
 				086D528ACD82CB8CA67C1584 /* DetachedSessionWindowView.swift in Sources */,
 				38806BB8055D8F7FD995F17D /* DiagnosticsExportView.swift in Sources */,
 				28AE8531E7ADB862080A2502 /* DiagnosticsManager.swift in Sources */,
+				29E092287DEB4689A02D04C9 /* DockerCardView.swift in Sources */,
+				4346DA2F2B1697DC5E6CDB4A /* DockerLogStreamView.swift in Sources */,
+				DDAB043B5B13726607DB0795 /* DockerManagerDrafts.swift in Sources */,
 				87B279A9934945274515773E /* DockerManagerView.swift in Sources */,
-				B8A10000000000000000006A /* DockerManagerDrafts.swift in Sources */,
-				B8A100000000000000000064 /* DockerCardView.swift in Sources */,
-				B8A100000000000000000067 /* DockerLogStreamView.swift in Sources */,
 				67536C13CA08E03FF3A12BA8 /* DockerService.swift in Sources */,
 				38D00146CCC257E6EDBA4582 /* FileSizeFormatter.swift in Sources */,
 				BBED422CCFC31B5F7D38D725 /* KeychainManager.swift in Sources */,
 				3712CAE59D7C18F9AEE8BF84 /* MainWorkstationView.swift in Sources */,
 				13D1330ECE0E17F6F27753EA /* MasterPasswordGateView.swift in Sources */,
+				B88E3B6E67571D388D356CFF /* MobileSessionComponents.swift in Sources */,
+				3BB412787D76B6A8436ED0DD /* MobileSessionViews.swift in Sources */,
 				690C05D5E1CAC7BCB13D8D3E /* MonitorDashboardView.swift in Sources */,
+				FCF23D982451D4A34FA66976 /* MonitorPollingPolicy.swift in Sources */,
 				3DBFDFBCF613C85F01A8B88D /* MonitorService.swift in Sources */,
-				B8A100000000000000000040 /* MonitorStatsPayload.swift in Sources */,
-				B8A100000000000000000043 /* MonitorPollingPolicy.swift in Sources */,
-				B8A100000000000000000046 /* MonitorTargetStore.swift in Sources */,
+				BB3CC25F517066968F068F48 /* MonitorStatsPayload.swift in Sources */,
+				674C91AC3FC66C978290E3C8 /* MonitorTargetStore.swift in Sources */,
 				7537219233F149DD96EE566D /* NetworkService.swift in Sources */,
 				8FB790CC339CDD3B1B2136B2 /* OrbitManager.swift in Sources */,
-				A7E3F1B2C4D5968701020305 /* RustFFI.swift in Sources */,
 				64F544A29C8DC4526D624C8F /* OrbitTermApp.swift in Sources */,
+				774AEC150F44DF342DFCC77F /* RecentlyDeletedView.swift in Sources */,
+				6599D89B9C262F7D2644455D /* RustFFI.swift in Sources */,
+				3D85D3A635000A45A703B805 /* SFTPActivityShareSheet.swift in Sources */,
+				05B3FCDA5DDEC076BAF0EDAC /* SFTPBatchDownloader.swift in Sources */,
+				2FEB079D8FFF4F50AE6F9850 /* SFTPBatchOperationFormatter.swift in Sources */,
+				ADE54CB34A97ED4840491315 /* SFTPBrowserBatchState.swift in Sources */,
+				CA7FC5FBC52AE3F94EFAD31C /* SFTPBrowserComponents.swift in Sources */,
+				A4E96BAB0642D955931A7C81 /* SFTPBrowserConnectionDraft.swift in Sources */,
+				9039C06E7D941ADA06A8C216 /* SFTPBrowserEditState.swift in Sources */,
+				11EC0289C3E003A8D96EF7EE /* SFTPBrowserPanels.swift in Sources */,
+				75C28C88306CE3B314FDC722 /* SFTPBrowserPathHelper.swift in Sources */,
 				3720F726734FDE2BA5EA3491 /* SFTPBrowserView.swift in Sources */,
-				B8A100000000000000000026 /* SFTPBrowserComponents.swift in Sources */,
-				B8A100000000000000000037 /* SFTPBrowserPathHelper.swift in Sources */,
-				B8A100000000000000000049 /* SFTPBatchOperationFormatter.swift in Sources */,
-				B8A10000000000000000004C /* SFTPBrowserEditState.swift in Sources */,
-				B8A10000000000000000004F /* SFTPBrowserBatchState.swift in Sources */,
-				B8A100000000000000000052 /* SFTPBrowserConnectionDraft.swift in Sources */,
-				B8A100000000000000000055 /* SFTPActivityShareSheet.swift in Sources */,
-				B8A100000000000000000058 /* SFTPDropUploadHandler.swift in Sources */,
-				B8A10000000000000000007C /* SFTPBrowserPanels.swift in Sources */,
+				E5BC038DD18BC0BCA94B00BB /* SFTPDropUploadHandler.swift in Sources */,
+				C4830A60642DB131712671DA /* SFTPManager+Connection.swift in Sources */,
+				7C666A92C422C5BFDF2054B0 /* SFTPManager+Directory.swift in Sources */,
+				BC59B601C33B8242F8EB7DEF /* SFTPManager+FileOperations.swift in Sources */,
+				4598DDE9919AD6E1B812E9BD /* SFTPManager+Mock.swift in Sources */,
+				3EFC8F882A170FAC6D81264D /* SFTPManager+Transfers.swift in Sources */,
 				58E2DD7AB605954D9FB0A998 /* SFTPManager.swift in Sources */,
-				B7E3F1B2C4D5968701020308 /* SFTPBatchDownloader.swift in Sources */,
-				B7E3F1B2C4D5968701020317 /* SFTPManager+Connection.swift in Sources */,
-				B7E3F1B2C4D5968701020320 /* SFTPManager+Directory.swift in Sources */,
-				B7E3F1B2C4D5968701020311 /* SFTPManager+FileOperations.swift in Sources */,
-				B7E3F1B2C4D5968701020303 /* SFTPManager+Mock.swift in Sources */,
-				B7E3F1B2C4D5968701020304 /* SFTPModels.swift in Sources */,
-				B7E3F1B2C4D5968701020314 /* SFTPManager+Transfers.swift in Sources */,
+				E1A78AF349D47238EEC489A9 /* SFTPModels.swift in Sources */,
 				014ADC98587FFEEED9146A77 /* ServerListView.swift in Sources */,
 				55782C4392B3436284F01CCA /* ServerStore.swift in Sources */,
 				5B4B0A4E7FD8556F5557BC7C /* SessionManager.swift in Sources */,
-				B8A10000000000000000002E /* WorkspaceSession.swift in Sources */,
-				B8A100000000000000000031 /* ShellPathResolver.swift in Sources */,
-				B8A100000000000000000034 /* CredentialInputHelpers.swift in Sources */,
 				3A17E58824BF9988E1AB1DBC /* SettingsView.swift in Sources */,
+				59E614D0EDD4019802F6F005 /* ShellPathResolver.swift in Sources */,
+				C8702A5799FF5E8FDC9B1096 /* SnippetEditorDraft.swift in Sources */,
 				B9B69373552C389EA0D991D7 /* SnippetStore.swift in Sources */,
+				5FE20A78A040BB814D22E3CE /* SnippetVariablePrompt.swift in Sources */,
+				440345A0676C5700FEA7DC7F /* SnippetVariableResolver.swift in Sources */,
 				FEEBE43BE00573E47EF35283 /* SnippetsPanelView.swift in Sources */,
-				B8A10000000000000000005B /* SnippetEditorDraft.swift in Sources */,
-				B8A10000000000000000005E /* SnippetVariablePrompt.swift in Sources */,
-				B8A100000000000000000061 /* SnippetVariableResolver.swift in Sources */,
+				28E672FDA0369A2F602203CA /* SwiftTermPlatformSupport.swift in Sources */,
 				7F996E7D9810AEABC9BE7BCA /* SwiftTermTerminalView.swift in Sources */,
-				B8A10000000000000000002B /* SwiftTermPlatformSupport.swift in Sources */,
+				0C85D9659374297F5DE445CB /* SyncIdentityService.swift in Sources */,
+				770A52F2023C7ED94E32F7D3 /* SyncMetadataStore.swift in Sources */,
+				AE07E73A7CFE5A5C07F11398 /* SyncQueue.swift in Sources */,
 				A39C5F36E325D6D11857435F /* SyncService.swift in Sources */,
-				B8A100000000000000000082 /* SyncQueue.swift in Sources */,
 				76E0101D1870FB15B265D176 /* TabBarView.swift in Sources */,
 				61BFC3FD1801C09266473767 /* TelnetClient.swift in Sources */,
 				37C9B427752B20DE73F01307 /* TerminalService.swift in Sources */,
 				5C144C6F938F96E9A34F819F /* View+InputPolish.swift in Sources */,
+				54E252A3965A4A30928B04B0 /* WorkspaceSession.swift in Sources */,
 				F120A962EA8C41B07A6E9457 /* WorkstationAssetSidebarView.swift in Sources */,
 				F9554E92C4614C8CFDC6F3BE /* WorkstationCollapsedFeatureRow.swift in Sources */,
 				DA03ABEB5754E7E8BC42E676 /* WorkstationDockerCardView.swift in Sources */,
 				166B59A8E24960CC5E398252 /* WorkstationLayoutMetrics.swift in Sources */,
 				128C9369AA7FAA7BDDC505FE /* WorkstationMonitorCardView.swift in Sources */,
 				5486AB2E26E30B6C331A4C1B /* WorkstationMonitorDetailViews.swift in Sources */,
-				274E45B4B0BE1E3D047A0301 /* WorkstationRightPanelView.swift in Sources */,
-				B8A100000000000000000002 /* WorkstationSheetsAndAlerts.swift in Sources */,
-				B8A100000000000000000005 /* WorkstationStressController.swift in Sources */,
+				90F267CF91AA19F60A366B2F /* WorkstationRightPanelView.swift in Sources */,
 				D6439AEECD4CACDF386120B4 /* WorkstationSFTPCardView.swift in Sources */,
 				E42A9A249C32B1E0FEF03732 /* WorkstationSFTPDialogs.swift in Sources */,
+				5DEFB6E623894B15CAD45DE4 /* WorkstationSheetsAndAlerts.swift in Sources */,
 				274A6C9E05F226D23980A92B /* WorkstationSnippetsCardView.swift in Sources */,
-				B8A100000000000000000008 /* WorkstationTerminalSplitLayoutView.swift in Sources */,
-				B8A10000000000000000000B /* WorkstationTerminalDropUploadModifier.swift in Sources */,
-				B8A10000000000000000000E /* WorkstationTerminalSearchOverlay.swift in Sources */,
-				B8A100000000000000000011 /* WorkstationTerminalToolbarView.swift in Sources */,
-				B8A100000000000000000014 /* WorkstationTerminalSessionChrome.swift in Sources */,
-				B8A100000000000000000017 /* WorkstationToolbarModifier.swift in Sources */,
+				B114D852A96AF3863DC6BB53 /* WorkstationStressController.swift in Sources */,
+				BBE08CBD8543F24F2E7FB832 /* WorkstationTerminalDropUploadModifier.swift in Sources */,
+				625724DE31C8A620A3E8175A /* WorkstationTerminalSearchOverlay.swift in Sources */,
+				DF4796C7D4DE570F330459AC /* WorkstationTerminalSessionChrome.swift in Sources */,
 				7F38D279C57A1E4693BDA47D /* WorkstationTerminalSessionPane.swift in Sources */,
+				551A5B136E5320E888F11ECE /* WorkstationTerminalSplitLayoutView.swift in Sources */,
+				A95C10C79E9AFFC37E80ED68 /* WorkstationTerminalToolbarView.swift in Sources */,
+				E94772C953A9212E9098872A /* WorkstationToolbarModifier.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -740,106 +755,109 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2D5178B315D93BEBDDCE09EC /* AddServerAuthSection.swift in Sources */,
+				18619758F4910BBBEF71E2D8 /* AddServerConnectionTester.swift in Sources */,
+				BF54983EE60094BC16369D96 /* AddServerDraftBuilder.swift in Sources */,
+				770AE109C5B32B014662ABFD /* AddServerFormComponents.swift in Sources */,
+				0B9BCB40607805D19D6ED5EA /* AddServerInitialState.swift in Sources */,
+				EB6965ECE971E76E4ACB41FA /* AddServerKeyFileLoader.swift in Sources */,
+				40815341261B60B3EA9B9D8F /* AddServerSilentSync.swift in Sources */,
+				5D96C914A888A7B30A93B1AF /* AddServerValidation.swift in Sources */,
 				E7907F3D7B64FC7DEF6CA09C /* AddServerView.swift in Sources */,
-				B8A100000000000000000024 /* AddServerFormComponents.swift in Sources */,
-				B8A10000000000000000006E /* AddServerAuthSection.swift in Sources */,
-				B8A100000000000000000071 /* AddServerKeyFileLoader.swift in Sources */,
-				B8A100000000000000000074 /* AddServerSilentSync.swift in Sources */,
-				B8A100000000000000000077 /* AddServerInitialState.swift in Sources */,
-				B8A10000000000000000007A /* AddServerConnectionTester.swift in Sources */,
-				B8A10000000000000000003B /* AddServerValidation.swift in Sources */,
-				B8A10000000000000000003E /* AddServerDraftBuilder.swift in Sources */,
 				791C864C97C94860BC072BA1 /* AppSession.swift in Sources */,
+				27DC72D02F0E02ACD1BE9ACA /* AssetBulkAddSheet.swift in Sources */,
 				79C11DB569DDBD8E23356C35 /* AssetManagerView.swift in Sources */,
-				B8A10000000000000000001E /* AssetBulkAddSheet.swift in Sources */,
-				B8A100000000000000000021 /* AssetQuickKeySetupSheet.swift in Sources */,
+				AA00F87908889CA084AD1D27 /* AssetQuickKeySetupSheet.swift in Sources */,
 				C3F661036F847112CA11C87D /* AuthView.swift in Sources */,
-				B8A100000000000000000080 /* AuthVisualComponents.swift in Sources */,
+				6AE49CE6629CA4016FC49098 /* AuthVisualComponents.swift in Sources */,
 				59DDA7271AFC11CD75C39606 /* BatchCommandRunnerView.swift in Sources */,
 				A6A86BCCFF5A1E9CF688B9A8 /* BiometricAuthService.swift in Sources */,
 				00D11168A4219FA8EC587704 /* ContentView.swift in Sources */,
-				B8A10000000000000000001B /* MobileSessionViews.swift in Sources */,
-				B8A100000000000000000029 /* MobileSessionComponents.swift in Sources */,
+				5CD76ACDD9BEF9D839843476 /* CredentialInputHelpers.swift in Sources */,
 				A11F4C91A92CC0D933C8ACE7 /* CredentialVault.swift in Sources */,
 				31895C1956E5C7C1F3A12F8F /* DeepLinkManager.swift in Sources */,
 				52FCAA84026D316FC64704FC /* DetachedSessionWindowView.swift in Sources */,
 				9B0F0B374F2C7C7BB4014906 /* DiagnosticsExportView.swift in Sources */,
 				9650F6C78AD055B8782127F0 /* DiagnosticsManager.swift in Sources */,
+				1FB003E1A580F946881EE5CD /* DockerCardView.swift in Sources */,
+				955DD5394B16994C1AAF58C3 /* DockerLogStreamView.swift in Sources */,
+				85C885B99FB84BE5EAAE9F91 /* DockerManagerDrafts.swift in Sources */,
 				BBF64F6A16727778986E2B24 /* DockerManagerView.swift in Sources */,
-				B8A10000000000000000006B /* DockerManagerDrafts.swift in Sources */,
-				B8A100000000000000000065 /* DockerCardView.swift in Sources */,
-				B8A100000000000000000068 /* DockerLogStreamView.swift in Sources */,
 				D73945F35D103F36900752C6 /* DockerService.swift in Sources */,
 				D7582594F04FB2E4C5812CCC /* FileSizeFormatter.swift in Sources */,
 				3AA24B2C0C58DB4864AFE901 /* KeychainManager.swift in Sources */,
 				AA180C68437B90DAC47E8B14 /* MainWorkstationView.swift in Sources */,
 				ECDE1ACDE1B1D6F7A0E078B5 /* MasterPasswordGateView.swift in Sources */,
+				072AA9B4694BD69D0887BDC3 /* MobileSessionComponents.swift in Sources */,
+				6E0107D6FA5E91F706B50D9C /* MobileSessionViews.swift in Sources */,
 				EFED4745678E56EB1D29BDEE /* MonitorDashboardView.swift in Sources */,
+				7B78C1ED8A77E79C38BA52EB /* MonitorPollingPolicy.swift in Sources */,
 				B809495F666036CEF46DA5F7 /* MonitorService.swift in Sources */,
-				B8A100000000000000000041 /* MonitorStatsPayload.swift in Sources */,
-				B8A100000000000000000044 /* MonitorPollingPolicy.swift in Sources */,
-				B8A100000000000000000047 /* MonitorTargetStore.swift in Sources */,
+				FD0C6A4F574BFACD94B54770 /* MonitorStatsPayload.swift in Sources */,
+				B76CC755BA5AA5EBBDA8C4CE /* MonitorTargetStore.swift in Sources */,
 				D32A2630B47540D9846461F9 /* NetworkService.swift in Sources */,
 				8835C97A39B6523BD90EA986 /* OrbitManager.swift in Sources */,
-				A7E3F1B2C4D5968701020306 /* RustFFI.swift in Sources */,
 				30964E866A545DA1A90499AD /* OrbitTermApp.swift in Sources */,
+				CFADA57AD98ECD0453997B3C /* RecentlyDeletedView.swift in Sources */,
+				B92B5BA15DD3A98E6CD8DDB6 /* RustFFI.swift in Sources */,
+				607FF897165AAB0B017E61AD /* SFTPActivityShareSheet.swift in Sources */,
+				A0155143734296B0E0EEC4BC /* SFTPBatchDownloader.swift in Sources */,
+				5B517D9960F3AE3AA540E5F4 /* SFTPBatchOperationFormatter.swift in Sources */,
+				C81D9C828DDD4151085FCA46 /* SFTPBrowserBatchState.swift in Sources */,
+				27A6180C2D81986BD90296A4 /* SFTPBrowserComponents.swift in Sources */,
+				C5FDED5ED408066B5AF7B2B8 /* SFTPBrowserConnectionDraft.swift in Sources */,
+				018ABE369CBC10D75F294011 /* SFTPBrowserEditState.swift in Sources */,
+				E4DF9ACCE808ED651E8B3001 /* SFTPBrowserPanels.swift in Sources */,
+				9E5D6D3C6FE8FBEE67FF0AC5 /* SFTPBrowserPathHelper.swift in Sources */,
 				85652ACC0968D7AF4EF480CD /* SFTPBrowserView.swift in Sources */,
-				B8A100000000000000000027 /* SFTPBrowserComponents.swift in Sources */,
-				B8A100000000000000000038 /* SFTPBrowserPathHelper.swift in Sources */,
-				B8A10000000000000000004A /* SFTPBatchOperationFormatter.swift in Sources */,
-				B8A10000000000000000004D /* SFTPBrowserEditState.swift in Sources */,
-				B8A100000000000000000050 /* SFTPBrowserBatchState.swift in Sources */,
-				B8A100000000000000000053 /* SFTPBrowserConnectionDraft.swift in Sources */,
-				B8A100000000000000000056 /* SFTPActivityShareSheet.swift in Sources */,
-				B8A100000000000000000059 /* SFTPDropUploadHandler.swift in Sources */,
-				B8A10000000000000000007D /* SFTPBrowserPanels.swift in Sources */,
+				897072BE16A29F4D4C9D8FE8 /* SFTPDropUploadHandler.swift in Sources */,
+				6D0C0DD0922BB61F67A79EBD /* SFTPManager+Connection.swift in Sources */,
+				B2DE4E30DE3E0471FC1A744B /* SFTPManager+Directory.swift in Sources */,
+				DEB806875F4B59BEDA97F491 /* SFTPManager+FileOperations.swift in Sources */,
+				5F5C346308A2F470DB40CF37 /* SFTPManager+Mock.swift in Sources */,
+				10C3468A6F2D0AE255954CD4 /* SFTPManager+Transfers.swift in Sources */,
 				B1547A01247E01C13B756C9E /* SFTPManager.swift in Sources */,
-				B7E3F1B2C4D5968701020309 /* SFTPBatchDownloader.swift in Sources */,
-				B7E3F1B2C4D5968701020318 /* SFTPManager+Connection.swift in Sources */,
-				B7E3F1B2C4D5968701020321 /* SFTPManager+Directory.swift in Sources */,
-				B7E3F1B2C4D5968701020312 /* SFTPManager+FileOperations.swift in Sources */,
-				B7E3F1B2C4D5968701020305 /* SFTPManager+Mock.swift in Sources */,
-				B7E3F1B2C4D5968701020306 /* SFTPModels.swift in Sources */,
-				B7E3F1B2C4D5968701020315 /* SFTPManager+Transfers.swift in Sources */,
+				D6E91B071A1ABA42713BA27C /* SFTPModels.swift in Sources */,
 				3410CEE4ED16A4BBDB851E8A /* ServerListView.swift in Sources */,
 				329B0B9F26D8939958B1425E /* ServerStore.swift in Sources */,
 				6952D2F9DB5485D20F9D799D /* SessionManager.swift in Sources */,
-				B8A10000000000000000002F /* WorkspaceSession.swift in Sources */,
-				B8A100000000000000000032 /* ShellPathResolver.swift in Sources */,
-				B8A100000000000000000035 /* CredentialInputHelpers.swift in Sources */,
 				4021421D690695D056F88B95 /* SettingsView.swift in Sources */,
+				AC7E6DC1B54D884076587405 /* ShellPathResolver.swift in Sources */,
+				AFCE34EB6491DF7C94EDB658 /* SnippetEditorDraft.swift in Sources */,
 				915DEF261D70D05F1E1A58CA /* SnippetStore.swift in Sources */,
+				ED01DBAB821181DB5AB5FA71 /* SnippetVariablePrompt.swift in Sources */,
+				71231D79008DB61E9CE40F61 /* SnippetVariableResolver.swift in Sources */,
 				AFF1D8B2C45D35B9B44C3285 /* SnippetsPanelView.swift in Sources */,
-				B8A10000000000000000005C /* SnippetEditorDraft.swift in Sources */,
-				B8A10000000000000000005F /* SnippetVariablePrompt.swift in Sources */,
-				B8A100000000000000000062 /* SnippetVariableResolver.swift in Sources */,
+				DBE8AE5DD2A5774DA24CB2D4 /* SwiftTermPlatformSupport.swift in Sources */,
 				390B44D1B24945CC4EBAB4C1 /* SwiftTermTerminalView.swift in Sources */,
-				B8A10000000000000000002C /* SwiftTermPlatformSupport.swift in Sources */,
+				A6FAF4E1A4CC4519CEBD9E38 /* SyncIdentityService.swift in Sources */,
+				0746A780CA9CCC691B347D4F /* SyncMetadataStore.swift in Sources */,
+				6DD9A2057FBD4F0745ECA5B1 /* SyncQueue.swift in Sources */,
 				8BDBD2BE0DADEEF7F7E2AAAF /* SyncService.swift in Sources */,
-				B8A100000000000000000083 /* SyncQueue.swift in Sources */,
 				25A69CC08E8B9F245C88948A /* TabBarView.swift in Sources */,
 				5317C2D57A549A07C99F2426 /* TelnetClient.swift in Sources */,
 				5640BE786C6F90A9FCC3203A /* TerminalService.swift in Sources */,
 				749429BFF654F1AB265411AF /* View+InputPolish.swift in Sources */,
+				0320B97B45B66026720898DB /* WorkspaceSession.swift in Sources */,
 				06B5A6A1C64180548A72FBF3 /* WorkstationAssetSidebarView.swift in Sources */,
 				9F1366E7205ADC8CF2850D1D /* WorkstationCollapsedFeatureRow.swift in Sources */,
 				CA301A189253FDCB70F0BB14 /* WorkstationDockerCardView.swift in Sources */,
 				528562FF18CF1DF45221B0E7 /* WorkstationLayoutMetrics.swift in Sources */,
 				875E84D50E1D56A200A5CBA1 /* WorkstationMonitorCardView.swift in Sources */,
 				96E09D4124DD6D872620222F /* WorkstationMonitorDetailViews.swift in Sources */,
-				AD8E1A9588059B0F0CE41021 /* WorkstationRightPanelView.swift in Sources */,
-				B8A100000000000000000003 /* WorkstationSheetsAndAlerts.swift in Sources */,
-				B8A100000000000000000006 /* WorkstationStressController.swift in Sources */,
+				E20BB97FDD367FD2FF6365ED /* WorkstationRightPanelView.swift in Sources */,
 				94B6DD52F6058B3F1B49B0BA /* WorkstationSFTPCardView.swift in Sources */,
 				79C01AB0151A55725DB45DC8 /* WorkstationSFTPDialogs.swift in Sources */,
+				F77C77AC2901981A7DDBE1E1 /* WorkstationSheetsAndAlerts.swift in Sources */,
 				AD6D297C9DE3F41779D516C6 /* WorkstationSnippetsCardView.swift in Sources */,
-				B8A100000000000000000009 /* WorkstationTerminalSplitLayoutView.swift in Sources */,
-				B8A10000000000000000000C /* WorkstationTerminalDropUploadModifier.swift in Sources */,
-				B8A10000000000000000000F /* WorkstationTerminalSearchOverlay.swift in Sources */,
-				B8A100000000000000000012 /* WorkstationTerminalToolbarView.swift in Sources */,
-				B8A100000000000000000015 /* WorkstationTerminalSessionChrome.swift in Sources */,
-				B8A100000000000000000018 /* WorkstationToolbarModifier.swift in Sources */,
+				B8AFE98151D00C5D8BEA9A70 /* WorkstationStressController.swift in Sources */,
+				84289195393271759EB77452 /* WorkstationTerminalDropUploadModifier.swift in Sources */,
+				691B81D09F252A6137CFED7A /* WorkstationTerminalSearchOverlay.swift in Sources */,
+				9C306E0D4D6C0E6AAD0063D3 /* WorkstationTerminalSessionChrome.swift in Sources */,
 				B04BBC89E70A62AAF9095CEA /* WorkstationTerminalSessionPane.swift in Sources */,
+				6608879835CA152C64A6758A /* WorkstationTerminalSplitLayoutView.swift in Sources */,
+				A71E613C556C660348BF8795 /* WorkstationTerminalToolbarView.swift in Sources */,
+				4D8E8455AF03DE1A4A42911A /* WorkstationToolbarModifier.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

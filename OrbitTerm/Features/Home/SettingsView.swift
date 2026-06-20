@@ -156,9 +156,15 @@ struct SettingsView: View {
                         _ = await syncService.pullAndApplyConfigs(
                             token: token,
                             masterPassword: masterPassword,
-                            store: ServerStore.shared
+                            store: ServerStore.shared,
+                            accountID: session.username
                         )
                     }
+                }
+                NavigationLink {
+                    RecentlyDeletedView()
+                } label: {
+                    Label("最近删除", systemImage: "trash")
                 }
             }
 

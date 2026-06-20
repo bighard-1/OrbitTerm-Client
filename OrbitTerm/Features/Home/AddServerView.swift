@@ -1,6 +1,12 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+private struct DeletedIdentityMatch: Identifiable {
+    let id = UUID()
+    let assetID: UUID
+    let draft: AddServerDraft
+}
+
 struct AddServerView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var session: AppSession
@@ -39,6 +45,8 @@ struct AddServerView: View {
     @State private var testTimeoutSec = 8
     @State private var didLoadEditingServer = false
     @State private var didApplyPrefill = false
+    @State private var deletedIdentityMatch: DeletedIdentityMatch?
+    @State private var saveErrorMessage: String?
 
     private let vault = CredentialVault.shared
 
@@ -184,6 +192,36 @@ struct AddServerView: View {
         ) { result in
             handleKeyFileImport(result)
         }
+        .confirmationDialog(
+            "发现最近删除中的相同连接",
+            isPresented: Binding(
+                get: { deletedIdentityMatch != nil },
+                set: { if !$0 { deletedIdentityMatch = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("恢复原资产") {
+                guard let match = deletedIdentityMatch else { return }
+                deletedIdentityMatch = nil
+                Task { await restoreMatchedAsset(match) }
+            }
+            Button("作为新资产添加") {
+                guard let match = deletedIdentityMatch else { return }
+                deletedIdentityMatch = nil
+                finalizeSave(match.draft)
+            }
+            Button("取消", role: .cancel) { deletedIdentityMatch = nil }
+        } message: {
+            Text("该协议、主机、端口和用户名与最近删除中的资产一致。恢复可保留原资产身份；新建会生成独立资产。")
+        }
+        .alert("保存失败", isPresented: Binding(
+            get: { saveErrorMessage != nil },
+            set: { if !$0 { saveErrorMessage = nil } }
+        )) {
+            Button("知道了", role: .cancel) { saveErrorMessage = nil }
+        } message: {
+            Text(saveErrorMessage ?? "未知错误")
+        }
     }
 
     private func handleTransportChange(_ newValue: ServerTransportProtocol) {
@@ -322,20 +360,94 @@ struct AddServerView: View {
         defer { isSaving = false }
 
         let draft = AddServerDraftBuilder.build(from: draftInput)
-        let server = draft.server
-        let credentials = draft.credentials
+        if editingServer == nil, let deletedAssetID = await matchingDeletedAssetID(for: draft) {
+            deletedIdentityMatch = DeletedIdentityMatch(assetID: deletedAssetID, draft: draft)
+            return
+        }
+        finalizeSave(draft)
+    }
 
-        store.addOrUpdate(server, credentials: credentials)
-        onSaveAndConnect(server)
+    private func finalizeSave(_ draft: AddServerDraft) {
+        store.addOrUpdate(draft.server, credentials: draft.credentials)
+        onSaveAndConnect(draft.server)
 
         let token = session.readToken()
         let masterPassword = session.readMasterPassword()
+        let accountID = session.username
 
         dismiss()
         session.showTransientStatus("已保存并连接")
 
         Task(priority: .background) {
-            await silentSync(server, credentials: credentials, token: token, masterPassword: masterPassword)
+            await silentSync(
+                draft.server,
+                credentials: draft.credentials,
+                token: token,
+                masterPassword: masterPassword,
+                accountID: accountID
+            )
+        }
+    }
+
+    private func matchingDeletedAssetID(for draft: AddServerDraft) async -> UUID? {
+        guard session.isAuthenticated,
+              let masterPassword = session.readMasterPassword() else { return nil }
+        do {
+            let portable = draft.server.makePortableConfig(
+                savedAtUnix: Int(Date().timeIntervalSince1970),
+                credentials: draft.credentials
+            )
+            let fingerprint = try await SyncIdentityService.fingerprint(
+                portable: portable,
+                accountID: session.username,
+                masterPassword: masterPassword
+            )
+            let matches = try await NetworkService.shared.findIdentityMatches(fingerprint: fingerprint)
+            return matches.items.first(where: { $0.state == "deleted" }).flatMap {
+                UUID(uuidString: $0.asset_id)
+            }
+        } catch {
+            // 身份预检只用于改善冲突体验，失败时不得破坏离线优先的本地保存。
+            return nil
+        }
+    }
+
+    @MainActor
+    private func restoreMatchedAsset(_ match: DeletedIdentityMatch) async {
+        guard let masterPassword = session.readMasterPassword() else {
+            saveErrorMessage = "主密码不可用，请重新解锁后再恢复"
+            return
+        }
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            let trash = try await syncService.loadRecentlyDeleted(
+                masterPassword: masterPassword,
+                accountID: session.username
+            )
+            guard let item = trash.first(where: { $0.assetID == match.assetID }) else {
+                saveErrorMessage = "原资产已不在最近删除中，可选择作为新资产添加"
+                return
+            }
+            let outcome = try await syncService.restoreRecentlyDeleted(
+                item,
+                store: store,
+                accountID: session.username
+            )
+            switch outcome {
+            case .completed:
+                guard let restored = store.servers.first(where: { $0.id == match.assetID }) else {
+                    saveErrorMessage = "云端已恢复，正在等待本地同步"
+                    return
+                }
+                onSaveAndConnect(restored)
+                session.showTransientStatus("已恢复并连接原资产")
+                dismiss()
+            case .queued:
+                session.showTransientStatus("恢复任务已排队，联网后自动完成")
+            }
+        } catch {
+            saveErrorMessage = error.localizedDescription
         }
     }
 
@@ -371,12 +483,19 @@ struct AddServerView: View {
         applyInitialState(AddServerInitialState.prefill(prefill))
     }
 
-    private func silentSync(_ server: ServerEntry, credentials: ServerCredentials, token: String?, masterPassword: String?) async {
+    private func silentSync(
+        _ server: ServerEntry,
+        credentials: ServerCredentials,
+        token: String?,
+        masterPassword: String?,
+        accountID: String
+    ) async {
         if let message = await AddServerSilentSync.uploadStatusMessage(
             server: server,
             credentials: credentials,
             token: token,
             masterPassword: masterPassword,
+            accountID: accountID,
             syncService: syncService
         ) {
             session.showTransientStatus(message)

@@ -178,6 +178,66 @@ final class NetworkService: NSObject {
         )
     }
 
+    func pullConfigChanges(cursor: UInt64, limit: Int = 100) async throws -> SyncPullData {
+        try await sendAuthorizedWithoutBody(
+            path: "/api/v1/config/sync/pull?cursor=\(cursor)&limit=\(min(max(limit, 1), 500))",
+            method: "GET",
+            responseType: SyncPullData.self
+        )
+    }
+
+    func acknowledgeConfigSync(_ request: SyncAcknowledgementRequest) async throws {
+        _ = try await sendAuthorized(
+            path: "/api/v1/config/sync/ack",
+            method: "POST",
+            body: request,
+            responseType: SyncAcknowledgementData.self
+        )
+    }
+
+    func moveAssetToTrash(assetID: UUID, request: AssetMutationRequest) async throws -> UploadConfigData {
+        try await sendAuthorized(
+            path: "/api/v1/config/assets/\(assetID.uuidString)/delete",
+            method: "POST",
+            body: request,
+            responseType: UploadConfigData.self
+        )
+    }
+
+    func restoreAsset(assetID: UUID, request: AssetMutationRequest) async throws -> UploadConfigData {
+        try await sendAuthorized(
+            path: "/api/v1/config/assets/\(assetID.uuidString)/restore",
+            method: "POST",
+            body: request,
+            responseType: UploadConfigData.self
+        )
+    }
+
+    func purgeAsset(assetID: UUID, request: AssetMutationRequest) async throws -> UploadConfigData {
+        try await sendAuthorized(
+            path: "/api/v1/config/assets/\(assetID.uuidString)/purge",
+            method: "POST",
+            body: request,
+            responseType: UploadConfigData.self
+        )
+    }
+
+    func pullTrash(limit: Int = 100, offset: Int = 0) async throws -> TrashConfigData {
+        try await sendAuthorizedWithoutBody(
+            path: "/api/v1/config/trash?limit=\(min(max(limit, 1), 500))&offset=\(max(offset, 0))",
+            method: "GET",
+            responseType: TrashConfigData.self
+        )
+    }
+
+    func findIdentityMatches(fingerprint: String) async throws -> IdentityMatchData {
+        try await sendAuthorizedWithoutBody(
+            path: "/api/v1/config/identity-match?fingerprint=\(fingerprint)",
+            method: "GET",
+            responseType: IdentityMatchData.self
+        )
+    }
+
     private func sendAuthorized<Req: Encodable, Resp: Decodable>(
         path: String,
         method: String,
@@ -544,8 +604,24 @@ struct RefreshRequest: Encodable {
 
 struct UploadConfigRequest: Codable {
     let id: UInt?
+    let asset_id: String?
+    let identity_fingerprint: String?
     let encrypted_blob_base64: String
     let vector_clock: String
+
+    init(
+        id: UInt?,
+        encrypted_blob_base64: String,
+        vector_clock: String,
+        asset_id: String? = nil,
+        identity_fingerprint: String? = nil
+    ) {
+        self.id = id
+        self.asset_id = asset_id
+        self.identity_fingerprint = identity_fingerprint
+        self.encrypted_blob_base64 = encrypted_blob_base64
+        self.vector_clock = vector_clock
+    }
 }
 
 struct APIEnvelope<T: Decodable>: Decodable {
@@ -582,13 +658,74 @@ struct LoginData: Decodable {
 struct UploadConfigData: Decodable {
     let id: UInt
     let user_id: UInt
+    let asset_id: String?
+    let identity_fingerprint: String?
     let encrypted_blob_base64: String
     let vector_clock: String
+    let state: String?
+    let deleted_at: String?
+    let purge_after: String?
+    let deleted_by_device_id: String?
+    let last_operation_id: String?
+    let server_revision: UInt64?
     let updated_at: String
 }
 
 struct PullConfigData: Decodable {
     let items: [UploadConfigData]
+}
+
+struct SyncPullData: Decodable {
+    let items: [UploadConfigData]
+    let next_cursor: UInt64
+    let has_more: Bool
+    let reset_required: Bool
+}
+
+struct TrashConfigData: Decodable {
+    let items: [UploadConfigData]
+    let total: Int
+    let limit: Int
+    let offset: Int
+}
+
+struct AssetMutationRequest: Codable {
+    let device_id: String
+    let operation_id: String
+    let vector_clock: String
+    let confirmation: String?
+
+    init(deviceID: UUID, operationID: UUID = UUID(), vectorClock: String, confirmation: String? = nil) {
+        device_id = deviceID.uuidString
+        operation_id = operationID.uuidString
+        vector_clock = vectorClock
+        self.confirmation = confirmation
+    }
+}
+
+struct SyncAcknowledgementRequest: Encodable {
+    let device_id: String
+    let revision: UInt64
+    let platform: String
+    let client_version: String
+}
+
+struct SyncAcknowledgementData: Decodable {
+    let acknowledged_revision: UInt64
+}
+
+struct IdentityMatchData: Decodable {
+    let items: [IdentityMatchItem]
+}
+
+struct IdentityMatchItem: Decodable, Identifiable {
+    let asset_id: String
+    let state: String
+    let deleted_at: String?
+    let purge_after: String?
+    let server_revision: UInt64
+
+    var id: String { asset_id }
 }
 
 actor RefreshCoordinator {

@@ -510,6 +510,21 @@ final class ServerStore: ObservableObject {
         persist()
     }
 
+    /// 应用云端墓碑，不重复生成本地删除操作，避免形成删除回环。
+    func applyRemoteDeletion(_ id: UUID) {
+        guard let removed = servers.first(where: { $0.id == id }) else {
+            DeletedServerRegistry.shared.clear(id)
+            return
+        }
+        servers.removeAll { $0.id == id }
+        if selectedServerID == id {
+            selectedServerID = servers.first?.id
+        }
+        try? vault.delete(for: removed.credentialID)
+        DeletedServerRegistry.shared.clear(id)
+        persist()
+    }
+
     func renameGroup(from oldName: String, to newName: String) {
         let trimmedNew = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedNew.isEmpty else { return }

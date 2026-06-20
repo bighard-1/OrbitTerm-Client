@@ -287,7 +287,9 @@ struct ServerListView: View {
         let token = session.readToken()
         let masterPassword = session.readMasterPassword()
         Task(priority: .background) {
-            await syncService.deleteRemoteConfigs(for: servers, token: token, masterPassword: masterPassword)
+            await syncService.deleteRemoteConfigs(
+                for: servers, token: token, masterPassword: masterPassword, accountID: session.username
+            )
         }
     }
 

@@ -123,6 +123,7 @@ struct ContentView: View {
                 token: token,
                 masterPassword: masterPassword,
                 store: serverStore,
+                accountID: session.username,
                 incremental: true,
                 silentStart: true
             )

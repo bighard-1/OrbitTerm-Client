@@ -355,7 +355,11 @@ struct MobileMoreView: View {
         .listStyle(.insetGrouped)
         .navigationTitle("更多")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showSettings) { SettingsView() }
+        .sheet(isPresented: $showSettings) {
+            NavigationStack {
+                SettingsView()
+            }
+        }
     }
 }
 #endif

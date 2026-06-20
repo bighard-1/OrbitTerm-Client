@@ -6,6 +6,7 @@ enum AddServerSilentSync {
         credentials: ServerCredentials,
         token: String?,
         masterPassword: String?,
+        accountID: String,
         syncService: SyncService,
         now: Date = Date()
     ) async -> String? {
@@ -26,6 +27,7 @@ enum AddServerSilentSync {
         let ok = await syncService.uploadEncryptedConfig(
             token: token,
             masterPassword: masterPassword,
+            accountID: accountID,
             plaintextConfig: plaintext,
             vectorClock: ["client": timestamp],
             allowQueueOnNetworkFailure: true

@@ -323,6 +323,7 @@ struct QuickKeySetupSheet: View {
         _ = await syncService.uploadEncryptedConfig(
             token: token,
             masterPassword: masterPassword,
+            accountID: session.username,
             plaintextConfig: plain,
             vectorClock: ["client": Int(Date().timeIntervalSince1970)],
             allowQueueOnNetworkFailure: true
