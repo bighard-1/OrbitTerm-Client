@@ -10,6 +10,36 @@ use crate::{
     OrbitCoreError, CONNECTION_EVENT_CALLBACK, ORBIT_RUNTIME, TERMINAL_DATA_CALLBACK,
 };
 
+struct ConnectionArguments {
+    ip: String,
+    port: u16,
+    username: String,
+    password: String,
+    private_key_content: String,
+    private_key_passphrase: String,
+    allow_password_fallback: bool,
+}
+
+fn parse_connection_arguments(
+    ip: *const c_char,
+    port: i32,
+    username: *const c_char,
+    password: *const c_char,
+    private_key_content: *const c_char,
+    private_key_passphrase: *const c_char,
+    allow_password_fallback: i32,
+) -> Result<ConnectionArguments, OrbitCoreError> {
+    Ok(ConnectionArguments {
+        ip: c_ptr_to_string(ip)?,
+        port: normalize_port(port)?,
+        username: c_ptr_to_string(username)?,
+        password: c_ptr_to_string(password)?,
+        private_key_content: c_ptr_to_string(private_key_content)?,
+        private_key_passphrase: c_ptr_to_string(private_key_passphrase)?,
+        allow_password_fallback: allow_password_fallback != 0,
+    })
+}
+
 #[no_mangle]
 pub extern "C" fn orbit_test_ssh_connection(
     ip: *const c_char,
@@ -20,39 +50,27 @@ pub extern "C" fn orbit_test_ssh_connection(
     private_key_passphrase: *const c_char,
     allow_password_fallback: i32,
 ) -> *mut c_char {
-    let ip = match c_ptr_to_string(ip) {
-        Ok(v) => v,
-        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
-    };
-    let username = match c_ptr_to_string(username) {
-        Ok(v) => v,
-        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
-    };
-    let password = match c_ptr_to_string(password) {
-        Ok(v) => v,
-        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
-    };
-    let private_key_content = match c_ptr_to_string(private_key_content) {
-        Ok(v) => v,
-        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
-    };
-    let private_key_passphrase = match c_ptr_to_string(private_key_passphrase) {
-        Ok(v) => v,
-        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
-    };
-    let port = match normalize_port(port) {
-        Ok(v) => v,
-        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
-    };
-
-    let result = ORBIT_RUNTIME.block_on(test_ssh_connection(
+    let args = match parse_connection_arguments(
         ip,
         port,
         username,
         password,
         private_key_content,
         private_key_passphrase,
-        allow_password_fallback != 0,
+        allow_password_fallback,
+    ) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+
+    let result = ORBIT_RUNTIME.block_on(test_ssh_connection(
+        args.ip,
+        args.port,
+        args.username,
+        args.password,
+        args.private_key_content,
+        args.private_key_passphrase,
+        args.allow_password_fallback,
     ));
     match result {
         Ok(msg) => to_c_string_ptr(format!("OK:{}", msg)),
@@ -70,39 +88,27 @@ pub extern "C" fn orbit_ssh_connect(
     private_key_passphrase: *const c_char,
     allow_password_fallback: i32,
 ) -> *mut c_char {
-    let ip = match c_ptr_to_string(ip) {
-        Ok(v) => v,
-        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
-    };
-    let username = match c_ptr_to_string(username) {
-        Ok(v) => v,
-        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
-    };
-    let password = match c_ptr_to_string(password) {
-        Ok(v) => v,
-        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
-    };
-    let private_key_content = match c_ptr_to_string(private_key_content) {
-        Ok(v) => v,
-        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
-    };
-    let private_key_passphrase = match c_ptr_to_string(private_key_passphrase) {
-        Ok(v) => v,
-        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
-    };
-    let port = match normalize_port(port) {
+    let args = match parse_connection_arguments(
+        ip,
+        port,
+        username,
+        password,
+        private_key_content,
+        private_key_passphrase,
+        allow_password_fallback,
+    ) {
         Ok(v) => v,
         Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
     };
 
     let result = ORBIT_RUNTIME.block_on(session_pool::get_or_create_base_session(
-        &ip,
-        port,
-        &username,
-        &password,
-        &private_key_content,
-        &private_key_passphrase,
-        allow_password_fallback != 0,
+        &args.ip,
+        args.port,
+        &args.username,
+        &args.password,
+        &args.private_key_content,
+        &args.private_key_passphrase,
+        args.allow_password_fallback,
     ));
     match result {
         Ok(base) => to_c_string_ptr(format!("OK:session:{}", base.id)),
@@ -120,39 +126,27 @@ pub extern "C" fn orbit_sftp_connect(
     private_key_passphrase: *const c_char,
     allow_password_fallback: i32,
 ) -> *mut c_char {
-    let ip = match c_ptr_to_string(ip) {
-        Ok(v) => v,
-        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
-    };
-    let username = match c_ptr_to_string(username) {
-        Ok(v) => v,
-        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
-    };
-    let password = match c_ptr_to_string(password) {
-        Ok(v) => v,
-        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
-    };
-    let private_key_content = match c_ptr_to_string(private_key_content) {
-        Ok(v) => v,
-        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
-    };
-    let private_key_passphrase = match c_ptr_to_string(private_key_passphrase) {
-        Ok(v) => v,
-        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
-    };
-    let port = match normalize_port(port) {
-        Ok(v) => v,
-        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
-    };
-
-    let result = ORBIT_RUNTIME.block_on(sftp_connect(
+    let args = match parse_connection_arguments(
         ip,
         port,
         username,
         password,
         private_key_content,
         private_key_passphrase,
-        allow_password_fallback != 0,
+        allow_password_fallback,
+    ) {
+        Ok(v) => v,
+        Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
+    };
+
+    let result = ORBIT_RUNTIME.block_on(sftp_connect(
+        args.ip,
+        args.port,
+        args.username,
+        args.password,
+        args.private_key_content,
+        args.private_key_passphrase,
+        args.allow_password_fallback,
     ));
     match result {
         Ok(session_id) => to_c_string_ptr(format!("OK:{}", session_id)),
@@ -543,5 +537,23 @@ pub extern "C" fn orbit_free_string(s: *mut c_char) {
     }
     unsafe {
         let _ = CString::from_raw(s);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_port;
+
+    #[test]
+    fn normalizes_valid_ports() {
+        assert_eq!(normalize_port(1).expect("minimum port"), 1);
+        assert_eq!(normalize_port(65_535).expect("maximum port"), 65_535);
+    }
+
+    #[test]
+    fn rejects_out_of_range_ports() {
+        assert!(normalize_port(0).is_err());
+        assert!(normalize_port(65_536).is_err());
+        assert!(normalize_port(-1).is_err());
     }
 }

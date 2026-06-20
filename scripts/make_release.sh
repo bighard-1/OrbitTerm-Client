@@ -38,15 +38,7 @@ echo "[2/8] 生成 Xcode 工程并锁定版本..."
 xcodegen generate >/dev/null
 
 echo "[3/8] 构建 Rust 核心库..."
-cd orbit-core
-rustup target add aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim >/dev/null
-cargo build --target aarch64-apple-darwin >/dev/null
-cargo build --release --target aarch64-apple-darwin >/dev/null
-cargo build --target aarch64-apple-ios >/dev/null
-cargo build --release --target aarch64-apple-ios >/dev/null
-cargo build --target aarch64-apple-ios-sim >/dev/null
-cargo build --release --target aarch64-apple-ios-sim >/dev/null
-cd "$ROOT_DIR"
+./scripts/build_apple_core.sh
 
 echo "[4/8] 归档 macOS..."
 xcodebuild \

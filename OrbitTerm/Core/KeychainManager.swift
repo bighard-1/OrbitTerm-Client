@@ -26,57 +26,14 @@ final class KeychainManager {
         guard let data = value.data(using: .utf8) else {
             throw KeychainError.invalidData
         }
-
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account
-        ]
-
-        let attributes: [String: Any] = [
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        ]
-
-        let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-        if updateStatus == errSecSuccess {
-            return
-        }
-
-        if updateStatus == errSecItemNotFound {
-            var addQuery = query
-            addQuery[kSecValueData as String] = data
-            addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-
-            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-            guard addStatus == errSecSuccess else {
-                throw KeychainError.unhandled(addStatus)
-            }
-            return
-        }
-
-        throw KeychainError.unhandled(updateStatus)
+        try KeychainDataStore.save(data, service: service, account: account)
     }
 
     func readString(service: String, account: String) throws -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound {
+        guard let data = try KeychainDataStore.read(service: service, account: account) else {
             return nil
         }
-        guard status == errSecSuccess else {
-            throw KeychainError.unhandled(status)
-        }
-
-        guard let data = result as? Data,
+        guard
               let value = String(data: data, encoding: .utf8) else {
             throw KeychainError.invalidData
         }
@@ -84,16 +41,6 @@ final class KeychainManager {
     }
 
     func delete(service: String, account: String) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account
-        ]
-
-        let status = SecItemDelete(query as CFDictionary)
-        if status == errSecSuccess || status == errSecItemNotFound {
-            return
-        }
-        throw KeychainError.unhandled(status)
+        try KeychainDataStore.delete(service: service, account: account)
     }
 }
