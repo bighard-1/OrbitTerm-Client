@@ -60,7 +60,7 @@ rm -rf "$MAC_APP_DST"
 cp -R "$MAC_APP_SRC" "$MAC_APP_DST"
 
 echo "[5/8] 封装标准拖拽式 DMG..."
-FINAL_DMG="$MAC_OUT/OrbitTerm-v${MARKETING_VERSION}-build${BUILD_VERSION}.dmg"
+FINAL_DMG="$MAC_OUT/OrbitTerm-v${MARKETING_VERSION}-build${BUILD_VERSION}-unsigned.dmg"
 rm -f "$FINAL_DMG"
 "$ROOT_DIR/scripts/create_macos_drag_dmg.sh" "$MAC_APP_DST" "$FINAL_DMG" "OrbitTerm" >/dev/null
 
@@ -79,7 +79,7 @@ xcodebuild \
   archive >/dev/null
 
 IOS_APP="$IOS_ARCHIVE/Products/Applications/OrbitTerm.app"
-IPA_PATH="$IOS_OUT/OrbitTerm-v${MARKETING_VERSION}-build${BUILD_VERSION}.ipa"
+IPA_PATH="$IOS_OUT/OrbitTerm-v${MARKETING_VERSION}-build${BUILD_VERSION}-unsigned.ipa"
 rm -f "$IPA_PATH"
 rm -rf "$TMP_DIR/Payload"
 mkdir -p "$TMP_DIR/Payload"
@@ -90,20 +90,14 @@ cp -R "$IOS_APP" "$TMP_DIR/Payload/"
 )
 
 echo "[7/8] 生成 Release Note..."
-cat > "$ROOT_DIR/release_note.txt" <<EOF
-OrbitTerm v${MARKETING_VERSION} Trinity Workspace Edition
-Build: ${BUILD_VERSION}
-
-核心功能清单:
-1. 多标签会话管理
-2. 三位一体看板（服务器列表 + 终端 + 监控/SFTP）
-3. 无代理性能监控（CPU/内存/磁盘/网络）
-4. Docker 容器深度管理（自动发现/状态/操作/日志）
-5. AES-256 零知识云同步（本地加密后上传）
-EOF
+test -f "$ROOT_DIR/release_note.txt" || {
+  echo "[错误] 缺少 release_note.txt" >&2
+  exit 1
+}
 cp "$ROOT_DIR/release_note.txt" "$RELEASE_ROOT/release_note.txt"
 
-echo "[8/8] 打包完成"
+echo "[8/8] 无签名打包完成"
 ls -lah "$MAC_OUT" "$IOS_OUT" "$RELEASE_ROOT/release_note.txt"
 echo "DMG: $FINAL_DMG"
 echo "IPA: $IPA_PATH"
+echo "[提示] 以上产物尚未签名或 notarize，不得直接对外发布。"

@@ -1,9 +1,28 @@
-OrbitTerm v1.0.1 Trinity Workspace Edition
+OrbitTerm v1.0.1 Release Candidate
 Build: 20260510
 
-核心功能清单:
-1. 多标签会话管理
-2. 三位一体看板（服务器列表 + 终端 + 监控/SFTP）
-3. 无代理性能监控（CPU/内存/磁盘/网络）
-4. Docker 容器深度管理（自动发现/状态/操作/日志）
-5. AES-256 零知识云同步（本地加密后上传）
+OrbitTerm 是 SSH 客户端与运维工作台，不是堡垒机或 SSH 网关。
+
+安全与连接:
+- 公开发布版启用 SSH Host Key 校验和本地 known_hosts。
+- 首次连接必须明确确认指纹。
+- Host Key 变更或被撤销时将阻断连接。
+- Terminal、SFTP、Monitor、Docker 列表/状态/日志/操作与 Batch 命令均使用已验证会话。
+
+本版限制:
+- Telnet 未开放。
+- Docker rename/update 未开放。
+- Quick Key 远程部署未开放。
+- Batch 仅执行已建立验证会话的目标。
+- checked 会话的终端分屏暂未开放。
+- Android SSH 客户端不在本次发布范围。
+
+已知限制:
+- 尚未提供 Known Hosts 管理界面。
+- Docker 需要已验证 workspace，并受远程 Docker 环境限制。
+- Monitor 可用指标取决于远程操作系统命令支持。
+
+安全说明:
+- 不提供 Trust All。
+- 不允许绕过已变更的 Host Key。
+- Release 中 legacy 联网路径已禁用。
