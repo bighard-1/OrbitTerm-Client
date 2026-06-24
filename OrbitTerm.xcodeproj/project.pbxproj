@@ -7,87 +7,22 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A24H00000000000000000011 /* CheckedBatchCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24H00000000000000000001 /* CheckedBatchCommandService.swift */; };
-		A24H00000000000000000012 /* CheckedBatchCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24H00000000000000000001 /* CheckedBatchCommandService.swift */; };
-		A24H00000000000000000013 /* CheckedBatchCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24H00000000000000000001 /* CheckedBatchCommandService.swift */; };
-		A24H00000000000000000014 /* CheckedBatchCommandServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24H00000000000000000002 /* CheckedBatchCommandServiceTests.swift */; };
-		A24G00000000000000000011 /* CheckedDockerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24G00000000000000000001 /* CheckedDockerService.swift */; };
-		A24G00000000000000000012 /* CheckedDockerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24G00000000000000000001 /* CheckedDockerService.swift */; };
-		A24G00000000000000000013 /* CheckedDockerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24G00000000000000000001 /* CheckedDockerService.swift */; };
-		A24G00000000000000000014 /* CheckedDockerServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24G00000000000000000002 /* CheckedDockerServiceTests.swift */; };
-		A24F00000000000000000011 /* CheckedMonitorSnapshotService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24F00000000000000000001 /* CheckedMonitorSnapshotService.swift */; };
-		A24F00000000000000000012 /* CheckedMonitorSnapshotService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24F00000000000000000001 /* CheckedMonitorSnapshotService.swift */; };
-		A24F00000000000000000013 /* CheckedMonitorSnapshotService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24F00000000000000000001 /* CheckedMonitorSnapshotService.swift */; };
-		A24F00000000000000000014 /* CheckedMonitorServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24F00000000000000000002 /* CheckedMonitorServiceTests.swift */; };
-		A24E00000000000000000011 /* CheckedSFTPConnectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24E00000000000000000001 /* CheckedSFTPConnectionService.swift */; };
-		A24E00000000000000000012 /* CheckedSFTPConnectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24E00000000000000000001 /* CheckedSFTPConnectionService.swift */; };
-		A24E00000000000000000013 /* CheckedSFTPConnectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24E00000000000000000001 /* CheckedSFTPConnectionService.swift */; };
-		A24E00000000000000000014 /* CheckedSFTPServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24E00000000000000000002 /* CheckedSFTPServiceTests.swift */; };
-		A24D00000000000000000011 /* CheckedConnectionMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24D00000000000000000001 /* CheckedConnectionMode.swift */; };
-		A24D00000000000000000012 /* CheckedTerminalConnectionOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24D00000000000000000002 /* CheckedTerminalConnectionOrchestrator.swift */; };
-		A24D00000000000000000013 /* CredentialVaultCheckedProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24D00000000000000000003 /* CredentialVaultCheckedProvider.swift */; };
-		A24D00000000000000000014 /* CheckedConnectionMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24D00000000000000000001 /* CheckedConnectionMode.swift */; };
-		A24D00000000000000000015 /* CheckedTerminalConnectionOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24D00000000000000000002 /* CheckedTerminalConnectionOrchestrator.swift */; };
-		A24D00000000000000000016 /* CredentialVaultCheckedProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24D00000000000000000003 /* CredentialVaultCheckedProvider.swift */; };
-		A24D00000000000000000017 /* CheckedConnectionMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24D00000000000000000001 /* CheckedConnectionMode.swift */; };
-		A24D00000000000000000018 /* CheckedTerminalConnectionOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24D00000000000000000002 /* CheckedTerminalConnectionOrchestrator.swift */; };
-		A24D00000000000000000019 /* CheckedSessionOrchestrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24D00000000000000000004 /* CheckedSessionOrchestrationTests.swift */; };
-		A24C00000000000000000011 /* CheckedFFIProviders.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000001 /* CheckedFFIProviders.swift */; };
-		A24C00000000000000000012 /* OrbitCStringResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000002 /* OrbitCStringResult.swift */; };
-		A24C00000000000000000013 /* OrbitCoreCheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000003 /* OrbitCoreCheckedFFIClient.swift */; };
-		A24C00000000000000000014 /* OrbitCoreCheckedFFILiveFunctions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000004 /* OrbitCoreCheckedFFILiveFunctions.swift */; };
-		A24C00000000000000000015 /* CheckedFFIProviders.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000001 /* CheckedFFIProviders.swift */; };
-		A24C00000000000000000016 /* OrbitCStringResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000002 /* OrbitCStringResult.swift */; };
-		A24C00000000000000000017 /* OrbitCoreCheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000003 /* OrbitCoreCheckedFFIClient.swift */; };
-		A24C00000000000000000018 /* OrbitCoreCheckedFFILiveFunctions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000004 /* OrbitCoreCheckedFFILiveFunctions.swift */; };
-		A24C00000000000000000019 /* CheckedFFIProviders.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000001 /* CheckedFFIProviders.swift */; };
-		A24C0000000000000000001A /* OrbitCStringResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000002 /* OrbitCStringResult.swift */; };
-		A24C0000000000000000001B /* OrbitCoreCheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000003 /* OrbitCoreCheckedFFIClient.swift */; };
-		A24C0000000000000000001C /* OrbitCoreCheckedFFIClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000005 /* OrbitCoreCheckedFFIClientTests.swift */; };
-		A24B00000000000000000011 /* CheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000001 /* CheckedFFIClient.swift */; };
-		A24B00000000000000000012 /* HostKeyTrustCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000002 /* HostKeyTrustCoordinator.swift */; };
-		A24B00000000000000000013 /* HostKeyTrustPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000003 /* HostKeyTrustPresentation.swift */; };
-		A24B00000000000000000014 /* HostKeyTrustViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000004 /* HostKeyTrustViews.swift */; };
-		A24B00000000000000000015 /* CheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000001 /* CheckedFFIClient.swift */; };
-		A24B00000000000000000016 /* HostKeyTrustCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000002 /* HostKeyTrustCoordinator.swift */; };
-		A24B00000000000000000017 /* HostKeyTrustPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000003 /* HostKeyTrustPresentation.swift */; };
-		A24B00000000000000000018 /* HostKeyTrustViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000004 /* HostKeyTrustViews.swift */; };
-		A24B00000000000000000019 /* CheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000001 /* CheckedFFIClient.swift */; };
-		A24B0000000000000000001A /* HostKeyTrustCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000002 /* HostKeyTrustCoordinator.swift */; };
-		A24B0000000000000000001B /* HostKeyTrustPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000003 /* HostKeyTrustPresentation.swift */; };
-		A24B0000000000000000001C /* ScriptedCheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000005 /* ScriptedCheckedFFIClient.swift */; };
-		A24B0000000000000000001D /* HostKeyTrustCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000006 /* HostKeyTrustCoordinatorTests.swift */; };
-		A24B0000000000000000001E /* HostKeyTrustPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000007 /* HostKeyTrustPresentationTests.swift */; };
-		A24A00000000000000000011 /* CheckedFFIEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000001 /* CheckedFFIEnvelope.swift */; };
-		A24A00000000000000000012 /* CheckedFFIKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000002 /* CheckedFFIKind.swift */; };
-		A24A00000000000000000013 /* CheckedFFIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000003 /* CheckedFFIError.swift */; };
-		A24A00000000000000000014 /* CheckedFFIPayloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000004 /* CheckedFFIPayloads.swift */; };
-		A24A00000000000000000015 /* CheckedFFIIDs.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000005 /* CheckedFFIIDs.swift */; };
-		A24A00000000000000000016 /* CheckedFFIEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000001 /* CheckedFFIEnvelope.swift */; };
-		A24A00000000000000000017 /* CheckedFFIKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000002 /* CheckedFFIKind.swift */; };
-		A24A00000000000000000018 /* CheckedFFIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000003 /* CheckedFFIError.swift */; };
-		A24A00000000000000000019 /* CheckedFFIPayloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000004 /* CheckedFFIPayloads.swift */; };
-		A24A0000000000000000001A /* CheckedFFIIDs.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000005 /* CheckedFFIIDs.swift */; };
-		A24A0000000000000000001B /* CheckedFFIEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000001 /* CheckedFFIEnvelope.swift */; };
-		A24A0000000000000000001C /* CheckedFFIKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000002 /* CheckedFFIKind.swift */; };
-		A24A0000000000000000001D /* CheckedFFIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000003 /* CheckedFFIError.swift */; };
-		A24A0000000000000000001E /* CheckedFFIPayloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000004 /* CheckedFFIPayloads.swift */; };
-		A24A0000000000000000001F /* CheckedFFIIDs.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000005 /* CheckedFFIIDs.swift */; };
-		A24A00000000000000000020 /* CheckedFFIFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000006 /* CheckedFFIFixtures.swift */; };
-		A24A00000000000000000021 /* CheckedFFITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000007 /* CheckedFFITests.swift */; };
-		A24A00000000000000000022 /* HeaderForwardingCompileCheck.c in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000008 /* HeaderForwardingCompileCheck.c */; };
 		00D11168A4219FA8EC587704 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 381EB860DD822B532F60A2E4 /* ContentView.swift */; };
 		014ADC98587FFEEED9146A77 /* ServerListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21BA8750BFF4212C103320E8 /* ServerListView.swift */; };
+		016D1CBD9C8A94E4AC0BFC5E /* HostKeyTrustCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FC5B32387271FA418F10773 /* HostKeyTrustCoordinator.swift */; };
 		018ABE369CBC10D75F294011 /* SFTPBrowserEditState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39F14E3A78611D6EDB41479C /* SFTPBrowserEditState.swift */; };
 		0320B97B45B66026720898DB /* WorkspaceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83D32D4C054B4202BC9A24A0 /* WorkspaceSession.swift */; };
 		058A678711CF9EA48DF7D86E /* AssetQuickKeySetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DA03126726F8585CE9F3B82 /* AssetQuickKeySetupSheet.swift */; };
 		05B3FCDA5DDEC076BAF0EDAC /* SFTPBatchDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E32A07BCF85C4A7E8EF7CDE /* SFTPBatchDownloader.swift */; };
 		06B5A6A1C64180548A72FBF3 /* WorkstationAssetSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC35C4CE7198F143C318FB84 /* WorkstationAssetSidebarView.swift */; };
+		06E7FED45C6F8B1FE62F264D /* CheckedSFTPConnectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783FF132F1CA3C0639576C0F /* CheckedSFTPConnectionService.swift */; };
 		072AA9B4694BD69D0887BDC3 /* MobileSessionComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76AB95FB1E7D6619332A255A /* MobileSessionComponents.swift */; };
 		0746A780CA9CCC691B347D4F /* SyncMetadataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D39A4AEB90905AF3505A2948 /* SyncMetadataStore.swift */; };
 		086D528ACD82CB8CA67C1584 /* DetachedSessionWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79C98A67B69AA654CC5A6B77 /* DetachedSessionWindowView.swift */; };
+		09EEBF8B082F19F65D770862 /* CheckedFFIProviders.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8127F4F1A174C012E9A1ACD /* CheckedFFIProviders.swift */; };
 		0AD79FEB4AD1DF5ABCA1FB30 /* AddServerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BDEC92E6B4B8974125CB64A /* AddServerView.swift */; };
 		0B9BCB40607805D19D6ED5EA /* AddServerInitialState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56BF32292E4CB4F2E77CD669 /* AddServerInitialState.swift */; };
+		0BA37119A9F1A5F1FDAD394F /* HostKeyTrustPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A0F26B8CC3A2CE0C6BE8D48 /* HostKeyTrustPresentation.swift */; };
 		0C85D9659374297F5DE445CB /* SyncIdentityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0FAA4130AD937FDB99259DB /* SyncIdentityService.swift */; };
 		10C3468A6F2D0AE255954CD4 /* SFTPManager+Transfers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56D3F03810DC065AADA6A2C2 /* SFTPManager+Transfers.swift */; };
 		11EC0289C3E003A8D96EF7EE /* SFTPBrowserPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C07F3CC8B2B8064ED317D63 /* SFTPBrowserPanels.swift */; };
@@ -97,7 +32,9 @@
 		16BA0EEF9A6CF0B76D52DC1F /* SyncModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 995C008B81C1BCF2CC6B5122 /* SyncModels.swift */; };
 		18619758F4910BBBEF71E2D8 /* AddServerConnectionTester.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8477779BBFFBE8F7C7B613F /* AddServerConnectionTester.swift */; };
 		19FBF035B680B9D5356F068A /* AuthVisualComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B97BFDF6F22DC746B3C1C6B0 /* AuthVisualComponents.swift */; };
+		1A9995384BBEA7ACBECE96C4 /* CheckedFFIPayloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = 656C4A6BCB0AD2479795FBDB /* CheckedFFIPayloads.swift */; };
 		1CA23122CB3D32319E80C7BB /* NetworkModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4AE5E8FEC909FFBA6B236E /* NetworkModels.swift */; };
+		1E95752E6E6344C4480735C4 /* HostKeyTrustCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BFC7645D040D7775262D3B9 /* HostKeyTrustCoordinatorTests.swift */; };
 		1E9B9E49F948508485F30D9C /* NetworkModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4AE5E8FEC909FFBA6B236E /* NetworkModels.swift */; };
 		1F00B2E18DB64E2454CE051A /* KeychainDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3283D7558028E2BB3A5C9AC /* KeychainDataStore.swift */; };
 		1FB003E1A580F946881EE5CD /* DockerCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94CA85B4AEBF74F59E325CD1 /* DockerCardView.swift */; };
@@ -108,13 +45,19 @@
 		27DC72D02F0E02ACD1BE9ACA /* AssetBulkAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D44C7BA4E8C0FF98A3D67ABC /* AssetBulkAddSheet.swift */; };
 		28AE8531E7ADB862080A2502 /* DiagnosticsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6BA478CCB76C4787B9E87D9 /* DiagnosticsManager.swift */; };
 		28E672FDA0369A2F602203CA /* SwiftTermPlatformSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D7F211EB934A0D5BCE2885D /* SwiftTermPlatformSupport.swift */; };
+		29174213C6883CAD5BACE7E9 /* HeaderForwardingCompileCheck.c in Sources */ = {isa = PBXBuildFile; fileRef = 7713E6E04A40DA1BC5D07D1A /* HeaderForwardingCompileCheck.c */; };
 		29E092287DEB4689A02D04C9 /* DockerCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94CA85B4AEBF74F59E325CD1 /* DockerCardView.swift */; };
 		2D5178B315D93BEBDDCE09EC /* AddServerAuthSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36296E55AE0C9150AC8BB729 /* AddServerAuthSection.swift */; };
 		2FEB079D8FFF4F50AE6F9850 /* SFTPBatchOperationFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0745CC8E9FCDB47926A280 /* SFTPBatchOperationFormatter.swift */; };
 		30964E866A545DA1A90499AD /* OrbitTermApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */; };
 		31895C1956E5C7C1F3A12F8F /* DeepLinkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C9A8C3DE225D64B8E39E2BA /* DeepLinkManager.swift */; };
+		327D2C2C84A1BA3700C0B095 /* CheckedFFIKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 735C5043134DAC338A430C10 /* CheckedFFIKind.swift */; };
 		329B0B9F26D8939958B1425E /* ServerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AED26C552B7072D2AAC4669F /* ServerStore.swift */; };
 		3410CEE4ED16A4BBDB851E8A /* ServerListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21BA8750BFF4212C103320E8 /* ServerListView.swift */; };
+		342AD13900E4EC59BB96F44B /* CheckedTerminalConnectionOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04892B3FCBDC216B7013CF35 /* CheckedTerminalConnectionOrchestrator.swift */; };
+		34BBFC62ED15166EA8680C67 /* TelnetRiskConfirmationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A6CAAD2E51DFF2618790ECC /* TelnetRiskConfirmationView.swift */; };
+		350AE0902F54E7F588995BD4 /* CheckedSessionOrchestrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 555D5885D74C7A64B2960725 /* CheckedSessionOrchestrationTests.swift */; };
+		35687FC515D98EB09906E554 /* HostKeyTrustPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 808FFAC757EB9FA079E2E5F8 /* HostKeyTrustPresentationTests.swift */; };
 		3712CAE59D7C18F9AEE8BF84 /* MainWorkstationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16F52E3B6E83F077783BEC22 /* MainWorkstationView.swift */; };
 		3720F726734FDE2BA5EA3491 /* SFTPBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF8482667CCEAB37877728A8 /* SFTPBrowserView.swift */; };
 		37C9B427752B20DE73F01307 /* TerminalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82956A0F1C5D1E30A78D1E37 /* TerminalService.swift */; };
@@ -126,14 +69,27 @@
 		3AA24B2C0C58DB4864AFE901 /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA155A9F65638E6194ADA93 /* KeychainManager.swift */; };
 		3BB412787D76B6A8436ED0DD /* MobileSessionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA44539F264985D253A45D92 /* MobileSessionViews.swift */; };
 		3D85D3A635000A45A703B805 /* SFTPActivityShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A8CF8B6134CC76C9376A2B /* SFTPActivityShareSheet.swift */; };
+		3DA37901A4E63DF0BEF2FA20 /* OrbitCoreCheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98B23E2A2CD42FFDD3EF8330 /* OrbitCoreCheckedFFIClient.swift */; };
 		3DBFDFBCF613C85F01A8B88D /* MonitorService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F14341CBA2F36F648BF5800 /* MonitorService.swift */; };
+		3DF2B2E217DCEA2F3AFC0C92 /* HostKeyTrustViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B7DA78E6B914CF622EA1AB6 /* HostKeyTrustViews.swift */; };
 		3EFC8F882A170FAC6D81264D /* SFTPManager+Transfers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56D3F03810DC065AADA6A2C2 /* SFTPManager+Transfers.swift */; };
 		4021421D690695D056F88B95 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10B229BED0B0F3176FF87E7A /* SettingsView.swift */; };
 		40815341261B60B3EA9B9D8F /* AddServerSilentSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C055C50647B75B71C5C81DA /* AddServerSilentSync.swift */; };
+		413E200983E441A205DB8ABB /* CheckedFFIPayloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = 656C4A6BCB0AD2479795FBDB /* CheckedFFIPayloads.swift */; };
+		414E7C01AAB8B6F1354EAC04 /* CheckedBatchCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CDABB2A6CDA0C6532845C89 /* CheckedBatchCommandService.swift */; };
 		41EBB7B1942AEA4CA532AAC0 /* ServerModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DF6C48C6A90753469560AA6 /* ServerModels.swift */; };
+		42B87E31014887BB2D3B15F5 /* CheckedFFIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCC379F20967A9F869DE09B1 /* CheckedFFIError.swift */; };
+		431E071EAF76AB1F135ACFE1 /* CredentialVaultCheckedProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 094AE566852B57129DFE5E7D /* CredentialVaultCheckedProvider.swift */; };
 		4346DA2F2B1697DC5E6CDB4A /* DockerLogStreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A37A7CD3B58D296A9E3AF54 /* DockerLogStreamView.swift */; };
+		43BAF96E64EDC82E70CD8569 /* HostKeyTrustCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FC5B32387271FA418F10773 /* HostKeyTrustCoordinator.swift */; };
 		440345A0676C5700FEA7DC7F /* SnippetVariableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA7AD58C1A1CED310B6875EE /* SnippetVariableResolver.swift */; };
+		450DEDAAFC45EDAE25396DD0 /* OrbitCStringResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF296C0F924480DD21047D08 /* OrbitCStringResult.swift */; };
 		4598DDE9919AD6E1B812E9BD /* SFTPManager+Mock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B74BC2A072244011E0AF309 /* SFTPManager+Mock.swift */; };
+		4722C410165AD2271E1B382B /* CheckedFFIKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 735C5043134DAC338A430C10 /* CheckedFFIKind.swift */; };
+		48BFC7E8085F081B90E3B9E1 /* HostKeyTrustViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B7DA78E6B914CF622EA1AB6 /* HostKeyTrustViews.swift */; };
+		48CD66B653668D2865B48306 /* ScriptedCheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B4CAA3973F1B8D89EE215E3 /* ScriptedCheckedFFIClient.swift */; };
+		4AEF46E3E1AF2B528E3EBA5B /* CredentialVaultCheckedProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 094AE566852B57129DFE5E7D /* CredentialVaultCheckedProvider.swift */; };
+		4C573A2DE05CB691D7AA27A4 /* OrbitCoreCheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98B23E2A2CD42FFDD3EF8330 /* OrbitCoreCheckedFFIClient.swift */; };
 		4D8E8455AF03DE1A4A42911A /* WorkstationToolbarModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CAC2E9B1546BFD66A6161FF /* WorkstationToolbarModifier.swift */; };
 		4EFA73C26542323B8F1818C0 /* SyncService+Synchronization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0197FADECAE6D8AC5EFEE8C5 /* SyncService+Synchronization.swift */; };
 		5212877D1742D0E62BF5BF0A /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 5C0FE5421C2C7F89752C7FBD /* SwiftTerm */; };
@@ -144,23 +100,31 @@
 		54E252A3965A4A30928B04B0 /* WorkspaceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83D32D4C054B4202BC9A24A0 /* WorkspaceSession.swift */; };
 		551A5B136E5320E888F11ECE /* WorkstationTerminalSplitLayoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DF9DDD34658EA3851E06DC7 /* WorkstationTerminalSplitLayoutView.swift */; };
 		55782C4392B3436284F01CCA /* ServerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AED26C552B7072D2AAC4669F /* ServerStore.swift */; };
+		56141FFCF4D0C00E5C280005 /* CheckedConnectionMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 328F84C5034D50790C4E2250 /* CheckedConnectionMode.swift */; };
 		5640BE786C6F90A9FCC3203A /* TerminalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82956A0F1C5D1E30A78D1E37 /* TerminalService.swift */; };
+		56574B441F9241FFF7C9E2DC /* CheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9D64379CFB1DF22B325FB09 /* CheckedFFIClient.swift */; };
 		578F8F3554FEB1F83DF9B7CC /* BiometricAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924DF400619ABD0FB4150133 /* BiometricAuthService.swift */; };
 		58E2DD7AB605954D9FB0A998 /* SFTPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77D09730A51A26B9E686F253 /* SFTPManager.swift */; };
+		596292A2935B18E58C055E7D /* CheckedBatchCommandServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0143410463A3234E7DE8983B /* CheckedBatchCommandServiceTests.swift */; };
 		59DDA7271AFC11CD75C39606 /* BatchCommandRunnerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23CDE6AF8E0550184AC99A12 /* BatchCommandRunnerView.swift */; };
 		59E614D0EDD4019802F6F005 /* ShellPathResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F564909FA3819599A35DA95E /* ShellPathResolver.swift */; };
 		5B4B0A4E7FD8556F5557BC7C /* SessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 530F2F2B65A5D82BAE62ED55 /* SessionManager.swift */; };
 		5B517D9960F3AE3AA540E5F4 /* SFTPBatchOperationFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0745CC8E9FCDB47926A280 /* SFTPBatchOperationFormatter.swift */; };
+		5BAA624D9CBB114A3C91E165 /* TelnetAccessPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDB1034B7939B68118FACF98 /* TelnetAccessPolicy.swift */; };
 		5C144C6F938F96E9A34F819F /* View+InputPolish.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */; };
 		5CD76ACDD9BEF9D839843476 /* CredentialInputHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 442AD4AADE13BA0E4204549B /* CredentialInputHelpers.swift */; };
 		5D96C914A888A7B30A93B1AF /* AddServerValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B73F5D9381F2705029E0D544 /* AddServerValidation.swift */; };
 		5DEFB6E623894B15CAD45DE4 /* WorkstationSheetsAndAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 745FBDA528F6B4F8EA9D4467 /* WorkstationSheetsAndAlerts.swift */; };
+		5E0B5CECBC6D53F21433B284 /* HostKeyTrustCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FC5B32387271FA418F10773 /* HostKeyTrustCoordinator.swift */; };
 		5F3DA2A0A7D40A78FDF1F64A /* CredentialInputHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 442AD4AADE13BA0E4204549B /* CredentialInputHelpers.swift */; };
 		5F5C346308A2F470DB40CF37 /* SFTPManager+Mock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B74BC2A072244011E0AF309 /* SFTPManager+Mock.swift */; };
 		5FE20A78A040BB814D22E3CE /* SnippetVariablePrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06259C5D1E3951CFFA6E3578 /* SnippetVariablePrompt.swift */; };
 		607FF897165AAB0B017E61AD /* SFTPActivityShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A8CF8B6134CC76C9376A2B /* SFTPActivityShareSheet.swift */; };
 		61BFC3FD1801C09266473767 /* TelnetClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0DB0DE0CCDDA52D06A792C /* TelnetClient.swift */; };
+		61FC5899344CFC55A694F90C /* OrbitCoreCheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98B23E2A2CD42FFDD3EF8330 /* OrbitCoreCheckedFFIClient.swift */; };
+		62211B7D8D433B30B17D23DC /* CheckedMonitorServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E49E88C1F1C415A4EA97DE /* CheckedMonitorServiceTests.swift */; };
 		625724DE31C8A620A3E8175A /* WorkstationTerminalSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 690770EDC7E1AC93C9D9BDFD /* WorkstationTerminalSearchOverlay.swift */; };
+		62E109460DA9F74DD9B86A24 /* CheckedMonitorSnapshotService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B716472EFB5C05C3C8596133 /* CheckedMonitorSnapshotService.swift */; };
 		64F544A29C8DC4526D624C8F /* OrbitTermApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */; };
 		6599D89B9C262F7D2644455D /* RustFFI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61D05FDE086817AEB654082D /* RustFFI.swift */; };
 		6608879835CA152C64A6758A /* WorkstationTerminalSplitLayoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DF9DDD34658EA3851E06DC7 /* WorkstationTerminalSplitLayoutView.swift */; };
@@ -168,8 +132,10 @@
 		67536C13CA08E03FF3A12BA8 /* DockerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B49A5D57724B8383BD06C96 /* DockerService.swift */; };
 		690C05D5E1CAC7BCB13D8D3E /* MonitorDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEF1B8EB20CEE14349EB99A4 /* MonitorDashboardView.swift */; };
 		691B81D09F252A6137CFED7A /* WorkstationTerminalSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 690770EDC7E1AC93C9D9BDFD /* WorkstationTerminalSearchOverlay.swift */; };
+		6923F21807DFFE3108184154 /* CheckedBatchCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CDABB2A6CDA0C6532845C89 /* CheckedBatchCommandService.swift */; };
 		6952D2F9DB5485D20F9D799D /* SessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 530F2F2B65A5D82BAE62ED55 /* SessionManager.swift */; };
 		6AE49CE6629CA4016FC49098 /* AuthVisualComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B97BFDF6F22DC746B3C1C6B0 /* AuthVisualComponents.swift */; };
+		6BCEC96807636C57E7D01148 /* CheckedFFIProviders.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8127F4F1A174C012E9A1ACD /* CheckedFFIProviders.swift */; };
 		6D0C0DD0922BB61F67A79EBD /* SFTPManager+Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9714382A7905BD9F6A4EFD8A /* SFTPManager+Connection.swift */; };
 		6DD9A2057FBD4F0745ECA5B1 /* SyncQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33E248A5FD3DD7C8F896ECA2 /* SyncQueue.swift */; };
 		6E0107D6FA5E91F706B50D9C /* MobileSessionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA44539F264985D253A45D92 /* MobileSessionViews.swift */; };
@@ -177,21 +143,27 @@
 		749429BFF654F1AB265411AF /* View+InputPolish.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */; };
 		7537219233F149DD96EE566D /* NetworkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */; };
 		75C28C88306CE3B314FDC722 /* SFTPBrowserPathHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6DB68C1BB7FFE44287C2058 /* SFTPBrowserPathHelper.swift */; };
+		7664511A4F6B0CB942AC1FE5 /* HostKeyTrustPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A0F26B8CC3A2CE0C6BE8D48 /* HostKeyTrustPresentation.swift */; };
 		76E0101D1870FB15B265D176 /* TabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62847EC28220849324529ECF /* TabBarView.swift */; };
 		770A52F2023C7ED94E32F7D3 /* SyncMetadataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D39A4AEB90905AF3505A2948 /* SyncMetadataStore.swift */; };
 		770AE109C5B32B014662ABFD /* AddServerFormComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95D8066857521151FF1854B9 /* AddServerFormComponents.swift */; };
 		774AEC150F44DF342DFCC77F /* RecentlyDeletedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E32DBAB1DC7E1D140A221B7E /* RecentlyDeletedView.swift */; };
+		784B42089BADB5FA04EE5A2C /* OrbitCoreCheckedFFILiveFunctions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9767CC31B2E380BC77CA4295 /* OrbitCoreCheckedFFILiveFunctions.swift */; };
 		791C864C97C94860BC072BA1 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DC29E7DEA20362E09F501D3 /* AppSession.swift */; };
 		79C01AB0151A55725DB45DC8 /* WorkstationSFTPDialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF252B95C1A0A974038062E /* WorkstationSFTPDialogs.swift */; };
 		79C11DB569DDBD8E23356C35 /* AssetManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04FFDB29556DE5419BEB4E78 /* AssetManagerView.swift */; };
+		7A5DA8587C3D44669F85A098 /* CheckedFFIIDs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EBA9ADD7B50F769A714D880 /* CheckedFFIIDs.swift */; };
+		7AA430ADA4BD4E83DF5B7CA7 /* CheckedSFTPConnectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783FF132F1CA3C0639576C0F /* CheckedSFTPConnectionService.swift */; };
 		7B78C1ED8A77E79C38BA52EB /* MonitorPollingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DAB223E842154D2614BEFDB /* MonitorPollingPolicy.swift */; };
 		7BCDEB379D2BCBD46813D516 /* BatchCommandRunnerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23CDE6AF8E0550184AC99A12 /* BatchCommandRunnerView.swift */; };
 		7C666A92C422C5BFDF2054B0 /* SFTPManager+Directory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9575AA7E205CF09F7CE38E07 /* SFTPManager+Directory.swift */; };
 		7C977D075E101CF4239514D8 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 9C72235D0D53A8B38F2E0FA5 /* SwiftTerm */; };
 		7F38D279C57A1E4693BDA47D /* WorkstationTerminalSessionPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3DE23E2FB664A118F6B8646 /* WorkstationTerminalSessionPane.swift */; };
 		7F996E7D9810AEABC9BE7BCA /* SwiftTermTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAFDE71AA1A69539BB2EA7CD /* SwiftTermTerminalView.swift */; };
+		8276BB4A4074A3BEFACCCD49 /* CheckedFFIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCC379F20967A9F869DE09B1 /* CheckedFFIError.swift */; };
 		84197C9C7ACC8F7111C415CD /* AssetBulkAddSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D44C7BA4E8C0FF98A3D67ABC /* AssetBulkAddSheet.swift */; };
 		84289195393271759EB77452 /* WorkstationTerminalDropUploadModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33EF6481439C305953E69B86 /* WorkstationTerminalDropUploadModifier.swift */; };
+		848D3B050BB8EBB582EB0B72 /* CheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9D64379CFB1DF22B325FB09 /* CheckedFFIClient.swift */; };
 		84DCCEEBB105C8E4BB112AD3 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DC29E7DEA20362E09F501D3 /* AppSession.swift */; };
 		85652ACC0968D7AF4EF480CD /* SFTPBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF8482667CCEAB37877728A8 /* SFTPBrowserView.swift */; };
 		85C885B99FB84BE5EAAE9F91 /* DockerManagerDrafts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D45567695C4B41D14FEEBBDA /* DockerManagerDrafts.swift */; };
@@ -206,25 +178,33 @@
 		8FB790CC339CDD3B1B2136B2 /* OrbitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */; };
 		9039C06E7D941ADA06A8C216 /* SFTPBrowserEditState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39F14E3A78611D6EDB41479C /* SFTPBrowserEditState.swift */; };
 		90F267CF91AA19F60A366B2F /* WorkstationRightPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6F3F01CCF826615CB008047 /* WorkstationRightPanelView.swift */; };
+		91515493B310B569307C6067 /* CheckedDockerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B980CEA85C1A75EAB7AF96A6 /* CheckedDockerService.swift */; };
 		915DEF261D70D05F1E1A58CA /* SnippetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A91FAC92F6EEB51AACE1DEB /* SnippetStore.swift */; };
+		943FD1ADB361529A72F0F73B /* CheckedDockerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B980CEA85C1A75EAB7AF96A6 /* CheckedDockerService.swift */; };
 		94B6DD52F6058B3F1B49B0BA /* WorkstationSFTPCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA681CD5E929D54BAF59BA3 /* WorkstationSFTPCardView.swift */; };
 		955DD5394B16994C1AAF58C3 /* DockerLogStreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A37A7CD3B58D296A9E3AF54 /* DockerLogStreamView.swift */; };
 		95AA66DE4E5FB3134C135579 /* DeepLinkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C9A8C3DE225D64B8E39E2BA /* DeepLinkManager.swift */; };
+		963B54128376C6BF644D031B /* CheckedDockerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B980CEA85C1A75EAB7AF96A6 /* CheckedDockerService.swift */; };
 		9650F6C78AD055B8782127F0 /* DiagnosticsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6BA478CCB76C4787B9E87D9 /* DiagnosticsManager.swift */; };
 		96E09D4124DD6D872620222F /* WorkstationMonitorDetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0406A2602C8DCBFAD157B5E5 /* WorkstationMonitorDetailViews.swift */; };
+		989FD56E3407A0AFEF49C1A0 /* CheckedFFIKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 735C5043134DAC338A430C10 /* CheckedFFIKind.swift */; };
 		9B0F0B374F2C7C7BB4014906 /* DiagnosticsExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38CC52AC1F19BBC544F8D872 /* DiagnosticsExportView.swift */; };
 		9C306E0D4D6C0E6AAD0063D3 /* WorkstationTerminalSessionChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 403D0958371C1A8C3391BAA9 /* WorkstationTerminalSessionChrome.swift */; };
 		9E5D6D3C6FE8FBEE67FF0AC5 /* SFTPBrowserPathHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6DB68C1BB7FFE44287C2058 /* SFTPBrowserPathHelper.swift */; };
 		9F1366E7205ADC8CF2850D1D /* WorkstationCollapsedFeatureRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 841FF37C9A712E391D0B0781 /* WorkstationCollapsedFeatureRow.swift */; };
 		9F34C0206362FA67CED289A3 /* CredentialVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 190E90A490AB0BEFD1B5F1EA /* CredentialVault.swift */; };
+		9FB449096F2462335EED2501 /* CheckedFFIEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08CEE6111EC22C4515BA30BA /* CheckedFFIEnvelope.swift */; };
 		A0155143734296B0E0EEC4BC /* SFTPBatchDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E32A07BCF85C4A7E8EF7CDE /* SFTPBatchDownloader.swift */; };
 		A11F4C91A92CC0D933C8ACE7 /* CredentialVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 190E90A490AB0BEFD1B5F1EA /* CredentialVault.swift */; };
 		A382764DF687B24F8DD96D51 /* AddServerFormComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95D8066857521151FF1854B9 /* AddServerFormComponents.swift */; };
 		A39C5F36E325D6D11857435F /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E0EFB34CACD29FEB53B377 /* SyncService.swift */; };
 		A4E96BAB0642D955931A7C81 /* SFTPBrowserConnectionDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F3A50B12C7EDA8BE4D4CF2F /* SFTPBrowserConnectionDraft.swift */; };
+		A576219730B3BAE8A38335CB /* TelnetRiskConfirmationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A6CAAD2E51DFF2618790ECC /* TelnetRiskConfirmationView.swift */; };
+		A610A7747BAC529D8CB86FD2 /* CheckedFFIIDs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EBA9ADD7B50F769A714D880 /* CheckedFFIIDs.swift */; };
 		A6A86BCCFF5A1E9CF688B9A8 /* BiometricAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924DF400619ABD0FB4150133 /* BiometricAuthService.swift */; };
 		A6FAF4E1A4CC4519CEBD9E38 /* SyncIdentityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0FAA4130AD937FDB99259DB /* SyncIdentityService.swift */; };
 		A71E613C556C660348BF8795 /* WorkstationTerminalToolbarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC1301A8254D411A95E31A69 /* WorkstationTerminalToolbarView.swift */; };
+		A7613C2152A9D83EC53932A7 /* CheckedSFTPConnectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783FF132F1CA3C0639576C0F /* CheckedSFTPConnectionService.swift */; };
 		A95C10C79E9AFFC37E80ED68 /* WorkstationTerminalToolbarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC1301A8254D411A95E31A69 /* WorkstationTerminalToolbarView.swift */; };
 		AA00F87908889CA084AD1D27 /* AssetQuickKeySetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DA03126726F8585CE9F3B82 /* AssetQuickKeySetupSheet.swift */; };
 		AA180C68437B90DAC47E8B14 /* MainWorkstationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16F52E3B6E83F077783BEC22 /* MainWorkstationView.swift */; };
@@ -237,44 +217,62 @@
 		AFCE34EB6491DF7C94EDB658 /* SnippetEditorDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB25A1786CA7328B371EC1EA /* SnippetEditorDraft.swift */; };
 		AFF1D8B2C45D35B9B44C3285 /* SnippetsPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1117F7A981D07A249B0CDBD7 /* SnippetsPanelView.swift */; };
 		B04BBC89E70A62AAF9095CEA /* WorkstationTerminalSessionPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3DE23E2FB664A118F6B8646 /* WorkstationTerminalSessionPane.swift */; };
+		B06ACF721937D1818EC15284 /* CheckedFFIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCC379F20967A9F869DE09B1 /* CheckedFFIError.swift */; };
 		B0702EC01B476677C22715E6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0599BB6B03494D8A6791ABA /* Assets.xcassets */; };
 		B114D852A96AF3863DC6BB53 /* WorkstationStressController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D30655BE66EE13549045BEF /* WorkstationStressController.swift */; };
 		B1547A01247E01C13B756C9E /* SFTPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77D09730A51A26B9E686F253 /* SFTPManager.swift */; };
 		B2DE4E30DE3E0471FC1A744B /* SFTPManager+Directory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9575AA7E205CF09F7CE38E07 /* SFTPManager+Directory.swift */; };
+		B51FDE8C38374BC39208498C /* TelnetAccessPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC1976CD3FBAA98751C994BE /* TelnetAccessPolicyTests.swift */; };
+		B63576EF89FC2527D8742384 /* OrbitCoreCheckedFFIClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E6DA6F702782EA345096BAB /* OrbitCoreCheckedFFIClientTests.swift */; };
 		B76CC755BA5AA5EBBDA8C4CE /* MonitorTargetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A780B78BD56BAD6B05BC3378 /* MonitorTargetStore.swift */; };
 		B809495F666036CEF46DA5F7 /* MonitorService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F14341CBA2F36F648BF5800 /* MonitorService.swift */; };
 		B88E3B6E67571D388D356CFF /* MobileSessionComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76AB95FB1E7D6619332A255A /* MobileSessionComponents.swift */; };
 		B8AFE98151D00C5D8BEA9A70 /* WorkstationStressController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D30655BE66EE13549045BEF /* WorkstationStressController.swift */; };
 		B92B5BA15DD3A98E6CD8DDB6 /* RustFFI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61D05FDE086817AEB654082D /* RustFFI.swift */; };
 		B9B69373552C389EA0D991D7 /* SnippetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A91FAC92F6EEB51AACE1DEB /* SnippetStore.swift */; };
+		BA1AEEBB5304C3C65480839C /* TelnetAccessPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDB1034B7939B68118FACF98 /* TelnetAccessPolicy.swift */; };
 		BB3CC25F517066968F068F48 /* MonitorStatsPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB6B5AD58F8D1496F4973531 /* MonitorStatsPayload.swift */; };
 		BBD2CFB53FFF17C11D1B9597 /* SyncService+Synchronization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0197FADECAE6D8AC5EFEE8C5 /* SyncService+Synchronization.swift */; };
 		BBE08CBD8543F24F2E7FB832 /* WorkstationTerminalDropUploadModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33EF6481439C305953E69B86 /* WorkstationTerminalDropUploadModifier.swift */; };
 		BBED422CCFC31B5F7D38D725 /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA155A9F65638E6194ADA93 /* KeychainManager.swift */; };
 		BBF64F6A16727778986E2B24 /* DockerManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7156371597A178C490DF8ABD /* DockerManagerView.swift */; };
 		BC59B601C33B8242F8EB7DEF /* SFTPManager+FileOperations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 836E09EB574862420A560409 /* SFTPManager+FileOperations.swift */; };
+		BD9AACDAB262B7C087A6EE75 /* CheckedMonitorSnapshotService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B716472EFB5C05C3C8596133 /* CheckedMonitorSnapshotService.swift */; };
+		BD9AEE27593CF29C61324EF2 /* CheckedTerminalConnectionOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04892B3FCBDC216B7013CF35 /* CheckedTerminalConnectionOrchestrator.swift */; };
+		BE3A8BED0D0FC41AB9FF128E /* CheckedBatchCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CDABB2A6CDA0C6532845C89 /* CheckedBatchCommandService.swift */; };
+		BE4858738744054E796DD43A /* CheckedFFIPayloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = 656C4A6BCB0AD2479795FBDB /* CheckedFFIPayloads.swift */; };
 		BF54983EE60094BC16369D96 /* AddServerDraftBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F75E6C28523DF8A209339F6B /* AddServerDraftBuilder.swift */; };
+		C225AD8DF6492AFDB01E726D /* CheckedTerminalConnectionOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04892B3FCBDC216B7013CF35 /* CheckedTerminalConnectionOrchestrator.swift */; };
+		C366A32CC05E89AA5FA38DDD /* OrbitCStringResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF296C0F924480DD21047D08 /* OrbitCStringResult.swift */; };
 		C3F661036F847112CA11C87D /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20EA2AC1C67C6744ECBB46BD /* AuthView.swift */; };
 		C4830A60642DB131712671DA /* SFTPManager+Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9714382A7905BD9F6A4EFD8A /* SFTPManager+Connection.swift */; };
+		C5D8955473817845931665E8 /* CheckedDockerServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5786DEF9086A4B29A2F0FEA2 /* CheckedDockerServiceTests.swift */; };
 		C5FDED5ED408066B5AF7B2B8 /* SFTPBrowserConnectionDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F3A50B12C7EDA8BE4D4CF2F /* SFTPBrowserConnectionDraft.swift */; };
 		C81D9C828DDD4151085FCA46 /* SFTPBrowserBatchState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E248AF3D4742AFECB5DCCEEA /* SFTPBrowserBatchState.swift */; };
 		C8702A5799FF5E8FDC9B1096 /* SnippetEditorDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB25A1786CA7328B371EC1EA /* SnippetEditorDraft.swift */; };
 		C8BA9AE00EA7B0C10628037B /* AddServerValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B73F5D9381F2705029E0D544 /* AddServerValidation.swift */; };
+		C91C60317378BB2F1D788F07 /* CheckedConnectionMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 328F84C5034D50790C4E2250 /* CheckedConnectionMode.swift */; };
 		CA301A189253FDCB70F0BB14 /* WorkstationDockerCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BF8175E63892D99108F4789 /* WorkstationDockerCardView.swift */; };
 		CA7FC5FBC52AE3F94EFAD31C /* SFTPBrowserComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F5A3407984B279EF080673 /* SFTPBrowserComponents.swift */; };
+		CB9E3D53A09DA933831490C6 /* CheckedFFIEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08CEE6111EC22C4515BA30BA /* CheckedFFIEnvelope.swift */; };
+		CDD889A9B7330F6B353FDEF6 /* CheckedFFIEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08CEE6111EC22C4515BA30BA /* CheckedFFIEnvelope.swift */; };
 		CFADA57AD98ECD0453997B3C /* RecentlyDeletedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E32DBAB1DC7E1D140A221B7E /* RecentlyDeletedView.swift */; };
+		D00572525DDF9E956CA17C13 /* CheckedFFITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D1FF33B328795D45C135045 /* CheckedFFITests.swift */; };
 		D1A2D596F0D5A82272EE761E /* SyncService+Conflict.swift in Sources */ = {isa = PBXBuildFile; fileRef = 461FDC634D076E7A0DF2798A /* SyncService+Conflict.swift */; };
 		D32A2630B47540D9846461F9 /* NetworkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */; };
 		D5F66562B76B4DD46167BE5C /* ServerModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DF6C48C6A90753469560AA6 /* ServerModels.swift */; };
+		D63DAE9D045D661437612F70 /* CheckedMonitorSnapshotService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B716472EFB5C05C3C8596133 /* CheckedMonitorSnapshotService.swift */; };
 		D6439AEECD4CACDF386120B4 /* WorkstationSFTPCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA681CD5E929D54BAF59BA3 /* WorkstationSFTPCardView.swift */; };
 		D6E91B071A1ABA42713BA27C /* SFTPModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D0958086BAEA5C2D32B4BA5 /* SFTPModels.swift */; };
 		D73945F35D103F36900752C6 /* DockerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B49A5D57724B8383BD06C96 /* DockerService.swift */; };
 		D7582594F04FB2E4C5812CCC /* FileSizeFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9727DF6BCB4A2DC3FFF9644E /* FileSizeFormatter.swift */; };
 		D928E5B6B947E41A9108CB67 /* AddServerSilentSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C055C50647B75B71C5C81DA /* AddServerSilentSync.swift */; };
 		DA03ABEB5754E7E8BC42E676 /* WorkstationDockerCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BF8175E63892D99108F4789 /* WorkstationDockerCardView.swift */; };
+		DA7C1B7C577C21A3A10BEC73 /* CheckedSFTPServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C91C966272BB497962A031F /* CheckedSFTPServiceTests.swift */; };
 		DBE8AE5DD2A5774DA24CB2D4 /* SwiftTermPlatformSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D7F211EB934A0D5BCE2885D /* SwiftTermPlatformSupport.swift */; };
 		DDAB043B5B13726607DB0795 /* DockerManagerDrafts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D45567695C4B41D14FEEBBDA /* DockerManagerDrafts.swift */; };
 		DEB806875F4B59BEDA97F491 /* SFTPManager+FileOperations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 836E09EB574862420A560409 /* SFTPManager+FileOperations.swift */; };
+		DEE8D3197A585A58E66AECE1 /* OrbitCStringResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF296C0F924480DD21047D08 /* OrbitCStringResult.swift */; };
 		DEE977D310E0D398E93B8869 /* AddServerDraftBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F75E6C28523DF8A209339F6B /* AddServerDraftBuilder.swift */; };
 		DF4796C7D4DE570F330459AC /* WorkstationTerminalSessionChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 403D0958371C1A8C3391BAA9 /* WorkstationTerminalSessionChrome.swift */; };
 		E01BFDDB767B3D84B6D2D44E /* AddServerInitialState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56BF32292E4CB4F2E77CD669 /* AddServerInitialState.swift */; };
@@ -284,16 +282,24 @@
 		E4DF9ACCE808ED651E8B3001 /* SFTPBrowserPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C07F3CC8B2B8064ED317D63 /* SFTPBrowserPanels.swift */; };
 		E547884553C72C7C1E70F1BB /* AddServerConnectionTester.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8477779BBFFBE8F7C7B613F /* AddServerConnectionTester.swift */; };
 		E5BC038DD18BC0BCA94B00BB /* SFTPDropUploadHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C6CC3823E022872639B0219 /* SFTPDropUploadHandler.swift */; };
+		E6166F70BD65DC7AA658EA16 /* HostKeyTrustPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A0F26B8CC3A2CE0C6BE8D48 /* HostKeyTrustPresentation.swift */; };
 		E7907F3D7B64FC7DEF6CA09C /* AddServerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BDEC92E6B4B8974125CB64A /* AddServerView.swift */; };
 		E94772C953A9212E9098872A /* WorkstationToolbarModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CAC2E9B1546BFD66A6161FF /* WorkstationToolbarModifier.swift */; };
 		EB18551F6941809822CC4368 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 381EB860DD822B532F60A2E4 /* ContentView.swift */; };
 		EB6965ECE971E76E4ACB41FA /* AddServerKeyFileLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BE06A1C6F5FFBAFADD9A746 /* AddServerKeyFileLoader.swift */; };
 		ECDE1ACDE1B1D6F7A0E078B5 /* MasterPasswordGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */; };
 		ED01DBAB821181DB5AB5FA71 /* SnippetVariablePrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06259C5D1E3951CFFA6E3578 /* SnippetVariablePrompt.swift */; };
+		ED2393FE50452F08D00EFA76 /* OrbitCoreCheckedFFILiveFunctions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9767CC31B2E380BC77CA4295 /* OrbitCoreCheckedFFILiveFunctions.swift */; };
+		EF43DE3737F749EF46B8E1AE /* TelnetAccessPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDB1034B7939B68118FACF98 /* TelnetAccessPolicy.swift */; };
 		EFED4745678E56EB1D29BDEE /* MonitorDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEF1B8EB20CEE14349EB99A4 /* MonitorDashboardView.swift */; };
+		F0A286E19B302EF01E31B105 /* CheckedFFIIDs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EBA9ADD7B50F769A714D880 /* CheckedFFIIDs.swift */; };
+		F105284DC41E2E2764C887D8 /* CheckedFFIFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D2EEFD7E78AFA3733A254C /* CheckedFFIFixtures.swift */; };
 		F120A962EA8C41B07A6E9457 /* WorkstationAssetSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC35C4CE7198F143C318FB84 /* WorkstationAssetSidebarView.swift */; };
+		F27C45C857C88B7DD9952D0F /* CheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9D64379CFB1DF22B325FB09 /* CheckedFFIClient.swift */; };
+		F511ED3671F96CB9A8AE7A91 /* CheckedFFIProviders.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8127F4F1A174C012E9A1ACD /* CheckedFFIProviders.swift */; };
 		F77C77AC2901981A7DDBE1E1 /* WorkstationSheetsAndAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 745FBDA528F6B4F8EA9D4467 /* WorkstationSheetsAndAlerts.swift */; };
 		F9554E92C4614C8CFDC6F3BE /* WorkstationCollapsedFeatureRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 841FF37C9A712E391D0B0781 /* WorkstationCollapsedFeatureRow.swift */; };
+		FBA0C2E21905742915FF9E3E /* CheckedConnectionMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 328F84C5034D50790C4E2250 /* CheckedConnectionMode.swift */; };
 		FBAA1C6A14A37B5022F9D8CF /* AssetManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04FFDB29556DE5419BEB4E78 /* AssetManagerView.swift */; };
 		FCF23D982451D4A34FA66976 /* MonitorPollingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DAB223E842154D2614BEFDB /* MonitorPollingPolicy.swift */; };
 		FD0C6A4F574BFACD94B54770 /* MonitorStatsPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB6B5AD58F8D1496F4973531 /* MonitorStatsPayload.swift */; };
@@ -301,41 +307,14 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		A24G00000000000000000001 /* CheckedDockerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedDockerService.swift; sourceTree = "<group>"; };
-		A24G00000000000000000002 /* CheckedDockerServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedDockerServiceTests.swift; sourceTree = "<group>"; };
-		A24F00000000000000000001 /* CheckedMonitorSnapshotService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedMonitorSnapshotService.swift; sourceTree = "<group>"; };
-		A24F00000000000000000002 /* CheckedMonitorServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedMonitorServiceTests.swift; sourceTree = "<group>"; };
-		A24E00000000000000000001 /* CheckedSFTPConnectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedSFTPConnectionService.swift; sourceTree = "<group>"; };
-		A24E00000000000000000002 /* CheckedSFTPServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedSFTPServiceTests.swift; sourceTree = "<group>"; };
-		A24D00000000000000000001 /* CheckedConnectionMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedConnectionMode.swift; sourceTree = "<group>"; };
-		A24D00000000000000000002 /* CheckedTerminalConnectionOrchestrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedTerminalConnectionOrchestrator.swift; sourceTree = "<group>"; };
-		A24D00000000000000000003 /* CredentialVaultCheckedProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialVaultCheckedProvider.swift; sourceTree = "<group>"; };
-		A24D00000000000000000004 /* CheckedSessionOrchestrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedSessionOrchestrationTests.swift; sourceTree = "<group>"; };
-		A24C00000000000000000001 /* CheckedFFIProviders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIProviders.swift; sourceTree = "<group>"; };
-		A24C00000000000000000002 /* OrbitCStringResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitCStringResult.swift; sourceTree = "<group>"; };
-		A24C00000000000000000003 /* OrbitCoreCheckedFFIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitCoreCheckedFFIClient.swift; sourceTree = "<group>"; };
-		A24C00000000000000000004 /* OrbitCoreCheckedFFILiveFunctions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitCoreCheckedFFILiveFunctions.swift; sourceTree = "<group>"; };
-		A24C00000000000000000005 /* OrbitCoreCheckedFFIClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitCoreCheckedFFIClientTests.swift; sourceTree = "<group>"; };
-		A24B00000000000000000001 /* CheckedFFIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIClient.swift; sourceTree = "<group>"; };
-		A24B00000000000000000002 /* HostKeyTrustCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostKeyTrustCoordinator.swift; sourceTree = "<group>"; };
-		A24B00000000000000000003 /* HostKeyTrustPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostKeyTrustPresentation.swift; sourceTree = "<group>"; };
-		A24B00000000000000000004 /* HostKeyTrustViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostKeyTrustViews.swift; sourceTree = "<group>"; };
-		A24B00000000000000000005 /* ScriptedCheckedFFIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptedCheckedFFIClient.swift; sourceTree = "<group>"; };
-		A24B00000000000000000006 /* HostKeyTrustCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostKeyTrustCoordinatorTests.swift; sourceTree = "<group>"; };
-		A24B00000000000000000007 /* HostKeyTrustPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostKeyTrustPresentationTests.swift; sourceTree = "<group>"; };
-		A24A00000000000000000001 /* CheckedFFIEnvelope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIEnvelope.swift; sourceTree = "<group>"; };
-		A24A00000000000000000002 /* CheckedFFIKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIKind.swift; sourceTree = "<group>"; };
-		A24A00000000000000000003 /* CheckedFFIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIError.swift; sourceTree = "<group>"; };
-		A24A00000000000000000004 /* CheckedFFIPayloads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIPayloads.swift; sourceTree = "<group>"; };
-		A24A00000000000000000005 /* CheckedFFIIDs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIIDs.swift; sourceTree = "<group>"; };
-		A24A00000000000000000006 /* CheckedFFIFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIFixtures.swift; sourceTree = "<group>"; };
-		A24A00000000000000000007 /* CheckedFFITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFITests.swift; sourceTree = "<group>"; };
-		A24A00000000000000000008 /* HeaderForwardingCompileCheck.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = HeaderForwardingCompileCheck.c; sourceTree = "<group>"; };
-		A24A00000000000000000009 /* OrbitTermCheckedFFITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OrbitTermCheckedFFITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		0143410463A3234E7DE8983B /* CheckedBatchCommandServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedBatchCommandServiceTests.swift; sourceTree = "<group>"; };
 		0197FADECAE6D8AC5EFEE8C5 /* SyncService+Synchronization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyncService+Synchronization.swift"; sourceTree = "<group>"; };
 		0406A2602C8DCBFAD157B5E5 /* WorkstationMonitorDetailViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationMonitorDetailViews.swift; sourceTree = "<group>"; };
+		04892B3FCBDC216B7013CF35 /* CheckedTerminalConnectionOrchestrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedTerminalConnectionOrchestrator.swift; sourceTree = "<group>"; };
 		04FFDB29556DE5419BEB4E78 /* AssetManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetManagerView.swift; sourceTree = "<group>"; };
 		06259C5D1E3951CFFA6E3578 /* SnippetVariablePrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetVariablePrompt.swift; sourceTree = "<group>"; };
+		08CEE6111EC22C4515BA30BA /* CheckedFFIEnvelope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIEnvelope.swift; sourceTree = "<group>"; };
+		094AE566852B57129DFE5E7D /* CredentialVaultCheckedProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialVaultCheckedProvider.swift; sourceTree = "<group>"; };
 		10B229BED0B0F3176FF87E7A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		1117F7A981D07A249B0CDBD7 /* SnippetsPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetsPanelView.swift; sourceTree = "<group>"; };
 		16F52E3B6E83F077783BEC22 /* MainWorkstationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWorkstationView.swift; sourceTree = "<group>"; };
@@ -343,19 +322,26 @@
 		190E90A490AB0BEFD1B5F1EA /* CredentialVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialVault.swift; sourceTree = "<group>"; };
 		1BDEC92E6B4B8974125CB64A /* AddServerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerView.swift; sourceTree = "<group>"; };
 		1BE06A1C6F5FFBAFADD9A746 /* AddServerKeyFileLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerKeyFileLoader.swift; sourceTree = "<group>"; };
+		1BFC7645D040D7775262D3B9 /* HostKeyTrustCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostKeyTrustCoordinatorTests.swift; sourceTree = "<group>"; };
 		1C07F3CC8B2B8064ED317D63 /* SFTPBrowserPanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserPanels.swift; sourceTree = "<group>"; };
+		1C91C966272BB497962A031F /* CheckedSFTPServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedSFTPServiceTests.swift; sourceTree = "<group>"; };
+		1E6DA6F702782EA345096BAB /* OrbitCoreCheckedFFIClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitCoreCheckedFFIClientTests.swift; sourceTree = "<group>"; };
 		20EA2AC1C67C6744ECBB46BD /* AuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthView.swift; sourceTree = "<group>"; };
 		21BA8750BFF4212C103320E8 /* ServerListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerListView.swift; sourceTree = "<group>"; };
 		23CDE6AF8E0550184AC99A12 /* BatchCommandRunnerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchCommandRunnerView.swift; sourceTree = "<group>"; };
 		24CD1624F5A719FD6E790B98 /* WorkstationMonitorCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationMonitorCardView.swift; sourceTree = "<group>"; };
+		25D2EEFD7E78AFA3733A254C /* CheckedFFIFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIFixtures.swift; sourceTree = "<group>"; };
 		2D7F211EB934A0D5BCE2885D /* SwiftTermPlatformSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftTermPlatformSupport.swift; sourceTree = "<group>"; };
 		2DC29E7DEA20362E09F501D3 /* AppSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSession.swift; sourceTree = "<group>"; };
+		328F84C5034D50790C4E2250 /* CheckedConnectionMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedConnectionMode.swift; sourceTree = "<group>"; };
 		33E248A5FD3DD7C8F896ECA2 /* SyncQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncQueue.swift; sourceTree = "<group>"; };
 		33EF6481439C305953E69B86 /* WorkstationTerminalDropUploadModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalDropUploadModifier.swift; sourceTree = "<group>"; };
 		36296E55AE0C9150AC8BB729 /* AddServerAuthSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerAuthSection.swift; sourceTree = "<group>"; };
 		381EB860DD822B532F60A2E4 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		38CC52AC1F19BBC544F8D872 /* DiagnosticsExportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsExportView.swift; sourceTree = "<group>"; };
 		39F14E3A78611D6EDB41479C /* SFTPBrowserEditState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserEditState.swift; sourceTree = "<group>"; };
+		3B7DA78E6B914CF622EA1AB6 /* HostKeyTrustViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostKeyTrustViews.swift; sourceTree = "<group>"; };
+		3D1FF33B328795D45C135045 /* CheckedFFITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFITests.swift; sourceTree = "<group>"; };
 		3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkService.swift; sourceTree = "<group>"; };
 		403D0958371C1A8C3391BAA9 /* WorkstationTerminalSessionChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSessionChrome.swift; sourceTree = "<group>"; };
 		442AD4AADE13BA0E4204549B /* CredentialInputHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialInputHelpers.swift; sourceTree = "<group>"; };
@@ -365,32 +351,44 @@
 		4C9A8C3DE225D64B8E39E2BA /* DeepLinkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLinkManager.swift; sourceTree = "<group>"; };
 		4DF9DDD34658EA3851E06DC7 /* WorkstationTerminalSplitLayoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSplitLayoutView.swift; sourceTree = "<group>"; };
 		4F3A50B12C7EDA8BE4D4CF2F /* SFTPBrowserConnectionDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserConnectionDraft.swift; sourceTree = "<group>"; };
+		52E49E88C1F1C415A4EA97DE /* CheckedMonitorServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedMonitorServiceTests.swift; sourceTree = "<group>"; };
 		530F2F2B65A5D82BAE62ED55 /* SessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionManager.swift; sourceTree = "<group>"; };
+		555D5885D74C7A64B2960725 /* CheckedSessionOrchestrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedSessionOrchestrationTests.swift; sourceTree = "<group>"; };
 		56BF32292E4CB4F2E77CD669 /* AddServerInitialState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerInitialState.swift; sourceTree = "<group>"; };
 		56D3F03810DC065AADA6A2C2 /* SFTPManager+Transfers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+Transfers.swift"; sourceTree = "<group>"; };
+		5786DEF9086A4B29A2F0FEA2 /* CheckedDockerServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedDockerServiceTests.swift; sourceTree = "<group>"; };
 		5A37A7CD3B58D296A9E3AF54 /* DockerLogStreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerLogStreamView.swift; sourceTree = "<group>"; };
 		5B0DB0DE0CCDDA52D06A792C /* TelnetClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelnetClient.swift; sourceTree = "<group>"; };
+		5FC5B32387271FA418F10773 /* HostKeyTrustCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostKeyTrustCoordinator.swift; sourceTree = "<group>"; };
 		61D05FDE086817AEB654082D /* RustFFI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RustFFI.swift; sourceTree = "<group>"; };
 		62574FF79DCC3A178EE8FDEC /* OrbitTerm.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OrbitTerm.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		62847EC28220849324529ECF /* TabBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabBarView.swift; sourceTree = "<group>"; };
+		656C4A6BCB0AD2479795FBDB /* CheckedFFIPayloads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIPayloads.swift; sourceTree = "<group>"; };
 		690770EDC7E1AC93C9D9BDFD /* WorkstationTerminalSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSearchOverlay.swift; sourceTree = "<group>"; };
+		6A6CAAD2E51DFF2618790ECC /* TelnetRiskConfirmationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelnetRiskConfirmationView.swift; sourceTree = "<group>"; };
 		6D0958086BAEA5C2D32B4BA5 /* SFTPModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPModels.swift; sourceTree = "<group>"; };
 		6D30655BE66EE13549045BEF /* WorkstationStressController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationStressController.swift; sourceTree = "<group>"; };
 		7156371597A178C490DF8ABD /* DockerManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerManagerView.swift; sourceTree = "<group>"; };
+		735C5043134DAC338A430C10 /* CheckedFFIKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIKind.swift; sourceTree = "<group>"; };
 		745FBDA528F6B4F8EA9D4467 /* WorkstationSheetsAndAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationSheetsAndAlerts.swift; sourceTree = "<group>"; };
 		76AB95FB1E7D6619332A255A /* MobileSessionComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSessionComponents.swift; sourceTree = "<group>"; };
+		7713E6E04A40DA1BC5D07D1A /* HeaderForwardingCompileCheck.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = HeaderForwardingCompileCheck.c; sourceTree = "<group>"; };
 		77D09730A51A26B9E686F253 /* SFTPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPManager.swift; sourceTree = "<group>"; };
+		783FF132F1CA3C0639576C0F /* CheckedSFTPConnectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedSFTPConnectionService.swift; sourceTree = "<group>"; };
 		78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterPasswordGateView.swift; sourceTree = "<group>"; };
 		79C98A67B69AA654CC5A6B77 /* DetachedSessionWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedSessionWindowView.swift; sourceTree = "<group>"; };
 		7B74BC2A072244011E0AF309 /* SFTPManager+Mock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+Mock.swift"; sourceTree = "<group>"; };
+		7CDABB2A6CDA0C6532845C89 /* CheckedBatchCommandService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedBatchCommandService.swift; sourceTree = "<group>"; };
 		7DA03126726F8585CE9F3B82 /* AssetQuickKeySetupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetQuickKeySetupSheet.swift; sourceTree = "<group>"; };
 		7DAB223E842154D2614BEFDB /* MonitorPollingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorPollingPolicy.swift; sourceTree = "<group>"; };
 		7DF6C48C6A90753469560AA6 /* ServerModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerModels.swift; sourceTree = "<group>"; };
 		7E4AE5E8FEC909FFBA6B236E /* NetworkModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkModels.swift; sourceTree = "<group>"; };
+		808FFAC757EB9FA079E2E5F8 /* HostKeyTrustPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostKeyTrustPresentationTests.swift; sourceTree = "<group>"; };
 		82956A0F1C5D1E30A78D1E37 /* TerminalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalService.swift; sourceTree = "<group>"; };
 		836E09EB574862420A560409 /* SFTPManager+FileOperations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+FileOperations.swift"; sourceTree = "<group>"; };
 		83D32D4C054B4202BC9A24A0 /* WorkspaceSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSession.swift; sourceTree = "<group>"; };
 		841FF37C9A712E391D0B0781 /* WorkstationCollapsedFeatureRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationCollapsedFeatureRow.swift; sourceTree = "<group>"; };
+		8A0F26B8CC3A2CE0C6BE8D48 /* HostKeyTrustPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostKeyTrustPresentation.swift; sourceTree = "<group>"; };
 		8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitTermApp.swift; sourceTree = "<group>"; };
 		8B49A5D57724B8383BD06C96 /* DockerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerService.swift; sourceTree = "<group>"; };
 		91CF5B57FA41C8FB507E27B6 /* WorkstationLayoutMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationLayoutMetrics.swift; sourceTree = "<group>"; };
@@ -400,11 +398,15 @@
 		95D8066857521151FF1854B9 /* AddServerFormComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerFormComponents.swift; sourceTree = "<group>"; };
 		9714382A7905BD9F6A4EFD8A /* SFTPManager+Connection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+Connection.swift"; sourceTree = "<group>"; };
 		9727DF6BCB4A2DC3FFF9644E /* FileSizeFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSizeFormatter.swift; sourceTree = "<group>"; };
+		9767CC31B2E380BC77CA4295 /* OrbitCoreCheckedFFILiveFunctions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitCoreCheckedFFILiveFunctions.swift; sourceTree = "<group>"; };
+		98B23E2A2CD42FFDD3EF8330 /* OrbitCoreCheckedFFIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitCoreCheckedFFIClient.swift; sourceTree = "<group>"; };
 		995C008B81C1BCF2CC6B5122 /* SyncModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncModels.swift; sourceTree = "<group>"; };
 		9A91FAC92F6EEB51AACE1DEB /* SnippetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetStore.swift; sourceTree = "<group>"; };
+		9B4CAA3973F1B8D89EE215E3 /* ScriptedCheckedFFIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptedCheckedFFIClient.swift; sourceTree = "<group>"; };
 		9BF8175E63892D99108F4789 /* WorkstationDockerCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationDockerCardView.swift; sourceTree = "<group>"; };
 		9CAC2E9B1546BFD66A6161FF /* WorkstationToolbarModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationToolbarModifier.swift; sourceTree = "<group>"; };
 		9E32A07BCF85C4A7E8EF7CDE /* SFTPBatchDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBatchDownloader.swift; sourceTree = "<group>"; };
+		9EBA9ADD7B50F769A714D880 /* CheckedFFIIDs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIIDs.swift; sourceTree = "<group>"; };
 		9F14341CBA2F36F648BF5800 /* MonitorService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorService.swift; sourceTree = "<group>"; };
 		A0599BB6B03494D8A6791ABA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A3DE23E2FB664A118F6B8646 /* WorkstationTerminalSessionPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSessionPane.swift; sourceTree = "<group>"; };
@@ -415,21 +417,26 @@
 		AA7AD58C1A1CED310B6875EE /* SnippetVariableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetVariableResolver.swift; sourceTree = "<group>"; };
 		AB6B5AD58F8D1496F4973531 /* MonitorStatsPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorStatsPayload.swift; sourceTree = "<group>"; };
 		AED26C552B7072D2AAC4669F /* ServerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerStore.swift; sourceTree = "<group>"; };
+		AF296C0F924480DD21047D08 /* OrbitCStringResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitCStringResult.swift; sourceTree = "<group>"; };
 		B4D7532938F0DC9FF02B25D6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		B6DB68C1BB7FFE44287C2058 /* SFTPBrowserPathHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserPathHelper.swift; sourceTree = "<group>"; };
+		B716472EFB5C05C3C8596133 /* CheckedMonitorSnapshotService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedMonitorSnapshotService.swift; sourceTree = "<group>"; };
 		B73F5D9381F2705029E0D544 /* AddServerValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerValidation.swift; sourceTree = "<group>"; };
 		B97BFDF6F22DC746B3C1C6B0 /* AuthVisualComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthVisualComponents.swift; sourceTree = "<group>"; };
+		B980CEA85C1A75EAB7AF96A6 /* CheckedDockerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedDockerService.swift; sourceTree = "<group>"; };
 		BA44539F264985D253A45D92 /* MobileSessionViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSessionViews.swift; sourceTree = "<group>"; };
 		BC35C4CE7198F143C318FB84 /* WorkstationAssetSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationAssetSidebarView.swift; sourceTree = "<group>"; };
 		C3283D7558028E2BB3A5C9AC /* KeychainDataStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainDataStore.swift; sourceTree = "<group>"; };
 		C3E0EFB34CACD29FEB53B377 /* SyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncService.swift; sourceTree = "<group>"; };
 		C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+InputPolish.swift"; sourceTree = "<group>"; };
 		C8477779BBFFBE8F7C7B613F /* AddServerConnectionTester.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerConnectionTester.swift; sourceTree = "<group>"; };
+		CCC379F20967A9F869DE09B1 /* CheckedFFIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIError.swift; sourceTree = "<group>"; };
 		CF0C018CC927BA3B0E42EE18 /* orbit_core.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = orbit_core.h; sourceTree = "<group>"; };
 		CF8482667CCEAB37877728A8 /* SFTPBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserView.swift; sourceTree = "<group>"; };
 		D39A4AEB90905AF3505A2948 /* SyncMetadataStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncMetadataStore.swift; sourceTree = "<group>"; };
 		D44C7BA4E8C0FF98A3D67ABC /* AssetBulkAddSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetBulkAddSheet.swift; sourceTree = "<group>"; };
 		D45567695C4B41D14FEEBBDA /* DockerManagerDrafts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerManagerDrafts.swift; sourceTree = "<group>"; };
+		D9D64379CFB1DF22B325FB09 /* CheckedFFIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIClient.swift; sourceTree = "<group>"; };
 		DAFDE71AA1A69539BB2EA7CD /* SwiftTermTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftTermTerminalView.swift; sourceTree = "<group>"; };
 		DB25A1786CA7328B371EC1EA /* SnippetEditorDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetEditorDraft.swift; sourceTree = "<group>"; };
 		DEF1B8EB20CEE14349EB99A4 /* MonitorDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorDashboardView.swift; sourceTree = "<group>"; };
@@ -439,26 +446,21 @@
 		E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitManager.swift; sourceTree = "<group>"; };
 		E6BA478CCB76C4787B9E87D9 /* DiagnosticsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsManager.swift; sourceTree = "<group>"; };
 		E6F3F01CCF826615CB008047 /* WorkstationRightPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationRightPanelView.swift; sourceTree = "<group>"; };
+		E8127F4F1A174C012E9A1ACD /* CheckedFFIProviders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIProviders.swift; sourceTree = "<group>"; };
 		EBF252B95C1A0A974038062E /* WorkstationSFTPDialogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationSFTPDialogs.swift; sourceTree = "<group>"; };
 		EC1301A8254D411A95E31A69 /* WorkstationTerminalToolbarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalToolbarView.swift; sourceTree = "<group>"; };
 		ED34A104EBBDBA17DC64A535 /* OrbitTerm-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "OrbitTerm-Bridging-Header.h"; sourceTree = "<group>"; };
+		EDB1034B7939B68118FACF98 /* TelnetAccessPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelnetAccessPolicy.swift; sourceTree = "<group>"; };
 		EEA155A9F65638E6194ADA93 /* KeychainManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainManager.swift; sourceTree = "<group>"; };
 		F564909FA3819599A35DA95E /* ShellPathResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellPathResolver.swift; sourceTree = "<group>"; };
+		F660F6B83AFB5A902A70F64F /* OrbitTermCheckedFFITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OrbitTermCheckedFFITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F75E6C28523DF8A209339F6B /* AddServerDraftBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerDraftBuilder.swift; sourceTree = "<group>"; };
 		FAA681CD5E929D54BAF59BA3 /* WorkstationSFTPCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationSFTPCardView.swift; sourceTree = "<group>"; };
 		FC0745CC8E9FCDB47926A280 /* SFTPBatchOperationFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBatchOperationFormatter.swift; sourceTree = "<group>"; };
-		A24H00000000000000000001 /* CheckedBatchCommandService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedBatchCommandService.swift; sourceTree = "<group>"; };
-		A24H00000000000000000002 /* CheckedBatchCommandServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedBatchCommandServiceTests.swift; sourceTree = "<group>"; };
+		FC1976CD3FBAA98751C994BE /* TelnetAccessPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelnetAccessPolicyTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		A24A00000000000000000031 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		50C67EA4B15856743A51E78A /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -478,63 +480,9 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		A24B0000000000000000000A /* HostKeyTrust */ = {
-			isa = PBXGroup;
-			children = (
-				A24B00000000000000000002 /* HostKeyTrustCoordinator.swift */,
-				A24B00000000000000000003 /* HostKeyTrustPresentation.swift */,
-			);
-			path = HostKeyTrust;
-			sourceTree = "<group>";
-		};
-		A24A0000000000000000000A /* CheckedFFI */ = {
-			isa = PBXGroup;
-			children = (
-				A24B00000000000000000001 /* CheckedFFIClient.swift */,
-				A24H00000000000000000001 /* CheckedBatchCommandService.swift */,
-				A24G00000000000000000001 /* CheckedDockerService.swift */,
-				A24F00000000000000000001 /* CheckedMonitorSnapshotService.swift */,
-				A24E00000000000000000001 /* CheckedSFTPConnectionService.swift */,
-				A24D00000000000000000001 /* CheckedConnectionMode.swift */,
-				A24D00000000000000000002 /* CheckedTerminalConnectionOrchestrator.swift */,
-				A24D00000000000000000003 /* CredentialVaultCheckedProvider.swift */,
-				A24C00000000000000000001 /* CheckedFFIProviders.swift */,
-				A24A00000000000000000001 /* CheckedFFIEnvelope.swift */,
-				A24A00000000000000000002 /* CheckedFFIKind.swift */,
-				A24A00000000000000000003 /* CheckedFFIError.swift */,
-				A24A00000000000000000004 /* CheckedFFIPayloads.swift */,
-				A24A00000000000000000005 /* CheckedFFIIDs.swift */,
-				A24C00000000000000000002 /* OrbitCStringResult.swift */,
-				A24C00000000000000000003 /* OrbitCoreCheckedFFIClient.swift */,
-				A24C00000000000000000004 /* OrbitCoreCheckedFFILiveFunctions.swift */,
-			);
-			path = CheckedFFI;
-			sourceTree = "<group>";
-		};
-		A24A0000000000000000000B /* OrbitTermCheckedFFITests */ = {
-			isa = PBXGroup;
-			children = (
-				A24H00000000000000000002 /* CheckedBatchCommandServiceTests.swift */,
-				A24G00000000000000000002 /* CheckedDockerServiceTests.swift */,
-				A24F00000000000000000002 /* CheckedMonitorServiceTests.swift */,
-				A24E00000000000000000002 /* CheckedSFTPServiceTests.swift */,
-				A24D00000000000000000004 /* CheckedSessionOrchestrationTests.swift */,
-				A24B00000000000000000005 /* ScriptedCheckedFFIClient.swift */,
-				A24B00000000000000000006 /* HostKeyTrustCoordinatorTests.swift */,
-				A24B00000000000000000007 /* HostKeyTrustPresentationTests.swift */,
-				A24A00000000000000000006 /* CheckedFFIFixtures.swift */,
-				A24A00000000000000000007 /* CheckedFFITests.swift */,
-				A24C00000000000000000005 /* OrbitCoreCheckedFFIClientTests.swift */,
-				A24A00000000000000000008 /* HeaderForwardingCompileCheck.c */,
-			);
-			path = OrbitTermCheckedFFITests;
-			sourceTree = "<group>";
-		};
 		04E8CCCF20C7677B9A01498F /* Core */ = {
 			isa = PBXGroup;
 			children = (
-				A24A0000000000000000000A /* CheckedFFI */,
-				A24B0000000000000000000A /* HostKeyTrust */,
 				2DC29E7DEA20362E09F501D3 /* AppSession.swift */,
 				924DF400619ABD0FB4150133 /* BiometricAuthService.swift */,
 				442AD4AADE13BA0E4204549B /* CredentialInputHelpers.swift */,
@@ -573,10 +521,13 @@
 				C3E0EFB34CACD29FEB53B377 /* SyncService.swift */,
 				461FDC634D076E7A0DF2798A /* SyncService+Conflict.swift */,
 				0197FADECAE6D8AC5EFEE8C5 /* SyncService+Synchronization.swift */,
+				EDB1034B7939B68118FACF98 /* TelnetAccessPolicy.swift */,
 				5B0DB0DE0CCDDA52D06A792C /* TelnetClient.swift */,
 				82956A0F1C5D1E30A78D1E37 /* TerminalService.swift */,
 				C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */,
 				83D32D4C054B4202BC9A24A0 /* WorkspaceSession.swift */,
+				927BFBD2838280FEA44FC157 /* CheckedFFI */,
+				2A4058A969CBCF6B2A439533 /* HostKeyTrust */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -648,11 +599,21 @@
 			path = Home;
 			sourceTree = "<group>";
 		};
+		2A4058A969CBCF6B2A439533 /* HostKeyTrust */ = {
+			isa = PBXGroup;
+			children = (
+				5FC5B32387271FA418F10773 /* HostKeyTrustCoordinator.swift */,
+				8A0F26B8CC3A2CE0C6BE8D48 /* HostKeyTrustPresentation.swift */,
+			);
+			path = HostKeyTrust;
+			sourceTree = "<group>";
+		};
 		3D708A1AEECA8BCA1AE1F6A2 /* Security */ = {
 			isa = PBXGroup;
 			children = (
-				A24B00000000000000000004 /* HostKeyTrustViews.swift */,
+				3B7DA78E6B914CF622EA1AB6 /* HostKeyTrustViews.swift */,
 				78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */,
+				6A6CAAD2E51DFF2618790ECC /* TelnetRiskConfirmationView.swift */,
 			);
 			path = Security;
 			sourceTree = "<group>";
@@ -671,7 +632,7 @@
 			children = (
 				A622FE572935B57F21E6515A /* OrbitTerm.app */,
 				62574FF79DCC3A178EE8FDEC /* OrbitTerm.app */,
-				A24A00000000000000000009 /* OrbitTermCheckedFFITests.xctest */,
+				F660F6B83AFB5A902A70F64F /* OrbitTermCheckedFFITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -680,9 +641,29 @@
 			isa = PBXGroup;
 			children = (
 				F8A20BCDC3C022C4D595CEC9 /* OrbitTerm */,
-				A24A0000000000000000000B /* OrbitTermCheckedFFITests */,
+				60DA76E9AEC50FE320095C48 /* OrbitTermCheckedFFITests */,
 				5BD31C74C2737D02F64C8B9C /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		60DA76E9AEC50FE320095C48 /* OrbitTermCheckedFFITests */ = {
+			isa = PBXGroup;
+			children = (
+				0143410463A3234E7DE8983B /* CheckedBatchCommandServiceTests.swift */,
+				5786DEF9086A4B29A2F0FEA2 /* CheckedDockerServiceTests.swift */,
+				25D2EEFD7E78AFA3733A254C /* CheckedFFIFixtures.swift */,
+				3D1FF33B328795D45C135045 /* CheckedFFITests.swift */,
+				52E49E88C1F1C415A4EA97DE /* CheckedMonitorServiceTests.swift */,
+				555D5885D74C7A64B2960725 /* CheckedSessionOrchestrationTests.swift */,
+				1C91C966272BB497962A031F /* CheckedSFTPServiceTests.swift */,
+				7713E6E04A40DA1BC5D07D1A /* HeaderForwardingCompileCheck.c */,
+				1BFC7645D040D7775262D3B9 /* HostKeyTrustCoordinatorTests.swift */,
+				808FFAC757EB9FA079E2E5F8 /* HostKeyTrustPresentationTests.swift */,
+				1E6DA6F702782EA345096BAB /* OrbitCoreCheckedFFIClientTests.swift */,
+				9B4CAA3973F1B8D89EE215E3 /* ScriptedCheckedFFIClient.swift */,
+				FC1976CD3FBAA98751C994BE /* TelnetAccessPolicyTests.swift */,
+			);
+			path = OrbitTermCheckedFFITests;
 			sourceTree = "<group>";
 		};
 		6B1C763EDB66531565F3A7C2 /* App */ = {
@@ -695,6 +676,30 @@
 				8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		927BFBD2838280FEA44FC157 /* CheckedFFI */ = {
+			isa = PBXGroup;
+			children = (
+				7CDABB2A6CDA0C6532845C89 /* CheckedBatchCommandService.swift */,
+				328F84C5034D50790C4E2250 /* CheckedConnectionMode.swift */,
+				B980CEA85C1A75EAB7AF96A6 /* CheckedDockerService.swift */,
+				D9D64379CFB1DF22B325FB09 /* CheckedFFIClient.swift */,
+				08CEE6111EC22C4515BA30BA /* CheckedFFIEnvelope.swift */,
+				CCC379F20967A9F869DE09B1 /* CheckedFFIError.swift */,
+				9EBA9ADD7B50F769A714D880 /* CheckedFFIIDs.swift */,
+				735C5043134DAC338A430C10 /* CheckedFFIKind.swift */,
+				656C4A6BCB0AD2479795FBDB /* CheckedFFIPayloads.swift */,
+				E8127F4F1A174C012E9A1ACD /* CheckedFFIProviders.swift */,
+				B716472EFB5C05C3C8596133 /* CheckedMonitorSnapshotService.swift */,
+				783FF132F1CA3C0639576C0F /* CheckedSFTPConnectionService.swift */,
+				04892B3FCBDC216B7013CF35 /* CheckedTerminalConnectionOrchestrator.swift */,
+				094AE566852B57129DFE5E7D /* CredentialVaultCheckedProvider.swift */,
+				98B23E2A2CD42FFDD3EF8330 /* OrbitCoreCheckedFFIClient.swift */,
+				9767CC31B2E380BC77CA4295 /* OrbitCoreCheckedFFILiveFunctions.swift */,
+				AF296C0F924480DD21047D08 /* OrbitCStringResult.swift */,
+			);
+			path = CheckedFFI;
 			sourceTree = "<group>";
 		};
 		951A304BB80BBEE8C5D88345 /* Auth */ = {
@@ -731,25 +736,6 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A24A00000000000000000040 /* OrbitTermCheckedFFITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = A24A00000000000000000043 /* Build configuration list for PBXNativeTarget "OrbitTermCheckedFFITests" */;
-			buildPhases = (
-				A24A00000000000000000030 /* Sources */,
-				A24A00000000000000000032 /* Resources */,
-				A24A00000000000000000031 /* Frameworks */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = OrbitTermCheckedFFITests;
-			packageProductDependencies = (
-			);
-			productName = OrbitTermCheckedFFITests;
-			productReference = A24A00000000000000000009 /* OrbitTermCheckedFFITests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
-		};
 		5D894F6ED837B8E66D8BC143 /* OrbitTerm_macOS */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 318334051428B0633709725D /* Build configuration list for PBXNativeTarget "OrbitTerm_macOS" */;
@@ -790,6 +776,23 @@
 			productReference = A622FE572935B57F21E6515A /* OrbitTerm.app */;
 			productType = "com.apple.product-type.application";
 		};
+		F315953FC26D7D933FC1B9C6 /* OrbitTermCheckedFFITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 344B0984EEDA52387AB41950 /* Build configuration list for PBXNativeTarget "OrbitTermCheckedFFITests" */;
+			buildPhases = (
+				016DAC3255E8288F93C3F74B /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = OrbitTermCheckedFFITests;
+			packageProductDependencies = (
+			);
+			productName = OrbitTermCheckedFFITests;
+			productReference = F660F6B83AFB5A902A70F64F /* OrbitTermCheckedFFITests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -799,13 +802,13 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
-					A24A00000000000000000040 = {
-						CreatedOnToolsVersion = 26.0;
-					};
 					5D894F6ED837B8E66D8BC143 = {
 						ProvisioningStyle = Automatic;
 					};
 					9037F5C81C57EF6606CFD7B1 = {
+						ProvisioningStyle = Automatic;
+					};
+					F315953FC26D7D933FC1B9C6 = {
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -827,21 +830,14 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+				F315953FC26D7D933FC1B9C6 /* OrbitTermCheckedFFITests */,
 				9037F5C81C57EF6606CFD7B1 /* OrbitTerm_iOS */,
 				5D894F6ED837B8E66D8BC143 /* OrbitTerm_macOS */,
-				A24A00000000000000000040 /* OrbitTermCheckedFFITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		A24A00000000000000000032 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		337B62E78ABACF3559405ACD /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -861,39 +857,41 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		A24A00000000000000000030 /* Sources */ = {
+		016DAC3255E8288F93C3F74B /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A24H00000000000000000013 /* CheckedBatchCommandService.swift in Sources */,
-				A24H00000000000000000014 /* CheckedBatchCommandServiceTests.swift in Sources */,
-				A24G00000000000000000013 /* CheckedDockerService.swift in Sources */,
-				A24G00000000000000000014 /* CheckedDockerServiceTests.swift in Sources */,
-				A24F00000000000000000013 /* CheckedMonitorSnapshotService.swift in Sources */,
-				A24F00000000000000000014 /* CheckedMonitorServiceTests.swift in Sources */,
-				A24E00000000000000000013 /* CheckedSFTPConnectionService.swift in Sources */,
-				A24E00000000000000000014 /* CheckedSFTPServiceTests.swift in Sources */,
-				A24D00000000000000000017 /* CheckedConnectionMode.swift in Sources */,
-				A24D00000000000000000018 /* CheckedTerminalConnectionOrchestrator.swift in Sources */,
-				A24D00000000000000000019 /* CheckedSessionOrchestrationTests.swift in Sources */,
-				A24C00000000000000000019 /* CheckedFFIProviders.swift in Sources */,
-				A24C0000000000000000001A /* OrbitCStringResult.swift in Sources */,
-				A24C0000000000000000001B /* OrbitCoreCheckedFFIClient.swift in Sources */,
-				A24C0000000000000000001C /* OrbitCoreCheckedFFIClientTests.swift in Sources */,
-				A24B00000000000000000019 /* CheckedFFIClient.swift in Sources */,
-				A24B0000000000000000001A /* HostKeyTrustCoordinator.swift in Sources */,
-				A24B0000000000000000001B /* HostKeyTrustPresentation.swift in Sources */,
-				A24B0000000000000000001C /* ScriptedCheckedFFIClient.swift in Sources */,
-				A24B0000000000000000001D /* HostKeyTrustCoordinatorTests.swift in Sources */,
-				A24B0000000000000000001E /* HostKeyTrustPresentationTests.swift in Sources */,
-				A24A0000000000000000001B /* CheckedFFIEnvelope.swift in Sources */,
-				A24A0000000000000000001C /* CheckedFFIKind.swift in Sources */,
-				A24A0000000000000000001D /* CheckedFFIError.swift in Sources */,
-				A24A0000000000000000001E /* CheckedFFIPayloads.swift in Sources */,
-				A24A0000000000000000001F /* CheckedFFIIDs.swift in Sources */,
-				A24A00000000000000000020 /* CheckedFFIFixtures.swift in Sources */,
-				A24A00000000000000000021 /* CheckedFFITests.swift in Sources */,
-				A24A00000000000000000022 /* HeaderForwardingCompileCheck.c in Sources */,
+				414E7C01AAB8B6F1354EAC04 /* CheckedBatchCommandService.swift in Sources */,
+				596292A2935B18E58C055E7D /* CheckedBatchCommandServiceTests.swift in Sources */,
+				FBA0C2E21905742915FF9E3E /* CheckedConnectionMode.swift in Sources */,
+				91515493B310B569307C6067 /* CheckedDockerService.swift in Sources */,
+				C5D8955473817845931665E8 /* CheckedDockerServiceTests.swift in Sources */,
+				848D3B050BB8EBB582EB0B72 /* CheckedFFIClient.swift in Sources */,
+				CB9E3D53A09DA933831490C6 /* CheckedFFIEnvelope.swift in Sources */,
+				42B87E31014887BB2D3B15F5 /* CheckedFFIError.swift in Sources */,
+				F105284DC41E2E2764C887D8 /* CheckedFFIFixtures.swift in Sources */,
+				A610A7747BAC529D8CB86FD2 /* CheckedFFIIDs.swift in Sources */,
+				327D2C2C84A1BA3700C0B095 /* CheckedFFIKind.swift in Sources */,
+				413E200983E441A205DB8ABB /* CheckedFFIPayloads.swift in Sources */,
+				F511ED3671F96CB9A8AE7A91 /* CheckedFFIProviders.swift in Sources */,
+				D00572525DDF9E956CA17C13 /* CheckedFFITests.swift in Sources */,
+				62211B7D8D433B30B17D23DC /* CheckedMonitorServiceTests.swift in Sources */,
+				62E109460DA9F74DD9B86A24 /* CheckedMonitorSnapshotService.swift in Sources */,
+				06E7FED45C6F8B1FE62F264D /* CheckedSFTPConnectionService.swift in Sources */,
+				DA7C1B7C577C21A3A10BEC73 /* CheckedSFTPServiceTests.swift in Sources */,
+				350AE0902F54E7F588995BD4 /* CheckedSessionOrchestrationTests.swift in Sources */,
+				C225AD8DF6492AFDB01E726D /* CheckedTerminalConnectionOrchestrator.swift in Sources */,
+				29174213C6883CAD5BACE7E9 /* HeaderForwardingCompileCheck.c in Sources */,
+				016D1CBD9C8A94E4AC0BFC5E /* HostKeyTrustCoordinator.swift in Sources */,
+				1E95752E6E6344C4480735C4 /* HostKeyTrustCoordinatorTests.swift in Sources */,
+				7664511A4F6B0CB942AC1FE5 /* HostKeyTrustPresentation.swift in Sources */,
+				35687FC515D98EB09906E554 /* HostKeyTrustPresentationTests.swift in Sources */,
+				C366A32CC05E89AA5FA38DDD /* OrbitCStringResult.swift in Sources */,
+				3DA37901A4E63DF0BEF2FA20 /* OrbitCoreCheckedFFIClient.swift in Sources */,
+				B63576EF89FC2527D8742384 /* OrbitCoreCheckedFFIClientTests.swift in Sources */,
+				48CD66B653668D2865B48306 /* ScriptedCheckedFFIClient.swift in Sources */,
+				5BAA624D9CBB114A3C91E165 /* TelnetAccessPolicy.swift in Sources */,
+				B51FDE8C38374BC39208498C /* TelnetAccessPolicyTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -901,26 +899,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A24H00000000000000000011 /* CheckedBatchCommandService.swift in Sources */,
-				A24G00000000000000000011 /* CheckedDockerService.swift in Sources */,
-				A24F00000000000000000011 /* CheckedMonitorSnapshotService.swift in Sources */,
-				A24E00000000000000000011 /* CheckedSFTPConnectionService.swift in Sources */,
-				A24D00000000000000000011 /* CheckedConnectionMode.swift in Sources */,
-				A24D00000000000000000012 /* CheckedTerminalConnectionOrchestrator.swift in Sources */,
-				A24D00000000000000000013 /* CredentialVaultCheckedProvider.swift in Sources */,
-				A24C00000000000000000011 /* CheckedFFIProviders.swift in Sources */,
-				A24C00000000000000000012 /* OrbitCStringResult.swift in Sources */,
-				A24C00000000000000000013 /* OrbitCoreCheckedFFIClient.swift in Sources */,
-				A24C00000000000000000014 /* OrbitCoreCheckedFFILiveFunctions.swift in Sources */,
-				A24B00000000000000000011 /* CheckedFFIClient.swift in Sources */,
-				A24B00000000000000000012 /* HostKeyTrustCoordinator.swift in Sources */,
-				A24B00000000000000000013 /* HostKeyTrustPresentation.swift in Sources */,
-				A24B00000000000000000014 /* HostKeyTrustViews.swift in Sources */,
-				A24A00000000000000000011 /* CheckedFFIEnvelope.swift in Sources */,
-				A24A00000000000000000012 /* CheckedFFIKind.swift in Sources */,
-				A24A00000000000000000013 /* CheckedFFIError.swift in Sources */,
-				A24A00000000000000000014 /* CheckedFFIPayloads.swift in Sources */,
-				A24A00000000000000000015 /* CheckedFFIIDs.swift in Sources */,
 				39D1F66C52782101FE34D86C /* AddServerAuthSection.swift in Sources */,
 				E547884553C72C7C1E70F1BB /* AddServerConnectionTester.swift in Sources */,
 				DEE977D310E0D398E93B8869 /* AddServerDraftBuilder.swift in Sources */,
@@ -938,9 +916,23 @@
 				19FBF035B680B9D5356F068A /* AuthVisualComponents.swift in Sources */,
 				7BCDEB379D2BCBD46813D516 /* BatchCommandRunnerView.swift in Sources */,
 				578F8F3554FEB1F83DF9B7CC /* BiometricAuthService.swift in Sources */,
+				6923F21807DFFE3108184154 /* CheckedBatchCommandService.swift in Sources */,
+				56141FFCF4D0C00E5C280005 /* CheckedConnectionMode.swift in Sources */,
+				963B54128376C6BF644D031B /* CheckedDockerService.swift in Sources */,
+				F27C45C857C88B7DD9952D0F /* CheckedFFIClient.swift in Sources */,
+				9FB449096F2462335EED2501 /* CheckedFFIEnvelope.swift in Sources */,
+				8276BB4A4074A3BEFACCCD49 /* CheckedFFIError.swift in Sources */,
+				F0A286E19B302EF01E31B105 /* CheckedFFIIDs.swift in Sources */,
+				4722C410165AD2271E1B382B /* CheckedFFIKind.swift in Sources */,
+				1A9995384BBEA7ACBECE96C4 /* CheckedFFIPayloads.swift in Sources */,
+				6BCEC96807636C57E7D01148 /* CheckedFFIProviders.swift in Sources */,
+				BD9AACDAB262B7C087A6EE75 /* CheckedMonitorSnapshotService.swift in Sources */,
+				A7613C2152A9D83EC53932A7 /* CheckedSFTPConnectionService.swift in Sources */,
+				342AD13900E4EC59BB96F44B /* CheckedTerminalConnectionOrchestrator.swift in Sources */,
 				EB18551F6941809822CC4368 /* ContentView.swift in Sources */,
 				5F3DA2A0A7D40A78FDF1F64A /* CredentialInputHelpers.swift in Sources */,
 				9F34C0206362FA67CED289A3 /* CredentialVault.swift in Sources */,
+				431E071EAF76AB1F135ACFE1 /* CredentialVaultCheckedProvider.swift in Sources */,
 				95AA66DE4E5FB3134C135579 /* DeepLinkManager.swift in Sources */,
 				086D528ACD82CB8CA67C1584 /* DetachedSessionWindowView.swift in Sources */,
 				38806BB8055D8F7FD995F17D /* DiagnosticsExportView.swift in Sources */,
@@ -951,6 +943,9 @@
 				87B279A9934945274515773E /* DockerManagerView.swift in Sources */,
 				67536C13CA08E03FF3A12BA8 /* DockerService.swift in Sources */,
 				38D00146CCC257E6EDBA4582 /* FileSizeFormatter.swift in Sources */,
+				5E0B5CECBC6D53F21433B284 /* HostKeyTrustCoordinator.swift in Sources */,
+				0BA37119A9F1A5F1FDAD394F /* HostKeyTrustPresentation.swift in Sources */,
+				48BFC7E8085F081B90E3B9E1 /* HostKeyTrustViews.swift in Sources */,
 				1F00B2E18DB64E2454CE051A /* KeychainDataStore.swift in Sources */,
 				BBED422CCFC31B5F7D38D725 /* KeychainManager.swift in Sources */,
 				3712CAE59D7C18F9AEE8BF84 /* MainWorkstationView.swift in Sources */,
@@ -964,6 +959,9 @@
 				674C91AC3FC66C978290E3C8 /* MonitorTargetStore.swift in Sources */,
 				1CA23122CB3D32319E80C7BB /* NetworkModels.swift in Sources */,
 				7537219233F149DD96EE566D /* NetworkService.swift in Sources */,
+				DEE8D3197A585A58E66AECE1 /* OrbitCStringResult.swift in Sources */,
+				61FC5899344CFC55A694F90C /* OrbitCoreCheckedFFIClient.swift in Sources */,
+				784B42089BADB5FA04EE5A2C /* OrbitCoreCheckedFFILiveFunctions.swift in Sources */,
 				8FB790CC339CDD3B1B2136B2 /* OrbitManager.swift in Sources */,
 				64F544A29C8DC4526D624C8F /* OrbitTermApp.swift in Sources */,
 				774AEC150F44DF342DFCC77F /* RecentlyDeletedView.swift in Sources */,
@@ -1007,7 +1005,9 @@
 				BBD2CFB53FFF17C11D1B9597 /* SyncService+Synchronization.swift in Sources */,
 				A39C5F36E325D6D11857435F /* SyncService.swift in Sources */,
 				76E0101D1870FB15B265D176 /* TabBarView.swift in Sources */,
+				EF43DE3737F749EF46B8E1AE /* TelnetAccessPolicy.swift in Sources */,
 				61BFC3FD1801C09266473767 /* TelnetClient.swift in Sources */,
+				A576219730B3BAE8A38335CB /* TelnetRiskConfirmationView.swift in Sources */,
 				37C9B427752B20DE73F01307 /* TerminalService.swift in Sources */,
 				5C144C6F938F96E9A34F819F /* View+InputPolish.swift in Sources */,
 				54E252A3965A4A30928B04B0 /* WorkspaceSession.swift in Sources */,
@@ -1037,26 +1037,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A24H00000000000000000012 /* CheckedBatchCommandService.swift in Sources */,
-				A24G00000000000000000012 /* CheckedDockerService.swift in Sources */,
-				A24F00000000000000000012 /* CheckedMonitorSnapshotService.swift in Sources */,
-				A24E00000000000000000012 /* CheckedSFTPConnectionService.swift in Sources */,
-				A24D00000000000000000014 /* CheckedConnectionMode.swift in Sources */,
-				A24D00000000000000000015 /* CheckedTerminalConnectionOrchestrator.swift in Sources */,
-				A24D00000000000000000016 /* CredentialVaultCheckedProvider.swift in Sources */,
-				A24C00000000000000000015 /* CheckedFFIProviders.swift in Sources */,
-				A24C00000000000000000016 /* OrbitCStringResult.swift in Sources */,
-				A24C00000000000000000017 /* OrbitCoreCheckedFFIClient.swift in Sources */,
-				A24C00000000000000000018 /* OrbitCoreCheckedFFILiveFunctions.swift in Sources */,
-				A24B00000000000000000015 /* CheckedFFIClient.swift in Sources */,
-				A24B00000000000000000016 /* HostKeyTrustCoordinator.swift in Sources */,
-				A24B00000000000000000017 /* HostKeyTrustPresentation.swift in Sources */,
-				A24B00000000000000000018 /* HostKeyTrustViews.swift in Sources */,
-				A24A00000000000000000016 /* CheckedFFIEnvelope.swift in Sources */,
-				A24A00000000000000000017 /* CheckedFFIKind.swift in Sources */,
-				A24A00000000000000000018 /* CheckedFFIError.swift in Sources */,
-				A24A00000000000000000019 /* CheckedFFIPayloads.swift in Sources */,
-				A24A0000000000000000001A /* CheckedFFIIDs.swift in Sources */,
 				2D5178B315D93BEBDDCE09EC /* AddServerAuthSection.swift in Sources */,
 				18619758F4910BBBEF71E2D8 /* AddServerConnectionTester.swift in Sources */,
 				BF54983EE60094BC16369D96 /* AddServerDraftBuilder.swift in Sources */,
@@ -1074,9 +1054,23 @@
 				6AE49CE6629CA4016FC49098 /* AuthVisualComponents.swift in Sources */,
 				59DDA7271AFC11CD75C39606 /* BatchCommandRunnerView.swift in Sources */,
 				A6A86BCCFF5A1E9CF688B9A8 /* BiometricAuthService.swift in Sources */,
+				BE3A8BED0D0FC41AB9FF128E /* CheckedBatchCommandService.swift in Sources */,
+				C91C60317378BB2F1D788F07 /* CheckedConnectionMode.swift in Sources */,
+				943FD1ADB361529A72F0F73B /* CheckedDockerService.swift in Sources */,
+				56574B441F9241FFF7C9E2DC /* CheckedFFIClient.swift in Sources */,
+				CDD889A9B7330F6B353FDEF6 /* CheckedFFIEnvelope.swift in Sources */,
+				B06ACF721937D1818EC15284 /* CheckedFFIError.swift in Sources */,
+				7A5DA8587C3D44669F85A098 /* CheckedFFIIDs.swift in Sources */,
+				989FD56E3407A0AFEF49C1A0 /* CheckedFFIKind.swift in Sources */,
+				BE4858738744054E796DD43A /* CheckedFFIPayloads.swift in Sources */,
+				09EEBF8B082F19F65D770862 /* CheckedFFIProviders.swift in Sources */,
+				D63DAE9D045D661437612F70 /* CheckedMonitorSnapshotService.swift in Sources */,
+				7AA430ADA4BD4E83DF5B7CA7 /* CheckedSFTPConnectionService.swift in Sources */,
+				BD9AEE27593CF29C61324EF2 /* CheckedTerminalConnectionOrchestrator.swift in Sources */,
 				00D11168A4219FA8EC587704 /* ContentView.swift in Sources */,
 				5CD76ACDD9BEF9D839843476 /* CredentialInputHelpers.swift in Sources */,
 				A11F4C91A92CC0D933C8ACE7 /* CredentialVault.swift in Sources */,
+				4AEF46E3E1AF2B528E3EBA5B /* CredentialVaultCheckedProvider.swift in Sources */,
 				31895C1956E5C7C1F3A12F8F /* DeepLinkManager.swift in Sources */,
 				52FCAA84026D316FC64704FC /* DetachedSessionWindowView.swift in Sources */,
 				9B0F0B374F2C7C7BB4014906 /* DiagnosticsExportView.swift in Sources */,
@@ -1087,6 +1081,9 @@
 				BBF64F6A16727778986E2B24 /* DockerManagerView.swift in Sources */,
 				D73945F35D103F36900752C6 /* DockerService.swift in Sources */,
 				D7582594F04FB2E4C5812CCC /* FileSizeFormatter.swift in Sources */,
+				43BAF96E64EDC82E70CD8569 /* HostKeyTrustCoordinator.swift in Sources */,
+				E6166F70BD65DC7AA658EA16 /* HostKeyTrustPresentation.swift in Sources */,
+				3DF2B2E217DCEA2F3AFC0C92 /* HostKeyTrustViews.swift in Sources */,
 				87D6A835CFD54FAF78345E9A /* KeychainDataStore.swift in Sources */,
 				3AA24B2C0C58DB4864AFE901 /* KeychainManager.swift in Sources */,
 				AA180C68437B90DAC47E8B14 /* MainWorkstationView.swift in Sources */,
@@ -1100,6 +1097,9 @@
 				B76CC755BA5AA5EBBDA8C4CE /* MonitorTargetStore.swift in Sources */,
 				1E9B9E49F948508485F30D9C /* NetworkModels.swift in Sources */,
 				D32A2630B47540D9846461F9 /* NetworkService.swift in Sources */,
+				450DEDAAFC45EDAE25396DD0 /* OrbitCStringResult.swift in Sources */,
+				4C573A2DE05CB691D7AA27A4 /* OrbitCoreCheckedFFIClient.swift in Sources */,
+				ED2393FE50452F08D00EFA76 /* OrbitCoreCheckedFFILiveFunctions.swift in Sources */,
 				8835C97A39B6523BD90EA986 /* OrbitManager.swift in Sources */,
 				30964E866A545DA1A90499AD /* OrbitTermApp.swift in Sources */,
 				CFADA57AD98ECD0453997B3C /* RecentlyDeletedView.swift in Sources */,
@@ -1143,7 +1143,9 @@
 				4EFA73C26542323B8F1818C0 /* SyncService+Synchronization.swift in Sources */,
 				8BDBD2BE0DADEEF7F7E2AAAF /* SyncService.swift in Sources */,
 				25A69CC08E8B9F245C88948A /* TabBarView.swift in Sources */,
+				BA1AEEBB5304C3C65480839C /* TelnetAccessPolicy.swift in Sources */,
 				5317C2D57A549A07C99F2426 /* TelnetClient.swift in Sources */,
+				34BBFC62ED15166EA8680C67 /* TelnetRiskConfirmationView.swift in Sources */,
 				5640BE786C6F90A9FCC3203A /* TerminalService.swift in Sources */,
 				749429BFF654F1AB265411AF /* View+InputPolish.swift in Sources */,
 				0320B97B45B66026720898DB /* WorkspaceSession.swift in Sources */,
@@ -1172,36 +1174,6 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		A24A00000000000000000041 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGNING_ALLOWED = NO;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.orbitterm.checkedffi.tests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = macosx;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_VERSION = 5.0;
-			};
-			name = Debug;
-		};
-		A24A00000000000000000042 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGNING_ALLOWED = NO;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.orbitterm.checkedffi.tests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = macosx;
-				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_OPTIMIZATION_LEVEL = "-O";
-				SWIFT_VERSION = 5.0;
-			};
-			name = Release;
-		};
 		236E19E4BCA2B244C6030CD1 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1283,6 +1255,25 @@
 			};
 			name = Release;
 		};
+		4579F758351027B239213549 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGNING_ALLOWED = NO;
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = OrbitTerm/App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbitterm.checkedffi.tests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
 		511D39B69F34FAF05AF32075 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1358,7 +1349,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 20260510;
+				CURRENT_PROJECT_VERSION = 20260624;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1426,7 +1417,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 20260510;
+				CURRENT_PROJECT_VERSION = 20260624;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1448,6 +1439,25 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		C25F2D609164A9D0E39E3D06 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGNING_ALLOWED = NO;
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = OrbitTerm/App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbitterm.checkedffi.tests;
+				SDKROOT = macosx;
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
@@ -1496,15 +1506,6 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A24A00000000000000000043 /* Build configuration list for PBXNativeTarget "OrbitTermCheckedFFITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				A24A00000000000000000041 /* Debug */,
-				A24A00000000000000000042 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Debug;
-		};
 		1C5BD1ABC5D14EC31A38F2CB /* Build configuration list for PBXNativeTarget "OrbitTerm_iOS" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1519,6 +1520,15 @@
 			buildConfigurations = (
 				236E19E4BCA2B244C6030CD1 /* Debug */,
 				2C55C06FA0AB54969D895A38 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		344B0984EEDA52387AB41950 /* Build configuration list for PBXNativeTarget "OrbitTermCheckedFFITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4579F758351027B239213549 /* Debug */,
+				C25F2D609164A9D0E39E3D06 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

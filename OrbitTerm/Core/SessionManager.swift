@@ -10,6 +10,7 @@ final class SessionManager: ObservableObject {
     @Published var activeTabID: UUID?
     @Published var quickOpenServer: ServerEntry?
     @Published private(set) var checkedHostKeyRoute: CheckedHostKeyPresentationRoute?
+    @Published private(set) var telnetRiskRoute: TelnetRiskPresentationRoute?
 
     let monitorService: MonitorService
     #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
@@ -21,6 +22,7 @@ final class SessionManager: ObservableObject {
     private let checkedClient: any CheckedFFIClient
     private let checkedSFTPService: any CheckedSFTPConnectionOpening
     private let checkedDockerService: any CheckedDockerOperating
+    private let telnetAccessPolicy: TelnetAccessPolicy
     private var monitorObserver: AnyCancellable?
     private var connectionLostObserver: NSObjectProtocol?
     private var sessionByBaseID: [UInt64: UUID] = [:]
@@ -28,9 +30,11 @@ final class SessionManager: ObservableObject {
 
     private init(
         connectionSecurityPolicy: ConnectionSecurityPolicy = .applicationDefault,
-        checkedClient: (any CheckedFFIClient)? = nil
+        checkedClient: (any CheckedFFIClient)? = nil,
+        telnetAccessPolicy: TelnetAccessPolicy? = nil
     ) {
         checkedConnectionDispatcher = SessionConnectionDispatcher(policy: connectionSecurityPolicy)
+        self.telnetAccessPolicy = telnetAccessPolicy ?? .shared
         let resolvedCheckedClient = checkedClient ?? OrbitCoreCheckedFFIClient.live(
             credentialProvider: CredentialVaultCheckedProvider()
         )
@@ -127,6 +131,9 @@ final class SessionManager: ObservableObject {
         if checkedHostKeyRoute?.workspaceID == tab.id {
             _ = checkedHostKeyRoute?.orchestrator.cancel()
             checkedHostKeyRoute = nil
+        }
+        if telnetRiskRoute?.workspaceID == tab.id {
+            telnetRiskRoute = nil
         }
         Task {
             await disconnect(session: tab)
@@ -285,15 +292,19 @@ final class SessionManager: ObservableObject {
 
     func connect(session: WorkspaceSession) async {
         if session.server.transport == .telnet {
-            #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
-            guard checkedConnectionDispatcher.policy.allowsLegacyNetwork else {
-                rejectPublicTelnet(session: session)
-                return
+            let target = TelnetTargetIdentity(
+                serverID: session.server.id,
+                host: session.server.host,
+                port: session.server.port
+            )
+            switch telnetAccessPolicy.decision(for: target) {
+            case .preferenceDisabled:
+                rejectDisabledTelnet(session: session)
+            case .requiresConfirmation:
+                requestTelnetRiskConfirmation(session: session, target: target)
+            case .allowed:
+                await connectTelnet(session: session)
             }
-            await connectTelnet(session: session)
-            #else
-            rejectPublicTelnet(session: session)
-            #endif
             return
         }
 
@@ -528,13 +539,72 @@ final class SessionManager: ObservableObject {
         }
     }
 
-    private func rejectPublicTelnet(session: WorkspaceSession) {
+    private func rejectDisabledTelnet(session: WorkspaceSession) {
         session.terminalStatus = "Telnet 已禁用"
         session.isConnected = false
-        session.appendTerminal("[security] 公共构建不提供明文 Telnet 连接")
+        session.appendTerminal("[security] Telnet 默认关闭，请先在设置中了解明文传输风险并手动启用")
     }
 
-    #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
+    private func requestTelnetRiskConfirmation(
+        session: WorkspaceSession,
+        target: TelnetTargetIdentity
+    ) {
+        guard telnetRiskRoute == nil else {
+            session.terminalStatus = "等待其他 Telnet 确认完成"
+            session.isConnected = false
+            return
+        }
+        session.terminalStatus = "等待 Telnet 风险确认"
+        session.isConnected = false
+        session.appendTerminal("[security] Telnet 将以明文传输登录信息和终端内容，连接前需要确认")
+        telnetRiskRoute = TelnetRiskPresentationRoute(
+            workspaceID: session.id,
+            target: target,
+            displayName: session.server.name
+        )
+    }
+
+    func confirmTelnetRiskAndConnect() async {
+        guard let route = telnetRiskRoute,
+              let session = tabs.first(where: { $0.id == route.workspaceID }),
+              session.server.transport == .telnet,
+              telnetAccessPolicy.isEnabled else {
+            cancelTelnetRiskConfirmation()
+            return
+        }
+        let currentTarget = TelnetTargetIdentity(
+            serverID: session.server.id,
+            host: session.server.host,
+            port: session.server.port
+        )
+        guard currentTarget == route.target else {
+            cancelTelnetRiskConfirmation()
+            return
+        }
+        telnetAccessPolicy.confirm(route.target)
+        telnetRiskRoute = nil
+        await connectTelnet(session: session)
+    }
+
+    func cancelTelnetRiskConfirmation() {
+        guard let route = telnetRiskRoute else { return }
+        telnetRiskRoute = nil
+        guard let session = tabs.first(where: { $0.id == route.workspaceID }) else { return }
+        session.terminalStatus = "已取消 Telnet 连接"
+        session.isConnected = false
+        session.appendTerminal("[security] 用户未确认明文 Telnet 风险，未发起连接")
+    }
+
+    func disableTelnetAndDisconnect() async {
+        telnetAccessPolicy.setEnabled(false)
+        cancelTelnetRiskConfirmation()
+        for session in tabs where session.server.transport == .telnet {
+            await disconnect(session: session)
+            session.terminalStatus = "Telnet 已禁用"
+            session.appendTerminal("[security] Telnet 已关闭，现有明文会话已断开")
+        }
+    }
+
     private func connectTelnet(session: WorkspaceSession) async {
         session.terminalStatus = "连接中..."
         session.appendTerminal("[telnet] 正在连接 \(session.server.username)@\(session.server.endpointText)")
@@ -616,7 +686,6 @@ final class SessionManager: ObservableObject {
         }
         session.appendTerminal("[tip] Telnet 为明文协议，仅建议在可信内网临时使用")
     }
-    #endif
 
     func sendTerminalInput(session: WorkspaceSession) async {
         guard let channelID = resolveChannelID(session: session, preferred: nil) else {
@@ -772,6 +841,9 @@ final class SessionManager: ObservableObject {
         if checkedHostKeyRoute?.workspaceID == session.id {
             _ = checkedHostKeyRoute?.orchestrator.cancel()
             checkedHostKeyRoute = nil
+        }
+        if telnetRiskRoute?.workspaceID == session.id {
+            telnetRiskRoute = nil
         }
         if session.server.transport == .telnet {
             if let client = telnetClients[session.id] {

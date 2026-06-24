@@ -15,7 +15,7 @@ IOS_ARCHIVE="$TMP_DIR/OrbitTerm-iOS.xcarchive"
 MAC_ARCHIVE="$TMP_DIR/OrbitTerm-macOS.xcarchive"
 
 MARKETING_VERSION="1.0.1"
-BUILD_NUMBER="20260510"
+BUILD_NUMBER="20260624"
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || { echo "[错误] 缺少命令: $1"; exit 1; }

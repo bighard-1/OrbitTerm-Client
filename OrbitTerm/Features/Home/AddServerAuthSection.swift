@@ -51,10 +51,9 @@ struct AddServerAuthSection: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.segmented)
-                    .disabled(!telnetEnabled)
 
                     if !telnetEnabled {
-                        Text("Telnet 已在设置中禁用，仅可使用 SSH。")
+                        Text("Telnet 默认关闭。可在“设置 > 终端与连接”了解风险并手动启用；关闭状态下无法保存或连接 Telnet 资产。")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -80,9 +79,7 @@ struct AddServerAuthSection: View {
     }
 
     private var availableTransports: [ServerTransportProtocol] {
-        ServerTransportProtocol.allCases.filter {
-            $0 != .telnet || ConnectionSecurityPolicy.allowsTelnet
-        }
+        ServerTransportProtocol.allCases
     }
 
     private var telnetProfileSection: some View {
@@ -96,9 +93,9 @@ struct AddServerAuthSection: View {
                 .labelsHidden()
             }
 
-            Text("Telnet 无标准认证协议，OrbitTerm 会根据模板识别 Username/Password 等提示符并自动应答。")
+            Text("Telnet 无加密或服务器身份验证。OrbitTerm 会根据模板识别 Username/Password 等提示符并自动应答。")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.orange)
         }
     }
 

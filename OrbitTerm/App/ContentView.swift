@@ -275,6 +275,27 @@ private struct MainShellView: View {
             .frame(minWidth: 520, minHeight: 420)
             #endif
         }
+        .sheet(
+            item: Binding(
+                get: { sessionManager.telnetRiskRoute },
+                set: { route in
+                    if route == nil {
+                        sessionManager.cancelTelnetRiskConfirmation()
+                    }
+                }
+            )
+        ) { route in
+            TelnetRiskConfirmationView(
+                route: route,
+                onCancel: sessionManager.cancelTelnetRiskConfirmation,
+                onConnect: {
+                    Task { await sessionManager.confirmTelnetRiskAndConnect() }
+                }
+            )
+            #if os(macOS)
+            .frame(minWidth: 540, minHeight: 430)
+            #endif
+        }
         .onAppear {
             processDeepLinkIfNeeded()
         }

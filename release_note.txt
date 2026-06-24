@@ -1,5 +1,5 @@
-OrbitTerm v1.0.1 Release Candidate
-Build: 20260510
+OrbitTerm v1.0.1 Local Validation Build
+Build: 20260624
 
 OrbitTerm 是 SSH 客户端与运维工作台，不是堡垒机或 SSH 网关。
 
@@ -10,7 +10,7 @@ OrbitTerm 是 SSH 客户端与运维工作台，不是堡垒机或 SSH 网关。
 - Terminal、SFTP、Monitor、Docker 列表/状态/日志/操作与 Batch 命令均使用已验证会话。
 
 本版限制:
-- Telnet 未开放。
+- Telnet 默认关闭；用户可在设置中了解明文风险后主动启用，每个目标首次连接仍需确认。
 - Docker rename/update 未开放。
 - Quick Key 远程部署未开放。
 - Batch 仅执行已建立验证会话的目标。

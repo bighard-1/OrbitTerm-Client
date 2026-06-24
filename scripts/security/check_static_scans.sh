@@ -78,9 +78,40 @@ scan_swift_requires_internal_guard \
   "dangerous legacy C call is not internal-build guarded"
 scan_swift_requires_internal_guard '[.]legacyInternal' \
   "legacyInternal is constructible outside its internal-build guard"
-scan_swift_requires_internal_guard 'TelnetClient[[:space:]]*[(]' \
-  "Telnet connection construction is reachable outside its internal-build guard"
-pass "Swift legacy calls are compile guarded"
+pass "Swift dangerous legacy calls are compile guarded"
+
+section "Swift Telnet explicit opt-in isolation"
+if rg -n 'ConnectionSecurityPolicy[.]allowsTelnet' \
+  "$ORBIT_ROOT/OrbitTerm" "$ORBIT_ROOT/OrbitTermCheckedFFITests"; then
+  fail "Telnet still depends on the legacy-network policy or legacy default-on preference"
+fi
+if rg -n 'orbitterm[.]enable[.]telnet' "$ORBIT_ROOT/OrbitTerm"; then
+  fail "production code still reads the legacy default-on Telnet preference"
+fi
+telnet_construction_files="$(rg -l 'TelnetClient[[:space:]]*[(]' "$ORBIT_ROOT/OrbitTerm" --glob '*.swift' | sort)"
+expected_telnet_construction_files="$(printf '%s\n%s\n' \
+  "$ORBIT_ROOT/OrbitTerm/Core/SessionManager.swift" \
+  "$ORBIT_ROOT/OrbitTerm/Features/Home/AddServerConnectionTester.swift" | sort)"
+[[ "$telnet_construction_files" == "$expected_telnet_construction_files" ]] || {
+  printf '%s\n' "$telnet_construction_files" >&2
+  fail "Telnet connection construction escaped its reviewed entry points"
+}
+rg -q 'switch telnetAccessPolicy[.]decision' "$ORBIT_ROOT/OrbitTerm/Core/SessionManager.swift" || \
+  fail "SessionManager does not gate Telnet through the explicit opt-in policy"
+rg -q 'case [.]requiresConfirmation:' "$ORBIT_ROOT/OrbitTerm/Core/SessionManager.swift" || \
+  fail "SessionManager does not require per-target Telnet confirmation"
+rg -q 'func disableTelnetAndDisconnect' "$ORBIT_ROOT/OrbitTerm/Core/SessionManager.swift" || \
+  fail "disabling Telnet does not close active sessions"
+rg -q 'static let enabledStorageKey = "orbitterm[.]telnet[.]explicit[.]enabled[.]v2"' \
+  "$ORBIT_ROOT/OrbitTerm/Core/TelnetAccessPolicy.swift" || \
+  fail "Telnet does not use the reviewed fail-closed preference key"
+rg -q '@AppStorage[(]TelnetAccessPolicy[.]enabledStorageKey[)] private var telnetEnabled: Bool = false' \
+  "$ORBIT_ROOT/OrbitTerm/Features/Home/SettingsView.swift" || \
+  fail "Settings does not default Telnet to disabled"
+if rg -n 'fallback.*[Tt]elnet|[Tt]elnet.*fallback' "$ORBIT_ROOT/OrbitTerm" --glob '*.swift'; then
+  fail "SSH or another service appears to fall back to Telnet"
+fi
+pass "Telnet is locally opt-in, per-target confirmed, and isolated from legacy SSH"
 
 section "Rust checked-path isolation"
 checked_rust_files=()

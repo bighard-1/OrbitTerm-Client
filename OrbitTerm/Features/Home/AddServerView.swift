@@ -37,7 +37,7 @@ struct AddServerView: View {
 
     @State private var isTestingConnection = false
     @State private var isSaving = false
-    @AppStorage("orbitterm.enable.telnet") private var telnetEnabled: Bool = true
+    @AppStorage(TelnetAccessPolicy.enabledStorageKey) private var telnetEnabled: Bool = false
     @State private var testStatus = ConnectionSecurityPolicy.allowsLegacyConnectionTest
         ? "尚未测试"
         : "保存并连接时将验证服务器身份"
@@ -82,7 +82,7 @@ struct AddServerView: View {
                             privateKeyContent: $privateKeyContent,
                             privateKeyPassphrase: $privateKeyPassphrase,
                             allowPasswordFallback: $allowPasswordFallback,
-                            telnetEnabled: telnetEnabled && ConnectionSecurityPolicy.allowsTelnet,
+                            telnetEnabled: telnetEnabled,
                             selectedKeyFileName: selectedKeyFileName,
                             privateKeyValidationMessage: privateKeyValidationMessage,
                             privateKeyValidationColor: privateKeyValidationColor
@@ -232,6 +232,9 @@ struct AddServerView: View {
                 portText = "23"
             }
             authMethod = .password
+            if !telnetEnabled {
+                testStatus = "Telnet 默认关闭，请先在设置中了解风险并手动启用"
+            }
         } else if portText == "23" {
             portText = "22"
         }
@@ -241,12 +244,6 @@ struct AddServerView: View {
     private func initialLoad() async {
         applyPrefillIfNeeded()
         await loadEditingServerIfNeeded()
-        if (!telnetEnabled || !ConnectionSecurityPolicy.allowsTelnet), transport == .telnet {
-            transport = .ssh
-            if portText == "23" {
-                portText = "22"
-            }
-        }
     }
 
     private func handleKeyFileImport(_ result: Result<[URL], Error>) {
@@ -272,7 +269,7 @@ struct AddServerView: View {
     }
 
     private var saveButtonEnabled: Bool {
-        canSave
+        canSave && (transport != .telnet || telnetEnabled)
     }
 
     private var canTestConnection: Bool {

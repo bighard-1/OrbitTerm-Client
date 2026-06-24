@@ -19,7 +19,6 @@ final class CheckedSessionOrchestrationTests: XCTestCase {
         XCTAssertFalse(ConnectionSecurityPolicy.applicationDefault.allowsLegacyNetwork)
         XCTAssertFalse(ConnectionSecurityPolicy.allowsLegacyConnectionTest)
         XCTAssertFalse(ConnectionSecurityPolicy.allowsLegacyQuickKeyDeployment)
-        XCTAssertFalse(ConnectionSecurityPolicy.allowsTelnet)
     }
 
     func testDirectConnectedOpensCheckedTerminalAndReturnsTypedLease() async {

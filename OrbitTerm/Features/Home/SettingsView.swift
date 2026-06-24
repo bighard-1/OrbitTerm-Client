@@ -90,8 +90,9 @@ struct SettingsView: View {
     @AppStorage(TerminalThemeManager.storageKey) private var terminalThemeID: String = TerminalThemeManager.defaultThemeID
     @AppStorage("orbitterm.biometric.enabled") private var biometricEnabled: Bool = false
     @AppStorage("orbitterm.terminal.font.size") private var terminalFontSize: Double = 13
-    @AppStorage("orbitterm.enable.telnet") private var telnetEnabled: Bool = true
+    @AppStorage(TelnetAccessPolicy.enabledStorageKey) private var telnetEnabled: Bool = false
     @AppStorage("orbitterm.monitor.realtime.interval") private var monitorInterval: Double = 1.0
+    @State private var showTelnetEnableConfirmation = false
 
     var body: some View {
         List {
@@ -125,9 +126,10 @@ struct SettingsView: View {
             }
 
             Section("终端与连接") {
-                if ConnectionSecurityPolicy.allowsTelnet {
-                    Toggle("启用 Telnet（明文，仅建议内网）", isOn: $telnetEnabled)
-                }
+                Toggle("启用 Telnet（明文，仅建议隔离内网）", isOn: telnetToggleBinding)
+                Text("Telnet 不加密用户名、密码和命令，也无法验证服务器身份。关闭时不会影响 SSH。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 HStack {
                     Text("终端字号")
                     Spacer()
@@ -208,6 +210,15 @@ struct SettingsView: View {
         .sheet(isPresented: $showDiagnostics) {
             DiagnosticsExportView()
         }
+        .alert("启用不安全的 Telnet？", isPresented: $showTelnetEnableConfirmation) {
+            Button("取消", role: .cancel) {}
+            Button("我了解风险，启用", role: .destructive) {
+                TelnetAccessPolicy.shared.setEnabled(true)
+                telnetEnabled = true
+            }
+        } message: {
+            Text("Telnet 会以明文传输登录信息和终端内容。仅应连接隔离内网、VPN 内的受信旧设备；SSH 失败时 OrbitTerm 不会自动切换到 Telnet。")
+        }
         .onChange(of: biometricEnabled) { _, enabled in
             if enabled {
                 Task { await validateBiometricImmediately() }
@@ -215,6 +226,20 @@ struct SettingsView: View {
                 biometricStatus = "已关闭生物识别解锁"
             }
         }
+    }
+
+    private var telnetToggleBinding: Binding<Bool> {
+        Binding(
+            get: { telnetEnabled },
+            set: { enabled in
+                if enabled {
+                    showTelnetEnableConfirmation = true
+                } else {
+                    telnetEnabled = false
+                    Task { await SessionManager.shared.disableTelnetAndDisconnect() }
+                }
+            }
+        )
     }
 
     @MainActor

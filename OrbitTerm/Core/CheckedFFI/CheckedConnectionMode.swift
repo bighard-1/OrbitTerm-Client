@@ -27,12 +27,8 @@ enum ConnectionSecurityPolicy: Hashable, Sendable {
         #endif
     }
 
-    static var allowsTelnet: Bool {
-        applicationDefault.allowsLegacyNetwork
-    }
-
-    static var allowsLegacyConnectionTest: Bool { allowsTelnet }
-    static var allowsLegacyQuickKeyDeployment: Bool { allowsTelnet }
+    static var allowsLegacyConnectionTest: Bool { applicationDefault.allowsLegacyNetwork }
+    static var allowsLegacyQuickKeyDeployment: Bool { applicationDefault.allowsLegacyNetwork }
 }
 
 enum SessionConnectionPath: Hashable, Sendable {
