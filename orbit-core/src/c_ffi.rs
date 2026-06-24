@@ -10,6 +10,12 @@ use crate::{
     OrbitCoreError, CONNECTION_EVENT_CALLBACK, ORBIT_RUNTIME, TERMINAL_DATA_CALLBACK,
 };
 
+fn legacy_network_disabled_response() -> Option<*mut c_char> {
+    crate::legacy_network::LegacyNetworkGate::require_current()
+        .err()
+        .map(|error| to_c_string_ptr(format!("ERR:{}", error.error_code())))
+}
+
 struct ConnectionArguments {
     ip: String,
     port: u16,
@@ -50,6 +56,9 @@ pub extern "C" fn orbit_test_ssh_connection(
     private_key_passphrase: *const c_char,
     allow_password_fallback: i32,
 ) -> *mut c_char {
+    if let Some(response) = legacy_network_disabled_response() {
+        return response;
+    }
     let args = match parse_connection_arguments(
         ip,
         port,
@@ -88,6 +97,9 @@ pub extern "C" fn orbit_ssh_connect(
     private_key_passphrase: *const c_char,
     allow_password_fallback: i32,
 ) -> *mut c_char {
+    if let Some(response) = legacy_network_disabled_response() {
+        return response;
+    }
     let args = match parse_connection_arguments(
         ip,
         port,
@@ -126,6 +138,9 @@ pub extern "C" fn orbit_sftp_connect(
     private_key_passphrase: *const c_char,
     allow_password_fallback: i32,
 ) -> *mut c_char {
+    if let Some(response) = legacy_network_disabled_response() {
+        return response;
+    }
     let args = match parse_connection_arguments(
         ip,
         port,
@@ -193,6 +208,9 @@ pub extern "C" fn orbit_request_channel(
     session_or_channel_id: u64,
     channel_type: *const c_char,
 ) -> *mut c_char {
+    if let Some(response) = legacy_network_disabled_response() {
+        return response;
+    }
     let channel_type = match c_ptr_to_string(channel_type) {
         Ok(v) => v,
         Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
@@ -451,6 +469,9 @@ pub extern "C" fn orbit_sftp_chmod(
 
 #[no_mangle]
 pub extern "C" fn orbit_fetch_system_stats(session_id: u64) -> *mut c_char {
+    if let Some(response) = legacy_network_disabled_response() {
+        return response;
+    }
     let result = ORBIT_RUNTIME.block_on(fetch_system_stats(session_id));
     match result {
         Ok(payload) => to_c_string_ptr(format!("OK:{}", payload)),
@@ -460,6 +481,9 @@ pub extern "C" fn orbit_fetch_system_stats(session_id: u64) -> *mut c_char {
 
 #[no_mangle]
 pub extern "C" fn orbit_fetch_docker_containers(session_id: u64) -> *mut c_char {
+    if let Some(response) = legacy_network_disabled_response() {
+        return response;
+    }
     let result = ORBIT_RUNTIME.block_on(fetch_docker_containers(session_id));
     match result {
         Ok(payload) => to_c_string_ptr(format!("OK:{}", payload)),
@@ -469,6 +493,9 @@ pub extern "C" fn orbit_fetch_docker_containers(session_id: u64) -> *mut c_char 
 
 #[no_mangle]
 pub extern "C" fn orbit_fetch_docker_stats(session_id: u64) -> *mut c_char {
+    if let Some(response) = legacy_network_disabled_response() {
+        return response;
+    }
     let result = ORBIT_RUNTIME.block_on(fetch_docker_stats(session_id));
     match result {
         Ok(payload) => to_c_string_ptr(format!("OK:{}", payload)),
@@ -482,6 +509,9 @@ pub extern "C" fn orbit_docker_action(
     container_id: *const c_char,
     action: *const c_char,
 ) -> *mut c_char {
+    if let Some(response) = legacy_network_disabled_response() {
+        return response;
+    }
     let container_id = match c_ptr_to_string(container_id) {
         Ok(v) => v,
         Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
@@ -504,6 +534,9 @@ pub extern "C" fn orbit_fetch_docker_logs(
     container_id: *const c_char,
     tail_lines: u32,
 ) -> *mut c_char {
+    if let Some(response) = legacy_network_disabled_response() {
+        return response;
+    }
     let container_id = match c_ptr_to_string(container_id) {
         Ok(v) => v,
         Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
@@ -518,6 +551,9 @@ pub extern "C" fn orbit_fetch_docker_logs(
 
 #[no_mangle]
 pub extern "C" fn orbit_exec_command(session_id: u64, command: *const c_char) -> *mut c_char {
+    if let Some(response) = legacy_network_disabled_response() {
+        return response;
+    }
     let command = match c_ptr_to_string(command) {
         Ok(v) => v,
         Err(e) => return to_c_string_ptr(format!("ERR:{}", e)),
@@ -542,7 +578,12 @@ pub extern "C" fn orbit_free_string(s: *mut c_char) {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_port;
+    #[cfg(not(feature = "legacy-network-internal"))]
+    use std::ffi::CStr;
+    #[cfg(not(feature = "legacy-network-internal"))]
+    use std::ptr;
+
+    use super::*;
 
     #[test]
     fn normalizes_valid_ports() {
@@ -555,5 +596,64 @@ mod tests {
         assert!(normalize_port(0).is_err());
         assert!(normalize_port(65_536).is_err());
         assert!(normalize_port(-1).is_err());
+    }
+
+    #[cfg(not(feature = "legacy-network-internal"))]
+    fn assert_release_disabled(pointer: *mut c_char) {
+        assert!(!pointer.is_null());
+        let response = unsafe { CStr::from_ptr(pointer) }
+            .to_str()
+            .expect("legacy gate response must be UTF-8")
+            .to_string();
+        orbit_free_string(pointer);
+        assert_eq!(response, "ERR:legacy_network_disabled");
+        for forbidden in [
+            "password",
+            "private_key",
+            "known_hosts",
+            "sensitive-command",
+            "192.0.2.1",
+        ] {
+            assert!(!response.contains(forbidden));
+        }
+    }
+
+    #[cfg(not(feature = "legacy-network-internal"))]
+    #[test]
+    fn release_c_abi_legacy_symbols_fail_before_pointer_parsing_or_lookup() {
+        assert_release_disabled(orbit_test_ssh_connection(
+            ptr::null(),
+            22,
+            ptr::null(),
+            ptr::null(),
+            ptr::null(),
+            ptr::null(),
+            0,
+        ));
+        assert_release_disabled(orbit_ssh_connect(
+            ptr::null(),
+            22,
+            ptr::null(),
+            ptr::null(),
+            ptr::null(),
+            ptr::null(),
+            0,
+        ));
+        assert_release_disabled(orbit_sftp_connect(
+            ptr::null(),
+            22,
+            ptr::null(),
+            ptr::null(),
+            ptr::null(),
+            ptr::null(),
+            0,
+        ));
+        assert_release_disabled(orbit_request_channel(0, ptr::null()));
+        assert_release_disabled(orbit_exec_command(0, ptr::null()));
+        assert_release_disabled(orbit_fetch_system_stats(0));
+        assert_release_disabled(orbit_fetch_docker_containers(0));
+        assert_release_disabled(orbit_fetch_docker_stats(0));
+        assert_release_disabled(orbit_fetch_docker_logs(0, ptr::null(), 0));
+        assert_release_disabled(orbit_docker_action(0, ptr::null(), ptr::null()));
     }
 }

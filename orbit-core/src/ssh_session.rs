@@ -4,7 +4,7 @@ use std::time::Duration;
 use russh::client;
 use russh::keys::{decode_secret_key, PrivateKeyWithHashAlg};
 
-use crate::{OrbitCoreError, OrbitSshClientHandler};
+use crate::OrbitCoreError;
 
 pub(crate) fn normalize_host_port(ip: &str, port: u16) -> String {
     let host = ip.trim();
@@ -37,8 +37,8 @@ pub(crate) fn new_client_config() -> Arc<client::Config> {
     Arc::new(config)
 }
 
-pub(crate) async fn authenticate_ssh(
-    ssh_session: &mut client::Handle<OrbitSshClientHandler>,
+pub(crate) async fn authenticate_ssh<H: client::Handler>(
+    ssh_session: &mut client::Handle<H>,
     username: &str,
     password: &str,
     private_key_content: &str,

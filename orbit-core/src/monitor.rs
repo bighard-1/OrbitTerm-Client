@@ -5,7 +5,10 @@ use regex::Regex;
 use serde::Serialize;
 use tokio::process::Command;
 
-use crate::{current_unix_secs, run_remote_command, OrbitBaseSession, OrbitCoreError};
+use crate::{
+    current_unix_secs, legacy_network::LegacyNetworkGate, run_remote_command, OrbitBaseSession,
+    OrbitCoreError,
+};
 
 #[derive(Debug)]
 pub(crate) struct NetSnapshot {
@@ -29,6 +32,7 @@ struct SystemStatsResponse {
 pub(crate) async fn fetch_system_stats_for_base(
     base: &Arc<OrbitBaseSession>,
 ) -> Result<String, OrbitCoreError> {
+    LegacyNetworkGate::require_current()?;
     // 采集策略：优先 Linux 常见命令，失败时回退到 /proc，避免因单命令缺失导致整体失败。
     let top_output = run_remote_command(base, "top -bn1 | head -n 8")
         .await
@@ -79,7 +83,7 @@ pub(crate) async fn fetch_system_stats_for_base(
     serde_json::to_string(&payload).map_err(|e| OrbitCoreError::Internal(e.to_string()))
 }
 
-fn parse_cpu_usage(top_output: &str) -> Result<f64, OrbitCoreError> {
+pub(crate) fn parse_cpu_usage(top_output: &str) -> Result<f64, OrbitCoreError> {
     let cpu_line = Regex::new(r"(?mi)(?:^%?Cpu\(s\):|^Cpu\(s\):).*?([0-9]+(?:\.[0-9]+)?)\s*id")
         .map_err(|e| OrbitCoreError::Internal(e.to_string()))?;
 
@@ -111,7 +115,7 @@ fn parse_cpu_usage(top_output: &str) -> Result<f64, OrbitCoreError> {
     Err(OrbitCoreError::Internal("无法解析 CPU 使用率".to_string()))
 }
 
-fn parse_cpu_from_proc_stat(raw: &str) -> Result<f64, OrbitCoreError> {
+pub(crate) fn parse_cpu_from_proc_stat(raw: &str) -> Result<f64, OrbitCoreError> {
     let nums: Vec<u64> = raw
         .split_whitespace()
         .filter_map(|v| v.parse::<u64>().ok())
@@ -128,7 +132,7 @@ fn parse_cpu_from_proc_stat(raw: &str) -> Result<f64, OrbitCoreError> {
     Ok(((total - idle) / total * 100.0).clamp(0.0, 100.0))
 }
 
-fn parse_memory_stats(free_output: &str) -> Result<(u64, f64), OrbitCoreError> {
+pub(crate) fn parse_memory_stats(free_output: &str) -> Result<(u64, f64), OrbitCoreError> {
     let mem_line = free_output
         .lines()
         .find(|line| line.trim_start().starts_with("Mem:"))
@@ -156,7 +160,9 @@ fn parse_memory_stats(free_output: &str) -> Result<(u64, f64), OrbitCoreError> {
     Ok((available, used_percent.clamp(0.0, 100.0)))
 }
 
-fn parse_memory_from_meminfo(meminfo_output: &str) -> Result<(u64, f64), OrbitCoreError> {
+pub(crate) fn parse_memory_from_meminfo(
+    meminfo_output: &str,
+) -> Result<(u64, f64), OrbitCoreError> {
     let mut total_kb = 0u64;
     let mut available_kb = 0u64;
     for line in meminfo_output.lines() {
@@ -184,7 +190,7 @@ fn parse_memory_from_meminfo(meminfo_output: &str) -> Result<(u64, f64), OrbitCo
     Ok((available_kb / 1024, used_percent))
 }
 
-fn parse_disk_usage(df_output: &str) -> Result<f64, OrbitCoreError> {
+pub(crate) fn parse_disk_usage(df_output: &str) -> Result<f64, OrbitCoreError> {
     let re = Regex::new(r"(?m)^\S+\s+\S+\s+\S+\s+\S+\s+(\d+)%\s+/\s*$")
         .map_err(|e| OrbitCoreError::Internal(e.to_string()))?;
 
@@ -199,7 +205,7 @@ fn parse_disk_usage(df_output: &str) -> Result<f64, OrbitCoreError> {
     Err(OrbitCoreError::Internal("无法解析磁盘使用率".to_string()))
 }
 
-async fn compute_network_rate_kbps(
+pub(crate) async fn compute_network_rate_kbps(
     session: &Arc<OrbitBaseSession>,
     net_dev_output: &str,
 ) -> Result<(f64, f64), OrbitCoreError> {
@@ -248,7 +254,7 @@ async fn compute_network_rate_kbps(
     Ok((rx_rate_kbps.max(0.0), tx_rate_kbps.max(0.0)))
 }
 
-async fn measure_ping_ms(host: &str) -> Option<f64> {
+pub(crate) async fn measure_ping_ms(host: &str) -> Option<f64> {
     let target = host_without_port(host).to_string();
     if target.is_empty() {
         return None;

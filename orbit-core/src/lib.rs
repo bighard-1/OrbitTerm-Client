@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use once_cell::sync::Lazy;
-use russh::client;
 use russh::ChannelMsg;
 use russh_sftp::client::SftpSession;
 use thiserror::Error;
@@ -12,13 +11,45 @@ use thiserror::Error;
 #[cfg(target_os = "android")]
 mod android_ffi;
 mod c_ffi;
+#[allow(
+    dead_code,
+    reason = "typed Docker rename/update are intentionally not exposed through C until Swift migration"
+)]
+mod checked_docker;
+#[cfg(test)]
+mod checked_docker_tests;
+mod checked_exec;
+#[cfg(test)]
+mod checked_exec_tests;
+mod checked_monitor;
+#[cfg(test)]
+mod checked_monitor_tests;
+mod checked_sftp;
+#[cfg(test)]
+mod checked_sftp_tests;
+mod checked_terminal;
+#[cfg(test)]
+mod checked_terminal_tests;
 mod crypto;
 mod crypto_ffi;
 mod docker;
+#[allow(
+    dead_code,
+    reason = "typed Docker rename/update validators are intentionally staged before their C ABI"
+)]
+mod docker_validator;
+#[cfg(test)]
+mod docker_validator_tests;
+mod legacy_network;
+#[cfg(test)]
+mod legacy_network_tests;
 mod monitor;
 mod portable;
 mod portable_ffi;
+pub mod security;
 mod session_pool;
+#[cfg(test)]
+mod session_pool_tests;
 mod sftp;
 mod ssh_session;
 mod terminal;
@@ -41,27 +72,19 @@ pub enum OrbitCoreError {
     SftpFailed(String),
     #[error("内部错误: {0}")]
     Internal(String),
+    #[error("legacy_network_disabled")]
+    LegacyNetworkDisabled,
+}
+
+impl From<legacy_network::LegacyNetworkDisabled> for OrbitCoreError {
+    fn from(_: legacy_network::LegacyNetworkDisabled) -> Self {
+        Self::LegacyNetworkDisabled
+    }
 }
 
 impl From<russh::Error> for OrbitCoreError {
     fn from(value: russh::Error) -> Self {
         OrbitCoreError::SshFailed(value.to_string())
-    }
-}
-
-#[derive(Clone, Default)]
-pub(crate) struct OrbitSshClientHandler;
-
-impl client::Handler for OrbitSshClientHandler {
-    type Error = OrbitCoreError;
-
-    async fn check_server_key(
-        &mut self,
-        _server_public_key: &russh::keys::ssh_key::PublicKey,
-    ) -> Result<bool, Self::Error> {
-        // 首版默认接受服务端公钥。
-        // 生产环境建议接入 known_hosts / 指纹校验，防止 MITM。
-        Ok(true)
     }
 }
 
@@ -92,28 +115,50 @@ pub async fn test_ssh_connection(
     private_key_passphrase: String,
     allow_password_fallback: bool,
 ) -> Result<String, OrbitCoreError> {
-    if ip.trim().is_empty() || username.trim().is_empty() || port == 0 {
-        return Err(OrbitCoreError::InvalidInput);
+    legacy_network::LegacyNetworkGate::require_current()?;
+
+    #[cfg(not(feature = "legacy-network-internal"))]
+    {
+        let _ = (
+            ip,
+            port,
+            username,
+            password,
+            private_key_content,
+            private_key_passphrase,
+            allow_password_fallback,
+        );
+        return Err(OrbitCoreError::LegacyNetworkDisabled);
     }
 
-    let config = ssh_session::new_client_config();
-    let addr = ssh_session::normalize_host_port(&ip, port);
+    #[cfg(feature = "legacy-network-internal")]
+    {
+        use security::insecure_legacy_host_key_handler::InsecureLegacyAcceptAllHostKeyHandler;
 
-    let mut ssh_session = client::connect(config, addr, OrbitSshClientHandler)
-        .await
-        .map_err(|e| OrbitCoreError::SshFailed(e.to_string()))?;
+        if ip.trim().is_empty() || username.trim().is_empty() || port == 0 {
+            return Err(OrbitCoreError::InvalidInput);
+        }
 
-    ssh_session::authenticate_ssh(
-        &mut ssh_session,
-        &username,
-        &password,
-        &private_key_content,
-        &private_key_passphrase,
-        allow_password_fallback,
-    )
-    .await?;
+        let config = ssh_session::new_client_config();
+        let addr = ssh_session::normalize_host_port(&ip, port);
 
-    Ok("SSH connection success".to_string())
+        let mut ssh_session =
+            russh::client::connect(config, addr, InsecureLegacyAcceptAllHostKeyHandler)
+                .await
+                .map_err(|e| OrbitCoreError::SshFailed(e.to_string()))?;
+
+        ssh_session::authenticate_ssh(
+            &mut ssh_session,
+            &username,
+            &password,
+            &private_key_content,
+            &private_key_passphrase,
+            allow_password_fallback,
+        )
+        .await?;
+
+        Ok("SSH connection success".to_string())
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -126,6 +171,7 @@ pub async fn sftp_connect(
     private_key_passphrase: String,
     allow_password_fallback: bool,
 ) -> Result<u64, OrbitCoreError> {
+    legacy_network::LegacyNetworkGate::require_current()?;
     if ip.trim().is_empty() || username.trim().is_empty() || port == 0 {
         return Err(OrbitCoreError::InvalidInput);
     }
@@ -261,17 +307,20 @@ pub async fn sftp_chmod(
 
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn fetch_system_stats(session_id: u64) -> Result<String, OrbitCoreError> {
+    legacy_network::LegacyNetworkGate::require_current()?;
     let session = session_pool::get_sftp_session(session_id)?;
     monitor::fetch_system_stats_for_base(&session.base).await
 }
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn fetch_docker_containers(session_id: u64) -> Result<String, OrbitCoreError> {
+    legacy_network::LegacyNetworkGate::require_current()?;
     let session = session_pool::get_sftp_session(session_id)?;
     docker::fetch_containers(&session.base).await
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn fetch_docker_stats(session_id: u64) -> Result<String, OrbitCoreError> {
+    legacy_network::LegacyNetworkGate::require_current()?;
     let session = session_pool::get_sftp_session(session_id)?;
     docker::fetch_stats(&session.base).await
 }
@@ -282,6 +331,7 @@ pub async fn docker_action(
     container_id: String,
     action: String,
 ) -> Result<String, OrbitCoreError> {
+    legacy_network::LegacyNetworkGate::require_current()?;
     let session = session_pool::get_sftp_session(session_id)?;
     docker::run_action(&session.base, &container_id, &action).await
 }
@@ -292,11 +342,13 @@ pub async fn fetch_docker_logs(
     container_id: String,
     tail_lines: u32,
 ) -> Result<String, OrbitCoreError> {
+    legacy_network::LegacyNetworkGate::require_current()?;
     let session = session_pool::get_sftp_session(session_id)?;
     docker::fetch_logs(&session.base, &container_id, tail_lines).await
 }
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn exec_command(session_id: u64, command: String) -> Result<String, OrbitCoreError> {
+    legacy_network::LegacyNetworkGate::require_current()?;
     if command.trim().is_empty() {
         return Err(OrbitCoreError::InvalidInput);
     }
@@ -309,6 +361,7 @@ pub async fn request_channel(
     session_or_channel_id: u64,
     channel_type: String,
 ) -> Result<u64, OrbitCoreError> {
+    legacy_network::LegacyNetworkGate::require_current()?;
     let base = session_pool::resolve_base_session(session_or_channel_id)?;
     let kind = channel_type.trim().to_lowercase();
 
@@ -360,6 +413,22 @@ pub(crate) async fn run_remote_command(
     session: &Arc<OrbitBaseSession>,
     command: &str,
 ) -> Result<String, OrbitCoreError> {
+    legacy_network::LegacyNetworkGate::require_current()?;
+    run_remote_command_transport(session, command).await
+}
+
+pub(crate) async fn run_remote_command_for_sftp_operation(
+    session: &Arc<OrbitSftpSession>,
+    command: &str,
+) -> Result<String, OrbitCoreError> {
+    session_pool::require_sftp_operation_access(session)?;
+    run_remote_command_transport(&session.base, command).await
+}
+
+async fn run_remote_command_transport(
+    session: &Arc<OrbitBaseSession>,
+    command: &str,
+) -> Result<String, OrbitCoreError> {
     let ssh = session.ssh.lock().await;
     let mut channel = ssh
         .channel_open_session()
@@ -369,9 +438,11 @@ pub(crate) async fn run_remote_command(
     channel
         .exec(true, command)
         .await
-        .map_err(|e| OrbitCoreError::SshFailed(format!("exec '{command}' failed: {e}")))?;
-    if std::env::var_os("ORBIT_CORE_DEBUG").is_some() {
-        eprintln!("[orbit-core][exec] command={}", command);
+        .map_err(|e| OrbitCoreError::SshFailed(format!("exec request failed: {e}")))?;
+    if legacy_network::LegacyNetworkPolicy::current().allows_legacy_network()
+        && std::env::var_os("ORBIT_CORE_DEBUG").is_some()
+    {
+        eprintln!("{}", remote_exec_start_diagnostic(command));
     }
 
     let mut stdout = Vec::new();
@@ -392,23 +463,40 @@ pub(crate) async fn run_remote_command(
     }
 
     if exit_code != 0 {
-        let err = String::from_utf8_lossy(&stderr).to_string();
         return Err(OrbitCoreError::SshFailed(format!(
-            "command '{command}' exited with {exit_code}: {err}"
+            "remote command exited with status {exit_code}"
         )));
     }
 
     let output = String::from_utf8_lossy(&stdout).to_string();
-    if std::env::var_os("ORBIT_CORE_DEBUG").is_some() {
+    if legacy_network::LegacyNetworkPolicy::current().allows_legacy_network()
+        && std::env::var_os("ORBIT_CORE_DEBUG").is_some()
+    {
         eprintln!(
-            "[orbit-core][exec] command={} exit={} stdout_bytes={} stderr_bytes={}",
-            command,
-            exit_code,
-            stdout.len(),
-            stderr.len()
+            "{}",
+            remote_exec_finish_diagnostic(command, exit_code, stdout.len(), stderr.len())
         );
     }
     Ok(output)
+}
+
+fn remote_exec_start_diagnostic(command: &str) -> String {
+    format!("[orbit-core][exec] command_bytes={}", command.len())
+}
+
+fn remote_exec_finish_diagnostic(
+    command: &str,
+    exit_code: u32,
+    stdout_bytes: usize,
+    stderr_bytes: usize,
+) -> String {
+    format!(
+        "[orbit-core][exec] command_bytes={} exit={} stdout_bytes={} stderr_bytes={}",
+        command.len(),
+        exit_code,
+        stdout_bytes,
+        stderr_bytes
+    )
 }
 
 pub(crate) fn current_unix_secs() -> u64 {

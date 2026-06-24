@@ -5,7 +5,7 @@ use russh_sftp::protocol::OpenFlags;
 use serde::Serialize;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
-use crate::{run_remote_command, OrbitCoreError, OrbitSftpSession};
+use crate::{run_remote_command_for_sftp_operation, OrbitCoreError, OrbitSftpSession};
 
 const SFTP_IO_BUF_SIZE: usize = 64 * 1024;
 
@@ -313,7 +313,7 @@ pub(crate) async fn mkdir(
         return Err(OrbitCoreError::InvalidInput);
     }
     let cmd = format!("mkdir -p -- {}", shell_single_quote(remote_path.trim()));
-    let _ = run_remote_command(&session.base, &cmd).await?;
+    let _ = run_remote_command_for_sftp_operation(session, &cmd).await?;
     Ok(())
 }
 
@@ -325,7 +325,7 @@ pub(crate) async fn create_file(
         return Err(OrbitCoreError::InvalidInput);
     }
     let cmd = format!("touch -- {}", shell_single_quote(remote_path.trim()));
-    let _ = run_remote_command(&session.base, &cmd).await?;
+    let _ = run_remote_command_for_sftp_operation(session, &cmd).await?;
     Ok(())
 }
 
@@ -349,7 +349,7 @@ pub(crate) async fn chmod(
         mode,
         shell_single_quote(remote_path.trim())
     );
-    let _ = run_remote_command(&session.base, &cmd).await?;
+    let _ = run_remote_command_for_sftp_operation(session, &cmd).await?;
     Ok(())
 }
 
