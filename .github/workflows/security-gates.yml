@@ -1,0 +1,67 @@
+name: Security Gates
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-security-gates:
+    name: Rust release gates
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - name: Fetch locked Rust dependencies
+        run: cargo fetch --locked --manifest-path orbit-core/Cargo.toml
+      - name: Rust tests, release harness, headers, symbols, and static scans
+        run: |
+          scripts/security/check_static_scans.sh
+          scripts/security/check_rust_release_gates.sh
+          scripts/security/check_symbols.sh
+
+  apple-security-gates:
+    name: Apple checked-path gates
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Apple Rust targets and XcodeGen
+        run: |
+          rustup target add aarch64-apple-darwin aarch64-apple-ios-sim
+          brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+      - name: Fetch locked Rust dependencies
+        run: cargo fetch --locked --manifest-path orbit-core/Cargo.toml
+      - name: Swift static scans and Apple build matrix
+        run: |
+          scripts/security/check_static_scans.sh
+          scripts/security/check_apple_release_gates.sh
+      # External OpenSSH scenarios remain a separate release-candidate gate.
+
+  openssh-release-candidate-smoke:
+    name: OpenSSH release-candidate smoke
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Fetch locked Rust dependencies
+        run: cargo fetch --locked --manifest-path orbit-core/Cargo.toml
+      - name: Run isolated loopback OpenSSH smoke
+        env:
+          ORBITTERM_RUN_OPENSSH_SMOKE: '1'
+        run: scripts/security/run_openssh_smoke.sh
