@@ -22,11 +22,17 @@ need_cmd() {
 }
 
 need_cmd xcodebuild
-need_cmd xcodegen
 need_cmd cargo
 need_cmd rustup
 need_cmd hdiutil
 need_cmd swift
+need_cmd git
+
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "[错误] Release packaging 必须从 clean worktree 运行。" >&2
+  exit 1
+fi
+SOURCE_COMMIT="$(git rev-parse HEAD)"
 
 rm -rf "$TMP_DIR"
 mkdir -p "$MAC_OUT" "$IOS_OUT" "$TMP_DIR"
@@ -34,8 +40,8 @@ mkdir -p "$MAC_OUT" "$IOS_OUT" "$TMP_DIR"
 echo "[1/8] 生成全套 AppIcon..."
 ./scripts/generate_app_icons.swift
 
-echo "[2/8] 生成 Xcode 工程并锁定版本..."
-xcodegen generate >/dev/null
+echo "[2/8] 验证不可变 Xcode 工程..."
+echo "[提示] 使用 commit 中的 project.yml 和 OrbitTerm.xcodeproj，打包期间不重新生成工程。"
 
 echo "[3/8] 构建 Rust 核心库..."
 ./scripts/build_apple_core.sh
@@ -101,3 +107,8 @@ ls -lah "$MAC_OUT" "$IOS_OUT" "$RELEASE_ROOT/release_note.txt"
 echo "DMG: $FINAL_DMG"
 echo "IPA: $IPA_PATH"
 echo "[提示] 以上产物尚未签名或 notarize，不得直接对外发布。"
+
+if [[ "$(git rev-parse HEAD)" != "$SOURCE_COMMIT" ]] || [[ -n "$(git status --porcelain)" ]]; then
+  echo "[错误] Packaging 改变了 RC source tree，产物不可用。" >&2
+  exit 1
+fi
