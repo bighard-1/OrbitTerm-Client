@@ -17,7 +17,7 @@ extension SFTPManager {
             return
         }
 
-        guard let sid = sessionID else {
+        guard let sid = operationSessionID else {
             statusText = "重命名失败: 未连接"
             return
         }
@@ -50,7 +50,7 @@ extension SFTPManager {
             statusText = "新建目录失败: 名称为空"
             return
         }
-        guard let sid = sessionID else {
+        guard let sid = operationSessionID else {
             statusText = "新建目录失败: 未连接"
             return
         }
@@ -80,7 +80,7 @@ extension SFTPManager {
             statusText = "新建文件失败: 名称为空"
             return
         }
-        guard let sid = sessionID else {
+        guard let sid = operationSessionID else {
             statusText = "新建文件失败: 未连接"
             return
         }
@@ -110,7 +110,7 @@ extension SFTPManager {
             statusText = "修改权限失败: 模式需为 3-4 位八进制"
             return
         }
-        guard let sid = sessionID else {
+        guard let sid = operationSessionID else {
             statusText = "修改权限失败: 未连接"
             return
         }
@@ -140,7 +140,7 @@ extension SFTPManager {
         guard !item.isDirectory else {
             throw SFTPError.rustError("目录不支持在线编辑")
         }
-        guard let sid = sessionID else {
+        guard let sid = operationSessionID else {
             throw SFTPError.notConnected
         }
         let path = makeChildPath(name: item.name)
@@ -159,7 +159,7 @@ extension SFTPManager {
         guard !item.isDirectory else {
             throw SFTPError.rustError("目录不支持保存文本")
         }
-        guard let sid = sessionID else {
+        guard let sid = operationSessionID else {
             throw SFTPError.notConnected
         }
         let path = makeChildPath(name: item.name)
@@ -186,7 +186,7 @@ extension SFTPManager {
             successHaptic()
             return
         }
-        guard let sid = sessionID else {
+        guard let sid = operationSessionID else {
             statusText = "删除失败: 未连接"
             return
         }
@@ -222,7 +222,7 @@ extension SFTPManager {
             return BatchOperationSummary(succeeded: uniquePaths, failed: [:])
         }
 
-        guard let sid = sessionID else {
+        guard let sid = operationSessionID else {
             let failed = Dictionary(uniqueKeysWithValues: uniquePaths.map { ($0, "未连接") })
             statusText = "批量删除失败: 未连接"
             return BatchOperationSummary(succeeded: [], failed: failed)

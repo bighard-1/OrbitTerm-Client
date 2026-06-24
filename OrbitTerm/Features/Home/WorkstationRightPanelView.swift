@@ -73,7 +73,10 @@ struct WorkstationRightPanelView: View {
                         showingMonitorDetailPanelID = panelID
                     }
                 },
-                onHideDetail: { showingMonitorDetailPanelID = nil }
+                onHideDetail: { showingMonitorDetailPanelID = nil },
+                onStartCheckedMonitoring: {
+                    Task { await sessionManager.startMonitorForActiveSessionIfNeeded() }
+                }
             )
             if let panelID = showingMonitorDetailPanelID,
                panelID == active.activeMonitorPanelID {
@@ -146,9 +149,13 @@ struct WorkstationRightPanelView: View {
     @ViewBuilder
     private func dockerSection(_ active: WorkspaceSession) -> some View {
         if showDockerPanel {
-            WorkstationDockerCardView(active: active) {
-                showDockerPanel = false
-            }
+            WorkstationDockerCardView(
+                active: active,
+                onHide: { showDockerPanel = false },
+                onStartCheckedDocker: {
+                    Task { await sessionManager.startDockerForActiveSessionIfNeeded() }
+                }
+            )
         } else {
             WorkstationCollapsedFeatureRow(title: "Docker") { showDockerPanel = true }
         }

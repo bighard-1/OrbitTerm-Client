@@ -125,7 +125,9 @@ struct SettingsView: View {
             }
 
             Section("终端与连接") {
-                Toggle("启用 Telnet（明文，仅建议内网）", isOn: $telnetEnabled)
+                if ConnectionSecurityPolicy.allowsTelnet {
+                    Toggle("启用 Telnet（明文，仅建议内网）", isOn: $telnetEnabled)
+                }
                 HStack {
                     Text("终端字号")
                     Spacer()

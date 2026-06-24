@@ -48,6 +48,7 @@ final class OrbitManager: ObservableObject {
         privateKeyPassphrase: String = "",
         allowPasswordFallback: Bool = true
     ) {
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         statusText = "连接中..."
 
         Task.detached(priority: .userInitiated) {
@@ -76,6 +77,9 @@ final class OrbitManager: ObservableObject {
                 self.statusText = result
             }
         }
+        #else
+        statusText = "安全连接测试请通过已验证连接流程完成"
+        #endif
     }
 
     // 异步返回连接测试结果，供 UI 层在不阻塞主线程的情况下复用。
@@ -88,6 +92,7 @@ final class OrbitManager: ObservableObject {
         privateKeyPassphrase: String = "",
         allowPasswordFallback: Bool = true
     ) async -> String {
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         await Task.detached(priority: .userInitiated) {
             if let ipCString = ip.cString(using: .utf8),
                let usernameCString = username.cString(using: .utf8),
@@ -107,6 +112,9 @@ final class OrbitManager: ObservableObject {
             }
             return "失败: 参数编码失败"
         }.value
+        #else
+        "安全连接测试请通过已验证连接流程完成"
+        #endif
     }
 
     // 批量命令执行：按目标服务器信息临时建立会话，执行命令后立即断开并返回输出。
@@ -120,6 +128,7 @@ final class OrbitManager: ObservableObject {
         allowPasswordFallback: Bool = true,
         command: String
     ) async throws -> String {
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         try await Task.detached(priority: .userInitiated) {
             guard let commandCString = command.cString(using: .utf8) else {
                 throw OrbitManagerError.invalidInput("参数编码失败")
@@ -146,6 +155,9 @@ final class OrbitManager: ObservableObject {
             let execPtr = orbit_exec_command(sessionID, commandCString)
             return try Self.parseOKPayloadStatic(execPtr)
         }.value
+        #else
+        throw OrbitManagerError.rustError("公共构建已禁用 legacy 远程命令执行")
+        #endif
     }
 
     private func parseResultAsData(_ resultPtr: UnsafeMutablePointer<CChar>?) throws -> Data {

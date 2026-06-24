@@ -6,7 +6,6 @@ import AppKit
 struct SFTPBrowserView: View {
     @StateObject private var manager = SFTPManager()
     @ObservedObject private var sessionManager = SessionManager.shared
-    private let vault = CredentialVault.shared
 
     @State private var connectionDraft = SFTPBrowserConnectionDraft()
     @State private var isDropTargeted: Bool = false
@@ -27,7 +26,18 @@ struct SFTPBrowserView: View {
     var body: some View {
         VStack(spacing: 0) {
             if !effectiveManager.isConnected {
-                SFTPConnectPanel(draft: $connectionDraft, manager: effectiveManager)
+                if sessionManager.requiresCheckedConnection {
+                    SFTPVerifiedSessionPanel(
+                        hasVerifiedSession: sessionManager.activeSession?.verifiedSessionLease != nil,
+                        isLoading: effectiveManager.isLoading,
+                        statusText: effectiveManager.statusText,
+                        onOpen: {
+                            Task { await autoBindActiveSessionIfNeeded() }
+                        }
+                    )
+                } else {
+                    SFTPConnectPanel(draft: $connectionDraft, manager: effectiveManager)
+                }
             } else {
                 browserPanel
             }
@@ -37,11 +47,14 @@ struct SFTPBrowserView: View {
         .navigationBarTitleDisplayMode(.inline)
 #endif
         .task {
-            effectiveManager.activateMockIfNeeded(
-                host: connectionDraft.host,
-                username: connectionDraft.username,
-                password: connectionDraft.password
-            )
+            manager.configureConnectionMode(sessionManager.connectionSecurityPolicy)
+            if sessionManager.connectionSecurityPolicy.allowsLegacyNetwork {
+                effectiveManager.activateMockIfNeeded(
+                    host: connectionDraft.host,
+                    username: connectionDraft.username,
+                    password: connectionDraft.password
+                )
+            }
             await autoBindActiveSessionIfNeeded()
         }
         .alert("重命名", isPresented: Binding(
@@ -317,19 +330,6 @@ struct SFTPBrowserView: View {
     }
 
     private func autoBindActiveSessionIfNeeded() async {
-        guard let active = sessionManager.activeSession else { return }
-        guard active.isConnected, active.server.transport == .ssh else { return }
-        if active.sftpManager.isConnected { return }
-        guard let creds = try? vault.read(for: active.server.credentialID), !creds.isEmpty else { return }
-        await active.sftpManager.connect(
-            host: active.server.host,
-            port: active.server.port,
-            username: active.server.username,
-            password: creds.password,
-            privateKeyContent: creds.privateKeyContent,
-            privateKeyPassphrase: creds.privateKeyPassphrase,
-            allowPasswordFallback: active.server.allowPasswordFallback,
-            preferMock: false
-        )
+        await sessionManager.openSFTPForActiveSessionIfNeeded(standaloneManager: manager)
     }
 }

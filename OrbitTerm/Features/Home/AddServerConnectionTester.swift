@@ -21,6 +21,14 @@ struct AddServerConnectionTestResult {
 
 enum AddServerConnectionTester {
     static func test(input: AddServerConnectionTestInput, orbitManager: OrbitManager) async -> AddServerConnectionTestResult {
+        guard ConnectionSecurityPolicy.allowsLegacyConnectionTest else {
+            return AddServerConnectionTestResult(
+                status: "请使用“保存并连接”完成服务器身份验证",
+                isVerified: false
+            )
+        }
+
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         if input.transport == .telnet {
             return await testTelnet(input)
         }
@@ -45,8 +53,12 @@ enum AddServerConnectionTester {
         } catch {
             return AddServerConnectionTestResult(status: "连接测试失败: \(error.localizedDescription)", isVerified: false)
         }
+        #else
+        return AddServerConnectionTestResult(status: "安全连接测试不可用", isVerified: false)
+        #endif
     }
 
+    #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
     private static func testTelnet(_ input: AddServerConnectionTestInput) async -> AddServerConnectionTestResult {
         let probe = TelnetClient(host: input.host, port: input.port)
         let autoLogin = TelnetClient.AutoLoginConfig(
@@ -82,4 +94,5 @@ enum AddServerConnectionTester {
             return first
         }
     }
+    #endif
 }

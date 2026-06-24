@@ -97,13 +97,19 @@ struct QuickKeySetupSheet: View {
                         Task { await generateAndDeployKey() }
                     }
                     .buttonStyle(.bordered)
-                    .disabled(isTesting || isDeploying || saving)
+                    .disabled(
+                        isTesting || isDeploying || saving ||
+                            !ConnectionSecurityPolicy.allowsLegacyQuickKeyDeployment
+                    )
 #endif
                     Button("测试密钥") {
                         Task { await testKeyConnection() }
                     }
                     .buttonStyle(.bordered)
-                    .disabled(isTesting || saving || !hasValidKey)
+                    .disabled(
+                        isTesting || saving || !hasValidKey ||
+                            !ConnectionSecurityPolicy.allowsLegacyConnectionTest
+                    )
 
                     Button("保存") {
                         Task { await save() }
@@ -149,9 +155,14 @@ struct QuickKeySetupSheet: View {
 
     private func testKeyConnection() async {
         guard hasValidKey else { return }
+        guard ConnectionSecurityPolicy.allowsLegacyConnectionTest else {
+            statusText = "请先通过已验证连接流程确认服务器身份"
+            statusColor = .orange
+            return
+        }
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         isTesting = true
         defer { isTesting = false }
-
         let result = await orbitManager.testConnectionAsync(
             ip: server.host,
             port: server.port,
@@ -170,12 +181,19 @@ struct QuickKeySetupSheet: View {
             statusText = "密钥测试失败：\(result)"
             statusColor = .red
         }
+        #endif
     }
 
 #if os(macOS)
     @MainActor
     private func generateAndDeployKey() async {
         guard !isDeploying else { return }
+        guard ConnectionSecurityPolicy.allowsLegacyQuickKeyDeployment else {
+            statusText = "安全密钥部署流程尚未启用"
+            statusColor = .orange
+            return
+        }
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         guard let old = try? vault.read(for: server.credentialID),
               !old.password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             statusText = "生成部署失败：需要先保存密码凭据，才能把公钥写入远端"
@@ -229,6 +247,7 @@ struct QuickKeySetupSheet: View {
             statusText = "生成部署失败：\(error.localizedDescription)"
             statusColor = .red
         }
+        #endif
     }
 
     private func generateEd25519KeyPair(passphrase: String) async throws -> (privateKey: String, publicKey: String) {

@@ -55,6 +55,7 @@ targets:
             - $(inherited)
             - $(SRCROOT)/orbit-core/target/aarch64-apple-ios/debug/liborbit_core.a
         Release:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) ORBITTERM_PUBLIC_RELEASE
           OTHER_LDFLAGS[sdk=macosx*]:
             - $(inherited)
             - $(SRCROOT)/orbit-core/target/aarch64-apple-darwin/release/liborbit_core.a
@@ -66,3 +67,31 @@ targets:
             - $(SRCROOT)/orbit-core/target/aarch64-apple-ios/release/liborbit_core.a
     scheme:
       testTargets: []
+
+  OrbitTermCheckedFFITests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: OrbitTermCheckedFFITests
+      - path: OrbitTerm
+        includes:
+          - Core/CheckedFFI/*.swift
+          - Core/HostKeyTrust/*.swift
+        excludes:
+          - Core/CheckedFFI/CredentialVaultCheckedProvider.swift
+          - Core/CheckedFFI/OrbitCoreCheckedFFILiveFunctions.swift
+    settings:
+      base:
+        CODE_SIGNING_ALLOWED: NO
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.orbitterm.checkedffi.tests
+        SWIFT_VERSION: 5.0
+
+schemes:
+  OrbitTermCheckedFFITests:
+    build:
+      targets:
+        OrbitTermCheckedFFITests: [test, analyze]
+    test:
+      targets:
+        - OrbitTermCheckedFFITests

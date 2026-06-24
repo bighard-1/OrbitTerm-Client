@@ -105,10 +105,15 @@ struct CircularBuffer<Element> {
 @MainActor
 final class MonitorService: ObservableObject {
     @Published private(set) var panels: [MonitorPanelState] = []
+    @Published private(set) var checkedErrors: [UUID: CheckedMonitorServiceError] = [:]
 
     private let logger = Logger(subsystem: "com.orbitterm.app", category: "monitor")
+    private let connectionMode: ConnectionSecurityPolicy
+    private let checkedSnapshotService: (any CheckedMonitorSnapshotFetching)?
     private var buffers: [UUID: CircularBuffer<MonitorPoint>] = [:]
     private var sessions: [UUID: UInt64] = [:]
+    private var checkedBindings: [UUID: CheckedMonitorBinding] = [:]
+    private var checkedPollers: [UUID: CheckedMonitorPollingLoop] = [:]
     private var consecutiveFailures: [UUID: Int] = [:]
     private var reconnectTasks: [UUID: Task<Void, Never>] = [:]
     private var pollTasks: [UUID: Task<Void, Never>] = [:]
@@ -118,7 +123,12 @@ final class MonitorService: ObservableObject {
     private let vault = CredentialVault.shared
     private let targetStore = MonitorTargetStore()
 
-    init() {
+    init(
+        connectionMode: ConnectionSecurityPolicy = .applicationDefault,
+        checkedSnapshotService: (any CheckedMonitorSnapshotFetching)? = nil
+    ) {
+        self.connectionMode = connectionMode
+        self.checkedSnapshotService = checkedSnapshotService
         loadTargets()
     }
 
@@ -132,6 +142,7 @@ final class MonitorService: ObservableObject {
     }
 
     func addTarget(name: String, host: String, port: Int = 22, username: String, credentials: ServerCredentials) {
+        guard connectionMode.allowsLegacyNetwork else { return }
         let target = MonitorTargetConfig(name: name, host: host, port: port, username: username)
         try? vault.save(credentials, for: target.credentialID)
         panels.append(MonitorPanelState(id: target.id, target: target, isRunning: false, status: "未连接", points: []))
@@ -141,6 +152,9 @@ final class MonitorService: ObservableObject {
 
     // 为工作台模式准备：若目标已存在则复用，否则创建并返回目标 ID。
     func ensureTarget(name: String, host: String, port: Int = 22, username: String, credentials: ServerCredentials) -> UUID {
+        guard connectionMode.allowsLegacyNetwork else {
+            return ensureCheckedPanel(workspaceID: UUID(), name: name)
+        }
         if let existing = panels.first(where: {
             $0.target.host == host && $0.target.port == port && $0.target.username == username
         }) {
@@ -165,6 +179,9 @@ final class MonitorService: ObservableObject {
         allowPasswordFallback: Bool,
         baseSessionID: UInt64? = nil
     ) async -> UUID {
+        guard connectionMode.allowsLegacyNetwork else {
+            return ensureCheckedPanel(workspaceID: UUID(), name: name)
+        }
         let id = ensureTarget(name: name, host: host, port: port, username: username, credentials: credentials)
         if let baseSessionID {
             await connect(id, baseSessionID: baseSessionID, allowPasswordFallback: allowPasswordFallback)
@@ -180,16 +197,25 @@ final class MonitorService: ObservableObject {
     }
 
     func removeTarget(_ targetID: UUID) {
-        if let target = panels.first(where: { $0.id == targetID })?.target {
+        let isChecked = checkedBindings[targetID] != nil
+        if !isChecked, let target = panels.first(where: { $0.id == targetID })?.target {
             try? vault.delete(for: target.credentialID)
         }
         reconnectTasks[targetID]?.cancel()
         reconnectTasks.removeValue(forKey: targetID)
         stopPolling(targetID)
-        Task { await disconnect(targetID) }
+        if isChecked {
+            let poller = checkedPollers[targetID]
+            Task { await poller?.stop() }
+        } else {
+            Task { await disconnect(targetID) }
+        }
         panels.removeAll { $0.id == targetID }
         buffers.removeValue(forKey: targetID)
         sessions.removeValue(forKey: targetID)
+        checkedBindings.removeValue(forKey: targetID)
+        checkedPollers.removeValue(forKey: targetID)
+        checkedErrors.removeValue(forKey: targetID)
         consecutiveFailures.removeValue(forKey: targetID)
         allowPasswordFallbackByTarget.removeValue(forKey: targetID)
         persistTargets()
@@ -200,6 +226,10 @@ final class MonitorService: ObservableObject {
         allowPasswordFallback: Bool = true,
         credentialsOverride: ServerCredentials? = nil
     ) async {
+        guard connectionMode.allowsLegacyNetwork else {
+            rejectLegacyMonitor(targetID)
+            return
+        }
         guard let index = panels.firstIndex(where: { $0.id == targetID }) else { return }
         let target = panels[index].target
         let credentials = credentialsOverride ?? (try? vault.read(for: target.credentialID) ?? ServerCredentials())
@@ -244,6 +274,10 @@ final class MonitorService: ObservableObject {
         baseSessionID: UInt64,
         allowPasswordFallback: Bool = true
     ) async {
+        guard connectionMode.allowsLegacyNetwork else {
+            rejectLegacyMonitor(targetID)
+            return
+        }
         guard let index = panels.firstIndex(where: { $0.id == targetID }) else { return }
 
         do {
@@ -269,6 +303,17 @@ final class MonitorService: ObservableObject {
     }
 
     func disconnect(_ targetID: UUID) async {
+        if checkedBindings[targetID] != nil {
+            await checkedPollers[targetID]?.stop()
+            checkedPollers.removeValue(forKey: targetID)
+            checkedBindings.removeValue(forKey: targetID)
+            checkedErrors.removeValue(forKey: targetID)
+            if let index = panels.firstIndex(where: { $0.id == targetID }) {
+                panels[index].isRunning = false
+                panels[index].status = "已停止"
+            }
+            return
+        }
         reconnectTasks[targetID]?.cancel()
         reconnectTasks.removeValue(forKey: targetID)
         stopPolling(targetID)
@@ -314,6 +359,7 @@ final class MonitorService: ObservableObject {
     }
 
     private func pollTargetOnce(_ targetID: UUID) async {
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         guard let sid = sessions[targetID],
               let panelIndex = panels.firstIndex(where: { $0.id == targetID }) else {
             return
@@ -348,9 +394,13 @@ final class MonitorService: ObservableObject {
                 scheduleSilentReconnect(targetID)
             }
         }
+        #else
+        stopPolling(targetID)
+        #endif
     }
 
     private func scheduleSilentReconnect(_ targetID: UUID) {
+        guard connectionMode.allowsLegacyNetwork, checkedBindings[targetID] == nil else { return }
         guard reconnectTasks[targetID] == nil else { return }
 
         reconnectTasks[targetID] = Task(priority: .utility) { [weak self] in
@@ -371,6 +421,7 @@ final class MonitorService: ObservableObject {
     }
 
     private func reconnectMonitorSession(_ targetID: UUID) async -> Bool {
+        guard connectionMode.allowsLegacyNetwork, checkedBindings[targetID] == nil else { return false }
         guard let index = panels.firstIndex(where: { $0.id == targetID }) else { return false }
         guard panels[index].isRunning else { return true }
         let target = panels[index].target
@@ -437,8 +488,128 @@ final class MonitorService: ObservableObject {
     }
 
     private func persistTargets() {
-        let targets = panels.map(\.target)
+        let targets = panels
+            .filter { checkedBindings[$0.id] == nil }
+            .map(\.target)
         targetStore.save(targets)
+    }
+
+    func startCheckedMonitoring(
+        workspaceID: UUID,
+        baseSessionID: BaseSessionID,
+        name: String
+    ) async -> Result<UUID, CheckedMonitorServiceError> {
+        guard connectionMode.requiresCheckedNetwork else {
+            return .failure(.legacyMonitorDisabledInCheckedMode)
+        }
+        guard let checkedSnapshotService else {
+            return .failure(.internalInvariant)
+        }
+
+        let targetID = ensureCheckedPanel(workspaceID: workspaceID, name: name)
+        await checkedPollers[targetID]?.stop()
+
+        let binding = CheckedMonitorBinding(
+            workspaceID: workspaceID,
+            baseSessionID: baseSessionID
+        )
+        let poller = CheckedMonitorPollingLoop(
+            binding: binding,
+            fetcher: checkedSnapshotService,
+            intervalNanoseconds: checkedPollingIntervalNanoseconds
+        )
+        checkedBindings[targetID] = binding
+        checkedPollers[targetID] = poller
+        checkedErrors.removeValue(forKey: targetID)
+
+        if let index = panels.firstIndex(where: { $0.id == targetID }) {
+            panels[index].isRunning = true
+            panels[index].status = "安全监控启动中"
+        }
+
+        await poller.start { [weak self] result in
+            await self?.applyCheckedSnapshotResult(result, targetID: targetID)
+        }
+        return .success(targetID)
+    }
+
+    func rejectCheckedStandalone(_ error: CheckedMonitorServiceError = .requiresVerifiedSession) {
+        let targetID = ensureCheckedPanel(workspaceID: UUID(), name: "安全监控")
+        checkedErrors[targetID] = error
+        if let index = panels.firstIndex(where: { $0.id == targetID }) {
+            panels[index].isRunning = false
+            panels[index].status = error.userMessage
+        }
+    }
+
+    func checkedBinding(for targetID: UUID) -> CheckedMonitorBinding? {
+        checkedBindings[targetID]
+    }
+
+    private func ensureCheckedPanel(workspaceID: UUID, name: String) -> UUID {
+        if let existing = panels.first(where: { $0.id == workspaceID }) {
+            return existing.id
+        }
+        let target = MonitorTargetConfig(
+            id: workspaceID,
+            name: name,
+            host: "",
+            port: 22,
+            username: "",
+            credentialID: workspaceID
+        )
+        panels.append(
+            MonitorPanelState(
+                id: workspaceID,
+                target: target,
+                isRunning: false,
+                status: "需要已验证会话",
+                points: []
+            )
+        )
+        buffers[workspaceID] = CircularBuffer(capacity: 600)
+        return workspaceID
+    }
+
+    private func rejectLegacyMonitor(_ targetID: UUID) {
+        let error = CheckedMonitorServiceError.legacyMonitorDisabledInCheckedMode
+        checkedErrors[targetID] = error
+        if let index = panels.firstIndex(where: { $0.id == targetID }) {
+            panels[index].isRunning = false
+            panels[index].status = error.userMessage
+        }
+    }
+
+    private func applyCheckedSnapshotResult(
+        _ result: Result<MonitorSnapshotPayload, CheckedMonitorServiceError>,
+        targetID: UUID
+    ) {
+        guard checkedBindings[targetID] != nil,
+              let panelIndex = panels.firstIndex(where: { $0.id == targetID }) else {
+            return
+        }
+
+        switch result {
+        case let .success(payload):
+            var buffer = buffers[targetID] ?? CircularBuffer(capacity: 600)
+            buffer.append(payload.stats.monitorPoint)
+            buffers[targetID] = buffer
+            panels[panelIndex].points = buffer.elementsInOrder
+            panels[panelIndex].isRunning = true
+            panels[panelIndex].status = payload.diagnostics.contains(.pingUnavailable)
+                ? "安全监控中（延迟不可用）"
+                : "安全监控中"
+        case let .failure(error):
+            checkedErrors[targetID] = error
+            panels[panelIndex].isRunning = false
+            panels[panelIndex].status = error.userMessage
+            checkedPollers.removeValue(forKey: targetID)
+        }
+    }
+
+    private var checkedPollingIntervalNanoseconds: UInt64 {
+        let seconds = MonitorPollingPolicy.configuredInterval(key: intervalKey)
+        return UInt64(max(0.1, seconds) * 1_000_000_000)
     }
 
     private func callRustWithTimeout(
@@ -449,5 +620,19 @@ final class MonitorService: ObservableObject {
         let payload = try await RustFFI.callWithTimeout(seconds: seconds, call)
         logger.debug("[MON] rust_call=\(label, privacy: .public) bytes=\(payload.utf8.count)")
         return payload
+    }
+}
+
+private extension MonitorSnapshotStatsPayload {
+    var monitorPoint: MonitorPoint {
+        MonitorPoint(
+            time: Date(timeIntervalSince1970: TimeInterval(sampledAtUnix)),
+            cpuUsage: cpuUsagePercent,
+            memUsedPercent: memUsedPercent,
+            diskUsedPercent: diskUsedPercent,
+            pingLatencyMs: pingLatencyMS,
+            rxRateKBps: rxRateKBPS,
+            txRateKBps: txRateKBPS
+        )
     }
 }

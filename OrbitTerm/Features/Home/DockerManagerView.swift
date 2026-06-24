@@ -95,7 +95,38 @@ struct DockerManagerView: View {
 
     private var connectPanel: some View {
         Form {
-            if let preferred = resolvePreferredSession() {
+            if sessionManager.requiresCheckedConnection {
+                Section("安全会话") {
+                    if let preferred = resolvePreferredSession(),
+                       preferred.verifiedSessionLease != nil {
+                        HStack {
+                            Text("当前资产")
+                            Spacer()
+                            Text(preferred.server.name)
+                                .foregroundStyle(.secondary)
+                        }
+                        Text("Docker 仅使用该工作区的已验证 SSH 会话。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("需要已验证会话")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Section("操作") {
+                    Button("从当前会话启动 Docker") {
+                        Task { await sessionManager.startDockerForActiveSessionIfNeeded() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(
+                        resolvePreferredSession()?.verifiedSessionLease == nil ||
+                            effectiveService.isLoading
+                    )
+                    Text("不会读取凭据、创建 SFTP 会话或回退到旧连接。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if let preferred = resolvePreferredSession() {
                 Section("自动关联资产") {
                     HStack {
                         Text("当前资产")
@@ -108,40 +139,42 @@ struct DockerManagerView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            Section("SSH 信息") {
-                TextField("主机/IP", text: $connectionDraft.host)
-                    .applyInputPolish()
-                TextField("用户名", text: $connectionDraft.username)
-                    .applyInputPolish()
-                SecureField("密码", text: $connectionDraft.password)
-            }
+            if !sessionManager.requiresCheckedConnection {
+                Section("SSH 信息") {
+                    TextField("主机/IP", text: $connectionDraft.host)
+                        .applyInputPolish()
+                    TextField("用户名", text: $connectionDraft.username)
+                        .applyInputPolish()
+                    SecureField("密码", text: $connectionDraft.password)
+                }
 
-            Section("操作") {
-                Button("连接 Docker") {
-                    Task {
-                        if let preferred = resolvePreferredSession(),
-                           let creds = try? vault.read(for: preferred.server.credentialID),
-                           !creds.isEmpty {
-                            await preferred.dockerService.connect(
-                                host: preferred.server.host,
-                                port: preferred.server.port,
-                                username: preferred.server.username,
-                                password: creds.password,
-                                privateKeyContent: creds.privateKeyContent,
-                                privateKeyPassphrase: creds.privateKeyPassphrase,
-                                allowPasswordFallback: preferred.server.allowPasswordFallback
-                            )
-                        } else {
-                            await effectiveService.connect(
-                                host: connectionDraft.host,
-                                username: connectionDraft.username,
-                                password: connectionDraft.password
-                            )
+                Section("操作") {
+                    Button("连接 Docker") {
+                        Task {
+                            if let preferred = resolvePreferredSession(),
+                               let creds = try? vault.read(for: preferred.server.credentialID),
+                               !creds.isEmpty {
+                                await preferred.dockerService.connect(
+                                    host: preferred.server.host,
+                                    port: preferred.server.port,
+                                    username: preferred.server.username,
+                                    password: creds.password,
+                                    privateKeyContent: creds.privateKeyContent,
+                                    privateKeyPassphrase: creds.privateKeyPassphrase,
+                                    allowPasswordFallback: preferred.server.allowPasswordFallback
+                                )
+                            } else {
+                                await effectiveService.connect(
+                                    host: connectionDraft.host,
+                                    username: connectionDraft.username,
+                                    password: connectionDraft.password
+                                )
+                            }
                         }
                     }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(effectiveService.isLoading)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(effectiveService.isLoading)
             }
 
             Section("状态") {
@@ -164,12 +197,17 @@ struct DockerManagerView: View {
                                 Task { await effectiveService.performAction(containerID: card.id, action: action) }
                             }
                         }
-                        Button("编辑") {
-                            renameDraft.begin(card)
-                        }
-                        Button("高级编辑") {
-                            updateDraft.reset()
-                            editingContainer = card
+                        if effectiveService.isRenameUpdateAvailable {
+                            Button("编辑") {
+                                renameDraft.begin(card)
+                            }
+                            Button("高级编辑") {
+                                updateDraft.reset()
+                                editingContainer = card
+                            }
+                        } else {
+                            Button("重命名与更新将在安全接口完成后启用") {}
+                                .disabled(true)
                         }
                     }
                 }
@@ -218,6 +256,7 @@ private extension DockerManagerView {
     }
 
     func autoBindActiveSessionIfNeeded() async {
+        guard !sessionManager.requiresCheckedConnection else { return }
         guard let active = resolvePreferredSession() else { return }
         guard active.isConnected, active.server.transport == .ssh else { return }
         if active.dockerService.isConnected { return }

@@ -7,6 +7,7 @@ struct WorkstationMonitorCardView: View {
     let onHide: () -> Void
     let onShowDetail: () -> Void
     let onHideDetail: () -> Void
+    let onStartCheckedMonitoring: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -41,9 +42,14 @@ struct WorkstationMonitorCardView: View {
                     metricRow(title: "上传", value: formatRate(p.txRateKBps))
                 }
             } else {
-                Text("连接终端后自动开始监控")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if active.verifiedSessionLease != nil {
+                    Button("开始安全监控", action: onStartCheckedMonitoring)
+                        .buttonStyle(.borderedProminent)
+                } else {
+                    Text("需要已验证会话")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(10)

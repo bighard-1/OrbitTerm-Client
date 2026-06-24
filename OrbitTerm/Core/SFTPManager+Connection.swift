@@ -23,6 +23,12 @@ extension SFTPManager {
         allowPasswordFallback: Bool = true,
         preferMock: Bool = false
     ) async {
+        guard allowsLegacyConnection else {
+            rejectCheckedStandalone(.legacySFTPDisabledInCheckedMode)
+            return
+        }
+        checkedConnection = nil
+        checkedError = nil
         let cleanedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanedKey = privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -74,6 +80,12 @@ extension SFTPManager {
     }
 
     func connect(baseSessionID: UInt64, initialPath: String = "/") async {
+        guard allowsLegacyConnection else {
+            rejectCheckedStandalone(.legacySFTPDisabledInCheckedMode)
+            return
+        }
+        checkedConnection = nil
+        checkedError = nil
         isLoading = true
         defer { isLoading = false }
 
@@ -105,6 +117,60 @@ extension SFTPManager {
         }
     }
 
+    @discardableResult
+    func connectChecked(
+        workspaceID: UUID,
+        baseSessionID: BaseSessionID,
+        opener: any CheckedSFTPConnectionOpening,
+        initialPath: String = "/"
+    ) async -> Result<CheckedSFTPConnection, CheckedSFTPServiceError> {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let connection = try await opener.open(
+                workspaceID: workspaceID,
+                baseSessionID: baseSessionID
+            )
+            guard connection.workspaceID == workspaceID,
+                  connection.baseSessionID == baseSessionID else {
+                throw CheckedSFTPServiceError.internalInvariant
+            }
+
+            sessionID = nil
+            checkedConnection = connection
+            checkedError = nil
+            isUsingMockData = false
+            isConnected = true
+            statusText = "已从验证会话打开 SFTP"
+            try await refresh(path: initialPath)
+            successHaptic()
+            return .success(connection)
+        } catch let error as CheckedSFTPServiceError {
+            await closeCheckedChannelAfterFailedOpen()
+            checkedConnection = nil
+            checkedError = error
+            isConnected = false
+            statusText = error.userMessage
+            return .failure(error)
+        } catch {
+            await closeCheckedChannelAfterFailedOpen()
+            let mapped = CheckedSFTPServiceError.unknownCheckedFFIError
+            checkedConnection = nil
+            checkedError = mapped
+            isConnected = false
+            statusText = mapped.userMessage
+            return .failure(mapped)
+        }
+    }
+
+    private func closeCheckedChannelAfterFailedOpen() async {
+        guard let sid = operationSessionID, checkedConnection != nil else { return }
+        _ = try? await RustFFI.runWithTimeout(seconds: 8) {
+            try RustFFI.parseOKPayload(RustFFI.call { orbit_sftp_disconnect(sid) })
+        }
+    }
+
     func disconnect() async {
         if isUsingMockData {
             items = []
@@ -114,12 +180,14 @@ extension SFTPManager {
             return
         }
 
-        guard let sid = sessionID else { return }
+        guard let sid = operationSessionID else { return }
         _ = try? await RustFFI.runWithTimeout(seconds: 8) {
             try RustFFI.parseOKPayload(RustFFI.call { orbit_sftp_disconnect(sid) })
         }
         isConnected = false
         sessionID = nil
+        checkedConnection = nil
+        checkedError = nil
         items = []
         currentPath = "/"
         statusText = "已断开"

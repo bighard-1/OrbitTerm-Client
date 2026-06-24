@@ -30,6 +30,7 @@ final class WorkspaceSession: ObservableObject, Identifiable {
     @Published var terminalChannelIDs: [UInt64]
     @Published var activeTerminalPaneIndex: Int
     @Published var isTelnetSession: Bool
+    @Published var verifiedSessionLease: VerifiedWorkspaceSession?
 
     let sftpManager: SFTPManager
     let dockerService: DockerService
@@ -50,6 +51,7 @@ final class WorkspaceSession: ObservableObject, Identifiable {
         self.terminalChannelIDs = []
         self.activeTerminalPaneIndex = 0
         self.isTelnetSession = server.transport == .telnet
+        self.verifiedSessionLease = nil
         self.sftpManager = SFTPManager()
         self.dockerService = DockerService()
     }

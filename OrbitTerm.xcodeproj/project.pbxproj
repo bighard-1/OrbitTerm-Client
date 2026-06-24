@@ -7,6 +7,75 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A24H00000000000000000011 /* CheckedBatchCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24H00000000000000000001 /* CheckedBatchCommandService.swift */; };
+		A24H00000000000000000012 /* CheckedBatchCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24H00000000000000000001 /* CheckedBatchCommandService.swift */; };
+		A24H00000000000000000013 /* CheckedBatchCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24H00000000000000000001 /* CheckedBatchCommandService.swift */; };
+		A24H00000000000000000014 /* CheckedBatchCommandServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24H00000000000000000002 /* CheckedBatchCommandServiceTests.swift */; };
+		A24G00000000000000000011 /* CheckedDockerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24G00000000000000000001 /* CheckedDockerService.swift */; };
+		A24G00000000000000000012 /* CheckedDockerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24G00000000000000000001 /* CheckedDockerService.swift */; };
+		A24G00000000000000000013 /* CheckedDockerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24G00000000000000000001 /* CheckedDockerService.swift */; };
+		A24G00000000000000000014 /* CheckedDockerServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24G00000000000000000002 /* CheckedDockerServiceTests.swift */; };
+		A24F00000000000000000011 /* CheckedMonitorSnapshotService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24F00000000000000000001 /* CheckedMonitorSnapshotService.swift */; };
+		A24F00000000000000000012 /* CheckedMonitorSnapshotService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24F00000000000000000001 /* CheckedMonitorSnapshotService.swift */; };
+		A24F00000000000000000013 /* CheckedMonitorSnapshotService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24F00000000000000000001 /* CheckedMonitorSnapshotService.swift */; };
+		A24F00000000000000000014 /* CheckedMonitorServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24F00000000000000000002 /* CheckedMonitorServiceTests.swift */; };
+		A24E00000000000000000011 /* CheckedSFTPConnectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24E00000000000000000001 /* CheckedSFTPConnectionService.swift */; };
+		A24E00000000000000000012 /* CheckedSFTPConnectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24E00000000000000000001 /* CheckedSFTPConnectionService.swift */; };
+		A24E00000000000000000013 /* CheckedSFTPConnectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24E00000000000000000001 /* CheckedSFTPConnectionService.swift */; };
+		A24E00000000000000000014 /* CheckedSFTPServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24E00000000000000000002 /* CheckedSFTPServiceTests.swift */; };
+		A24D00000000000000000011 /* CheckedConnectionMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24D00000000000000000001 /* CheckedConnectionMode.swift */; };
+		A24D00000000000000000012 /* CheckedTerminalConnectionOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24D00000000000000000002 /* CheckedTerminalConnectionOrchestrator.swift */; };
+		A24D00000000000000000013 /* CredentialVaultCheckedProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24D00000000000000000003 /* CredentialVaultCheckedProvider.swift */; };
+		A24D00000000000000000014 /* CheckedConnectionMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24D00000000000000000001 /* CheckedConnectionMode.swift */; };
+		A24D00000000000000000015 /* CheckedTerminalConnectionOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24D00000000000000000002 /* CheckedTerminalConnectionOrchestrator.swift */; };
+		A24D00000000000000000016 /* CredentialVaultCheckedProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24D00000000000000000003 /* CredentialVaultCheckedProvider.swift */; };
+		A24D00000000000000000017 /* CheckedConnectionMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24D00000000000000000001 /* CheckedConnectionMode.swift */; };
+		A24D00000000000000000018 /* CheckedTerminalConnectionOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24D00000000000000000002 /* CheckedTerminalConnectionOrchestrator.swift */; };
+		A24D00000000000000000019 /* CheckedSessionOrchestrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24D00000000000000000004 /* CheckedSessionOrchestrationTests.swift */; };
+		A24C00000000000000000011 /* CheckedFFIProviders.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000001 /* CheckedFFIProviders.swift */; };
+		A24C00000000000000000012 /* OrbitCStringResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000002 /* OrbitCStringResult.swift */; };
+		A24C00000000000000000013 /* OrbitCoreCheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000003 /* OrbitCoreCheckedFFIClient.swift */; };
+		A24C00000000000000000014 /* OrbitCoreCheckedFFILiveFunctions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000004 /* OrbitCoreCheckedFFILiveFunctions.swift */; };
+		A24C00000000000000000015 /* CheckedFFIProviders.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000001 /* CheckedFFIProviders.swift */; };
+		A24C00000000000000000016 /* OrbitCStringResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000002 /* OrbitCStringResult.swift */; };
+		A24C00000000000000000017 /* OrbitCoreCheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000003 /* OrbitCoreCheckedFFIClient.swift */; };
+		A24C00000000000000000018 /* OrbitCoreCheckedFFILiveFunctions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000004 /* OrbitCoreCheckedFFILiveFunctions.swift */; };
+		A24C00000000000000000019 /* CheckedFFIProviders.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000001 /* CheckedFFIProviders.swift */; };
+		A24C0000000000000000001A /* OrbitCStringResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000002 /* OrbitCStringResult.swift */; };
+		A24C0000000000000000001B /* OrbitCoreCheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000003 /* OrbitCoreCheckedFFIClient.swift */; };
+		A24C0000000000000000001C /* OrbitCoreCheckedFFIClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C00000000000000000005 /* OrbitCoreCheckedFFIClientTests.swift */; };
+		A24B00000000000000000011 /* CheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000001 /* CheckedFFIClient.swift */; };
+		A24B00000000000000000012 /* HostKeyTrustCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000002 /* HostKeyTrustCoordinator.swift */; };
+		A24B00000000000000000013 /* HostKeyTrustPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000003 /* HostKeyTrustPresentation.swift */; };
+		A24B00000000000000000014 /* HostKeyTrustViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000004 /* HostKeyTrustViews.swift */; };
+		A24B00000000000000000015 /* CheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000001 /* CheckedFFIClient.swift */; };
+		A24B00000000000000000016 /* HostKeyTrustCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000002 /* HostKeyTrustCoordinator.swift */; };
+		A24B00000000000000000017 /* HostKeyTrustPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000003 /* HostKeyTrustPresentation.swift */; };
+		A24B00000000000000000018 /* HostKeyTrustViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000004 /* HostKeyTrustViews.swift */; };
+		A24B00000000000000000019 /* CheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000001 /* CheckedFFIClient.swift */; };
+		A24B0000000000000000001A /* HostKeyTrustCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000002 /* HostKeyTrustCoordinator.swift */; };
+		A24B0000000000000000001B /* HostKeyTrustPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000003 /* HostKeyTrustPresentation.swift */; };
+		A24B0000000000000000001C /* ScriptedCheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000005 /* ScriptedCheckedFFIClient.swift */; };
+		A24B0000000000000000001D /* HostKeyTrustCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000006 /* HostKeyTrustCoordinatorTests.swift */; };
+		A24B0000000000000000001E /* HostKeyTrustPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24B00000000000000000007 /* HostKeyTrustPresentationTests.swift */; };
+		A24A00000000000000000011 /* CheckedFFIEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000001 /* CheckedFFIEnvelope.swift */; };
+		A24A00000000000000000012 /* CheckedFFIKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000002 /* CheckedFFIKind.swift */; };
+		A24A00000000000000000013 /* CheckedFFIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000003 /* CheckedFFIError.swift */; };
+		A24A00000000000000000014 /* CheckedFFIPayloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000004 /* CheckedFFIPayloads.swift */; };
+		A24A00000000000000000015 /* CheckedFFIIDs.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000005 /* CheckedFFIIDs.swift */; };
+		A24A00000000000000000016 /* CheckedFFIEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000001 /* CheckedFFIEnvelope.swift */; };
+		A24A00000000000000000017 /* CheckedFFIKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000002 /* CheckedFFIKind.swift */; };
+		A24A00000000000000000018 /* CheckedFFIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000003 /* CheckedFFIError.swift */; };
+		A24A00000000000000000019 /* CheckedFFIPayloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000004 /* CheckedFFIPayloads.swift */; };
+		A24A0000000000000000001A /* CheckedFFIIDs.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000005 /* CheckedFFIIDs.swift */; };
+		A24A0000000000000000001B /* CheckedFFIEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000001 /* CheckedFFIEnvelope.swift */; };
+		A24A0000000000000000001C /* CheckedFFIKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000002 /* CheckedFFIKind.swift */; };
+		A24A0000000000000000001D /* CheckedFFIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000003 /* CheckedFFIError.swift */; };
+		A24A0000000000000000001E /* CheckedFFIPayloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000004 /* CheckedFFIPayloads.swift */; };
+		A24A0000000000000000001F /* CheckedFFIIDs.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000005 /* CheckedFFIIDs.swift */; };
+		A24A00000000000000000020 /* CheckedFFIFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000006 /* CheckedFFIFixtures.swift */; };
+		A24A00000000000000000021 /* CheckedFFITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000007 /* CheckedFFITests.swift */; };
+		A24A00000000000000000022 /* HeaderForwardingCompileCheck.c in Sources */ = {isa = PBXBuildFile; fileRef = A24A00000000000000000008 /* HeaderForwardingCompileCheck.c */; };
 		00D11168A4219FA8EC587704 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 381EB860DD822B532F60A2E4 /* ContentView.swift */; };
 		014ADC98587FFEEED9146A77 /* ServerListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21BA8750BFF4212C103320E8 /* ServerListView.swift */; };
 		018ABE369CBC10D75F294011 /* SFTPBrowserEditState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39F14E3A78611D6EDB41479C /* SFTPBrowserEditState.swift */; };
@@ -232,6 +301,37 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A24G00000000000000000001 /* CheckedDockerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedDockerService.swift; sourceTree = "<group>"; };
+		A24G00000000000000000002 /* CheckedDockerServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedDockerServiceTests.swift; sourceTree = "<group>"; };
+		A24F00000000000000000001 /* CheckedMonitorSnapshotService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedMonitorSnapshotService.swift; sourceTree = "<group>"; };
+		A24F00000000000000000002 /* CheckedMonitorServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedMonitorServiceTests.swift; sourceTree = "<group>"; };
+		A24E00000000000000000001 /* CheckedSFTPConnectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedSFTPConnectionService.swift; sourceTree = "<group>"; };
+		A24E00000000000000000002 /* CheckedSFTPServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedSFTPServiceTests.swift; sourceTree = "<group>"; };
+		A24D00000000000000000001 /* CheckedConnectionMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedConnectionMode.swift; sourceTree = "<group>"; };
+		A24D00000000000000000002 /* CheckedTerminalConnectionOrchestrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedTerminalConnectionOrchestrator.swift; sourceTree = "<group>"; };
+		A24D00000000000000000003 /* CredentialVaultCheckedProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialVaultCheckedProvider.swift; sourceTree = "<group>"; };
+		A24D00000000000000000004 /* CheckedSessionOrchestrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedSessionOrchestrationTests.swift; sourceTree = "<group>"; };
+		A24C00000000000000000001 /* CheckedFFIProviders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIProviders.swift; sourceTree = "<group>"; };
+		A24C00000000000000000002 /* OrbitCStringResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitCStringResult.swift; sourceTree = "<group>"; };
+		A24C00000000000000000003 /* OrbitCoreCheckedFFIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitCoreCheckedFFIClient.swift; sourceTree = "<group>"; };
+		A24C00000000000000000004 /* OrbitCoreCheckedFFILiveFunctions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitCoreCheckedFFILiveFunctions.swift; sourceTree = "<group>"; };
+		A24C00000000000000000005 /* OrbitCoreCheckedFFIClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitCoreCheckedFFIClientTests.swift; sourceTree = "<group>"; };
+		A24B00000000000000000001 /* CheckedFFIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIClient.swift; sourceTree = "<group>"; };
+		A24B00000000000000000002 /* HostKeyTrustCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostKeyTrustCoordinator.swift; sourceTree = "<group>"; };
+		A24B00000000000000000003 /* HostKeyTrustPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostKeyTrustPresentation.swift; sourceTree = "<group>"; };
+		A24B00000000000000000004 /* HostKeyTrustViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostKeyTrustViews.swift; sourceTree = "<group>"; };
+		A24B00000000000000000005 /* ScriptedCheckedFFIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptedCheckedFFIClient.swift; sourceTree = "<group>"; };
+		A24B00000000000000000006 /* HostKeyTrustCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostKeyTrustCoordinatorTests.swift; sourceTree = "<group>"; };
+		A24B00000000000000000007 /* HostKeyTrustPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostKeyTrustPresentationTests.swift; sourceTree = "<group>"; };
+		A24A00000000000000000001 /* CheckedFFIEnvelope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIEnvelope.swift; sourceTree = "<group>"; };
+		A24A00000000000000000002 /* CheckedFFIKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIKind.swift; sourceTree = "<group>"; };
+		A24A00000000000000000003 /* CheckedFFIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIError.swift; sourceTree = "<group>"; };
+		A24A00000000000000000004 /* CheckedFFIPayloads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIPayloads.swift; sourceTree = "<group>"; };
+		A24A00000000000000000005 /* CheckedFFIIDs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIIDs.swift; sourceTree = "<group>"; };
+		A24A00000000000000000006 /* CheckedFFIFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIFixtures.swift; sourceTree = "<group>"; };
+		A24A00000000000000000007 /* CheckedFFITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFITests.swift; sourceTree = "<group>"; };
+		A24A00000000000000000008 /* HeaderForwardingCompileCheck.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = HeaderForwardingCompileCheck.c; sourceTree = "<group>"; };
+		A24A00000000000000000009 /* OrbitTermCheckedFFITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OrbitTermCheckedFFITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		0197FADECAE6D8AC5EFEE8C5 /* SyncService+Synchronization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyncService+Synchronization.swift"; sourceTree = "<group>"; };
 		0406A2602C8DCBFAD157B5E5 /* WorkstationMonitorDetailViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationMonitorDetailViews.swift; sourceTree = "<group>"; };
 		04FFDB29556DE5419BEB4E78 /* AssetManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetManagerView.swift; sourceTree = "<group>"; };
@@ -347,9 +447,18 @@
 		F75E6C28523DF8A209339F6B /* AddServerDraftBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerDraftBuilder.swift; sourceTree = "<group>"; };
 		FAA681CD5E929D54BAF59BA3 /* WorkstationSFTPCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationSFTPCardView.swift; sourceTree = "<group>"; };
 		FC0745CC8E9FCDB47926A280 /* SFTPBatchOperationFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBatchOperationFormatter.swift; sourceTree = "<group>"; };
+		A24H00000000000000000001 /* CheckedBatchCommandService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedBatchCommandService.swift; sourceTree = "<group>"; };
+		A24H00000000000000000002 /* CheckedBatchCommandServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedBatchCommandServiceTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		A24A00000000000000000031 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		50C67EA4B15856743A51E78A /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -369,9 +478,63 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		A24B0000000000000000000A /* HostKeyTrust */ = {
+			isa = PBXGroup;
+			children = (
+				A24B00000000000000000002 /* HostKeyTrustCoordinator.swift */,
+				A24B00000000000000000003 /* HostKeyTrustPresentation.swift */,
+			);
+			path = HostKeyTrust;
+			sourceTree = "<group>";
+		};
+		A24A0000000000000000000A /* CheckedFFI */ = {
+			isa = PBXGroup;
+			children = (
+				A24B00000000000000000001 /* CheckedFFIClient.swift */,
+				A24H00000000000000000001 /* CheckedBatchCommandService.swift */,
+				A24G00000000000000000001 /* CheckedDockerService.swift */,
+				A24F00000000000000000001 /* CheckedMonitorSnapshotService.swift */,
+				A24E00000000000000000001 /* CheckedSFTPConnectionService.swift */,
+				A24D00000000000000000001 /* CheckedConnectionMode.swift */,
+				A24D00000000000000000002 /* CheckedTerminalConnectionOrchestrator.swift */,
+				A24D00000000000000000003 /* CredentialVaultCheckedProvider.swift */,
+				A24C00000000000000000001 /* CheckedFFIProviders.swift */,
+				A24A00000000000000000001 /* CheckedFFIEnvelope.swift */,
+				A24A00000000000000000002 /* CheckedFFIKind.swift */,
+				A24A00000000000000000003 /* CheckedFFIError.swift */,
+				A24A00000000000000000004 /* CheckedFFIPayloads.swift */,
+				A24A00000000000000000005 /* CheckedFFIIDs.swift */,
+				A24C00000000000000000002 /* OrbitCStringResult.swift */,
+				A24C00000000000000000003 /* OrbitCoreCheckedFFIClient.swift */,
+				A24C00000000000000000004 /* OrbitCoreCheckedFFILiveFunctions.swift */,
+			);
+			path = CheckedFFI;
+			sourceTree = "<group>";
+		};
+		A24A0000000000000000000B /* OrbitTermCheckedFFITests */ = {
+			isa = PBXGroup;
+			children = (
+				A24H00000000000000000002 /* CheckedBatchCommandServiceTests.swift */,
+				A24G00000000000000000002 /* CheckedDockerServiceTests.swift */,
+				A24F00000000000000000002 /* CheckedMonitorServiceTests.swift */,
+				A24E00000000000000000002 /* CheckedSFTPServiceTests.swift */,
+				A24D00000000000000000004 /* CheckedSessionOrchestrationTests.swift */,
+				A24B00000000000000000005 /* ScriptedCheckedFFIClient.swift */,
+				A24B00000000000000000006 /* HostKeyTrustCoordinatorTests.swift */,
+				A24B00000000000000000007 /* HostKeyTrustPresentationTests.swift */,
+				A24A00000000000000000006 /* CheckedFFIFixtures.swift */,
+				A24A00000000000000000007 /* CheckedFFITests.swift */,
+				A24C00000000000000000005 /* OrbitCoreCheckedFFIClientTests.swift */,
+				A24A00000000000000000008 /* HeaderForwardingCompileCheck.c */,
+			);
+			path = OrbitTermCheckedFFITests;
+			sourceTree = "<group>";
+		};
 		04E8CCCF20C7677B9A01498F /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				A24A0000000000000000000A /* CheckedFFI */,
+				A24B0000000000000000000A /* HostKeyTrust */,
 				2DC29E7DEA20362E09F501D3 /* AppSession.swift */,
 				924DF400619ABD0FB4150133 /* BiometricAuthService.swift */,
 				442AD4AADE13BA0E4204549B /* CredentialInputHelpers.swift */,
@@ -488,6 +651,7 @@
 		3D708A1AEECA8BCA1AE1F6A2 /* Security */ = {
 			isa = PBXGroup;
 			children = (
+				A24B00000000000000000004 /* HostKeyTrustViews.swift */,
 				78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */,
 			);
 			path = Security;
@@ -507,6 +671,7 @@
 			children = (
 				A622FE572935B57F21E6515A /* OrbitTerm.app */,
 				62574FF79DCC3A178EE8FDEC /* OrbitTerm.app */,
+				A24A00000000000000000009 /* OrbitTermCheckedFFITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -515,6 +680,7 @@
 			isa = PBXGroup;
 			children = (
 				F8A20BCDC3C022C4D595CEC9 /* OrbitTerm */,
+				A24A0000000000000000000B /* OrbitTermCheckedFFITests */,
 				5BD31C74C2737D02F64C8B9C /* Products */,
 			);
 			sourceTree = "<group>";
@@ -565,6 +731,25 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		A24A00000000000000000040 /* OrbitTermCheckedFFITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A24A00000000000000000043 /* Build configuration list for PBXNativeTarget "OrbitTermCheckedFFITests" */;
+			buildPhases = (
+				A24A00000000000000000030 /* Sources */,
+				A24A00000000000000000032 /* Resources */,
+				A24A00000000000000000031 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = OrbitTermCheckedFFITests;
+			packageProductDependencies = (
+			);
+			productName = OrbitTermCheckedFFITests;
+			productReference = A24A00000000000000000009 /* OrbitTermCheckedFFITests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		5D894F6ED837B8E66D8BC143 /* OrbitTerm_macOS */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 318334051428B0633709725D /* Build configuration list for PBXNativeTarget "OrbitTerm_macOS" */;
@@ -614,6 +799,9 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					A24A00000000000000000040 = {
+						CreatedOnToolsVersion = 26.0;
+					};
 					5D894F6ED837B8E66D8BC143 = {
 						ProvisioningStyle = Automatic;
 					};
@@ -641,11 +829,19 @@
 			targets = (
 				9037F5C81C57EF6606CFD7B1 /* OrbitTerm_iOS */,
 				5D894F6ED837B8E66D8BC143 /* OrbitTerm_macOS */,
+				A24A00000000000000000040 /* OrbitTermCheckedFFITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		A24A00000000000000000032 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		337B62E78ABACF3559405ACD /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -665,10 +861,66 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		A24A00000000000000000030 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A24H00000000000000000013 /* CheckedBatchCommandService.swift in Sources */,
+				A24H00000000000000000014 /* CheckedBatchCommandServiceTests.swift in Sources */,
+				A24G00000000000000000013 /* CheckedDockerService.swift in Sources */,
+				A24G00000000000000000014 /* CheckedDockerServiceTests.swift in Sources */,
+				A24F00000000000000000013 /* CheckedMonitorSnapshotService.swift in Sources */,
+				A24F00000000000000000014 /* CheckedMonitorServiceTests.swift in Sources */,
+				A24E00000000000000000013 /* CheckedSFTPConnectionService.swift in Sources */,
+				A24E00000000000000000014 /* CheckedSFTPServiceTests.swift in Sources */,
+				A24D00000000000000000017 /* CheckedConnectionMode.swift in Sources */,
+				A24D00000000000000000018 /* CheckedTerminalConnectionOrchestrator.swift in Sources */,
+				A24D00000000000000000019 /* CheckedSessionOrchestrationTests.swift in Sources */,
+				A24C00000000000000000019 /* CheckedFFIProviders.swift in Sources */,
+				A24C0000000000000000001A /* OrbitCStringResult.swift in Sources */,
+				A24C0000000000000000001B /* OrbitCoreCheckedFFIClient.swift in Sources */,
+				A24C0000000000000000001C /* OrbitCoreCheckedFFIClientTests.swift in Sources */,
+				A24B00000000000000000019 /* CheckedFFIClient.swift in Sources */,
+				A24B0000000000000000001A /* HostKeyTrustCoordinator.swift in Sources */,
+				A24B0000000000000000001B /* HostKeyTrustPresentation.swift in Sources */,
+				A24B0000000000000000001C /* ScriptedCheckedFFIClient.swift in Sources */,
+				A24B0000000000000000001D /* HostKeyTrustCoordinatorTests.swift in Sources */,
+				A24B0000000000000000001E /* HostKeyTrustPresentationTests.swift in Sources */,
+				A24A0000000000000000001B /* CheckedFFIEnvelope.swift in Sources */,
+				A24A0000000000000000001C /* CheckedFFIKind.swift in Sources */,
+				A24A0000000000000000001D /* CheckedFFIError.swift in Sources */,
+				A24A0000000000000000001E /* CheckedFFIPayloads.swift in Sources */,
+				A24A0000000000000000001F /* CheckedFFIIDs.swift in Sources */,
+				A24A00000000000000000020 /* CheckedFFIFixtures.swift in Sources */,
+				A24A00000000000000000021 /* CheckedFFITests.swift in Sources */,
+				A24A00000000000000000022 /* HeaderForwardingCompileCheck.c in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		58DF301231D4A278559E6C26 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A24H00000000000000000011 /* CheckedBatchCommandService.swift in Sources */,
+				A24G00000000000000000011 /* CheckedDockerService.swift in Sources */,
+				A24F00000000000000000011 /* CheckedMonitorSnapshotService.swift in Sources */,
+				A24E00000000000000000011 /* CheckedSFTPConnectionService.swift in Sources */,
+				A24D00000000000000000011 /* CheckedConnectionMode.swift in Sources */,
+				A24D00000000000000000012 /* CheckedTerminalConnectionOrchestrator.swift in Sources */,
+				A24D00000000000000000013 /* CredentialVaultCheckedProvider.swift in Sources */,
+				A24C00000000000000000011 /* CheckedFFIProviders.swift in Sources */,
+				A24C00000000000000000012 /* OrbitCStringResult.swift in Sources */,
+				A24C00000000000000000013 /* OrbitCoreCheckedFFIClient.swift in Sources */,
+				A24C00000000000000000014 /* OrbitCoreCheckedFFILiveFunctions.swift in Sources */,
+				A24B00000000000000000011 /* CheckedFFIClient.swift in Sources */,
+				A24B00000000000000000012 /* HostKeyTrustCoordinator.swift in Sources */,
+				A24B00000000000000000013 /* HostKeyTrustPresentation.swift in Sources */,
+				A24B00000000000000000014 /* HostKeyTrustViews.swift in Sources */,
+				A24A00000000000000000011 /* CheckedFFIEnvelope.swift in Sources */,
+				A24A00000000000000000012 /* CheckedFFIKind.swift in Sources */,
+				A24A00000000000000000013 /* CheckedFFIError.swift in Sources */,
+				A24A00000000000000000014 /* CheckedFFIPayloads.swift in Sources */,
+				A24A00000000000000000015 /* CheckedFFIIDs.swift in Sources */,
 				39D1F66C52782101FE34D86C /* AddServerAuthSection.swift in Sources */,
 				E547884553C72C7C1E70F1BB /* AddServerConnectionTester.swift in Sources */,
 				DEE977D310E0D398E93B8869 /* AddServerDraftBuilder.swift in Sources */,
@@ -785,6 +1037,26 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A24H00000000000000000012 /* CheckedBatchCommandService.swift in Sources */,
+				A24G00000000000000000012 /* CheckedDockerService.swift in Sources */,
+				A24F00000000000000000012 /* CheckedMonitorSnapshotService.swift in Sources */,
+				A24E00000000000000000012 /* CheckedSFTPConnectionService.swift in Sources */,
+				A24D00000000000000000014 /* CheckedConnectionMode.swift in Sources */,
+				A24D00000000000000000015 /* CheckedTerminalConnectionOrchestrator.swift in Sources */,
+				A24D00000000000000000016 /* CredentialVaultCheckedProvider.swift in Sources */,
+				A24C00000000000000000015 /* CheckedFFIProviders.swift in Sources */,
+				A24C00000000000000000016 /* OrbitCStringResult.swift in Sources */,
+				A24C00000000000000000017 /* OrbitCoreCheckedFFIClient.swift in Sources */,
+				A24C00000000000000000018 /* OrbitCoreCheckedFFILiveFunctions.swift in Sources */,
+				A24B00000000000000000015 /* CheckedFFIClient.swift in Sources */,
+				A24B00000000000000000016 /* HostKeyTrustCoordinator.swift in Sources */,
+				A24B00000000000000000017 /* HostKeyTrustPresentation.swift in Sources */,
+				A24B00000000000000000018 /* HostKeyTrustViews.swift in Sources */,
+				A24A00000000000000000016 /* CheckedFFIEnvelope.swift in Sources */,
+				A24A00000000000000000017 /* CheckedFFIKind.swift in Sources */,
+				A24A00000000000000000018 /* CheckedFFIError.swift in Sources */,
+				A24A00000000000000000019 /* CheckedFFIPayloads.swift in Sources */,
+				A24A0000000000000000001A /* CheckedFFIIDs.swift in Sources */,
 				2D5178B315D93BEBDDCE09EC /* AddServerAuthSection.swift in Sources */,
 				18619758F4910BBBEF71E2D8 /* AddServerConnectionTester.swift in Sources */,
 				BF54983EE60094BC16369D96 /* AddServerDraftBuilder.swift in Sources */,
@@ -900,6 +1172,36 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
+		A24A00000000000000000041 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbitterm.checkedffi.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A24A00000000000000000042 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbitterm.checkedffi.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 		236E19E4BCA2B244C6030CD1 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -975,6 +1277,7 @@
 				PRODUCT_NAME = OrbitTerm;
 				SDKROOT = macosx;
 				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos macosx";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) ORBITTERM_PUBLIC_RELEASE";
 				SWIFT_OBJC_BRIDGING_HEADER = "OrbitTerm/CBridge/OrbitTerm-Bridging-Header.h";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -1184,6 +1487,7 @@
 				PRODUCT_NAME = OrbitTerm;
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos macosx";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) ORBITTERM_PUBLIC_RELEASE";
 				SWIFT_OBJC_BRIDGING_HEADER = "OrbitTerm/CBridge/OrbitTerm-Bridging-Header.h";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -1192,6 +1496,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		A24A00000000000000000043 /* Build configuration list for PBXNativeTarget "OrbitTermCheckedFFITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A24A00000000000000000041 /* Debug */,
+				A24A00000000000000000042 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		1C5BD1ABC5D14EC31A38F2CB /* Build configuration list for PBXNativeTarget "OrbitTerm_iOS" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

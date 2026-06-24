@@ -54,7 +54,20 @@ struct MobileMonitorPanel: View {
                         ContentUnavailableView("暂无监控数据", systemImage: "waveform.path.ecg")
                     }
                 } else {
-                    ContentUnavailableView("监控未启动", systemImage: "chart.line.uptrend.xyaxis")
+                    ContentUnavailableView {
+                        Label("监控未启动", systemImage: "chart.line.uptrend.xyaxis")
+                    } description: {
+                        Text(manager.requiresCheckedConnection
+                            ? "安全监控需要当前工作区的已验证会话"
+                            : "连接终端后会自动启动监控")
+                    } actions: {
+                        if manager.requiresCheckedConnection {
+                            Button("开始安全监控") {
+                                Task { await manager.startMonitorForActiveSessionIfNeeded() }
+                            }
+                            .disabled(session.verifiedSessionLease == nil)
+                        }
+                    }
                 }
                 Spacer(minLength: 0)
             }

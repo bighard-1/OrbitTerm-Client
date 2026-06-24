@@ -47,6 +47,41 @@ struct SFTPConnectPanel: View {
     }
 }
 
+struct SFTPVerifiedSessionPanel: View {
+    let hasVerifiedSession: Bool
+    let isLoading: Bool
+    let statusText: String
+    let onOpen: () -> Void
+
+    var body: some View {
+        ContentUnavailableView {
+            Label(
+                hasVerifiedSession ? "安全打开 SFTP" : "需要已验证会话",
+                systemImage: hasVerifiedSession ? "lock.shield" : "exclamationmark.shield"
+            )
+        } description: {
+            Text(
+                hasVerifiedSession
+                    ? "SFTP 将复用当前已验证的 SSH 会话，不会读取或重新发送主机凭据。"
+                    : "请先在终端页建立已验证的 SSH 会话，然后再打开 SFTP。"
+            )
+        } actions: {
+            if hasVerifiedSession {
+                Button("打开 SFTP", action: onOpen)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isLoading)
+            }
+            if isLoading {
+                ProgressView()
+            } else if !statusText.isEmpty, statusText != "未连接" {
+                Text(statusText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
 struct SFTPFileListView: View {
     @ObservedObject var manager: SFTPManager
     @Binding var batchState: SFTPBrowserBatchState

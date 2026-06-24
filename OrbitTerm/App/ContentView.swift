@@ -250,6 +250,31 @@ private struct MainShellView: View {
             .frame(minWidth: 500, minHeight: 650)
 #endif
         }
+        .sheet(
+            item: Binding(
+                get: { sessionManager.checkedHostKeyRoute },
+                set: { route in
+                    if route == nil {
+                        sessionManager.cancelCheckedHostKeyFlow()
+                    }
+                }
+            )
+        ) { route in
+            HostKeyTrustView(
+                coordinator: route.coordinator,
+                onCancel: sessionManager.cancelCheckedHostKeyFlow,
+                onTrust: {
+                    Task { await sessionManager.trustCheckedHostKey() }
+                },
+                onRetrySave: {
+                    Task { await sessionManager.retryCheckedHostKeySave() }
+                },
+                onClose: sessionManager.closeCheckedHostKeyPresentation
+            )
+            #if os(macOS)
+            .frame(minWidth: 520, minHeight: 420)
+            #endif
+        }
         .onAppear {
             processDeepLinkIfNeeded()
         }

@@ -3,6 +3,7 @@ import SwiftUI
 struct WorkstationDockerCardView: View {
     let active: WorkspaceSession
     let onHide: () -> Void
+    let onStartCheckedDocker: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -32,6 +33,10 @@ struct WorkstationDockerCardView: View {
                 Text(active.dockerService.statusText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if active.verifiedSessionLease != nil, !active.dockerService.isConnected {
+                    Button("启动安全 Docker", action: onStartCheckedDocker)
+                        .buttonStyle(.borderedProminent)
+                }
             } else {
                 ForEach(active.dockerService.cards.prefix(6)) { card in
                     HStack {

@@ -38,7 +38,9 @@ struct AddServerView: View {
     @State private var isTestingConnection = false
     @State private var isSaving = false
     @AppStorage("orbitterm.enable.telnet") private var telnetEnabled: Bool = true
-    @State private var testStatus = "尚未测试"
+    @State private var testStatus = ConnectionSecurityPolicy.allowsLegacyConnectionTest
+        ? "尚未测试"
+        : "保存并连接时将验证服务器身份"
     @State private var isConnectionVerified = false
 
     @State private var showAdvanced = false
@@ -80,7 +82,7 @@ struct AddServerView: View {
                             privateKeyContent: $privateKeyContent,
                             privateKeyPassphrase: $privateKeyPassphrase,
                             allowPasswordFallback: $allowPasswordFallback,
-                            telnetEnabled: telnetEnabled,
+                            telnetEnabled: telnetEnabled && ConnectionSecurityPolicy.allowsTelnet,
                             selectedKeyFileName: selectedKeyFileName,
                             privateKeyValidationMessage: privateKeyValidationMessage,
                             privateKeyValidationColor: privateKeyValidationColor
@@ -239,7 +241,7 @@ struct AddServerView: View {
     private func initialLoad() async {
         applyPrefillIfNeeded()
         await loadEditingServerIfNeeded()
-        if !telnetEnabled, transport == .telnet {
+        if (!telnetEnabled || !ConnectionSecurityPolicy.allowsTelnet), transport == .telnet {
             transport = .ssh
             if portText == "23" {
                 portText = "22"
@@ -274,7 +276,8 @@ struct AddServerView: View {
     }
 
     private var canTestConnection: Bool {
-        AddServerValidation.canTestConnection(validationInput)
+        ConnectionSecurityPolicy.allowsLegacyConnectionTest &&
+            AddServerValidation.canTestConnection(validationInput)
     }
 
     private var hasValidPrivateKey: Bool {
@@ -340,7 +343,9 @@ struct AddServerView: View {
     private func invalidateVerification() {
         isConnectionVerified = false
         if !isTestingConnection {
-            testStatus = "尚未测试"
+            testStatus = ConnectionSecurityPolicy.allowsLegacyConnectionTest
+                ? "尚未测试"
+                : "保存并连接时将验证服务器身份"
         }
     }
 

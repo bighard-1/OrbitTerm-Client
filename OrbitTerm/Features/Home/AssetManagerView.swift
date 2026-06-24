@@ -194,9 +194,14 @@ struct AssetManagerView: View {
 
     private func disablePasswordFallback(_ server: ServerEntry) async {
         guard policyChangingID == nil else { return }
+        guard ConnectionSecurityPolicy.allowsLegacyConnectionTest else {
+            noticeColor = .orange
+            noticeText = "请通过已验证连接流程确认密钥后再关闭密码登录"
+            return
+        }
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         policyChangingID = server.id
         defer { policyChangingID = nil }
-
         guard let credentials = try? vault.read(for: server.credentialID),
               !credentials.privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             noticeColor = .orange
@@ -226,5 +231,6 @@ struct AssetManagerView: View {
         syncServerUpdate(updated)
         noticeColor = .green
         noticeText = "已关闭密码登录（仅密钥模式）：\(server.name)"
+        #endif
     }
 }

@@ -9,17 +9,38 @@ final class SessionManager: ObservableObject {
     @Published private(set) var tabs: [WorkspaceSession] = []
     @Published var activeTabID: UUID?
     @Published var quickOpenServer: ServerEntry?
+    @Published private(set) var checkedHostKeyRoute: CheckedHostKeyPresentationRoute?
 
-    let monitorService = MonitorService()
+    let monitorService: MonitorService
+    #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
     private let orbitManager = OrbitManager()
+    #endif
     private let credentialVault = CredentialVault.shared
     private let terminalService = TerminalService.shared
+    private let checkedConnectionDispatcher: SessionConnectionDispatcher
+    private let checkedClient: any CheckedFFIClient
+    private let checkedSFTPService: any CheckedSFTPConnectionOpening
+    private let checkedDockerService: any CheckedDockerOperating
     private var monitorObserver: AnyCancellable?
     private var connectionLostObserver: NSObjectProtocol?
     private var sessionByBaseID: [UInt64: UUID] = [:]
     private var telnetClients: [UUID: TelnetClient] = [:]
 
-    private init() {
+    private init(
+        connectionSecurityPolicy: ConnectionSecurityPolicy = .applicationDefault,
+        checkedClient: (any CheckedFFIClient)? = nil
+    ) {
+        checkedConnectionDispatcher = SessionConnectionDispatcher(policy: connectionSecurityPolicy)
+        let resolvedCheckedClient = checkedClient ?? OrbitCoreCheckedFFIClient.live(
+            credentialProvider: CredentialVaultCheckedProvider()
+        )
+        self.checkedClient = resolvedCheckedClient
+        checkedSFTPService = CheckedSFTPConnectionService(client: resolvedCheckedClient)
+        checkedDockerService = CheckedDockerOperationService(client: resolvedCheckedClient)
+        monitorService = MonitorService(
+            connectionMode: connectionSecurityPolicy,
+            checkedSnapshotService: CheckedMonitorSnapshotService(client: resolvedCheckedClient)
+        )
         // 将监控服务的状态变化上抛到 SessionManager，保证主界面实时刷新。
         monitorObserver = monitorService.objectWillChange
             .sink { [weak self] _ in
@@ -43,9 +64,21 @@ final class SessionManager: ObservableObject {
         return tabs.first(where: { $0.id == activeTabID })
     }
 
+    var requiresCheckedConnection: Bool {
+        checkedConnectionDispatcher.path == .checked
+    }
+
+    var connectionSecurityPolicy: ConnectionSecurityPolicy {
+        checkedConnectionDispatcher.policy
+    }
+
     func session(for id: UUID?) -> WorkspaceSession? {
         guard let id else { return nil }
         return tabs.first(where: { $0.id == id })
+    }
+
+    func verifiedSessionLease(for serverID: UUID) -> VerifiedWorkspaceSession? {
+        tabs.first(where: { $0.server.id == serverID })?.verifiedSessionLease
     }
 
     func openTab(for server: ServerEntry, autoConnect: Bool = false) {
@@ -58,6 +91,10 @@ final class SessionManager: ObservableObject {
         }
 
         let session = WorkspaceSession(server: server)
+        session.dockerService.configureConnectionMode(
+            checkedConnectionDispatcher.policy,
+            checkedOperator: checkedDockerService
+        )
         tabs.append(session)
         activeTabID = session.id
 
@@ -87,6 +124,10 @@ final class SessionManager: ObservableObject {
     }
 
     func closeTab(_ tab: WorkspaceSession) {
+        if checkedHostKeyRoute?.workspaceID == tab.id {
+            _ = checkedHostKeyRoute?.orchestrator.cancel()
+            checkedHostKeyRoute = nil
+        }
         Task {
             await disconnect(session: tab)
         }
@@ -104,6 +145,12 @@ final class SessionManager: ObservableObject {
     func testConnection(session: WorkspaceSession) async {
         session.appendTerminal("[check] 正在测试连接 \(session.server.endpointText)")
 
+        guard checkedConnectionDispatcher.policy.allowsLegacyNetwork else {
+            session.appendTerminal("[check] 独立连接测试已停用，请使用“连接”完成服务器身份验证")
+            return
+        }
+
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         if session.server.transport == .telnet {
             let probe = TelnetClient(host: session.server.host, port: session.server.port)
             let credentials = try? credentialVault.read(for: session.server.credentialID)
@@ -134,14 +181,140 @@ final class SessionManager: ObservableObject {
             allowPasswordFallback: session.server.allowPasswordFallback
         )
         session.appendTerminal("[check] \(result)")
+        #else
+        session.appendTerminal("[check] 独立连接测试在此构建中不可用")
+        #endif
+    }
+
+    func openSFTPForActiveSessionIfNeeded(standaloneManager: SFTPManager) async {
+        standaloneManager.configureConnectionMode(checkedConnectionDispatcher.policy)
+        guard let active = activeSession else {
+            if requiresCheckedConnection {
+                standaloneManager.rejectCheckedStandalone()
+            }
+            return
+        }
+        active.sftpManager.configureConnectionMode(checkedConnectionDispatcher.policy)
+        guard active.server.transport == .ssh else {
+            if requiresCheckedConnection {
+                active.sftpManager.rejectCheckedStandalone(.requiresVerifiedSession)
+            }
+            return
+        }
+        if active.sftpManager.isConnected { return }
+
+        switch SFTPConnectionPolicy(mode: checkedConnectionDispatcher.policy).plan(
+            verifiedSession: active.verifiedSessionLease
+        ) {
+        case let .checked(lease):
+            _ = await active.sftpManager.connectChecked(
+                workspaceID: active.id,
+                baseSessionID: lease.baseSessionID,
+                opener: checkedSFTPService
+            )
+        case let .rejected(error):
+            active.sftpManager.rejectCheckedStandalone(error)
+        case .legacy:
+            #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
+            guard active.isConnected,
+                  let credentials = try? credentialVault.read(for: active.server.credentialID),
+                  !credentials.isEmpty else {
+                return
+            }
+            await active.sftpManager.connect(
+                host: active.server.host,
+                port: active.server.port,
+                username: active.server.username,
+                password: credentials.password,
+                privateKeyContent: credentials.privateKeyContent,
+                privateKeyPassphrase: credentials.privateKeyPassphrase,
+                allowPasswordFallback: active.server.allowPasswordFallback,
+                preferMock: false
+            )
+            #else
+            active.sftpManager.rejectCheckedStandalone(.legacySFTPDisabledInCheckedMode)
+            #endif
+        }
+    }
+
+    func startMonitorForActiveSessionIfNeeded() async {
+        guard let active = activeSession else { return }
+
+        switch MonitorConnectionPolicy(mode: checkedConnectionDispatcher.policy).plan(
+            verifiedSession: active.verifiedSessionLease
+        ) {
+        case let .checked(lease):
+            let result = await monitorService.startCheckedMonitoring(
+                workspaceID: active.id,
+                baseSessionID: lease.baseSessionID,
+                name: active.server.name
+            )
+            if case let .success(panelID) = result {
+                active.activeMonitorPanelID = panelID
+            }
+        case let .rejected(error):
+            monitorService.rejectCheckedStandalone(error)
+        case .legacy:
+            // Legacy sessions already start their existing monitor during connect.
+            break
+        }
+    }
+
+    func startDockerForActiveSessionIfNeeded() async {
+        guard let active = activeSession else { return }
+        active.dockerService.configureConnectionMode(
+            checkedConnectionDispatcher.policy,
+            checkedOperator: checkedDockerService
+        )
+
+        switch DockerConnectionPolicy(mode: checkedConnectionDispatcher.policy).plan(
+            verifiedSession: active.verifiedSessionLease
+        ) {
+        case let .checked(lease):
+            _ = await active.dockerService.startCheckedDocker(
+                workspaceID: active.id,
+                baseSessionID: lease.baseSessionID
+            )
+        case let .rejected(error):
+            active.dockerService.rejectCheckedStandalone(error)
+        case .legacy:
+            // Legacy sessions retain their existing connect-time Docker initialization.
+            break
+        }
     }
 
     func connect(session: WorkspaceSession) async {
         if session.server.transport == .telnet {
+            #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
+            guard checkedConnectionDispatcher.policy.allowsLegacyNetwork else {
+                rejectPublicTelnet(session: session)
+                return
+            }
             await connectTelnet(session: session)
+            #else
+            rejectPublicTelnet(session: session)
+            #endif
             return
         }
 
+        session.sftpManager.configureConnectionMode(checkedConnectionDispatcher.policy)
+        session.dockerService.configureConnectionMode(
+            checkedConnectionDispatcher.policy,
+            checkedOperator: checkedDockerService
+        )
+
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
+        if checkedConnectionDispatcher.policy.allowsLegacyNetwork {
+            await connectLegacyInternal(session: session)
+            return
+        }
+        #endif
+
+        await connectChecked(session: session)
+    }
+
+    #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
+    private func connectLegacyInternal(session: WorkspaceSession) async {
         guard let credentials = try? credentialVault.read(for: session.server.credentialID),
               !credentials.isEmpty else {
             session.terminalStatus = "连接失败"
@@ -150,10 +323,8 @@ final class SessionManager: ObservableObject {
             return
         }
 
-        if session.baseSessionID != nil ||
-            session.terminalChannelID != nil ||
-            !session.terminalChannelIDs.isEmpty ||
-            session.sftpManager.isConnected ||
+        if session.baseSessionID != nil || session.terminalChannelID != nil ||
+            !session.terminalChannelIDs.isEmpty || session.sftpManager.isConnected ||
             session.dockerService.isConnected {
             session.appendTerminal("[ssh] 正在重建连接，先清理旧通道")
             await disconnect(session: session)
@@ -161,7 +332,6 @@ final class SessionManager: ObservableObject {
 
         session.terminalStatus = "连接中..."
         session.appendTerminal("[ssh] 正在连接 \(session.server.username)@\(session.server.endpointText)")
-
         guard let baseID = await terminalService.openSSHSession(
             host: session.server.host,
             port: session.server.port,
@@ -180,7 +350,6 @@ final class SessionManager: ObservableObject {
         session.terminalStatus = "终端在线"
         session.isConnected = true
         session.appendTerminal("[ok] SSH 握手成功")
-
         if let oldBase = session.baseSessionID, oldBase != baseID {
             sessionByBaseID.removeValue(forKey: oldBase)
         }
@@ -200,17 +369,12 @@ final class SessionManager: ObservableObject {
         if let terminalID = await terminalService.openPTY(sessionOrChannelID: baseID, cols: 120, rows: 36) {
             session.terminalChannelID = terminalID
             session.terminalChannelIDs = [terminalID]
-            session.activeTerminalPaneIndex = 0
             session.appendTerminal("[pty] 交互终端已建立")
         } else {
             session.appendTerminal("[pty] 交互终端建立失败，SFTP/Docker/监控将继续尝试")
         }
 
         await session.sftpManager.connect(baseSessionID: baseID)
-        if !session.sftpManager.isConnected || session.sftpManager.isUsingMockData {
-            session.appendTerminal("[sftp] \(session.sftpManager.statusText)")
-        }
-
         session.activeMonitorPanelID = await monitorService.startMonitoring(
             name: session.server.name,
             host: session.server.host,
@@ -220,11 +384,157 @@ final class SessionManager: ObservableObject {
             allowPasswordFallback: session.server.allowPasswordFallback,
             baseSessionID: baseID
         )
-
         await session.dockerService.connect(baseSessionID: baseID)
-        session.appendTerminal("[docker] \(session.dockerService.statusText)")
+    }
+    #endif
+
+    private func connectChecked(session: WorkspaceSession) async {
+        guard checkedHostKeyRoute == nil else {
+            session.terminalStatus = "等待其他身份确认完成"
+            session.isConnected = false
+            session.appendTerminal("[checked] 当前已有服务器身份确认流程，未启动第二个连接")
+            return
+        }
+        guard let port = UInt16(exactly: session.server.port), port > 0 else {
+            session.terminalStatus = "连接失败"
+            session.isConnected = false
+            session.appendTerminal("[checked] 连接参数无效")
+            return
+        }
+
+        if session.baseSessionID != nil || session.terminalChannelID != nil ||
+            !session.terminalChannelIDs.isEmpty || session.verifiedSessionLease != nil ||
+            session.sftpManager.isConnected || session.dockerService.isConnected {
+            session.appendTerminal("[checked] 正在重建已验证连接，先清理旧通道")
+            await disconnect(session: session)
+        }
+
+        session.terminalStatus = "正在验证服务器身份..."
+        session.isConnected = false
+        session.appendTerminal("[checked] 正在建立已验证 SSH 连接")
+
+        let orchestrator = CheckedTerminalConnectionOrchestrator(
+            workspaceID: session.id,
+            client: checkedClient
+        )
+        let route = CheckedHostKeyPresentationRoute(
+            workspaceID: session.id,
+            orchestrator: orchestrator
+        )
+        checkedHostKeyRoute = route
+
+        let outcome = await orchestrator.begin(
+            input: CheckedConnectInput(
+                host: session.server.host,
+                port: port,
+                username: session.server.username,
+                credentialReference: CredentialAccessReference(
+                    id: session.server.credentialID,
+                    allowPasswordFallback: session.server.allowPasswordFallback
+                )
+            )
+        )
+        applyCheckedOutcome(outcome, route: route)
     }
 
+    func trustCheckedHostKey() async {
+        guard let route = checkedHostKeyRoute else { return }
+        applyCheckedOutcome(await route.orchestrator.trustCurrentChallenge(), route: route)
+    }
+
+    func retryCheckedHostKeySave() async {
+        guard let route = checkedHostKeyRoute else { return }
+        applyCheckedOutcome(await route.orchestrator.retrySave(), route: route)
+    }
+
+    func cancelCheckedHostKeyFlow() {
+        guard let route = checkedHostKeyRoute else { return }
+        applyCheckedOutcome(route.orchestrator.cancel(), route: route)
+    }
+
+    func closeCheckedHostKeyPresentation() {
+        checkedHostKeyRoute?.orchestrator.close()
+        checkedHostKeyRoute = nil
+    }
+
+    private func applyCheckedOutcome(
+        _ outcome: CheckedTerminalConnectionOutcome,
+        route: CheckedHostKeyPresentationRoute
+    ) {
+        guard checkedHostKeyRoute === route,
+              let session = tabs.first(where: { $0.id == route.workspaceID }) else {
+            return
+        }
+
+        switch outcome {
+        case .pending:
+            break
+        case .awaitingUserDecision:
+            session.terminalStatus = "等待服务器身份确认"
+        case let .connected(lease):
+            installCheckedLease(lease, on: session, terminalConnected: true)
+            checkedHostKeyRoute = nil
+        case let .terminalOpenFailed(lease, error):
+            installCheckedLease(lease, on: session, terminalConnected: false)
+            session.terminalStatus = "终端通道建立失败"
+            session.appendTerminal("[checked] 终端建立失败：\(error.description)")
+            checkedHostKeyRoute = nil
+        case .blocked:
+            session.terminalStatus = "服务器身份已阻断"
+            session.isConnected = false
+            session.appendTerminal("[checked] 服务器身份校验已阻断连接")
+        case let .failed(failure):
+            session.terminalStatus = checkedFailureStatus(failure)
+            session.isConnected = false
+            session.appendTerminal("[checked] 连接在认证前安全停止")
+        case .cancelled:
+            session.terminalStatus = "已取消连接"
+            session.isConnected = false
+            session.appendTerminal("[checked] 用户已取消服务器身份确认")
+            checkedHostKeyRoute = nil
+        }
+    }
+
+    private func installCheckedLease(
+        _ lease: VerifiedWorkspaceSession,
+        on session: WorkspaceSession,
+        terminalConnected: Bool
+    ) {
+        if let oldBase = session.baseSessionID, oldBase != lease.baseSessionID.ffiValue {
+            sessionByBaseID.removeValue(forKey: oldBase)
+        }
+        session.verifiedSessionLease = lease
+        session.baseSessionID = lease.baseSessionID.ffiValue
+        sessionByBaseID[lease.baseSessionID.ffiValue] = session.id
+        session.terminalChannelID = lease.terminalChannelID?.ffiValue
+        session.terminalChannelIDs = lease.terminalChannelID.map { [$0.ffiValue] } ?? []
+        session.activeTerminalPaneIndex = 0
+        session.terminalSplitCount = 0
+        session.isConnected = terminalConnected
+        if terminalConnected {
+            session.terminalStatus = "终端在线（已验证）"
+            session.appendTerminal("[ok] 已验证 SSH 与终端通道建立成功")
+            session.appendTerminal("[checked] SFTP、监控与 Docker 可按需从已验证会话启动；Batch 仍禁用")
+        }
+    }
+
+    private func checkedFailureStatus(_ failure: HostKeyTrustFailure) -> String {
+        switch failure {
+        case .authentication: "认证失败"
+        case .network: "网络连接失败"
+        case .timeout: "连接超时"
+        case .store, .storeSave: "信任存储失败"
+        case .operation, .client, .protocolViolation: "安全连接失败"
+        }
+    }
+
+    private func rejectPublicTelnet(session: WorkspaceSession) {
+        session.terminalStatus = "Telnet 已禁用"
+        session.isConnected = false
+        session.appendTerminal("[security] 公共构建不提供明文 Telnet 连接")
+    }
+
+    #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
     private func connectTelnet(session: WorkspaceSession) async {
         session.terminalStatus = "连接中..."
         session.appendTerminal("[telnet] 正在连接 \(session.server.username)@\(session.server.endpointText)")
@@ -306,6 +616,7 @@ final class SessionManager: ObservableObject {
         }
         session.appendTerminal("[tip] Telnet 为明文协议，仅建议在可信内网临时使用")
     }
+    #endif
 
     func sendTerminalInput(session: WorkspaceSession) async {
         guard let channelID = resolveChannelID(session: session, preferred: nil) else {
@@ -370,6 +681,16 @@ final class SessionManager: ObservableObject {
               let baseID = session.baseSessionID else {
             return
         }
+        if session.verifiedSessionLease != nil {
+            session.terminalSplitCount = 0
+            session.appendTerminal("[checked] 安全分屏通道迁移尚未启用")
+            return
+        }
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
+        guard checkedConnectionDispatcher.policy.allowsLegacyNetwork else {
+            session.terminalSplitCount = 0
+            return
+        }
         let desired = max(1, min(4, session.terminalSplitCount + 1))
         while session.terminalChannelIDs.count < desired {
             guard let newChannelID = await terminalService.openPTY(sessionOrChannelID: baseID, cols: 120, rows: 36) else {
@@ -388,6 +709,10 @@ final class SessionManager: ObservableObject {
         }
         session.activeTerminalPaneIndex = min(session.activeTerminalPaneIndex, max(0, session.terminalChannelIDs.count - 1))
         session.terminalChannelID = session.terminalChannelIDs.first
+        #else
+        session.terminalSplitCount = 0
+        session.appendTerminal("[checked] 安全分屏通道迁移尚未启用")
+        #endif
     }
 
     func syncTerminalPathFromSFTP(session: WorkspaceSession, newPath: String) async {
@@ -444,6 +769,10 @@ final class SessionManager: ObservableObject {
     }
 
     func disconnect(session: WorkspaceSession) async {
+        if checkedHostKeyRoute?.workspaceID == session.id {
+            _ = checkedHostKeyRoute?.orchestrator.cancel()
+            checkedHostKeyRoute = nil
+        }
         if session.server.transport == .telnet {
             if let client = telnetClients[session.id] {
                 await client.disconnect()
@@ -475,6 +804,7 @@ final class SessionManager: ObservableObject {
         session.terminalChannelIDs = []
         session.terminalChannelID = nil
         session.baseSessionID = nil
+        session.verifiedSessionLease = nil
         session.activeMonitorPanelID = nil
         session.isConnected = false
         session.terminalStatus = "未连接"

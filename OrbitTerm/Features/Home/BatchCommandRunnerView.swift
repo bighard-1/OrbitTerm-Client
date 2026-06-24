@@ -9,10 +9,12 @@ private struct BatchCommandReceipt: Identifiable {
     let output: String
 }
 
+#if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
 private struct BatchCommandTarget {
     let server: ServerEntry
     let credentials: ServerCredentials?
 }
+#endif
 
 struct BatchCommandRunnerView: View {
     @ObservedObject var store: ServerStore
@@ -25,8 +27,15 @@ struct BatchCommandRunnerView: View {
     @State private var receipts: [BatchCommandReceipt] = []
     @State private var summaryText = "请选择资产或分组，然后输入命令执行。"
 
+    #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
     private let vault = CredentialVault.shared
     private let orbit = OrbitManager()
+    #endif
+    private let checkedBatchService = CheckedBatchCommandService(
+        client: OrbitCoreCheckedFFIClient.live(
+            credentialProvider: CredentialVaultCheckedProvider()
+        )
+    )
 
     var body: some View {
         NavigationStack {
@@ -203,6 +212,12 @@ struct BatchCommandRunnerView: View {
 
         isRunning = true
         receipts = []
+        if SessionManager.shared.connectionSecurityPolicy.requiresCheckedNetwork {
+            await runCheckedBatchCommand(command: command, targets: targets)
+            return
+        }
+
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         summaryText = "正在并发执行：\(targets.count) 台资产..."
         let batchTargets = targets.map { server in
             BatchCommandTarget(
@@ -260,6 +275,44 @@ struct BatchCommandRunnerView: View {
 
         let okCount = receipts.filter(\.success).count
         summaryText = "执行完成：成功 \(okCount) / \(receipts.count)"
+        isRunning = false
+        #else
+        summaryText = "当前构建要求使用已验证会话"
+        isRunning = false
+        #endif
+    }
+
+    private func runCheckedBatchCommand(command: String, targets: [ServerEntry]) async {
+        summaryText = "checked mode：仅对已验证会话执行 Batch 命令..."
+        let checkedTargets = targets.map { server in
+            let lease = SessionManager.shared.verifiedSessionLease(for: server.id)
+            return CheckedBatchTarget(
+                workspaceID: lease?.workspaceID ?? server.id,
+                displayName: server.name,
+                endpoint: server.endpointText,
+                baseSessionID: lease?.baseSessionID
+            )
+        }
+
+        let results = await checkedBatchService.execute(
+            command: command,
+            targets: checkedTargets,
+            options: .defaults
+        )
+        receipts = results.map { result in
+            BatchCommandReceipt(
+                serverName: result.displayName,
+                endpoint: result.endpoint,
+                durationMs: result.durationMS,
+                success: result.succeeded,
+                output: result.displayOutput
+            )
+        }
+        .sorted {
+            $0.serverName.localizedCaseInsensitiveCompare($1.serverName) == .orderedAscending
+        }
+        let okCount = receipts.filter(\.success).count
+        summaryText = "checked 执行完成：成功 \(okCount) / \(receipts.count)"
         isRunning = false
     }
 }

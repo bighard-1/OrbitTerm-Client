@@ -9,7 +9,7 @@ extension SFTPManager {
             return
         }
 
-        guard let sid = sessionID else { throw SFTPError.notConnected }
+        guard let sid = operationSessionID else { throw SFTPError.notConnected }
 
         isLoading = true
         defer { isLoading = false }

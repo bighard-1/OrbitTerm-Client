@@ -95,10 +95,27 @@ final class DockerService: ObservableObject {
     @Published var isScanning: Bool = false
     @Published var dockerEnvironmentMissing: Bool = false
     @Published var statusText: String = "未连接"
+    @Published private(set) var checkedError: CheckedDockerServiceError?
 
     private let logger = Logger(subsystem: "com.orbitterm.app", category: "docker")
+    private var connectionMode: ConnectionSecurityPolicy = .applicationDefault
+    private var checkedOperator: (any CheckedDockerOperating)?
+    private var checkedBinding: CheckedDockerBinding?
+    private var checkedRefreshLoop: CheckedDockerRefreshLoop?
     private var sessionID: UInt64?
     private var refreshTask: Task<Void, Never>?
+
+    var isRenameUpdateAvailable: Bool {
+        connectionMode.allowsLegacyNetwork
+    }
+
+    func configureConnectionMode(
+        _ mode: ConnectionSecurityPolicy,
+        checkedOperator: (any CheckedDockerOperating)? = nil
+    ) {
+        connectionMode = mode
+        self.checkedOperator = checkedOperator
+    }
 
     func connect(
         host: String,
@@ -109,6 +126,10 @@ final class DockerService: ObservableObject {
         privateKeyPassphrase: String = "",
         allowPasswordFallback: Bool = true
     ) async {
+        guard connectionMode.allowsLegacyNetwork else {
+            rejectLegacyDocker()
+            return
+        }
         let host = host.trimmingCharacters(in: .whitespacesAndNewlines)
         let username = username.trimmingCharacters(in: .whitespacesAndNewlines)
         let key = privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -162,6 +183,10 @@ final class DockerService: ObservableObject {
     }
 
     func connect(baseSessionID: UInt64) async {
+        guard connectionMode.allowsLegacyNetwork else {
+            rejectLegacyDocker()
+            return
+        }
         isLoading = true
         isScanning = true
         dockerEnvironmentMissing = false
@@ -199,6 +224,19 @@ final class DockerService: ObservableObject {
     }
 
     func disconnect() async {
+        if connectionMode.requiresCheckedNetwork {
+            await checkedRefreshLoop?.stop()
+            checkedRefreshLoop = nil
+            checkedBinding = nil
+            sessionID = nil
+            checkedError = nil
+            cards = []
+            isConnected = false
+            isScanning = false
+            dockerEnvironmentMissing = false
+            statusText = "已断开"
+            return
+        }
         refreshTask?.cancel()
         refreshTask = nil
 
@@ -220,6 +258,27 @@ final class DockerService: ObservableObject {
     }
 
     func refreshNow() async throws {
+        if connectionMode.requiresCheckedNetwork {
+            guard let binding = checkedBinding else {
+                throw CheckedDockerServiceError.requiresVerifiedSession
+            }
+            guard let checkedOperator else {
+                throw CheckedDockerServiceError.internalInvariant
+            }
+            do {
+                let refresh = try await checkedOperator.refresh(binding: binding)
+                applyCheckedRefresh(refresh)
+                return
+            } catch let error as CheckedDockerServiceError {
+                handleCheckedFailure(error)
+                throw error
+            } catch {
+                let mapped = CheckedDockerServiceError.unknownCheckedFFIError
+                handleCheckedFailure(mapped)
+                throw mapped
+            }
+        }
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         guard let sid = sessionID else { throw SFTPError.notConnected }
 
         let containersPayload = try await callRustWithTimeout(seconds: 10) {
@@ -253,9 +312,36 @@ final class DockerService: ObservableObject {
         isScanning = false
         dockerEnvironmentMissing = false
         logger.debug("[DOCKER] refresh cards=\(self.cards.count)")
+        #else
+        throw CheckedDockerServiceError.legacyDockerDisabledInCheckedMode
+        #endif
     }
 
     func performAction(containerID: String, action: DockerAction) async {
+        if connectionMode.requiresCheckedNetwork {
+            guard let binding = checkedBinding else {
+                handleCheckedFailure(.requiresVerifiedSession)
+                return
+            }
+            guard let checkedOperator, let checkedAction = action.checkedAction else {
+                handleCheckedFailure(.invalidDockerAction)
+                return
+            }
+            do {
+                _ = try await checkedOperator.perform(
+                    binding: binding,
+                    containerID: containerID,
+                    action: checkedAction
+                )
+                try await refreshNow()
+            } catch let error as CheckedDockerServiceError {
+                handleCheckedFailure(error)
+            } catch {
+                handleCheckedFailure(.unknownCheckedFFIError)
+            }
+            return
+        }
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         guard let sid = sessionID else { return }
         do {
             _ = try await callRustWithTimeout(seconds: 12) {
@@ -269,18 +355,49 @@ final class DockerService: ObservableObject {
         } catch {
             statusText = "操作失败: \(error.localizedDescription)"
         }
+        #endif
     }
 
     func fetchLogs(containerID: String, tailLines: UInt32 = 300) async throws -> String {
+        if connectionMode.requiresCheckedNetwork {
+            guard let binding = checkedBinding else {
+                throw CheckedDockerServiceError.requiresVerifiedSession
+            }
+            guard let checkedOperator else {
+                throw CheckedDockerServiceError.internalInvariant
+            }
+            do {
+                let payload = try await checkedOperator.logs(
+                    binding: binding,
+                    containerID: containerID,
+                    tail: tailLines
+                )
+                return payload.logs
+            } catch let error as CheckedDockerServiceError {
+                if error == .sessionClosed {
+                    handleCheckedFailure(error)
+                }
+                throw error
+            }
+        }
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         guard let sid = sessionID else { throw SFTPError.notConnected }
         return try await callRustWithTimeout(seconds: 10) {
             containerID.withCString { cID in
                 orbit_fetch_docker_logs(sid, cID, tailLines)
             }
         }
+        #else
+        throw CheckedDockerServiceError.legacyDockerDisabledInCheckedMode
+        #endif
     }
 
     func renameContainer(containerID: String, newName: String) async {
+        guard connectionMode.allowsLegacyNetwork else {
+            handleCheckedFailure(.renameUpdateDisabledInCheckedMode, disconnect: false)
+            return
+        }
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         guard let sid = sessionID else { return }
         let targetName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !targetName.isEmpty else { return }
@@ -295,9 +412,15 @@ final class DockerService: ObservableObject {
         } catch {
             statusText = "编辑失败: \(error.localizedDescription)"
         }
+        #endif
     }
 
     func updateContainer(containerID: String, options: DockerContainerUpdateOptions) async {
+        guard connectionMode.allowsLegacyNetwork else {
+            handleCheckedFailure(.renameUpdateDisabledInCheckedMode, disconnect: false)
+            return
+        }
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         guard let sid = sessionID else { return }
         var parts: [String] = ["docker", "update"]
         if let policy = options.restartPolicy?.trimmingCharacters(in: .whitespacesAndNewlines), !policy.isEmpty {
@@ -322,9 +445,11 @@ final class DockerService: ObservableObject {
         } catch {
             statusText = "更新失败: \(error.localizedDescription)"
         }
+        #endif
     }
 
     private func startRefreshLoop() {
+        guard connectionMode.allowsLegacyNetwork else { return }
         refreshTask?.cancel()
         refreshTask = Task(priority: .utility) { [weak self] in
             guard let self else { return }
@@ -344,5 +469,127 @@ final class DockerService: ObservableObject {
         _ call: @escaping @Sendable () -> UnsafeMutablePointer<CChar>?
     ) async throws -> String {
         try await RustFFI.callWithTimeout(seconds: seconds, call)
+    }
+
+    func startCheckedDocker(
+        workspaceID: UUID,
+        baseSessionID: BaseSessionID
+    ) async -> Result<Void, CheckedDockerServiceError> {
+        guard connectionMode.requiresCheckedNetwork else {
+            return .failure(.legacyDockerDisabledInCheckedMode)
+        }
+        guard let checkedOperator else {
+            return .failure(.internalInvariant)
+        }
+
+        await checkedRefreshLoop?.stop()
+        let binding = CheckedDockerBinding(
+            workspaceID: workspaceID,
+            baseSessionID: baseSessionID
+        )
+        checkedBinding = binding
+        checkedError = nil
+        isLoading = true
+        isScanning = true
+        statusText = "正在安全扫描容器..."
+
+        do {
+            let refresh = try await checkedOperator.refresh(binding: binding)
+            applyCheckedRefresh(refresh)
+            let loop = CheckedDockerRefreshLoop(
+                binding: binding,
+                operatorService: checkedOperator,
+                intervalNanoseconds: 2_000_000_000
+            )
+            checkedRefreshLoop = loop
+            await loop.start { [weak self] result in
+                await self?.applyCheckedRefreshResult(result)
+            }
+            isLoading = false
+            return .success(())
+        } catch let error as CheckedDockerServiceError {
+            isLoading = false
+            handleCheckedFailure(error)
+            return .failure(error)
+        } catch {
+            isLoading = false
+            let mapped = CheckedDockerServiceError.unknownCheckedFFIError
+            handleCheckedFailure(mapped)
+            return .failure(mapped)
+        }
+    }
+
+    func rejectCheckedStandalone(
+        _ error: CheckedDockerServiceError = .requiresVerifiedSession
+    ) {
+        checkedError = error
+        isConnected = false
+        isScanning = false
+        statusText = error.userMessage
+    }
+
+    func currentCheckedBinding() -> CheckedDockerBinding? {
+        checkedBinding
+    }
+
+    private func applyCheckedRefresh(_ refresh: CheckedDockerRefresh) {
+        let statsMap = Dictionary(uniqueKeysWithValues: refresh.stats.stats.map { ($0.id, $0) })
+        cards = refresh.containers.containers.map { container in
+            let stat = statsMap[container.id]
+            return DockerContainerCard(
+                id: container.id,
+                name: container.name,
+                image: container.image,
+                state: container.state,
+                status: container.status,
+                runningFor: container.runningFor,
+                cpuPercent: stat?.cpuPercent ?? 0,
+                memPercent: stat?.memPercent ?? 0,
+                memUsage: stat?.memUsage ?? "-"
+            )
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        checkedError = nil
+        isConnected = true
+        isScanning = false
+        dockerEnvironmentMissing = false
+        statusText = "\(cards.count) 个容器（已验证）"
+    }
+
+    private func applyCheckedRefreshResult(
+        _ result: Result<CheckedDockerRefresh, CheckedDockerServiceError>
+    ) {
+        guard checkedBinding != nil else { return }
+        switch result {
+        case let .success(refresh):
+            applyCheckedRefresh(refresh)
+        case let .failure(error):
+            handleCheckedFailure(error)
+        }
+    }
+
+    private func handleCheckedFailure(
+        _ error: CheckedDockerServiceError,
+        disconnect: Bool = true
+    ) {
+        checkedError = error
+        isScanning = false
+        statusText = error.userMessage
+        if disconnect {
+            isConnected = false
+            let loop = checkedRefreshLoop
+            checkedRefreshLoop = nil
+            Task { await loop?.stop() }
+        }
+    }
+
+    private func rejectLegacyDocker() {
+        handleCheckedFailure(.legacyDockerDisabledInCheckedMode)
+    }
+}
+
+private extension DockerAction {
+    var checkedAction: CheckedDockerAction? {
+        CheckedDockerAction(rawValue: rawValue)
     }
 }

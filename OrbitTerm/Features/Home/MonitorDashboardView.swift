@@ -15,7 +15,8 @@ private enum MonitorCredentialMode: String, CaseIterable, Identifiable {
 }
 
 struct MonitorDashboardView: View {
-    @StateObject private var service = MonitorService()
+    @ObservedObject private var sessionManager = SessionManager.shared
+    @StateObject private var legacyService = MonitorService()
 
     @State private var showingAddSheet = false
     @State private var name = ""
@@ -28,16 +29,22 @@ struct MonitorDashboardView: View {
 
     var body: some View {
         Group {
-            #if os(iOS)
-            iosPager
-            #else
-            macDashboard
-            #endif
+            if sessionManager.requiresCheckedConnection {
+                checkedDashboard
+            } else {
+                #if os(iOS)
+                iosPager
+                #else
+                macDashboard
+                #endif
+            }
         }
         .navigationTitle("无代理监控")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("新增主机") { showingAddSheet = true }
+                    .opacity(sessionManager.requiresCheckedConnection ? 0 : 1)
+                    .disabled(sessionManager.requiresCheckedConnection)
             }
         }
         .sheet(isPresented: $showingAddSheet) {
@@ -75,7 +82,7 @@ struct MonitorDashboardView: View {
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("保存") {
-                            service.addTarget(
+                            legacyService.addTarget(
                                 name: name.isEmpty ? host : name,
                                 host: host,
                                 username: username,
@@ -118,8 +125,8 @@ struct MonitorDashboardView: View {
     #if os(iOS)
     private var iosPager: some View {
         TabView {
-            ForEach(service.panels) { panel in
-                MonitorPanelCard(panel: panel, service: service)
+            ForEach(legacyService.panels) { panel in
+                MonitorPanelCard(panel: panel, service: legacyService)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
             }
@@ -131,11 +138,38 @@ struct MonitorDashboardView: View {
     private var macDashboard: some View {
         ScrollView {
             LazyVStack(spacing: 16) {
-                ForEach(service.panels) { panel in
-                    MonitorPanelCard(panel: panel, service: service)
+                ForEach(legacyService.panels) { panel in
+                    MonitorPanelCard(panel: panel, service: legacyService)
                 }
             }
             .padding(14)
+        }
+    }
+
+    @ViewBuilder
+    private var checkedDashboard: some View {
+        if let active = sessionManager.activeSession,
+           let panel = sessionManager.monitorService.panel(id: active.activeMonitorPanelID) {
+            ScrollView {
+                MonitorPanelCard(
+                    panel: panel,
+                    service: sessionManager.monitorService,
+                    onStart: { await sessionManager.startMonitorForActiveSessionIfNeeded() }
+                )
+                .padding(14)
+            }
+        } else {
+            ContentUnavailableView {
+                Label("需要已验证会话", systemImage: "checkmark.shield")
+            } description: {
+                Text("安全监控只使用当前工作区的已验证 SSH 会话，不会读取凭据或静默重连。")
+            } actions: {
+                Button("从当前会话开始监控") {
+                    Task { await sessionManager.startMonitorForActiveSessionIfNeeded() }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(sessionManager.activeSession?.verifiedSessionLease == nil)
+            }
         }
     }
 }
@@ -143,6 +177,17 @@ struct MonitorDashboardView: View {
 private struct MonitorPanelCard: View {
     let panel: MonitorPanelState
     @ObservedObject var service: MonitorService
+    var onStart: (() async -> Void)?
+
+    init(
+        panel: MonitorPanelState,
+        service: MonitorService,
+        onStart: (() async -> Void)? = nil
+    ) {
+        self.panel = panel
+        self.service = service
+        self.onStart = onStart
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -185,6 +230,8 @@ private struct MonitorPanelCard: View {
                     Task {
                         if panel.isRunning {
                             await service.disconnect(panel.id)
+                        } else if let onStart {
+                            await onStart()
                         } else {
                             await service.connect(panel.id)
                         }

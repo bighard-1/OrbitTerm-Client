@@ -45,7 +45,7 @@ struct AddServerAuthSection: View {
             AddServerFormRow(icon: "network", title: "传输协议") {
                 VStack(alignment: .leading, spacing: 6) {
                     Picker("传输协议", selection: $transport) {
-                        ForEach(ServerTransportProtocol.allCases) { proto in
+                        ForEach(availableTransports) { proto in
                             Text(proto.displayName).tag(proto)
                         }
                     }
@@ -76,6 +76,12 @@ struct AddServerAuthSection: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private var availableTransports: [ServerTransportProtocol] {
+        ServerTransportProtocol.allCases.filter {
+            $0 != .telnet || ConnectionSecurityPolicy.allowsTelnet
         }
     }
 

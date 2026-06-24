@@ -86,9 +86,13 @@ enum RustFFI {
         baseSessionID: UInt64,
         type: String
     ) -> UnsafeMutablePointer<CChar>? {
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         type.withCString { typePtr in
             orbit_request_channel(baseSessionID, typePtr)
         }
+        #else
+        nil
+        #endif
     }
 
     nonisolated static func connectSFTP(
@@ -100,6 +104,7 @@ enum RustFFI {
         privateKeyPassphrase: String,
         allowPasswordFallback: Bool
     ) -> UnsafeMutablePointer<CChar>? {
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         let cleanHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanKey = privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -123,6 +128,9 @@ enum RustFFI {
                 }
             }
         }
+        #else
+        nil
+        #endif
     }
 
     nonisolated static func connectSSH(
@@ -134,6 +142,7 @@ enum RustFFI {
         privateKeyPassphrase: String,
         allowPasswordFallback: Bool
     ) -> UnsafeMutablePointer<CChar>? {
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         let cleanHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanKey = privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -157,5 +166,8 @@ enum RustFFI {
                 }
             }
         }
+        #else
+        nil
+        #endif
     }
 }

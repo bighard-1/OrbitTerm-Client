@@ -106,6 +106,7 @@ final class TerminalService {
     }
 
     func openPTY(sessionOrChannelID: UInt64, cols: UInt32, rows: UInt32) async -> UInt64? {
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         installCallbackIfNeeded()
         let ptyPtr = await performFFI {
             RustFFI.requestChannel(baseSessionID: sessionOrChannelID, type: "pty")
@@ -119,6 +120,9 @@ final class TerminalService {
         }
         _ = parseOK("resize", rawPtr: resizePtr)
         return ptyID
+        #else
+        return nil
+        #endif
     }
 
     func openSSHSession(
@@ -130,6 +134,7 @@ final class TerminalService {
         privateKeyPassphrase: String,
         allowPasswordFallback: Bool
     ) async -> UInt64? {
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         installCallbackIfNeeded()
         let sessionPtr = await performFFI {
             RustFFI.connectSSH(
@@ -143,6 +148,9 @@ final class TerminalService {
             )
         }
         return parseChannelID(from: sessionPtr)
+        #else
+        return nil
+        #endif
     }
 
     func closeSSHSession(baseSessionID: UInt64) async {
@@ -153,9 +161,13 @@ final class TerminalService {
     }
 
     func resolveBaseSessionID(sessionOrChannelID: UInt64) -> UInt64? {
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         parseChannelID(
             from: RustFFI.requestChannel(baseSessionID: sessionOrChannelID, type: "exec")
         )
+        #else
+        nil
+        #endif
     }
 
     func write(channelID: UInt64, text: String) async -> Bool {

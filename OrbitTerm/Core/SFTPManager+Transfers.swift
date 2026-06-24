@@ -6,7 +6,7 @@ extension SFTPManager {
             statusText = "模拟模式下不可上传"
             return
         }
-        guard let sid = sessionID else {
+        guard let sid = operationSessionID else {
             statusText = "上传失败: 未连接"
             return
         }
@@ -59,7 +59,7 @@ extension SFTPManager {
             statusText = "模拟模式下不可下载"
             return
         }
-        guard let sid = sessionID else {
+        guard let sid = operationSessionID else {
             statusText = "下载失败: 未连接"
             return
         }
@@ -117,7 +117,7 @@ extension SFTPManager {
         guard total > 0 else {
             return BatchDownloadResult(summary: BatchOperationSummary(), downloadedURLs: [])
         }
-        guard let sid = sessionID else {
+        guard let sid = operationSessionID else {
             let failed = Dictionary(uniqueKeysWithValues: items.map { ($0.name, "未连接") })
             return BatchDownloadResult(summary: BatchOperationSummary(succeeded: [], failed: failed), downloadedURLs: [])
         }
