@@ -130,8 +130,8 @@ final class NetworkService: NSObject {
         return false
     }
 
-    func register(username: String, password: String) async throws {
-        let body = AuthRequest(username: username, password: password)
+    func register(username: String, password: String, inviteCode: String) async throws {
+        let body = AuthRequest(username: username, password: password, inviteCode: inviteCode)
         _ = try await send(
             path: "/api/v1/auth/register",
             method: "POST",

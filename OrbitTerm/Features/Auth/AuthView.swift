@@ -8,6 +8,7 @@ struct AuthView: View {
     @State private var isLoginMode: Bool = true
     @State private var username: String = ""
     @State private var password: String = ""
+    @State private var inviteCode: String = ""
     @State private var isLoading: Bool = false
     @State private var isPressingPrimary: Bool = false
     @State private var isShowingPassword: Bool = false
@@ -20,6 +21,21 @@ struct AuthView: View {
     @State private var pendingServerAddress: String = ""
 
     private let network = NetworkService.shared
+
+    private var canSubmit: Bool {
+        guard !isLoading, !username.isEmpty, !password.isEmpty else { return false }
+        guard !isLoginMode else { return true }
+        let emailParts = username.split(separator: "@", omittingEmptySubsequences: false)
+        return emailParts.count == 2
+            && !emailParts[0].isEmpty
+            && !emailParts[1].isEmpty
+            && !inviteCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && password.count >= 12
+            && password.contains { $0.isUppercase }
+            && password.contains { $0.isLowercase }
+            && password.contains { $0.isNumber }
+            && password.contains { !$0.isLetter && !$0.isNumber && !$0.isWhitespace }
+    }
 
     var body: some View {
         NavigationStack {
@@ -107,7 +123,7 @@ struct AuthView: View {
         VStack(spacing: 14) {
             AuthInputRow(
                 icon: "envelope.fill",
-                placeholder: "用户名",
+                placeholder: "邮箱账号",
                 text: $username,
                 isSecure: false,
                 showRevealToggle: false,
@@ -122,6 +138,21 @@ struct AuthView: View {
                 showRevealToggle: true,
                 isShowingPassword: $isShowingPassword
             )
+
+            if !isLoginMode {
+                AuthInputRow(
+                    icon: "ticket.fill",
+                    placeholder: "管理员提供的邀请码",
+                    text: $inviteCode,
+                    isSecure: false,
+                    showRevealToggle: false,
+                    isShowingPassword: $isShowingPassword
+                )
+                Text("密码至少 12 位，且包含大小写字母、数字和特殊字符。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
@@ -129,7 +160,7 @@ struct AuthView: View {
         AuthPrimaryButton(
             isLoginMode: isLoginMode,
             isLoading: isLoading,
-            isDisabled: isLoading || username.isEmpty || password.isEmpty,
+            isDisabled: !canSubmit,
             isPressing: $isPressingPrimary
         ) {
             Task { await submit() }
@@ -178,7 +209,7 @@ struct AuthView: View {
 
         do {
             if !isLoginMode {
-                try await network.register(username: username, password: password)
+                try await network.register(username: username, password: password, inviteCode: inviteCode)
             }
 
             let loginData = try await network.login(username: username, password: password)
@@ -188,6 +219,7 @@ struct AuthView: View {
                 username: username
             )
             password = ""
+            inviteCode = ""
             message = "成功: 已获取 JWT"
         } catch {
             message = "失败: \(error.localizedDescription)"

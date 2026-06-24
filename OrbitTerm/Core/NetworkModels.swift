@@ -3,6 +3,13 @@ import Foundation
 struct AuthRequest: Encodable {
     let username: String
     let password: String
+    let invite_code: String?
+
+    init(username: String, password: String, inviteCode: String? = nil) {
+        self.username = username
+        self.password = password
+        invite_code = inviteCode
+    }
 }
 
 struct RefreshRequest: Encodable {
@@ -148,4 +155,3 @@ actor RefreshCoordinator {
         return try await task.value
     }
 }
-
