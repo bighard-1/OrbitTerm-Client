@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "product": "OrbitTerm",
+  "package_identity": "OrbitTerm.Client",
+  "publisher": "CN=OrbitTerm Development",
+  "channel": "stable",
+  "version": "0.3.0.0",
+  "minimum_windows_version": "10.0.19041.0",
+  "update_transport": "appinstaller",
+  "external_distribution_enabled": false,
+  "appinstaller_uri": "",
+  "package_uri": "",
+  "requires_signed_package": true,
+  "requires_https_update_uri": true,
+  "rollout": {
+    "mode": "manual",
+    "percentage": 0
+  },
+  "notes": "External updates remain disabled until a production HTTPS update endpoint and matching signing certificate are configured."
+}

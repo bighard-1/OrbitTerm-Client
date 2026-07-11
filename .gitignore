@@ -7,6 +7,8 @@ clients/android/OrbitTermAndroid/.gradle/
 clients/android/OrbitTermAndroid/build/
 clients/android/OrbitTermAndroid/app/build/
 clients/android/OrbitTermAndroid/local.properties
+clients/windows/**/bin/
+clients/windows/**/obj/
 .keys/
 dist/*.zip
 dist/*.ipa

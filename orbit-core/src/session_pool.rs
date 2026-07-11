@@ -393,7 +393,7 @@ pub(crate) async fn get_or_create_base_session(
             private_key_passphrase,
             allow_password_fallback,
         );
-        return Err(OrbitCoreError::LegacyNetworkDisabled);
+        Err(OrbitCoreError::LegacyNetworkDisabled)
     }
 
     #[cfg(feature = "legacy-network-internal")]

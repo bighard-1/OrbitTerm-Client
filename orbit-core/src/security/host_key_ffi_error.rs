@@ -50,6 +50,13 @@ pub enum HostKeyFfiErrorCode {
     ShellStartFailed,
     SubsystemRequestFailed,
     SftpRegistrationFailed,
+    SftpListFailed,
+    SftpReadFailed,
+    SftpDownloadFailed,
+    SftpUploadFailed,
+    SftpMutationFailed,
+    SftpTargetExists,
+    SftpEntryChanged,
     InvalidCommand,
     CommandTooLarge,
     InvalidExecOptions,
@@ -107,6 +114,13 @@ impl HostKeyFfiErrorCode {
         Self::ShellStartFailed,
         Self::SubsystemRequestFailed,
         Self::SftpRegistrationFailed,
+        Self::SftpListFailed,
+        Self::SftpReadFailed,
+        Self::SftpDownloadFailed,
+        Self::SftpUploadFailed,
+        Self::SftpMutationFailed,
+        Self::SftpTargetExists,
+        Self::SftpEntryChanged,
         Self::InvalidCommand,
         Self::CommandTooLarge,
         Self::InvalidExecOptions,
@@ -164,6 +178,13 @@ impl HostKeyFfiErrorCode {
             Self::ShellStartFailed => "error.terminal.shell_start_failed",
             Self::SubsystemRequestFailed => "error.sftp.subsystem_request_failed",
             Self::SftpRegistrationFailed => "error.sftp.registration_failed",
+            Self::SftpListFailed => "error.sftp.list_failed",
+            Self::SftpReadFailed => "error.sftp.read_failed",
+            Self::SftpDownloadFailed => "error.sftp.download_failed",
+            Self::SftpUploadFailed => "error.sftp.upload_failed",
+            Self::SftpMutationFailed => "error.sftp.mutation_failed",
+            Self::SftpTargetExists => "error.sftp.target_exists",
+            Self::SftpEntryChanged => "error.sftp.entry_changed",
             Self::InvalidCommand => "error.exec.invalid_command",
             Self::CommandTooLarge => "error.exec.command_too_large",
             Self::InvalidExecOptions => "error.exec.invalid_options",
@@ -198,6 +219,7 @@ impl HostKeyFfiErrorCode {
                 | Self::ExecTimeout
                 | Self::SessionNotFound
                 | Self::SessionDraining
+                | Self::SftpEntryChanged
         )
     }
 }

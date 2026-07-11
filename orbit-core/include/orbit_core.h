@@ -82,6 +82,113 @@ char *orbit_sftp_open_checked_v1(
     uint64_t base_session_id,
     const char *request_id
 );
+/* Lists a directory only through an existing checked SFTP channel. The
+ * response is a Host Key JSON envelope and never reconnects or accepts
+ * credentials. Returned strings must be released with orbit_free_string.
+ */
+char *orbit_sftp_list_checked_v1(
+    uint64_t sftp_session_id,
+    const char *remote_path,
+    const char *request_id
+);
+/* Reads a UTF-8 text file through an existing checked SFTP channel. The
+ * response is bounded and wrapped in a Host Key JSON envelope. Returned
+ * strings must be released with orbit_free_string.
+ */
+char *orbit_sftp_read_text_checked_v1(
+    uint64_t sftp_session_id,
+    const char *remote_path,
+    const char *request_id
+);
+/* Downloads through an existing checked SFTP channel. The local destination
+ * must be an absolute path that does not already exist. The response omits
+ * the local path and must be released with orbit_free_string.
+ */
+char *orbit_sftp_download_checked_v1(
+    uint64_t sftp_session_id,
+    const char *remote_path,
+    const char *local_path,
+    const char *request_id
+);
+/* Uploads an existing local file through an existing checked SFTP channel.
+ * The remote destination is created exclusively and is never overwritten.
+ */
+char *orbit_sftp_upload_checked_v1(
+    uint64_t sftp_session_id,
+    const char *local_path,
+    const char *remote_path,
+    const char *request_id
+);
+/* Creates one directory without recursively creating parents and refuses an
+ * existing target. Root mutation is forbidden.
+ */
+char *orbit_sftp_mkdir_checked_v1(
+    uint64_t sftp_session_id,
+    const char *remote_path,
+    const char *request_id
+);
+/* Creates a new empty regular file exclusively through a checked SFTP
+ * channel. Existing destinations are never truncated or overwritten.
+ */
+char *orbit_sftp_create_file_checked_v1(
+    uint64_t sftp_session_id,
+    const char *remote_path,
+    const char *request_id
+);
+/* Renames one entry only after its selected metadata snapshot still matches.
+ * The destination must not exist at preflight time and root mutation is
+ * forbidden. SFTP v3 cannot make the snapshot check and rename atomic.
+ */
+char *orbit_sftp_rename_checked_v1(
+    uint64_t sftp_session_id,
+    const char *old_remote_path,
+    const char *new_remote_path,
+    uint64_t expected_size,
+    uint32_t expected_permissions_octal,
+    uint64_t expected_modified_at_unix,
+    int32_t expected_is_directory,
+    const char *request_id
+);
+/* Removes a file, link, or empty directory only after its selected metadata
+ * snapshot still matches. Root mutation is forbidden. SFTP v3 cannot make
+ * the snapshot check and removal atomic.
+ */
+char *orbit_sftp_remove_checked_v1(
+    uint64_t sftp_session_id,
+    const char *remote_path,
+    uint64_t expected_size,
+    uint32_t expected_permissions_octal,
+    uint64_t expected_modified_at_unix,
+    int32_t expected_is_directory,
+    const char *request_id
+);
+/* Changes permission bits through SFTP SETSTAT after validating the selected
+ * entry snapshot. Symbolic links and non-file/non-directory types are refused.
+ */
+char *orbit_sftp_chmod_checked_v1(
+    uint64_t sftp_session_id,
+    const char *remote_path,
+    uint32_t mode,
+    uint64_t expected_size,
+    uint32_t expected_permissions_octal,
+    uint64_t expected_modified_at_unix,
+    int32_t expected_is_directory,
+    const char *request_id
+);
+/* Saves bounded UTF-8 text using a recoverable same-directory replacement
+ * protocol after validating the selected regular-file snapshot.
+ */
+char *orbit_sftp_write_text_checked_v1(
+    uint64_t sftp_session_id,
+    const char *remote_path,
+    const uint8_t *content_ptr,
+    size_t content_len,
+    uint64_t expected_size,
+    uint32_t expected_permissions_octal,
+    uint64_t expected_modified_at_unix,
+    int32_t expected_is_directory,
+    const char *request_id
+);
 char *orbit_sftp_disconnect(uint64_t session_id);
 char *orbit_sftp_list_dir(uint64_t session_id, const char *remote_path);
 char *orbit_sftp_upload_file(uint64_t session_id, const char *local_path, const char *remote_path);

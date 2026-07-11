@@ -1,0 +1,54 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OrbitTerm.Application", "src\OrbitTerm.Application\OrbitTerm.Application.csproj", "{0E3892C6-FF3B-4C29-B99F-2E8CFB16A401}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OrbitTerm.NativeBridge", "src\OrbitTerm.NativeBridge\OrbitTerm.NativeBridge.csproj", "{3A258C69-8CF3-4D38-8776-8A8B7E8D5A21}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OrbitTerm.Platform.Windows", "src\OrbitTerm.Platform.Windows\OrbitTerm.Platform.Windows.csproj", "{1BA9F808-D7DD-4B87-A5D5-A5E37A8E344F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OrbitTerm.Terminal", "src\OrbitTerm.Terminal\OrbitTerm.Terminal.csproj", "{0467F810-1F54-4F75-A9B8-652B98793102}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OrbitTerm.Presentation", "src\OrbitTerm.Presentation\OrbitTerm.Presentation.csproj", "{C6F49E74-A678-4E50-8F17-D3C44B94EC4F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OrbitTerm.App", "src\OrbitTerm.App\OrbitTerm.App.csproj", "{674A8FBA-1073-47D1-9FA4-7802258E7852}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OrbitTerm.Security.Tests", "tests\OrbitTerm.Security.Tests\OrbitTerm.Security.Tests.csproj", "{4057E3C4-5866-4BDF-970C-17F3CB48B61E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{0E3892C6-FF3B-4C29-B99F-2E8CFB16A401}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{0E3892C6-FF3B-4C29-B99F-2E8CFB16A401}.Debug|x64.Build.0 = Debug|Any CPU
+		{0E3892C6-FF3B-4C29-B99F-2E8CFB16A401}.Release|x64.ActiveCfg = Release|Any CPU
+		{0E3892C6-FF3B-4C29-B99F-2E8CFB16A401}.Release|x64.Build.0 = Release|Any CPU
+		{3A258C69-8CF3-4D38-8776-8A8B7E8D5A21}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{3A258C69-8CF3-4D38-8776-8A8B7E8D5A21}.Debug|x64.Build.0 = Debug|Any CPU
+		{3A258C69-8CF3-4D38-8776-8A8B7E8D5A21}.Release|x64.ActiveCfg = Release|Any CPU
+		{3A258C69-8CF3-4D38-8776-8A8B7E8D5A21}.Release|x64.Build.0 = Release|Any CPU
+		{1BA9F808-D7DD-4B87-A5D5-A5E37A8E344F}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{1BA9F808-D7DD-4B87-A5D5-A5E37A8E344F}.Debug|x64.Build.0 = Debug|Any CPU
+		{1BA9F808-D7DD-4B87-A5D5-A5E37A8E344F}.Release|x64.ActiveCfg = Release|Any CPU
+		{1BA9F808-D7DD-4B87-A5D5-A5E37A8E344F}.Release|x64.Build.0 = Release|Any CPU
+		{0467F810-1F54-4F75-A9B8-652B98793102}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{0467F810-1F54-4F75-A9B8-652B98793102}.Debug|x64.Build.0 = Debug|Any CPU
+		{0467F810-1F54-4F75-A9B8-652B98793102}.Release|x64.ActiveCfg = Release|Any CPU
+		{0467F810-1F54-4F75-A9B8-652B98793102}.Release|x64.Build.0 = Release|Any CPU
+		{C6F49E74-A678-4E50-8F17-D3C44B94EC4F}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{C6F49E74-A678-4E50-8F17-D3C44B94EC4F}.Debug|x64.Build.0 = Debug|Any CPU
+		{C6F49E74-A678-4E50-8F17-D3C44B94EC4F}.Release|x64.ActiveCfg = Release|Any CPU
+		{C6F49E74-A678-4E50-8F17-D3C44B94EC4F}.Release|x64.Build.0 = Release|Any CPU
+		{674A8FBA-1073-47D1-9FA4-7802258E7852}.Debug|x64.ActiveCfg = Debug|x64
+		{674A8FBA-1073-47D1-9FA4-7802258E7852}.Debug|x64.Build.0 = Debug|x64
+		{674A8FBA-1073-47D1-9FA4-7802258E7852}.Release|x64.ActiveCfg = Release|x64
+		{674A8FBA-1073-47D1-9FA4-7802258E7852}.Release|x64.Build.0 = Release|x64
+		{4057E3C4-5866-4BDF-970C-17F3CB48B61E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{4057E3C4-5866-4BDF-970C-17F3CB48B61E}.Debug|x64.Build.0 = Debug|Any CPU
+		{4057E3C4-5866-4BDF-970C-17F3CB48B61E}.Release|x64.ActiveCfg = Release|Any CPU
+		{4057E3C4-5866-4BDF-970C-17F3CB48B61E}.Release|x64.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

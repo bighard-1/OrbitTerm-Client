@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net9.0": {
+      "orbitterm.nativebridge": {
+        "type": "Project"
+      },
+      "orbitterm.terminal": {
+        "type": "Project"
+      }
+    }
+  }
+}

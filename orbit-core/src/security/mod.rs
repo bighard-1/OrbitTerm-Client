@@ -143,7 +143,9 @@ pub use host_key_ffi_protocol::{
     HostKeyFfiResultKind, HostKeyFfiSecurityGeneration, HostKeyRejectedPayload,
     HostKeyRejectionStatus, HostKeyTrustPersistedPayload, HostKeyTrustStatus,
     MonitorSnapshotDiagnostic, MonitorSnapshotPayload, MonitorSnapshotStatsPayload,
-    SftpChannelOpenedPayload, TerminalChannelOpenedPayload, HOST_KEY_FFI_SCHEMA_VERSION,
+    SftpChannelOpenedPayload, SftpDirectoryEntryPayload, SftpDirectoryListPayload,
+    SftpDownloadPayload, SftpMutationOperation, SftpMutationPayload, SftpTextFilePayload,
+    SftpUploadPayload, TerminalChannelOpenedPayload, HOST_KEY_FFI_SCHEMA_VERSION,
 };
 pub use host_key_trust_persistence::{
     persist_snapshot_to_known_hosts, HostKeyTrustPersistenceError,

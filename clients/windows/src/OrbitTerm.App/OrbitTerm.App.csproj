@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <RootNamespace>OrbitTerm.App</RootNamespace>
+    <UseWinUI>true</UseWinUI>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <Platforms>x64</Platforms>
+    <AppxManifest>Package.appxmanifest</AppxManifest>
+    <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
+    <GenerateAppInstallerFile>false</GenerateAppInstallerFile>
+    <AppxBundle>Never</AppxBundle>
+    <AppxPackageDir>$(BaseOutputPath)AppPackages\</AppxPackageDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OrbitTerm.Application\OrbitTerm.Application.csproj" />
+    <ProjectReference Include="..\OrbitTerm.Platform.Windows\OrbitTerm.Platform.Windows.csproj" />
+    <ProjectReference Include="..\OrbitTerm.NativeBridge\OrbitTerm.NativeBridge.csproj" />
+    <ProjectReference Include="..\OrbitTerm.Presentation\OrbitTerm.Presentation.csproj" />
+    <ProjectReference Include="..\OrbitTerm.Terminal\OrbitTerm.Terminal.csproj" />
+  </ItemGroup>
+</Project>

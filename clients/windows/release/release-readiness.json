@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "product": "OrbitTerm",
+  "package_identity": "OrbitTerm.Client",
+  "version": "0.3.0.0",
+  "readiness_profile": "internal-release-candidate",
+  "internal_release_candidate_ready": true,
+  "external_distribution_enabled": false,
+  "external_distribution_blockers": [
+    "production signing certificate thumbprint is not configured",
+    "production HTTPS App Installer URI is not configured",
+    "production HTTPS MSIX package URI is not configured"
+  ],
+  "required_gates": [
+    "windows-toolchain",
+    "windows-host-plan-validation",
+    "checked-ffi-only",
+    "host-key-verified-sessions",
+    "windows-secure-credential-storage",
+    "release-candidate-gate",
+    "msix-package-identity",
+    "signed-package-contract",
+    "update-channel-contract",
+    "redacted-diagnostics",
+    "release-quality-smoke",
+    "security-evidence-bundle",
+    "full-winui-host-build"
+  ],
+  "notes": "This profile approves an internal release candidate only. External commercial distribution requires a real signing certificate and production HTTPS update endpoints."
+}

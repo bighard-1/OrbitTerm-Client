@@ -128,7 +128,7 @@ pub async fn test_ssh_connection(
             private_key_passphrase,
             allow_password_fallback,
         );
-        return Err(OrbitCoreError::LegacyNetworkDisabled);
+        Err(OrbitCoreError::LegacyNetworkDisabled)
     }
 
     #[cfg(feature = "legacy-network-internal")]
@@ -237,6 +237,15 @@ pub async fn sftp_upload_file(
     sftp::upload_file(session_id, &session, local_path, remote_path).await
 }
 
+pub(crate) async fn sftp_upload_file_create_new(
+    session_id: u64,
+    local_path: String,
+    remote_path: String,
+) -> Result<String, OrbitCoreError> {
+    let session = session_pool::get_sftp_session(session_id)?;
+    sftp::upload_file_create_new(session_id, &session, local_path, remote_path).await
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn sftp_download_file(
     session_id: u64,
@@ -246,6 +255,15 @@ pub async fn sftp_download_file(
 ) -> Result<String, OrbitCoreError> {
     let session = session_pool::get_sftp_session(session_id)?;
     sftp::download_file(session_id, &session, remote_path, local_path, resume_offset).await
+}
+
+pub(crate) async fn sftp_download_file_create_new(
+    session_id: u64,
+    remote_path: String,
+    local_path: String,
+) -> Result<String, OrbitCoreError> {
+    let session = session_pool::get_sftp_session(session_id)?;
+    sftp::download_file_create_new(session_id, &session, remote_path, local_path).await
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -267,10 +285,31 @@ pub async fn sftp_write_text_file(
     sftp::write_text_file(&session, remote_path, content).await
 }
 
+pub(crate) async fn sftp_write_text_file_checked_recoverable(
+    session_id: u64,
+    remote_path: String,
+    content: Vec<u8>,
+    expected: sftp::SftpEntrySnapshot,
+) -> Result<(), sftp::SftpMutationError> {
+    let session = session_pool::get_sftp_session(session_id)
+        .map_err(|_| sftp::SftpMutationError::SessionUnavailable)?;
+    sftp::write_text_file_checked_recoverable(&session, remote_path, content, expected).await
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn sftp_remove_file(session_id: u64, remote_path: String) -> Result<(), OrbitCoreError> {
     let session = session_pool::get_sftp_session(session_id)?;
     sftp::remove_file(&session, remote_path).await
+}
+
+pub(crate) async fn sftp_remove_checked(
+    session_id: u64,
+    remote_path: String,
+    expected: sftp::SftpEntrySnapshot,
+) -> Result<(), sftp::SftpMutationError> {
+    let session = session_pool::get_sftp_session(session_id)
+        .map_err(|_| sftp::SftpMutationError::SessionUnavailable)?;
+    sftp::remove_checked(&session, remote_path, expected).await
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -283,10 +322,50 @@ pub async fn sftp_rename(
     sftp::rename(&session, old_remote_path, new_remote_path).await
 }
 
+pub(crate) async fn sftp_rename_checked_no_overwrite(
+    session_id: u64,
+    old_remote_path: String,
+    new_remote_path: String,
+    expected: sftp::SftpEntrySnapshot,
+) -> Result<(), sftp::SftpMutationError> {
+    let session = session_pool::get_sftp_session(session_id)
+        .map_err(|_| sftp::SftpMutationError::SessionUnavailable)?;
+    sftp::rename_checked_no_overwrite(&session, old_remote_path, new_remote_path, expected).await
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn sftp_mkdir(session_id: u64, remote_path: String) -> Result<(), OrbitCoreError> {
     let session = session_pool::get_sftp_session(session_id)?;
     sftp::mkdir(&session, remote_path).await
+}
+
+pub(crate) async fn sftp_mkdir_checked_create_new(
+    session_id: u64,
+    remote_path: String,
+) -> Result<(), sftp::SftpMutationError> {
+    let session = session_pool::get_sftp_session(session_id)
+        .map_err(|_| sftp::SftpMutationError::SessionUnavailable)?;
+    sftp::mkdir_checked_create_new(&session, remote_path).await
+}
+
+pub(crate) async fn sftp_create_file_checked_create_new(
+    session_id: u64,
+    remote_path: String,
+) -> Result<(), sftp::SftpMutationError> {
+    let session = session_pool::get_sftp_session(session_id)
+        .map_err(|_| sftp::SftpMutationError::SessionUnavailable)?;
+    sftp::create_file_checked_create_new(&session, remote_path).await
+}
+
+pub(crate) async fn sftp_chmod_checked(
+    session_id: u64,
+    remote_path: String,
+    mode: u32,
+    expected: sftp::SftpEntrySnapshot,
+) -> Result<(), sftp::SftpMutationError> {
+    let session = session_pool::get_sftp_session(session_id)
+        .map_err(|_| sftp::SftpMutationError::SessionUnavailable)?;
+    sftp::chmod_checked(&session, remote_path, mode, expected).await
 }
 
 #[uniffi::export(async_runtime = "tokio")]

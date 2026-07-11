@@ -29,6 +29,11 @@ pub enum HostKeyFfiResultKind {
     Connected,
     ConnectionTestSucceeded,
     SftpChannelOpened,
+    SftpDirectoryList,
+    SftpTextFile,
+    SftpDownloadCompleted,
+    SftpUploadCompleted,
+    SftpMutationCompleted,
     TerminalChannelOpened,
     ExecResult,
     MonitorSnapshot,
@@ -52,6 +57,11 @@ impl HostKeyFfiResultKind {
         Self::Connected,
         Self::ConnectionTestSucceeded,
         Self::SftpChannelOpened,
+        Self::SftpDirectoryList,
+        Self::SftpTextFile,
+        Self::SftpDownloadCompleted,
+        Self::SftpUploadCompleted,
+        Self::SftpMutationCompleted,
         Self::TerminalChannelOpened,
         Self::ExecResult,
         Self::MonitorSnapshot,
@@ -76,6 +86,11 @@ pub enum HostKeyFfiResult {
     Connected(HostKeyConnectedPayload),
     ConnectionTestSucceeded(HostKeyConnectionTestSucceededPayload),
     SftpChannelOpened(SftpChannelOpenedPayload),
+    SftpDirectoryList(SftpDirectoryListPayload),
+    SftpTextFile(SftpTextFilePayload),
+    SftpDownloadCompleted(SftpDownloadPayload),
+    SftpUploadCompleted(SftpUploadPayload),
+    SftpMutationCompleted(SftpMutationPayload),
     TerminalChannelOpened(TerminalChannelOpenedPayload),
     ExecResult(ExecResultPayload),
     MonitorSnapshot(MonitorSnapshotPayload),
@@ -100,6 +115,11 @@ impl HostKeyFfiResult {
             Self::Connected(_) => HostKeyFfiResultKind::Connected,
             Self::ConnectionTestSucceeded(_) => HostKeyFfiResultKind::ConnectionTestSucceeded,
             Self::SftpChannelOpened(_) => HostKeyFfiResultKind::SftpChannelOpened,
+            Self::SftpDirectoryList(_) => HostKeyFfiResultKind::SftpDirectoryList,
+            Self::SftpTextFile(_) => HostKeyFfiResultKind::SftpTextFile,
+            Self::SftpDownloadCompleted(_) => HostKeyFfiResultKind::SftpDownloadCompleted,
+            Self::SftpUploadCompleted(_) => HostKeyFfiResultKind::SftpUploadCompleted,
+            Self::SftpMutationCompleted(_) => HostKeyFfiResultKind::SftpMutationCompleted,
             Self::TerminalChannelOpened(_) => HostKeyFfiResultKind::TerminalChannelOpened,
             Self::ExecResult(_) => HostKeyFfiResultKind::ExecResult,
             Self::MonitorSnapshot(_) => HostKeyFfiResultKind::MonitorSnapshot,
@@ -176,6 +196,11 @@ impl HostKeyFfiEnvelope {
             HostKeyFfiResult::Connected(payload) => payload.validate()?,
             HostKeyFfiResult::ConnectionTestSucceeded(payload) => payload.validate()?,
             HostKeyFfiResult::SftpChannelOpened(payload) => payload.validate()?,
+            HostKeyFfiResult::SftpDirectoryList(payload) => payload.validate()?,
+            HostKeyFfiResult::SftpTextFile(payload) => payload.validate()?,
+            HostKeyFfiResult::SftpDownloadCompleted(payload) => payload.validate()?,
+            HostKeyFfiResult::SftpUploadCompleted(payload) => payload.validate()?,
+            HostKeyFfiResult::SftpMutationCompleted(payload) => payload.validate()?,
             HostKeyFfiResult::TerminalChannelOpened(payload) => payload.validate()?,
             HostKeyFfiResult::ExecResult(payload) => payload.validate()?,
             HostKeyFfiResult::MonitorSnapshot(payload) => payload.validate()?,
@@ -202,6 +227,11 @@ impl HostKeyFfiEnvelope {
             HostKeyFfiResult::Connected(payload) => (Some(to_value(payload)?), None),
             HostKeyFfiResult::ConnectionTestSucceeded(payload) => (Some(to_value(payload)?), None),
             HostKeyFfiResult::SftpChannelOpened(payload) => (Some(to_value(payload)?), None),
+            HostKeyFfiResult::SftpDirectoryList(payload) => (Some(to_value(payload)?), None),
+            HostKeyFfiResult::SftpTextFile(payload) => (Some(to_value(payload)?), None),
+            HostKeyFfiResult::SftpDownloadCompleted(payload) => (Some(to_value(payload)?), None),
+            HostKeyFfiResult::SftpUploadCompleted(payload) => (Some(to_value(payload)?), None),
+            HostKeyFfiResult::SftpMutationCompleted(payload) => (Some(to_value(payload)?), None),
             HostKeyFfiResult::TerminalChannelOpened(payload) => (Some(to_value(payload)?), None),
             HostKeyFfiResult::ExecResult(payload) => (Some(to_value(payload)?), None),
             HostKeyFfiResult::MonitorSnapshot(payload) => (Some(to_value(payload)?), None),
@@ -261,6 +291,21 @@ impl HostKeyFfiEnvelope {
                     }
                     HostKeyFfiResultKind::SftpChannelOpened => {
                         HostKeyFfiResult::SftpChannelOpened(from_value(data)?)
+                    }
+                    HostKeyFfiResultKind::SftpDirectoryList => {
+                        HostKeyFfiResult::SftpDirectoryList(from_value(data)?)
+                    }
+                    HostKeyFfiResultKind::SftpTextFile => {
+                        HostKeyFfiResult::SftpTextFile(from_value(data)?)
+                    }
+                    HostKeyFfiResultKind::SftpDownloadCompleted => {
+                        HostKeyFfiResult::SftpDownloadCompleted(from_value(data)?)
+                    }
+                    HostKeyFfiResultKind::SftpUploadCompleted => {
+                        HostKeyFfiResult::SftpUploadCompleted(from_value(data)?)
+                    }
+                    HostKeyFfiResultKind::SftpMutationCompleted => {
+                        HostKeyFfiResult::SftpMutationCompleted(from_value(data)?)
                     }
                     HostKeyFfiResultKind::TerminalChannelOpened => {
                         HostKeyFfiResult::TerminalChannelOpened(from_value(data)?)
@@ -586,6 +631,337 @@ impl SftpChannelOpenedPayload {
         validate_decimal_session_id(&self.sftp_session_id)?;
         if self.security_generation != HostKeyFfiSecurityGeneration::HostKeyVerified {
             return Err(HostKeyFfiProtocolError::InvalidPayload);
+        }
+        Ok(())
+    }
+}
+
+const MAX_SFTP_PATH_BYTES: usize = 512;
+const MAX_SFTP_ENTRY_NAME_BYTES: usize = 255;
+const MAX_SFTP_DIRECTORY_ENTRIES: usize = 5_000;
+const MAX_SFTP_TEXT_BYTES: usize = 2 * 1024 * 1024;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SftpDirectoryListPayload {
+    pub sftp_session_id: String,
+    pub path: String,
+    pub security_generation: HostKeyFfiSecurityGeneration,
+    pub entries: Vec<SftpDirectoryEntryPayload>,
+}
+
+impl SftpDirectoryListPayload {
+    pub fn new(
+        sftp_session_id: u64,
+        path: String,
+        entries: Vec<SftpDirectoryEntryPayload>,
+    ) -> Result<Self, HostKeyFfiProtocolError> {
+        let payload = Self {
+            sftp_session_id: sftp_session_id.to_string(),
+            path,
+            security_generation: HostKeyFfiSecurityGeneration::HostKeyVerified,
+            entries,
+        };
+        payload.validate()?;
+        Ok(payload)
+    }
+
+    fn validate(&self) -> Result<(), HostKeyFfiProtocolError> {
+        validate_decimal_session_id(&self.sftp_session_id)?;
+        validate_sftp_path(&self.path)?;
+        if self.security_generation != HostKeyFfiSecurityGeneration::HostKeyVerified
+            || self.entries.len() > MAX_SFTP_DIRECTORY_ENTRIES
+        {
+            return Err(HostKeyFfiProtocolError::InvalidPayload);
+        }
+        for entry in &self.entries {
+            entry.validate()?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SftpDirectoryEntryPayload {
+    pub name: String,
+    pub size: u64,
+    pub permissions: String,
+    pub permissions_octal: u32,
+    pub modified_at_unix: u64,
+}
+
+impl SftpDirectoryEntryPayload {
+    pub fn new(
+        name: String,
+        size: u64,
+        permissions: String,
+        permissions_octal: u32,
+        modified_at_unix: u64,
+    ) -> Result<Self, HostKeyFfiProtocolError> {
+        let payload = Self {
+            name,
+            size,
+            permissions,
+            permissions_octal,
+            modified_at_unix,
+        };
+        payload.validate()?;
+        Ok(payload)
+    }
+
+    fn validate(&self) -> Result<(), HostKeyFfiProtocolError> {
+        if self.name.is_empty()
+            || self.name.len() > MAX_SFTP_ENTRY_NAME_BYTES
+            || self.name.contains('/')
+            || self.name.chars().any(char::is_control)
+            || self.permissions.len() > 32
+            || self.permissions.chars().any(char::is_control)
+        {
+            return Err(HostKeyFfiProtocolError::InvalidPayload);
+        }
+        Ok(())
+    }
+}
+
+pub(crate) fn validate_sftp_path(path: &str) -> Result<(), HostKeyFfiProtocolError> {
+    if path.is_empty()
+        || path.len() > MAX_SFTP_PATH_BYTES
+        || !path.starts_with('/')
+        || path.contains('\\')
+        || path.chars().any(char::is_control)
+        || path.split('/').any(|segment| segment == "..")
+    {
+        return Err(HostKeyFfiProtocolError::InvalidPayload);
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_sftp_mutation_path(path: &str) -> Result<(), HostKeyFfiProtocolError> {
+    validate_sftp_path(path)?;
+    if path == "/"
+        || path.ends_with('/')
+        || path
+            .split('/')
+            .skip(1)
+            .any(|segment| segment.is_empty() || segment == ".")
+    {
+        return Err(HostKeyFfiProtocolError::InvalidPayload);
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SftpTextFilePayload {
+    pub sftp_session_id: String,
+    pub path: String,
+    pub security_generation: HostKeyFfiSecurityGeneration,
+    pub byte_length: u64,
+    pub content: String,
+}
+
+impl SftpTextFilePayload {
+    pub fn new(
+        sftp_session_id: u64,
+        path: String,
+        content: String,
+    ) -> Result<Self, HostKeyFfiProtocolError> {
+        let payload = Self {
+            sftp_session_id: sftp_session_id.to_string(),
+            path,
+            security_generation: HostKeyFfiSecurityGeneration::HostKeyVerified,
+            byte_length: content.len() as u64,
+            content,
+        };
+        payload.validate()?;
+        Ok(payload)
+    }
+
+    fn validate(&self) -> Result<(), HostKeyFfiProtocolError> {
+        validate_decimal_session_id(&self.sftp_session_id)?;
+        validate_sftp_path(&self.path)?;
+        if self.security_generation != HostKeyFfiSecurityGeneration::HostKeyVerified
+            || self.content.len() > MAX_SFTP_TEXT_BYTES
+            || self.byte_length != self.content.len() as u64
+        {
+            return Err(HostKeyFfiProtocolError::InvalidPayload);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SftpDownloadPayload {
+    pub sftp_session_id: String,
+    pub path: String,
+    pub security_generation: HostKeyFfiSecurityGeneration,
+    pub byte_length: u64,
+}
+
+impl SftpDownloadPayload {
+    pub fn new(
+        sftp_session_id: u64,
+        path: String,
+        byte_length: u64,
+    ) -> Result<Self, HostKeyFfiProtocolError> {
+        let payload = Self {
+            sftp_session_id: sftp_session_id.to_string(),
+            path,
+            security_generation: HostKeyFfiSecurityGeneration::HostKeyVerified,
+            byte_length,
+        };
+        payload.validate()?;
+        Ok(payload)
+    }
+
+    fn validate(&self) -> Result<(), HostKeyFfiProtocolError> {
+        validate_decimal_session_id(&self.sftp_session_id)?;
+        validate_sftp_path(&self.path)?;
+        if self.security_generation != HostKeyFfiSecurityGeneration::HostKeyVerified {
+            return Err(HostKeyFfiProtocolError::InvalidPayload);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SftpUploadPayload {
+    pub sftp_session_id: String,
+    pub path: String,
+    pub security_generation: HostKeyFfiSecurityGeneration,
+    pub byte_length: u64,
+}
+
+impl SftpUploadPayload {
+    pub fn new(
+        sftp_session_id: u64,
+        path: String,
+        byte_length: u64,
+    ) -> Result<Self, HostKeyFfiProtocolError> {
+        let payload = Self {
+            sftp_session_id: sftp_session_id.to_string(),
+            path,
+            security_generation: HostKeyFfiSecurityGeneration::HostKeyVerified,
+            byte_length,
+        };
+        payload.validate()?;
+        Ok(payload)
+    }
+
+    fn validate(&self) -> Result<(), HostKeyFfiProtocolError> {
+        validate_decimal_session_id(&self.sftp_session_id)?;
+        validate_sftp_path(&self.path)?;
+        if self.security_generation != HostKeyFfiSecurityGeneration::HostKeyVerified {
+            return Err(HostKeyFfiProtocolError::InvalidPayload);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SftpMutationOperation {
+    Mkdir,
+    CreateFile,
+    Rename,
+    Remove,
+    Chmod,
+    WriteText,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SftpMutationPayload {
+    pub sftp_session_id: String,
+    pub operation: SftpMutationOperation,
+    pub path: String,
+    pub destination_path: Option<String>,
+    pub security_generation: HostKeyFfiSecurityGeneration,
+}
+
+impl SftpMutationPayload {
+    pub fn mkdir(sftp_session_id: u64, path: String) -> Result<Self, HostKeyFfiProtocolError> {
+        Self::new(sftp_session_id, SftpMutationOperation::Mkdir, path, None)
+    }
+
+    pub fn create_file(
+        sftp_session_id: u64,
+        path: String,
+    ) -> Result<Self, HostKeyFfiProtocolError> {
+        Self::new(
+            sftp_session_id,
+            SftpMutationOperation::CreateFile,
+            path,
+            None,
+        )
+    }
+
+    pub fn rename(
+        sftp_session_id: u64,
+        path: String,
+        destination_path: String,
+    ) -> Result<Self, HostKeyFfiProtocolError> {
+        Self::new(
+            sftp_session_id,
+            SftpMutationOperation::Rename,
+            path,
+            Some(destination_path),
+        )
+    }
+
+    pub fn remove(sftp_session_id: u64, path: String) -> Result<Self, HostKeyFfiProtocolError> {
+        Self::new(sftp_session_id, SftpMutationOperation::Remove, path, None)
+    }
+
+    pub fn chmod(sftp_session_id: u64, path: String) -> Result<Self, HostKeyFfiProtocolError> {
+        Self::new(sftp_session_id, SftpMutationOperation::Chmod, path, None)
+    }
+
+    pub fn write_text(sftp_session_id: u64, path: String) -> Result<Self, HostKeyFfiProtocolError> {
+        Self::new(
+            sftp_session_id,
+            SftpMutationOperation::WriteText,
+            path,
+            None,
+        )
+    }
+
+    fn new(
+        sftp_session_id: u64,
+        operation: SftpMutationOperation,
+        path: String,
+        destination_path: Option<String>,
+    ) -> Result<Self, HostKeyFfiProtocolError> {
+        let payload = Self {
+            sftp_session_id: sftp_session_id.to_string(),
+            operation,
+            path,
+            destination_path,
+            security_generation: HostKeyFfiSecurityGeneration::HostKeyVerified,
+        };
+        payload.validate()?;
+        Ok(payload)
+    }
+
+    fn validate(&self) -> Result<(), HostKeyFfiProtocolError> {
+        validate_decimal_session_id(&self.sftp_session_id)?;
+        validate_sftp_mutation_path(&self.path)?;
+        if self.security_generation != HostKeyFfiSecurityGeneration::HostKeyVerified {
+            return Err(HostKeyFfiProtocolError::InvalidPayload);
+        }
+        match (&self.operation, &self.destination_path) {
+            (SftpMutationOperation::Rename, Some(destination)) => {
+                validate_sftp_mutation_path(destination)?;
+                if destination == &self.path {
+                    return Err(HostKeyFfiProtocolError::InvalidPayload);
+                }
+            }
+            (
+                SftpMutationOperation::Mkdir
+                | SftpMutationOperation::CreateFile
+                | SftpMutationOperation::Remove
+                | SftpMutationOperation::Chmod
+                | SftpMutationOperation::WriteText,
+                None,
+            ) => {}
+            _ => return Err(HostKeyFfiProtocolError::InvalidPayload),
         }
         Ok(())
     }
