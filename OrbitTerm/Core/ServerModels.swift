@@ -303,11 +303,24 @@ struct PortableServerConfig: Codable, Equatable {
 final class DeletedServerRegistry {
     static let shared = DeletedServerRegistry()
 
-    private let defaultsKey = "orbitterm.deleted.servers.v1"
+    private let storageNamespace = "orbitterm.deleted.servers.v2"
     private let retention: TimeInterval = 60 * 60 * 24 * 90
     private let lock = NSLock()
+    private var accountScope: AccountScope?
 
     private init() {}
+
+    func activate(scope: AccountScope) {
+        lock.lock()
+        accountScope = scope
+        lock.unlock()
+    }
+
+    func deactivate() {
+        lock.lock()
+        accountScope = nil
+        lock.unlock()
+    }
 
     func markDeleted(_ id: UUID) {
         markDeleted([id])
@@ -352,7 +365,8 @@ final class DeletedServerRegistry {
     }
 
     private func readMapUnlocked() -> [String: TimeInterval] {
-        guard let data = UserDefaults.standard.data(forKey: defaultsKey),
+        guard let accountScope,
+              let data = UserDefaults.standard.data(forKey: accountScope.storageKey(storageNamespace)),
               let map = try? JSONDecoder().decode([String: TimeInterval].self, from: data) else {
             return [:]
         }
@@ -360,12 +374,12 @@ final class DeletedServerRegistry {
     }
 
     private func persistUnlocked(_ map: [String: TimeInterval]) {
-        guard let data = try? JSONEncoder().encode(map) else { return }
-        UserDefaults.standard.set(data, forKey: defaultsKey)
+        guard let accountScope,
+              let data = try? JSONEncoder().encode(map) else { return }
+        UserDefaults.standard.set(data, forKey: accountScope.storageKey(storageNamespace))
     }
 
     private func pruned(_ map: [String: TimeInterval], now: TimeInterval) -> [String: TimeInterval] {
         map.filter { now - $0.value <= retention }
     }
 }
-

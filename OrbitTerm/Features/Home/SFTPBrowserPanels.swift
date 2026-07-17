@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 struct SFTPConnectPanel: View {
     @Binding var draft: SFTPBrowserConnectionDraft
     @ObservedObject var manager: SFTPManager
+    @Environment(\.appThemePalette) private var palette
 
     var body: some View {
         Form {
@@ -19,7 +20,7 @@ struct SFTPConnectPanel: View {
                 Toggle("优先使用模拟数据", isOn: $draft.preferMockMode)
                 Text("若未配置 SSH，系统会自动进入 Mock 文件列表。")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary.color)
             }
 
             Section("操作") {
@@ -33,14 +34,14 @@ struct SFTPConnectPanel: View {
                         )
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(ThemedPrimaryButtonStyle())
                 .disabled(manager.isLoading)
             }
 
             if !manager.statusText.isEmpty {
                 Section("状态") {
                     Text(manager.statusText)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.textSecondary.color)
                 }
             }
         }
@@ -52,6 +53,7 @@ struct SFTPVerifiedSessionPanel: View {
     let isLoading: Bool
     let statusText: String
     let onOpen: () -> Void
+    @Environment(\.appThemePalette) private var palette
 
     var body: some View {
         ContentUnavailableView {
@@ -68,7 +70,7 @@ struct SFTPVerifiedSessionPanel: View {
         } actions: {
             if hasVerifiedSession {
                 Button("打开 SFTP", action: onOpen)
-                    .buttonStyle(.borderedProminent)
+                .buttonStyle(ThemedPrimaryButtonStyle())
                     .disabled(isLoading)
             }
             if isLoading {
@@ -76,7 +78,7 @@ struct SFTPVerifiedSessionPanel: View {
             } else if !statusText.isEmpty, statusText != "未连接" {
                 Text(statusText)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary.color)
             }
         }
     }
@@ -91,6 +93,7 @@ struct SFTPFileListView: View {
     let onDelete: (FileItem) async -> Void
     let onEnterDirectory: (FileItem) async -> Void
     let onUpload: (URL) async -> Void
+    @Environment(\.appThemePalette) private var palette
 
     var body: some View {
         List(manager.items) { item in
@@ -130,6 +133,8 @@ struct SFTPFileListView: View {
             }
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(palette.surfaceReadable.color)
         .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
             SFTPDropUploadHandler.handle(providers: providers) { localURL in
                 await onUpload(localURL)
@@ -138,7 +143,7 @@ struct SFTPFileListView: View {
         .overlay {
             if isDropTargeted {
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(.blue, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
+                    .stroke(palette.focusRing.color, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
                     .padding(8)
             }
         }

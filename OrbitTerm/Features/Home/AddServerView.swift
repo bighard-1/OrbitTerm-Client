@@ -10,6 +10,7 @@ private struct DeletedIdentityMatch: Identifiable {
 struct AddServerView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var session: AppSession
+    @Environment(\.appThemePalette) private var palette
 
     @ObservedObject var store: ServerStore
     var editingServer: ServerEntry? = nil
@@ -85,7 +86,7 @@ struct AddServerView: View {
                             telnetEnabled: telnetEnabled,
                             selectedKeyFileName: selectedKeyFileName,
                             privateKeyValidationMessage: privateKeyValidationMessage,
-                            privateKeyValidationColor: privateKeyValidationColor
+                            privateKeyValidationKind: privateKeyValidationKind
                         ) {
                             showKeyFileImporter = true
                         }
@@ -93,13 +94,13 @@ struct AddServerView: View {
                         if authMethod == .password && password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             Text("当前首选密码认证，请填写密码。")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(palette.textSecondary.color)
                         }
 
                         if transport == .ssh && authMethod == .key && !hasValidPrivateKey {
                             Text("当前首选密钥认证，请提供有效私钥。")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(palette.textSecondary.color)
                         }
                         
 
@@ -115,54 +116,48 @@ struct AddServerView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 14)
                 }
+                .frame(maxHeight: .infinity)
                 .scrollDismissesKeyboard(.interactively)
                 .font(.system(.body, design: .rounded))
 
-                AddServerStatusBar(
-                    isTestingConnection: isTestingConnection,
-                    isConnectionVerified: isConnectionVerified,
-                    testStatus: testStatus,
-                    canTestConnection: canTestConnection
-                ) {
-                    Task { await testConnection() }
-                }
-
-                HStack(spacing: 10) {
-                    Button("取消") { dismiss() }
-                        .buttonStyle(.bordered)
-
-                    Button(isSaving ? "保存中..." : "保存并连接") {
-                        Task { await saveAndConnect() }
+                VStack(spacing: 0) {
+                    AddServerStatusBar(
+                        isTestingConnection: isTestingConnection,
+                        isConnectionVerified: isConnectionVerified,
+                        testStatus: testStatus,
+                        canTestConnection: canTestConnection
+                    ) {
+                        Task { await testConnection() }
                     }
-                    .buttonStyle(.plain)
+
+                    HStack(spacing: 10) {
+                        Spacer(minLength: 0)
+
+                        Button("取消") { dismiss() }
+                            .buttonStyle(ThemedSecondaryButtonStyle())
+
+                        Button(isSaving ? "保存中..." : "保存并连接") {
+                            Task { await saveAndConnect() }
+                        }
+                        .buttonStyle(ThemedPrimaryButtonStyle())
+                        .disabled(!saveButtonEnabled || isSaving)
+                    }
                     .padding(.horizontal, 18)
-                    .padding(.vertical, 9)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: saveButtonEnabled
-                                        ? [Color(red: 0.25, green: 0.58, blue: 1.0), Color(red: 0.09, green: 0.38, blue: 0.88)]
-                                        : [Color.gray.opacity(0.45), Color.gray.opacity(0.4)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                    )
-                    .foregroundStyle(.white)
-                    .disabled(!saveButtonEnabled || isSaving)
+                    .padding(.vertical, 14)
                 }
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 14)
+                .background(palette.surfaceReadable.color)
             }
             .navigationTitle(editingServer == nil ? "添加服务器" : "编辑凭据")
-            .background(.ultraThinMaterial)
+            .background {
+                ZStack {
+                    AppChromeBackground()
+                    palette.surfaceReadable.color.opacity(0.76)
+                }
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 #if os(macOS)
-            .frame(minWidth: 500, minHeight: 650)
+            .frame(minWidth: 620, minHeight: 720)
 #endif
-            .padding(12)
             .onChange(of: name) { _, _ in invalidateVerification() }
             .onChange(of: host) { _, _ in invalidateVerification() }
             .onChange(of: username) { _, _ in invalidateVerification() }
@@ -285,8 +280,9 @@ struct AddServerView: View {
         PrivateKeyValidator.validationMessage(for: privateKeyContent)
     }
 
-    private var privateKeyValidationColor: Color {
-        PrivateKeyValidator.validationColor(for: privateKeyContent)
+    private var privateKeyValidationKind: SecurityStatusKind? {
+        guard !privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return hasValidPrivateKey ? .success : .danger
     }
 
     private var validationInput: AddServerValidationInput {

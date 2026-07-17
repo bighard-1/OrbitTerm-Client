@@ -26,17 +26,21 @@ struct MonitorDashboardView: View {
     @State private var privateKeyContent = ""
     @State private var privateKeyPassphrase = ""
     @State private var credentialMode: MonitorCredentialMode = .password
+    @Environment(\.appThemePalette) private var palette
 
     var body: some View {
-        Group {
-            if sessionManager.requiresCheckedConnection {
-                checkedDashboard
-            } else {
-                #if os(iOS)
-                iosPager
-                #else
-                macDashboard
-                #endif
+        ZStack {
+            AppChromeBackground()
+            Group {
+                if sessionManager.requiresCheckedConnection {
+                    checkedDashboard
+                } else {
+                    #if os(iOS)
+                    iosPager
+                    #else
+                    macDashboard
+                    #endif
+                }
             }
         }
         .navigationTitle("无代理监控")
@@ -65,16 +69,20 @@ struct MonitorDashboardView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("私钥内容（可选）")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(palette.textSecondary.color)
                         TextEditor(text: $privateKeyContent)
                             .font(.system(.caption, design: .monospaced))
                             .frame(minHeight: 90)
                             .padding(6)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .foregroundStyle(palette.textPrimary.color)
+                            .background(palette.surfaceInput.color, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(palette.borderGlass.color, lineWidth: 1))
                     }
 
                     SecureField("私钥口令（可选）", text: $privateKeyPassphrase)
                 }
+                .scrollContentBackground(.hidden)
+                .background(palette.surfaceReadable.color)
                 .navigationTitle("新增监控主机")
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
@@ -167,7 +175,7 @@ struct MonitorDashboardView: View {
                 Button("从当前会话开始监控") {
                     Task { await sessionManager.startMonitorForActiveSessionIfNeeded() }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(ThemedPrimaryButtonStyle())
                 .disabled(sessionManager.activeSession?.verifiedSessionLease == nil)
             }
         }
@@ -178,6 +186,8 @@ private struct MonitorPanelCard: View {
     let panel: MonitorPanelState
     @ObservedObject var service: MonitorService
     var onStart: (() async -> Void)?
+    @Environment(\.appThemePalette) private var palette
+    @Environment(\.securitySemanticPalette) private var security
 
     init(
         panel: MonitorPanelState,
@@ -197,12 +207,12 @@ private struct MonitorPanelCard: View {
                         .font(.title3.weight(.semibold))
                     Text(panel.target.host.isEmpty ? "未配置主机" : panel.target.host)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.textSecondary.color)
                 }
                 Spacer()
                 Text(panel.status)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(panelStatusColor)
             }
 
             HStack(spacing: 10) {
@@ -237,7 +247,7 @@ private struct MonitorPanelCard: View {
                         }
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(ThemedPrimaryButtonStyle())
 
                 Button("移除", role: .destructive) {
                     service.removeTarget(panel.id)
@@ -246,15 +256,13 @@ private struct MonitorPanelCard: View {
             }
         }
         .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.ultraThinMaterial)
-        )
+        .foregroundStyle(palette.textPrimary.color)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(palette.surfaceGlassStrong.color))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(.secondary.opacity(0.12), lineWidth: 1)
+                .stroke(palette.borderGlass.color, lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 8)
+        .shadow(color: palette.borderGlass.color.opacity(0.24), radius: 12, x: 0, y: 8)
     }
 
     private var cpuChart: some View {
@@ -264,22 +272,19 @@ private struct MonitorPanelCard: View {
                 y: .value("CPU", point.cpuUsage)
             )
             .interpolationMethod(.catmullRom)
-            .foregroundStyle(by: .value("等级", point.cpuZone))
+            .foregroundStyle(MonitorMetricPresentationLevel.existingCPUZone(point.cpuZone).themeColor(in: security, fallback: palette).color)
 
             AreaMark(
                 x: .value("时间", point.time),
                 y: .value("CPU", point.cpuUsage)
             )
             .interpolationMethod(.catmullRom)
-            .foregroundStyle(.blue.opacity(0.08))
+            .foregroundStyle(palette.accentPrimary.color.opacity(0.08))
         }
         .chartYScale(domain: 0...100)
-        .chartForegroundStyleScale([
-            "normal": Color.orbitBlue,
-            "warning": Color.orange,
-            "alert": Color.red
-        ])
         .frame(height: 160)
+        .accessibilityLabel("CPU 使用率趋势")
+        .accessibilityValue("当前 \(currentCPUText)")
     }
 
     private var throughputChart: some View {
@@ -289,19 +294,26 @@ private struct MonitorPanelCard: View {
                 y: .value("下行KB/s", point.rxRateKBps)
             )
             .interpolationMethod(.catmullRom)
-            .foregroundStyle(Color.green)
+            .foregroundStyle(palette.accentPrimary.color)
 
             LineMark(
                 x: .value("时间", point.time),
                 y: .value("上行KB/s", point.txRateKBps)
             )
             .interpolationMethod(.catmullRom)
-            .foregroundStyle(Color.purple)
+            .foregroundStyle(palette.accentSecondary.color)
         }
         .frame(height: 120)
+        .accessibilityLabel("网络吞吐趋势")
+        .accessibilityValue("当前下载 \(throughputAccessibilityValue(\.rxRateKBps))，上传 \(throughputAccessibilityValue(\.txRateKBps))")
     }
 
     private var lastPoint: MonitorPoint? { panel.points.last }
+
+    private var panelStatusColor: Color {
+        if service.checkedErrors[panel.id] != nil { return security.danger.color }
+        return panel.isRunning ? security.success.color : palette.textSecondary.color
+    }
 
     private var currentCPUText: String {
         guard let lastPoint else { return "--" }
@@ -323,20 +335,22 @@ private struct MonitorPanelCard: View {
         return String(format: "%.0fms", latency)
     }
 
+    private func throughputAccessibilityValue(_ keyPath: KeyPath<MonitorPoint, Double>) -> String {
+        guard let lastPoint else { return "暂无数据" }
+        return String(format: "%.1f KB/s", lastPoint[keyPath: keyPath])
+    }
+
     private func metricChip(title: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.textSecondary.color)
             Text(value)
                 .font(.callout.monospacedDigit().weight(.semibold))
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .foregroundStyle(palette.textPrimary.color)
+        .background(palette.surfaceInput.color, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
-}
-
-private extension Color {
-    static let orbitBlue = Color(red: 0.17, green: 0.52, blue: 0.98)
 }

@@ -9,7 +9,6 @@ struct WorkstationSheetsAndAlerts: ViewModifier {
     @Binding var pendingDeleteServer: ServerEntry?
     @Binding var showingAssetManager: Bool
     @Binding var showingSettings: Bool
-    @Binding var showingDiagnostics: Bool
     @Binding var showingBatchCommand: Bool
 
     let onOpenServer: (ServerEntry) -> Void
@@ -23,7 +22,7 @@ struct WorkstationSheetsAndAlerts: ViewModifier {
                 }
                 .environmentObject(session)
 #if os(macOS)
-                .frame(minWidth: 500, minHeight: 650)
+                .frame(minWidth: 620, minHeight: 720)
 #endif
             }
             .sheet(item: $editingServer) { server in
@@ -32,7 +31,7 @@ struct WorkstationSheetsAndAlerts: ViewModifier {
                 }
                 .environmentObject(session)
 #if os(macOS)
-                .frame(minWidth: 500, minHeight: 650)
+                .frame(minWidth: 620, minHeight: 720)
 #endif
             }
             .sheet(isPresented: $showingAssetManager) {
@@ -48,12 +47,6 @@ struct WorkstationSheetsAndAlerts: ViewModifier {
                 }
 #if os(macOS)
                     .frame(minWidth: 520, minHeight: 480)
-#endif
-            }
-            .sheet(isPresented: $showingDiagnostics) {
-                DiagnosticsExportView()
-#if os(macOS)
-                    .frame(minWidth: 620, minHeight: 520)
 #endif
             }
             .sheet(isPresented: $showingBatchCommand) {

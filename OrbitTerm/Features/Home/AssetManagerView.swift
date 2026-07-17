@@ -3,6 +3,8 @@ import SwiftUI
 struct AssetManagerView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var session: AppSession
+    @Environment(\.appThemePalette) private var palette
+    @Environment(\.securitySemanticPalette) private var security
 
     @ObservedObject var store: ServerStore
     let onEdit: (ServerEntry) -> Void
@@ -10,7 +12,7 @@ struct AssetManagerView: View {
 
     @State private var query = ""
     @State private var noticeText: String = ""
-    @State private var noticeColor: Color = .secondary
+    @State private var noticeKind: SecurityStatusKind? = nil
     @State private var policyChangingID: UUID?
     @State private var keySetupServer: ServerEntry?
     @State private var showingBulkAdd = false
@@ -34,22 +36,22 @@ struct AssetManagerView: View {
                             ForEach(section.items) { server in
                                 HStack(spacing: 10) {
                                     Circle()
-                                        .fill(store.selectedServerID == server.id ? Color.green : Color.gray.opacity(0.35))
+                                        .fill(store.selectedServerID == server.id ? palette.accentPrimary.color : palette.borderGlass.color)
                                         .frame(width: 8, height: 8)
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(server.name)
                                             .font(.body.weight(.medium))
                                         Text("\(server.username)@\(server.host):\(server.port)")
                                             .font(.caption)
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(palette.textSecondary.color)
                                     }
                                     Spacer()
                                     Button("连接") { onConnect(server) }
-                                        .buttonStyle(.borderedProminent)
+                                        .buttonStyle(ThemedPrimaryButtonStyle())
                                     Button("编辑") { onEdit(server) }
-                                        .buttonStyle(.bordered)
+                                        .buttonStyle(ThemedSecondaryButtonStyle())
                                     Button("设密钥") { keySetupServer = server }
-                                        .buttonStyle(.bordered)
+                                        .buttonStyle(ThemedSecondaryButtonStyle())
                                 }
                                 .contextMenu {
                                     Button("连接") { onConnect(server) }
@@ -73,6 +75,8 @@ struct AssetManagerView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(AppChromeBackground())
             .searchable(text: $query, prompt: "搜索名称 / 主机 / 用户名")
             .navigationTitle("资产管理")
             .safeAreaInset(edge: .bottom) {
@@ -90,10 +94,10 @@ struct AssetManagerView: View {
                         Spacer(minLength: 0)
                     }
                     .font(.caption)
-                    .foregroundStyle(noticeColor)
+                    .foregroundStyle(noticeKind.map { kind in security.presentation(for: kind).color.color } ?? palette.textSecondary.color)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(.ultraThinMaterial)
+                    .background(palette.surfaceReadable.color)
                 }
             }
             .toolbar {
@@ -109,24 +113,27 @@ struct AssetManagerView: View {
                 }
             }
         }
+        .tint(palette.accentPrimary.color)
         .sheet(item: $keySetupServer) { server in
             QuickKeySetupSheet(server: server, store: store) { status in
                 switch status {
                 case let .saved(message):
-                    noticeColor = .green
+                    noticeKind = .success
                     noticeText = message
                 case let .failed(message):
-                    noticeColor = .orange
+                    noticeKind = .warning
                     noticeText = message
                 }
             }
+            .injectAppTheme()
         }
         .sheet(isPresented: $showingBulkAdd) {
             BulkAddAssetsSheet(store: store) { count in
-                noticeColor = count > 0 ? .green : .orange
+                noticeKind = count > 0 ? .success : .warning
                 noticeText = count > 0 ? "已批量添加 \(count) 个资产，并已进入后台同步" : "未添加资产，请检查输入格式"
             }
             .environmentObject(session)
+            .injectAppTheme()
         }
 #if os(macOS)
         .frame(minWidth: 760, minHeight: 520)
@@ -156,7 +163,7 @@ struct AssetManagerView: View {
         updated.allowPasswordFallback = true
         store.addOrUpdate(updated)
         syncServerUpdate(updated)
-        noticeColor = .green
+        noticeKind = .success
         noticeText = "已开启密码登录：\(server.name)"
     }
 
@@ -195,7 +202,7 @@ struct AssetManagerView: View {
     private func disablePasswordFallback(_ server: ServerEntry) async {
         guard policyChangingID == nil else { return }
         guard ConnectionSecurityPolicy.allowsLegacyConnectionTest else {
-            noticeColor = .orange
+            noticeKind = .warning
             noticeText = "请通过已验证连接流程确认密钥后再关闭密码登录"
             return
         }
@@ -204,7 +211,7 @@ struct AssetManagerView: View {
         defer { policyChangingID = nil }
         guard let credentials = try? vault.read(for: server.credentialID),
               !credentials.privateKeyContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            noticeColor = .orange
+            noticeKind = .warning
             noticeText = "关闭失败：请先为 \(server.name) 设置有效私钥并测试通过"
             return
         }
@@ -220,7 +227,7 @@ struct AssetManagerView: View {
         )
 
         guard result.hasPrefix("成功") else {
-            noticeColor = .orange
+            noticeKind = .warning
             noticeText = "关闭失败：密钥登录测试未通过（\(result)）"
             return
         }
@@ -229,7 +236,7 @@ struct AssetManagerView: View {
         updated.allowPasswordFallback = false
         store.addOrUpdate(updated)
         syncServerUpdate(updated)
-        noticeColor = .green
+        noticeKind = .success
         noticeText = "已关闭密码登录（仅密钥模式）：\(server.name)"
         #endif
     }

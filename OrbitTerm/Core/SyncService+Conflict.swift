@@ -19,7 +19,7 @@ extension SyncService {
                 vectorClock: metadata.nextVectorClock(assetID: server.id, accountID: accountID)
             )
             guard token != nil else {
-                await SyncQueue.shared.enqueueDelete(assetID: server.id, request: request, reason: "waiting_for_login")
+                await SyncQueue.shared.enqueueDelete(assetID: server.id, request: request, accountID: accountID, reason: "waiting_for_login")
                 queuedCount += 1
                 continue
             }
@@ -31,7 +31,7 @@ extension SyncService {
                 syncedCount += 1
             } catch {
                 if NetworkService.isRetriableNetworkError(error) || isUnauthorized(error) {
-                    await SyncQueue.shared.enqueueDelete(assetID: server.id, request: request, reason: error.localizedDescription)
+                    await SyncQueue.shared.enqueueDelete(assetID: server.id, request: request, accountID: accountID, reason: error.localizedDescription)
                     queuedCount += 1
                     continue
                 }
@@ -42,7 +42,7 @@ extension SyncService {
                     syncedCount += 1
                     continue
                 }
-                await SyncQueue.shared.enqueueDelete(assetID: server.id, request: request, reason: error.localizedDescription)
+                await SyncQueue.shared.enqueueDelete(assetID: server.id, request: request, accountID: accountID, reason: error.localizedDescription)
                 queuedCount += 1
             }
         }
@@ -113,6 +113,7 @@ extension SyncService {
     func resolveConflictAndRetry(
         token: String,
         masterPassword: String,
+        accountID: String,
         localPortable: PortableServerConfig,
         fallbackPayload: UploadConfigRequest
     ) async -> Bool {
@@ -124,14 +125,14 @@ extension SyncService {
             }
 
             guard let target = decoded.first(where: { $0.1.id == localPortable.id }) else {
-                await SyncQueue.shared.enqueueUpload(payload: fallbackPayload, reason: "conflict_pull_missing")
+                await SyncQueue.shared.enqueueUpload(payload: fallbackPayload, accountID: accountID, reason: "conflict_pull_missing")
                 lastSyncMessage = "冲突处理失败：未找到云端同名配置"
                 return false
             }
 
             let remoteMeta = target.0
             let remotePortable = target.1
-            let basePortable = shadowStore.read(id: localPortable.id)
+            let basePortable = shadowStore.read(id: localPortable.id, accountID: accountID)
 
             if let basePortable {
                 let localChanged = changedFields(from: basePortable, to: localPortable)
@@ -147,7 +148,7 @@ extension SyncService {
                         identityFingerprint: fallbackPayload.identity_fingerprint
                     )
                     _ = try await network.uploadConfig(token: token, payload: mergedPayload)
-                    shadowStore.save(merged)
+                    shadowStore.save(merged, accountID: accountID)
                     lastSyncMessage = "冲突已静默合并并同步"
                     return true
                 }
@@ -167,11 +168,11 @@ extension SyncService {
                         identityFingerprint: fallbackPayload.identity_fingerprint
                     )
                     _ = try await network.uploadConfig(token: token, payload: retryPayload)
-                    shadowStore.save(localPortable)
+                    shadowStore.save(localPortable, accountID: accountID)
                     lastSyncMessage = "已保留本地修改并覆盖云端"
                     return true
                 case .keepCloud:
-                    shadowStore.save(remotePortable)
+                    shadowStore.save(remotePortable, accountID: accountID)
                     lastSyncMessage = "已保留云端版本，本地修改未覆盖"
                     return true
                 }
@@ -190,11 +191,11 @@ extension SyncService {
                         identityFingerprint: fallbackPayload.identity_fingerprint
                     )
                     _ = try await network.uploadConfig(token: token, payload: retryPayload)
-                    shadowStore.save(localPortable)
+                    shadowStore.save(localPortable, accountID: accountID)
                     lastSyncMessage = "已保留本地修改并覆盖云端"
                     return true
                 case .keepCloud:
-                    shadowStore.save(remotePortable)
+                    shadowStore.save(remotePortable, accountID: accountID)
                     lastSyncMessage = "已保留云端版本，本地修改未覆盖"
                     return true
                 }

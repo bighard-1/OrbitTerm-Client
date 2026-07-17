@@ -4,10 +4,11 @@ struct WorkstationMonitorCardView: View {
     let active: WorkspaceSession
     @ObservedObject var monitorService: MonitorService
     let isDetailShown: Bool
-    let onHide: () -> Void
     let onShowDetail: () -> Void
     let onHideDetail: () -> Void
     let onStartCheckedMonitoring: () -> Void
+    @Environment(\.appThemePalette) private var palette
+    @Environment(\.securitySemanticPalette) private var security
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -15,12 +16,8 @@ struct WorkstationMonitorCardView: View {
                 Text("系统监控")
                     .font(.subheadline.weight(.semibold))
                 Spacer()
-                Button(action: onHide) {
-                    Image(systemName: "eye.slash")
-                }
-                .buttonStyle(.borderless)
                 Button("查看详情", action: onShowDetail)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(ThemedPrimaryButtonStyle())
                     .disabled(active.activeMonitorPanelID == nil)
                 if isDetailShown {
                     Button("收起详情", action: onHideDetail)
@@ -31,7 +28,7 @@ struct WorkstationMonitorCardView: View {
             if let panel = monitorService.panel(id: active.activeMonitorPanelID) {
                 Text(panel.status)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(panelStatusColor(for: panel))
 
                 if let p = panel.points.last {
                     metricRow(title: "CPU", value: String(format: "%.1f%%", p.cpuUsage))
@@ -44,16 +41,18 @@ struct WorkstationMonitorCardView: View {
             } else {
                 if active.verifiedSessionLease != nil {
                     Button("开始安全监控", action: onStartCheckedMonitoring)
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(ThemedPrimaryButtonStyle())
                 } else {
                     Text("需要已验证会话")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.textSecondary.color)
                 }
             }
         }
         .padding(10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .foregroundStyle(palette.textPrimary.color)
+        .background(palette.surfaceGlassStrong.color, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(palette.borderGlass.color, lineWidth: 1))
     }
 
     private func metricRow(title: String, value: String) -> some View {
@@ -62,8 +61,14 @@ struct WorkstationMonitorCardView: View {
             Spacer()
             Text(value)
                 .monospacedDigit()
+                .foregroundStyle(palette.textSecondary.color)
         }
         .font(.caption)
+    }
+
+    private func panelStatusColor(for panel: MonitorPanelState) -> Color {
+        if monitorService.checkedErrors[panel.id] != nil { return security.danger.color }
+        return panel.isRunning ? security.success.color : palette.textSecondary.color
     }
 
     private func formatRate(_ kbps: Double) -> String {

@@ -30,6 +30,8 @@ enum MobileSessionModule: String, CaseIterable, Identifiable {
 struct MobileMonitorPanel: View {
     @ObservedObject var manager: SessionManager
     let session: WorkspaceSession
+    @Environment(\.appThemePalette) private var palette
+    @Environment(\.securitySemanticPalette) private var security
 
     var body: some View {
         ScrollView {
@@ -37,7 +39,7 @@ struct MobileMonitorPanel: View {
                 if let panel = manager.monitorService.panel(id: session.activeMonitorPanelID) {
                     Text(panel.status)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(manager.monitorService.checkedErrors[panel.id] != nil ? security.danger.color : (panel.isRunning ? security.success.color : palette.textSecondary.color))
                         .padding(.horizontal, 12)
                     if let last = panel.points.last {
                         HStack(spacing: 10) {
@@ -72,6 +74,7 @@ struct MobileMonitorPanel: View {
                 Spacer(minLength: 0)
             }
         }
+        .background(palette.pageBackground.color)
     }
 
     @ViewBuilder
@@ -103,11 +106,11 @@ struct MobileMonitorPanel: View {
             HStack {
                 Text(title)
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary.color)
                 Spacer()
                 Text(String(format: "%.1f %@", value(points.last ?? MonitorPoint(time: .now, cpuUsage: 0, memUsedPercent: 0, diskUsedPercent: 0, pingLatencyMs: 0, rxRateKBps: 0, txRateKBps: 0)), unit))
                     .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary.color)
             }
             Chart(points) { point in
                 LineMark(
@@ -115,11 +118,15 @@ struct MobileMonitorPanel: View {
                     y: .value("v", value(point))
                 )
                 .interpolationMethod(.catmullRom)
+                .foregroundStyle(palette.accentPrimary.color)
             }
             .frame(height: 60)
+            .accessibilityLabel("\(title) 趋势图")
+            .accessibilityValue(points.last.map { String(format: "当前 %.1f %@", value($0), unit) } ?? "暂无数据")
         }
         .padding(8)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .foregroundStyle(palette.textPrimary.color)
+        .background(palette.surfaceGlassStrong.color, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 #endif
 }
@@ -127,6 +134,7 @@ struct MobileMonitorPanel: View {
 private struct MobileMonitorMetricCard: View {
     let title: String
     let value: String
+    @Environment(\.appThemePalette) private var palette
 
     init(_ title: String, _ value: String) {
         self.title = title
@@ -137,12 +145,13 @@ private struct MobileMonitorMetricCard: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.textSecondary.color)
             Text(value)
                 .font(.caption.monospacedDigit())
         }
         .padding(8)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .foregroundStyle(palette.textPrimary.color)
+        .background(palette.surfaceGlassStrong.color, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 

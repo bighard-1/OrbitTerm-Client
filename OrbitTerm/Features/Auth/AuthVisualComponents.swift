@@ -3,23 +3,24 @@ import SwiftUI
 struct AuthModeSwitcher: View {
     @Binding var isLoginMode: Bool
     let namespace: Namespace.ID
-    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appThemePalette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 8) {
             modeButton(title: "登录", isSelected: isLoginMode) {
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                     isLoginMode = true
                 }
             }
             modeButton(title: "注册", isSelected: !isLoginMode) {
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                     isLoginMode = false
                 }
             }
         }
         .padding(4)
-        .background(Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.06), in: Capsule())
+        .background(palette.surfaceInput.color, in: Capsule())
         .frame(maxWidth: 320)
         .frame(maxWidth: .infinity, alignment: .center)
         .frame(height: 48)
@@ -30,12 +31,12 @@ struct AuthModeSwitcher: View {
             ZStack {
                 if isSelected {
                     Capsule()
-                        .fill(Color.primary.opacity(colorScheme == .dark ? 0.16 : 0.12))
+                        .fill(palette.accentPrimary.color.opacity(0.18))
                         .matchedGeometryEffect(id: "modeSwitch", in: namespace)
                 }
                 Text(title)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(palette.textPrimary.color)
                     .frame(maxWidth: .infinity)
                     .frame(height: 36)
             }
@@ -52,12 +53,13 @@ struct AuthInputRow: View {
     let isSecure: Bool
     let showRevealToggle: Bool
     @Binding var isShowingPassword: Bool
-    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appThemePalette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.textSecondary.color)
                 .frame(width: 18)
 
             Group {
@@ -74,9 +76,10 @@ struct AuthInputRow: View {
                     text = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.textSecondary.color)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("清除\(placeholder)")
             }
 
             if showRevealToggle {
@@ -86,14 +89,15 @@ struct AuthInputRow: View {
                     }
                 } label: {
                     Image(systemName: isShowingPassword ? "eye.slash.fill" : "eye.fill")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.textSecondary.color)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(isShowingPassword ? "隐藏密码" : "显示密码")
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 11)
-        .background(Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .themedInputSurface()
     }
 
     @ViewBuilder
@@ -114,18 +118,13 @@ struct AuthPrimaryButton: View {
     let isDisabled: Bool
     @Binding var isPressing: Bool
     let onSubmit: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: onSubmit) {
             ZStack {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(red: 0.21, green: 0.54, blue: 0.98), Color(red: 0.07, green: 0.36, blue: 0.84)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                    .fill(Color.clear)
                 HStack(spacing: 8) {
                     if isLoading {
                         ProgressView()
@@ -140,11 +139,11 @@ struct AuthPrimaryButton: View {
             }
             .frame(height: 52)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ThemedPrimaryButtonStyle())
         .frame(maxWidth: 360)
         .frame(maxWidth: .infinity, alignment: .center)
-        .scaleEffect(isPressing ? 0.98 : 1.0)
-        .animation(.easeInOut(duration: 0.15), value: isPressing)
+        .scaleEffect(AppAccessibilityPresentation.usesDecorativeMotion(reduceMotion: reduceMotion) && isPressing ? 0.98 : 1.0)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: isPressing)
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in isPressing = true }
@@ -155,27 +154,38 @@ struct AuthPrimaryButton: View {
     }
 }
 
+enum AuthStatusKind {
+    case success
+    case failure
+
+    var securityKind: SecurityStatusKind {
+        self == .success ? .success : .danger
+    }
+
+    var symbol: String {
+        self == .success ? "checkmark.circle.fill" : "xmark.octagon.fill"
+    }
+}
+
 struct AuthStatusBanner: View {
     let message: String
+    let kind: AuthStatusKind
     let shakeOffset: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: message.hasPrefix("失败") ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+            Image(systemName: kind.symbol)
             Text(message)
                 .font(.subheadline.weight(.medium))
                 .lineLimit(2)
             Spacer(minLength: 0)
         }
-        .foregroundStyle(message.hasPrefix("失败") ? Color.red : Color.green)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(message.hasPrefix("失败") ? Color.red.opacity(0.12) : Color.green.opacity(0.12))
-        )
-        .modifier(AuthShakeEffect(animatableData: shakeOffset))
-        .transition(.move(edge: .top).combined(with: .opacity))
+        .securityStatusStyle(kind.securityKind)
+        .modifier(AuthShakeEffect(animatableData: reduceMotion ? 0 : shakeOffset))
+        .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(message)
     }
 }
 

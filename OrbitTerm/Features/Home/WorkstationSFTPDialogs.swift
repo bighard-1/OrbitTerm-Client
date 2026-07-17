@@ -31,6 +31,7 @@ struct PendingSFTPFileEdit: Identifiable {
 
 struct WorkstationSFTPDialogs: ViewModifier {
     @ObservedObject var sessionManager: SessionManager
+    @Environment(\.appThemePalette) private var palette
     @State private var fileEditContent: String = ""
     @State private var fileEditStatus: String = ""
     @State private var fileEditLoading = false
@@ -128,13 +129,15 @@ struct WorkstationSFTPDialogs: ViewModifier {
                         if !fileEditStatus.isEmpty {
                             Text(fileEditStatus)
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(palette.textSecondary.color)
                         }
 
                         TextEditor(text: $fileEditContent)
                             .font(.system(.body, design: .monospaced))
                             .padding(6)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .foregroundStyle(palette.textPrimary.color)
+                            .background(palette.surfaceInput.color, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(palette.borderGlass.color, lineWidth: 1))
 
                         HStack {
                             Button("关闭") {
@@ -150,6 +153,8 @@ struct WorkstationSFTPDialogs: ViewModifier {
                         }
                     }
                     .padding(14)
+                    .foregroundStyle(palette.textPrimary.color)
+                    .background(palette.surfaceReadable.color)
                     .navigationTitle("在线编辑")
                     .task(id: edit.id) {
                         await loadFileEdit(edit)

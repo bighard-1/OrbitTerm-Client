@@ -3,6 +3,8 @@ import SwiftUI
 struct ServerListView: View {
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var store: ServerStore
+    @Environment(\.appThemePalette) private var palette
+    @Environment(\.securitySemanticPalette) private var security
     @ObservedObject private var sessionManager = SessionManager.shared
     @StateObject private var syncService = SyncService.shared
     @State private var showingAddServer = false
@@ -40,7 +42,7 @@ struct ServerListView: View {
                                 HStack(spacing: 8) {
                                     if batchMode {
                                         Image(systemName: selectedForDelete.contains(server.id) ? "checkmark.circle.fill" : "circle")
-                                            .foregroundStyle(selectedForDelete.contains(server.id) ? .red : .secondary)
+                                            .foregroundStyle(selectedForDelete.contains(server.id) ? security.danger.color : palette.textSecondary.color)
                                     }
                                     Button {
                                         if batchMode {
@@ -55,12 +57,12 @@ struct ServerListView: View {
                                                 if isServerConnected(server) {
                                                     Label("已连接", systemImage: "dot.radiowaves.left.and.right")
                                                         .font(.caption2.weight(.semibold))
-                                                        .foregroundStyle(.green)
+                                                        .foregroundStyle(security.connectionConnected.color)
                                                 }
                                             }
                                             Text("\(server.username)@\(server.endpointText)")
                                                 .font(.caption)
-                                                .foregroundStyle(.secondary)
+                                                .foregroundStyle(palette.textSecondary.color)
                                         }
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                     }
@@ -82,7 +84,7 @@ struct ServerListView: View {
                                         } label: {
                                             Label("编辑", systemImage: "square.and.pencil")
                                         }
-                                        .tint(.blue)
+                                        .tint(palette.accentPrimary.color)
 
                                         Button(role: .destructive) {
                                             pendingDeleteServer = server
@@ -97,7 +99,7 @@ struct ServerListView: View {
                                         } label: {
                                             Image(systemName: "square.and.pencil")
                                                 .font(.body.weight(.semibold))
-                                                .foregroundStyle(.blue)
+                                                .foregroundStyle(palette.accentPrimary.color)
                                                 .frame(width: 36, height: 36)
                                                 .contentShape(Rectangle())
                                         }
@@ -112,7 +114,7 @@ struct ServerListView: View {
                                 Spacer()
                                 Text("\(section.items.count)")
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(palette.textSecondary.color)
                                 Menu {
                                     Button("重命名分组") {
                                         renamingGroup = section.group

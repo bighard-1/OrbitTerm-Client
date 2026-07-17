@@ -9,6 +9,8 @@ enum QuickKeySetupResult {
 struct QuickKeySetupSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var session: AppSession
+    @Environment(\.appThemePalette) private var palette
+    @Environment(\.securitySemanticPalette) private var security
 
     let server: ServerEntry
     @ObservedObject var store: ServerStore
@@ -28,7 +30,7 @@ struct QuickKeySetupSheet: View {
     @State private var saving = false
     @State private var closePasswordLogin = false
     @State private var statusText = "尚未测试密钥连通性"
-    @State private var statusColor: Color = .secondary
+    @State private var statusKind: SecurityStatusKind? = nil
 
     private let vault = CredentialVault.shared
 
@@ -37,9 +39,10 @@ struct QuickKeySetupSheet: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text(server.name)
                     .font(.headline)
+                    .foregroundStyle(palette.textPrimary.color)
                 Text("\(server.username)@\(server.host):\(server.port)")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary.color)
 
                 Picker("密钥输入方式", selection: $keyInputMode) {
                     ForEach(KeyInputMode.allCases) { mode in
@@ -55,24 +58,30 @@ struct QuickKeySetupSheet: View {
                         Label(selectedKeyFileName.isEmpty ? "选择私钥文件" : selectedKeyFileName, systemImage: "doc.badge.plus")
                             .lineLimit(1)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(ThemedSecondaryButtonStyle())
                 }
 
                 TextEditor(text: $privateKeyContent)
                     .font(.system(.caption, design: .monospaced))
                     .frame(minHeight: 140)
                     .padding(8)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    .foregroundStyle(palette.textPrimary.color)
+                    .background(palette.surfaceInput.color, in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(palette.borderGlass.color))
 
                 SecureField("私钥口令（可选）", text: $privateKeyPassphrase)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .foregroundStyle(palette.textPrimary.color)
+                    .themedInputSurface()
 
                 Toggle("关闭密码登录（仅密钥）", isOn: $closePasswordLogin)
                     .onChange(of: closePasswordLogin) { _, isOn in
                         if isOn && !keyVerified {
                             closePasswordLogin = false
                             statusText = "请先完成密钥连接测试并通过，才能关闭密码登录"
-                            statusColor = .orange
+                            statusKind = .warning
                         }
                     }
 
@@ -83,20 +92,20 @@ struct QuickKeySetupSheet: View {
                     }
                     Text(statusText)
                         .font(.caption)
-                        .foregroundStyle(statusColor)
+                        .foregroundStyle(statusKind.map { kind in security.presentation(for: kind).color.color } ?? palette.textSecondary.color)
                 }
 
                 Spacer(minLength: 0)
 
                 HStack {
                     Button("取消") { dismiss() }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(ThemedSecondaryButtonStyle())
                     Spacer()
 #if os(macOS)
                     Button("生成并部署密钥") {
                         Task { await generateAndDeployKey() }
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(ThemedSecondaryButtonStyle())
                     .disabled(
                         isTesting || isDeploying || saving ||
                             !ConnectionSecurityPolicy.allowsLegacyQuickKeyDeployment
@@ -105,7 +114,7 @@ struct QuickKeySetupSheet: View {
                     Button("测试密钥") {
                         Task { await testKeyConnection() }
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(ThemedSecondaryButtonStyle())
                     .disabled(
                         isTesting || saving || !hasValidKey ||
                             !ConnectionSecurityPolicy.allowsLegacyConnectionTest
@@ -114,13 +123,18 @@ struct QuickKeySetupSheet: View {
                     Button("保存") {
                         Task { await save() }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(ThemedPrimaryButtonStyle())
                     .disabled(isTesting || saving || !hasValidKey || (closePasswordLogin && !keyVerified))
                 }
             }
             .padding(16)
             .navigationTitle("一键设置密钥")
-            .background(.ultraThinMaterial)
+            .background {
+                ZStack {
+                    AppChromeBackground()
+                    palette.surfaceReadable.color.opacity(0.8)
+                }
+            }
             .task {
                 if let existing = try? vault.read(for: server.credentialID) {
                     privateKeyContent = existing.privateKeyContent
@@ -141,7 +155,7 @@ struct QuickKeySetupSheet: View {
                 loadPrivateKeyFile(url)
             case let .failure(error):
                 statusText = "私钥文件读取失败: \(error.localizedDescription)"
-                statusColor = .red
+                statusKind = .danger
             }
         }
 #if os(macOS)
@@ -157,7 +171,7 @@ struct QuickKeySetupSheet: View {
         guard hasValidKey else { return }
         guard ConnectionSecurityPolicy.allowsLegacyConnectionTest else {
             statusText = "请先通过已验证连接流程确认服务器身份"
-            statusColor = .orange
+            statusKind = .warning
             return
         }
         #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
@@ -175,11 +189,11 @@ struct QuickKeySetupSheet: View {
         if result.hasPrefix("成功") {
             keyVerified = true
             statusText = "密钥测试成功"
-            statusColor = .green
+            statusKind = .success
         } else {
             keyVerified = false
             statusText = "密钥测试失败：\(result)"
-            statusColor = .red
+            statusKind = .danger
         }
         #endif
     }
@@ -190,21 +204,21 @@ struct QuickKeySetupSheet: View {
         guard !isDeploying else { return }
         guard ConnectionSecurityPolicy.allowsLegacyQuickKeyDeployment else {
             statusText = "安全密钥部署流程尚未启用"
-            statusColor = .orange
+            statusKind = .warning
             return
         }
         #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         guard let old = try? vault.read(for: server.credentialID),
               !old.password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             statusText = "生成部署失败：需要先保存密码凭据，才能把公钥写入远端"
-            statusColor = .orange
+            statusKind = .warning
             return
         }
 
         isDeploying = true
         keyVerified = false
         statusText = "正在生成本地 Ed25519 密钥..."
-        statusColor = .secondary
+        statusKind = nil
         defer { isDeploying = false }
 
         do {
@@ -236,16 +250,16 @@ struct QuickKeySetupSheet: View {
 
             guard result.hasPrefix("成功") else {
                 statusText = "公钥已写入，但密钥测试失败：\(result)"
-                statusColor = .orange
+                statusKind = .warning
                 return
             }
 
             keyVerified = true
             statusText = "密钥已生成、部署并测试成功，可选择关闭密码登录"
-            statusColor = .green
+            statusKind = .success
         } catch {
             statusText = "生成部署失败：\(error.localizedDescription)"
-            statusColor = .red
+            statusKind = .danger
         }
         #endif
     }
@@ -299,7 +313,7 @@ struct QuickKeySetupSheet: View {
         guard hasValidKey else { return }
         if closePasswordLogin && !keyVerified {
             statusText = "请先通过密钥测试，再关闭密码登录"
-            statusColor = .orange
+            statusKind = .warning
             return
         }
 
@@ -326,7 +340,7 @@ struct QuickKeySetupSheet: View {
             dismiss()
         } catch {
             statusText = "保存失败: \(error.localizedDescription)"
-            statusColor = .red
+            statusKind = .danger
             onFinish(.failed(statusText))
         }
     }
@@ -360,16 +374,16 @@ struct QuickKeySetupSheet: View {
             let data = try Data(contentsOf: url)
             guard let key = String(data: data, encoding: .utf8) else {
                 statusText = "私钥文件不是 UTF-8 文本"
-                statusColor = .red
+                statusKind = .danger
                 return
             }
             privateKeyContent = key
             keyVerified = false
             statusText = "私钥已载入，请先测试"
-            statusColor = .secondary
+            statusKind = nil
         } catch {
             statusText = "私钥文件读取失败: \(error.localizedDescription)"
-            statusColor = .red
+            statusKind = .danger
         }
     }
 }

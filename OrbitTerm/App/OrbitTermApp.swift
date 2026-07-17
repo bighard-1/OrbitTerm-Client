@@ -4,28 +4,38 @@ import SwiftUI
 struct OrbitTermApp: App {
     @StateObject private var session = AppSession()
     @StateObject private var serverStore = ServerStore.shared
+    @StateObject private var appThemeManager = AppThemeManager()
     @ObservedObject private var sessionManager = SessionManager.shared
 
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .injectAppTheme()
                 .environmentObject(session)
                 .environmentObject(serverStore)
+                .environmentObject(appThemeManager)
         }
+        #if os(macOS)
+        .defaultSize(width: 1180, height: 780)
+        #endif
 
         #if os(macOS)
         WindowGroup("监控看板") {
             MonitorDashboardView()
+                .injectAppTheme()
                 .environmentObject(session)
                 .environmentObject(serverStore)
+                .environmentObject(appThemeManager)
         }
         .defaultSize(width: 980, height: 760)
 
         WindowGroup("会话分离", for: UUID.self) { value in
             if let sid = value.wrappedValue {
                 DetachedSessionWindowView(sessionID: sid)
+                    .injectAppTheme()
                     .environmentObject(session)
                     .environmentObject(serverStore)
+                    .environmentObject(appThemeManager)
             } else {
                 ContentUnavailableView("无可用会话", systemImage: "terminal")
             }

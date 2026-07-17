@@ -300,10 +300,20 @@ final class BiometricAuthService: ObservableObject {
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         if status == errSecItemNotFound {
-            query.removeValue(forKey: kSecUseDataProtectionKeychain as String)
-            let legacyStatus = SecItemCopyMatching(query as CFDictionary, &item)
+            var legacyQuery = query
+            legacyQuery.removeValue(forKey: kSecUseDataProtectionKeychain as String)
+            let legacyStatus = SecItemCopyMatching(legacyQuery as CFDictionary, &item)
             guard legacyStatus == errSecSuccess else { return nil }
             guard let legacyData = item as? Data, legacyData.count == 16 else { return nil }
+
+            // 旧版 macOS 测试构建把盐写入文件钥匙串。读取成功后迁移到
+            // Data Protection Keychain，避免后续启动继续触发旧项的授权提示。
+            do {
+                try saveSalt(legacyData)
+                _ = SecItemDelete(legacyQuery as CFDictionary)
+            } catch {
+                logger.error("[BIO] salt migration failed")
+            }
             return legacyData
         }
         guard status == errSecSuccess else { return nil }

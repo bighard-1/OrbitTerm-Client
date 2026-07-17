@@ -16,6 +16,22 @@ struct RefreshRequest: Encodable {
     let refresh_token: String
 }
 
+struct ChangePasswordRequest: Encodable {
+    let current_password: String
+    let new_password: String
+}
+
+struct MasterKeyRotationItemRequest: Encodable {
+    let id: UInt
+    let expected_vector_clock: String
+    let encrypted_blob_base64: String
+}
+
+struct MasterKeyRotationRequest: Encodable {
+    let current_login_password: String
+    let items: [MasterKeyRotationItemRequest]
+}
+
 struct UploadConfigRequest: Codable {
     let id: UInt?
     let asset_id: String?

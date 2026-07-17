@@ -68,6 +68,7 @@ final class SessionManager: ObservableObject {
         return tabs.first(where: { $0.id == activeTabID })
     }
 
+
     var requiresCheckedConnection: Bool {
         checkedConnectionDispatcher.path == .checked
     }
@@ -125,6 +126,16 @@ final class SessionManager: ObservableObject {
         guard let activeTabID,
               let idx = tabs.firstIndex(where: { $0.id == activeTabID }) else { return }
         closeTab(tabs[idx])
+    }
+
+    /// Account changes must never leave an authenticated terminal tab visible.
+    /// Reuse the existing per-tab teardown path so SSH, SFTP, Docker and Monitor
+    /// resources follow their normal disconnect order.
+    func closeAllTabs() {
+        let currentTabs = tabs
+        for tab in currentTabs {
+            closeTab(tab)
+        }
     }
 
     func closeTab(_ tab: WorkspaceSession) {
@@ -750,9 +761,44 @@ final class SessionManager: ObservableObject {
               let baseID = session.baseSessionID else {
             return
         }
-        if session.verifiedSessionLease != nil {
-            session.terminalSplitCount = 0
-            session.appendTerminal("[checked] 安全分屏通道迁移尚未启用")
+        if let verifiedLease = session.verifiedSessionLease {
+            let desired = max(1, min(4, session.terminalSplitCount + 1))
+            while session.terminalChannelIDs.count < desired {
+                let requestID = HostKeyRequestID()
+                do {
+                    let response = try await checkedClient.openTerminalChecked(
+                        requestID: requestID,
+                        baseSessionID: verifiedLease.baseSessionID,
+                        cols: 120,
+                        rows: 36
+                    )
+                    guard response.requestID == requestID,
+                          response.value.baseSessionID == verifiedLease.baseSessionID,
+                          session.isConnected,
+                          session.verifiedSessionLease?.baseSessionID == verifiedLease.baseSessionID else {
+                        await terminalService.unbindAndClose(
+                            channelID: response.value.terminalChannelID.ffiValue
+                        )
+                        session.terminalSplitCount = max(0, session.terminalChannelIDs.count - 1)
+                        return
+                    }
+                    session.terminalChannelIDs.append(response.value.terminalChannelID.ffiValue)
+                } catch {
+                    session.appendTerminal("[checked] 新分屏终端通道建立失败")
+                    break
+                }
+            }
+            while session.terminalChannelIDs.count > desired {
+                if let removed = session.terminalChannelIDs.popLast() {
+                    await terminalService.unbindAndClose(channelID: removed)
+                }
+            }
+            session.terminalSplitCount = max(0, session.terminalChannelIDs.count - 1)
+            session.activeTerminalPaneIndex = min(
+                session.activeTerminalPaneIndex,
+                max(0, session.terminalChannelIDs.count - 1)
+            )
+            session.terminalChannelID = session.terminalChannelIDs.first
             return
         }
         #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
@@ -782,6 +828,32 @@ final class SessionManager: ObservableObject {
         session.terminalSplitCount = 0
         session.appendTerminal("[checked] 安全分屏通道迁移尚未启用")
         #endif
+    }
+
+    /// Closes one explicitly chosen auxiliary pane. Pane zero is the primary
+    /// terminal channel and deliberately remains stable for the whole session.
+    func removeTerminalSplit(session: WorkspaceSession, paneIndex: Int) async {
+        guard session.server.transport != .telnet,
+              paneIndex > 0,
+              paneIndex < session.terminalChannelIDs.count else {
+            return
+        }
+
+        let removedChannelID = session.terminalChannelIDs.remove(at: paneIndex)
+        await terminalService.unbindAndClose(channelID: removedChannelID)
+
+        if session.activeTerminalPaneIndex == paneIndex {
+            session.activeTerminalPaneIndex = max(0, paneIndex - 1)
+        } else if session.activeTerminalPaneIndex > paneIndex {
+            session.activeTerminalPaneIndex -= 1
+        }
+
+        session.terminalSplitCount = max(0, session.terminalChannelIDs.count - 1)
+        session.activeTerminalPaneIndex = min(
+            session.activeTerminalPaneIndex,
+            max(0, session.terminalChannelIDs.count - 1)
+        )
+        session.terminalChannelID = session.terminalChannelIDs.first
     }
 
     func syncTerminalPathFromSFTP(session: WorkspaceSession, newPath: String) async {

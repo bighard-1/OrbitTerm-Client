@@ -68,7 +68,7 @@ struct HostKeyBlockedPresentation: Hashable, Sendable {
 }
 
 struct HostKeySaveErrorPresentation: Hashable, Sendable {
-    let title = "Couldn’t Save Host Trust"
-    let message = "OrbitTerm could not save this server key. No connection was attempted."
+    let title = "无法保存服务器信任信息"
+    let message = "OrbitTerm 无法保存此服务器密钥，因此没有尝试建立连接。"
     let actions: Set<HostKeyTrustAction> = [.retrySave, .cancel]
 }

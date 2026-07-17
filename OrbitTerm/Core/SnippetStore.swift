@@ -6,6 +6,7 @@ struct Snippet: Identifiable, Codable, Hashable {
     var title: String
     var command: String
     var category: String
+    var assetScope: SnippetAssetScope
     let createdAt: Date
     var updatedAt: Date
 
@@ -14,6 +15,7 @@ struct Snippet: Identifiable, Codable, Hashable {
         title: String,
         command: String,
         category: String,
+        assetScope: SnippetAssetScope = .allAssets,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -21,8 +23,25 @@ struct Snippet: Identifiable, Codable, Hashable {
         self.title = title
         self.command = command
         self.category = category
+        self.assetScope = assetScope
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, command, category, assetScope, createdAt, updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        command = try container.decode(String.self, forKey: .command)
+        category = try container.decode(String.self, forKey: .category)
+        // Envelopes written before asset scoping remain available everywhere.
+        assetScope = try container.decodeIfPresent(SnippetAssetScope.self, forKey: .assetScope) ?? .allAssets
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
     }
 }
 
@@ -61,22 +80,8 @@ private actor SnippetStoreDB {
         sqlite3_open(fileURL.path, &raw)
         db = raw
         if let db {
-            let sql = """
-            CREATE TABLE IF NOT EXISTS snippets (
-                id TEXT PRIMARY KEY NOT NULL,
-                title TEXT NOT NULL,
-                command TEXT NOT NULL,
-                category TEXT NOT NULL,
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS snippets_meta (
-                key TEXT PRIMARY KEY NOT NULL,
-                value TEXT NOT NULL
-            );
-            """
-            _ = sqlite3_exec(db, sql, nil, nil, nil)
+            Self.createTablesIfNeeded(db: db)
+            Self.ensureAssetScopeColumn(db: db)
         }
     }
 
@@ -90,7 +95,7 @@ private actor SnippetStoreDB {
         guard let db else { return [] }
 
         let sql = """
-        SELECT id, title, command, category, created_at, updated_at
+        SELECT id, title, command, category, scope_json, created_at, updated_at
         FROM snippets
         ORDER BY updated_at DESC;
         """
@@ -110,14 +115,16 @@ private actor SnippetStoreDB {
                   let category = sqlite3_column_text(stmt, 3).map({ String(cString: $0) }) else {
                 continue
             }
-            let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4))
-            let updatedAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 5))
+            let scopeJSON = sqlite3_column_text(stmt, 4).map { String(cString: $0) } ?? ""
+            let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 5))
+            let updatedAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 6))
             items.append(
                 Snippet(
                     id: id,
                     title: title,
                     command: command,
                     category: category,
+                    assetScope: decodeAssetScope(scopeJSON),
                     createdAt: createdAt,
                     updatedAt: updatedAt
                 )
@@ -129,12 +136,13 @@ private actor SnippetStoreDB {
     func upsert(_ snippet: Snippet) {
         guard let db else { return }
         let sql = """
-        INSERT INTO snippets (id, title, command, category, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO snippets (id, title, command, category, scope_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             title = excluded.title,
             command = excluded.command,
             category = excluded.category,
+            scope_json = excluded.scope_json,
             updated_at = excluded.updated_at;
         """
 
@@ -148,8 +156,9 @@ private actor SnippetStoreDB {
         bindText(snippet.title, stmt: stmt, index: 2)
         bindText(snippet.command, stmt: stmt, index: 3)
         bindText(snippet.category, stmt: stmt, index: 4)
-        sqlite3_bind_double(stmt, 5, snippet.createdAt.timeIntervalSince1970)
-        sqlite3_bind_double(stmt, 6, snippet.updatedAt.timeIntervalSince1970)
+        bindText(encodeAssetScope(snippet.assetScope), stmt: stmt, index: 5)
+        sqlite3_bind_double(stmt, 6, snippet.createdAt.timeIntervalSince1970)
+        sqlite3_bind_double(stmt, 7, snippet.updatedAt.timeIntervalSince1970)
 
         _ = sqlite3_step(stmt)
     }
@@ -210,14 +219,14 @@ private actor SnippetStoreDB {
         _ = sqlite3_step(stmt)
     }
 
-    private func createTablesIfNeeded() {
-        guard let db else { return }
+    private static func createTablesIfNeeded(db: OpaquePointer) {
         let sql = """
         CREATE TABLE IF NOT EXISTS snippets (
             id TEXT PRIMARY KEY NOT NULL,
             title TEXT NOT NULL,
             command TEXT NOT NULL,
             category TEXT NOT NULL,
+            scope_json TEXT NOT NULL DEFAULT '',
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL
         );
@@ -228,6 +237,45 @@ private actor SnippetStoreDB {
         );
         """
         _ = sqlite3_exec(db, sql, nil, nil, nil)
+    }
+
+    private static func ensureAssetScopeColumn(db: OpaquePointer) {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA table_info(snippets);", -1, &statement, nil) == SQLITE_OK,
+              let statement else { return }
+        defer { sqlite3_finalize(statement) }
+
+        var hasScopeColumn = false
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let name = sqlite3_column_text(statement, 1).map { String(cString: $0) }
+            if name == "scope_json" {
+                hasScopeColumn = true
+                break
+            }
+        }
+
+        guard !hasScopeColumn else { return }
+        _ = sqlite3_exec(
+            db,
+            "ALTER TABLE snippets ADD COLUMN scope_json TEXT NOT NULL DEFAULT '';",
+            nil,
+            nil,
+            nil
+        )
+    }
+
+    private func encodeAssetScope(_ scope: SnippetAssetScope) -> String {
+        guard let data = try? JSONEncoder().encode(scope) else { return "" }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    private func decodeAssetScope(_ text: String) -> SnippetAssetScope {
+        guard !text.isEmpty,
+              let data = text.data(using: .utf8),
+              let scope = try? JSONDecoder().decode(SnippetAssetScope.self, from: data) else {
+            return .allAssets
+        }
+        return scope
     }
 
     private func bindText(_ text: String, stmt: OpaquePointer, index: Int32) {
@@ -246,7 +294,8 @@ final class SnippetStore: ObservableObject {
     @Published private(set) var snippets: [Snippet] = []
     @Published var lastSyncMessage: String = "Snippets 未同步"
 
-    private let db: SnippetStoreDB
+    private var db: SnippetStoreDB
+    private var accountScope: AccountScope?
     private let network = NetworkService.shared
     private let orbitManager = OrbitManager()
 
@@ -257,25 +306,45 @@ final class SnippetStore: ObservableObject {
     }
 
     private init() {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        let dbURL = base
-            .appendingPathComponent("OrbitTerm", isDirectory: true)
-            .appendingPathComponent("snippets.sqlite", isDirectory: false)
-        self.db = SnippetStoreDB(fileURL: dbURL)
+        self.db = SnippetStoreDB(fileURL: Self.databaseURL(scope: nil))
+    }
 
+    /// Selects one account-local snippets database. Signed-out views always see
+    /// an empty in-memory list instead of a previous user's snippets.
+    func activateAccount(username: String) {
+        guard let scope = AccountScope(username: username) else {
+            deactivateAccount()
+            return
+        }
+        guard accountScope != scope else { return }
+
+        migrateLegacyDatabaseIfNeeded(to: scope)
+        accountScope = scope
+        db = SnippetStoreDB(fileURL: Self.databaseURL(scope: scope))
+        let activeDatabase = db
+        snippets = []
+        lastSyncMessage = "Snippets 尚未同步"
         Task { [weak self] in
-            await self?.reloadFromDB()
+            await self?.reloadFromDB(database: activeDatabase, scope: scope)
         }
     }
 
-    func filteredSnippets(query: String) -> [Snippet] {
+    func deactivateAccount() {
+        accountScope = nil
+        db = SnippetStoreDB(fileURL: Self.databaseURL(scope: nil))
+        snippets = []
+        lastSyncMessage = "Snippets 未同步"
+    }
+
+    func filteredSnippets(query: String, assetID: UUID? = nil) -> [Snippet] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty else { return snippets }
-        return snippets.filter {
-            $0.title.localizedCaseInsensitiveContains(q) ||
-                $0.command.localizedCaseInsensitiveContains(q) ||
-                $0.category.localizedCaseInsensitiveContains(q)
+        return snippets.filter { snippet in
+            let matchesAsset = assetID.map { snippet.assetScope.allows(assetID: $0) } ?? true
+            guard matchesAsset else { return false }
+            guard !q.isEmpty else { return true }
+            return snippet.title.localizedCaseInsensitiveContains(q) ||
+                snippet.command.localizedCaseInsensitiveContains(q) ||
+                snippet.category.localizedCaseInsensitiveContains(q)
         }
     }
 
@@ -283,6 +352,7 @@ final class SnippetStore: ObservableObject {
         title: String,
         command: String,
         category: String,
+        assetScope: SnippetAssetScope = .allAssets,
         token: String?,
         masterPassword: String?
     ) async {
@@ -294,10 +364,13 @@ final class SnippetStore: ObservableObject {
         let snippet = Snippet(
             title: trimmedTitle,
             command: trimmedCommand,
-            category: trimmedCategory.isEmpty ? "未分类" : trimmedCategory
+            category: trimmedCategory.isEmpty ? "未分类" : trimmedCategory,
+            assetScope: assetScope
         )
-        await db.upsert(snippet)
-        await reloadFromDB()
+        let scope = accountScope
+        let activeDatabase = db
+        await activeDatabase.upsert(snippet)
+        await reloadFromDB(database: activeDatabase, scope: scope)
         await syncIfPossible(token: token, masterPassword: masterPassword, reason: "create")
     }
 
@@ -306,6 +379,7 @@ final class SnippetStore: ObservableObject {
         title: String,
         command: String,
         category: String,
+        assetScope: SnippetAssetScope,
         token: String?,
         masterPassword: String?
     ) async {
@@ -318,10 +392,13 @@ final class SnippetStore: ObservableObject {
         updated.title = trimmedTitle
         updated.command = trimmedCommand
         updated.category = trimmedCategory.isEmpty ? "未分类" : trimmedCategory
+        updated.assetScope = assetScope
         updated.updatedAt = Date()
 
-        await db.upsert(updated)
-        await reloadFromDB()
+        let scope = accountScope
+        let activeDatabase = db
+        await activeDatabase.upsert(updated)
+        await reloadFromDB(database: activeDatabase, scope: scope)
         await syncIfPossible(token: token, masterPassword: masterPassword, reason: "update")
     }
 
@@ -330,8 +407,10 @@ final class SnippetStore: ObservableObject {
         token: String?,
         masterPassword: String?
     ) async {
-        await db.remove(id: snippet.id)
-        await reloadFromDB()
+        let scope = accountScope
+        let activeDatabase = db
+        await activeDatabase.remove(id: snippet.id)
+        await reloadFromDB(database: activeDatabase, scope: scope)
         await syncIfPossible(token: token, masterPassword: masterPassword, reason: "delete")
     }
 
@@ -349,32 +428,40 @@ final class SnippetStore: ObservableObject {
             title: title,
             command: trimmed,
             category: "历史",
+            assetScope: .allAssets,
             token: token,
             masterPassword: masterPassword
         )
     }
 
-    func pullFromCloud(token: String?, masterPassword: String?) async {
-        guard let token, let masterPassword else { return }
+    func pullFromCloud(token: String?, masterPassword: String?, accountID: String) async {
+        guard let token, let masterPassword,
+              let scope = AccountScope(username: accountID),
+              scope == accountScope else { return }
+        let activeDatabase = db
         do {
             let remoteItems = try await network.pullConfigs(token: token)
+            guard scope == accountScope else { return }
             guard !remoteItems.isEmpty else {
                 lastSyncMessage = "Snippets 拉取完成（云端为空）"
                 return
             }
 
             guard let latest = await latestSnippetEnvelopeBackground(remoteItems, masterPassword: masterPassword) else {
+                guard scope == accountScope else { return }
                 lastSyncMessage = "Snippets 拉取完成（未发现 Snippet 数据）"
                 return
             }
 
-            let localEnvelopeTime = Int(await db.readMeta(MetaKey.envelopeTime) ?? "0") ?? 0
+            let localEnvelopeTime = Int(await activeDatabase.readMeta(MetaKey.envelopeTime) ?? "0") ?? 0
+            guard scope == accountScope else { return }
             if latest.envelope.updatedAtUnix >= localEnvelopeTime {
-                await db.replaceAll(latest.envelope.snippets)
-                await db.writeMeta(MetaKey.remoteConfigID, value: String(latest.configID))
-                await db.writeMeta(MetaKey.vectorClock, value: latest.vectorClock)
-                await db.writeMeta(MetaKey.envelopeTime, value: String(latest.envelope.updatedAtUnix))
-                await reloadFromDB()
+                await activeDatabase.replaceAll(latest.envelope.snippets)
+                await activeDatabase.writeMeta(MetaKey.remoteConfigID, value: String(latest.configID))
+                await activeDatabase.writeMeta(MetaKey.vectorClock, value: latest.vectorClock)
+                await activeDatabase.writeMeta(MetaKey.envelopeTime, value: String(latest.envelope.updatedAtUnix))
+                await reloadFromDB(database: activeDatabase, scope: scope)
+                guard scope == accountScope else { return }
                 lastSyncMessage = "Snippets 已拉取并应用 \(latest.envelope.snippets.count) 条"
             } else {
                 lastSyncMessage = "Snippets 已是最新"
@@ -433,29 +520,46 @@ final class SnippetStore: ObservableObject {
     }
 
     private func syncIfPossible(token: String?, masterPassword: String?, reason: String) async {
-        guard let token, let masterPassword else {
+        guard let token, let masterPassword, let scope = accountScope else {
             lastSyncMessage = "Snippets 已本地保存，登录后自动同步"
             return
         }
+        let activeDatabase = db
 
         // 首次同步前先尝试拉取一次远端 ID，避免在离线恢复后重复创建多条 Snippet 配置记录。
-        if await db.readMeta(MetaKey.remoteConfigID) == nil {
-            await pullFromCloud(token: token, masterPassword: masterPassword)
+        if await activeDatabase.readMeta(MetaKey.remoteConfigID) == nil {
+            await pullFromCloud(
+                token: token,
+                masterPassword: masterPassword,
+                accountID: scope.canonicalUsername
+            )
         }
+        guard scope == accountScope else { return }
 
-        guard let payload = try? await buildUploadPayload(masterPassword: masterPassword) else {
+        guard let payload = try? await buildUploadPayload(
+            masterPassword: masterPassword,
+            database: activeDatabase
+        ) else {
+            guard scope == accountScope else { return }
             lastSyncMessage = "Snippets 同步失败: 无法构建加密负载"
             return
         }
+        guard scope == accountScope else { return }
 
         do {
             let response = try await network.uploadConfig(token: token, payload: payload)
-            await db.writeMeta(MetaKey.remoteConfigID, value: String(response.id))
-            await db.writeMeta(MetaKey.vectorClock, value: response.vector_clock)
+            guard scope == accountScope else { return }
+            await activeDatabase.writeMeta(MetaKey.remoteConfigID, value: String(response.id))
+            await activeDatabase.writeMeta(MetaKey.vectorClock, value: response.vector_clock)
             lastSyncMessage = "Snippets 已同步（\(reason)）"
         } catch {
+            guard scope == accountScope else { return }
             if NetworkService.isRetriableNetworkError(error) {
-                await SyncQueue.shared.enqueueUpload(payload: payload, reason: "snippets_\(reason)")
+                await SyncQueue.shared.enqueueUpload(
+                    payload: payload,
+                    accountID: scope.canonicalUsername,
+                    reason: "snippets_\(reason)"
+                )
                 lastSyncMessage = "网络波动，Snippets 已加入重试队列"
                 return
             }
@@ -463,8 +567,11 @@ final class SnippetStore: ObservableObject {
         }
     }
 
-    private func buildUploadPayload(masterPassword: String) async throws -> UploadConfigRequest {
-        let current = await db.loadAll()
+    private func buildUploadPayload(
+        masterPassword: String,
+        database: SnippetStoreDB
+    ) async throws -> UploadConfigRequest {
+        let current = await database.loadAll()
         let envelopeTime = max(Int(Date().timeIntervalSince1970), Int(current.map(\.updatedAt).map(\.timeIntervalSince1970).max() ?? Date().timeIntervalSince1970))
         let envelope = SnippetSyncEnvelope(updatedAtUnix: envelopeTime, snippets: current)
         let plainData = try JSONEncoder().encode(envelope)
@@ -474,13 +581,13 @@ final class SnippetStore: ObservableObject {
 
         let encrypted = try orbitManager.encrypt(password: masterPassword, data: plainText)
 
-        let previousID = await db.readMeta(MetaKey.remoteConfigID)
+        let previousID = await database.readMeta(MetaKey.remoteConfigID)
         let idValue = previousID.flatMap(UInt.init)
-        let existingClock = await db.readMeta(MetaKey.vectorClock) ?? "{}"
+        let existingClock = await database.readMeta(MetaKey.vectorClock) ?? "{}"
         let nextClock = bumpedVectorClock(from: existingClock)
 
-        await db.writeMeta(MetaKey.vectorClock, value: nextClock)
-        await db.writeMeta(MetaKey.envelopeTime, value: String(envelopeTime))
+        await database.writeMeta(MetaKey.vectorClock, value: nextClock)
+        await database.writeMeta(MetaKey.envelopeTime, value: String(envelopeTime))
 
         return UploadConfigRequest(
             id: idValue,
@@ -496,8 +603,37 @@ final class SnippetStore: ObservableObject {
         return String(data: data, encoding: .utf8) ?? "{}"
     }
 
-    private func reloadFromDB() async {
-        let loaded = await db.loadAll()
+    private func reloadFromDB(database: SnippetStoreDB, scope: AccountScope?) async {
+        let loaded = await database.loadAll()
+        guard accountScope == scope else { return }
         snippets = loaded
+    }
+
+    private static func databaseURL(scope: AccountScope?) -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let fileName = scope?.databaseFileName("snippets", pathExtension: "sqlite") ?? "snippets-signed-out.sqlite"
+        return base
+            .appendingPathComponent("OrbitTerm", isDirectory: true)
+            .appendingPathComponent(fileName, isDirectory: false)
+    }
+
+    private func migrateLegacyDatabaseIfNeeded(to scope: AccountScope) {
+        let flagKey = "orbitterm.snippets.account-scope-migrated.v1"
+        guard !UserDefaults.standard.bool(forKey: flagKey) else { return }
+
+        let legacyURL = Self.databaseURL(scope: nil).deletingLastPathComponent().appendingPathComponent("snippets.sqlite")
+        let scopedURL = Self.databaseURL(scope: scope)
+        guard FileManager.default.fileExists(atPath: legacyURL.path),
+              !FileManager.default.fileExists(atPath: scopedURL.path) else { return }
+
+        do {
+            try FileManager.default.createDirectory(at: scopedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: legacyURL, to: scopedURL)
+            UserDefaults.standard.set(true, forKey: flagKey)
+        } catch {
+            // Keep the legacy database untouched. The account can still pull its
+            // cloud snippets, and a later activation may retry this safe copy.
+        }
     }
 }

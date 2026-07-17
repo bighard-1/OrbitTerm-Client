@@ -44,6 +44,9 @@ struct SwiftTermTerminalView: View {
                 )
             }
         }
+        // The viewport always receives the selected TerminalTheme background;
+        // app chrome surfaces must never show through while SwiftTerm attaches.
+        .background(theme.background.swiftUIColor)
     }
 }
 

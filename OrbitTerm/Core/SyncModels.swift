@@ -116,7 +116,7 @@ struct SyncShadowSnapshot: Codable, Equatable {
 }
 
 final class SyncShadowStore {
-    private let key = "orbitterm.sync.shadow.v3"
+    private let storageNamespace = "orbitterm.sync.shadow.v4"
     private let legacyKeys = ["orbitterm.sync.shadow.v2"]
     private let keychainService = "com.orbitterm.sync.shadow"
     private let keychainAccount = "hmac-key-v1"
@@ -134,44 +134,49 @@ final class SyncShadowStore {
             let generated = (try? SecurityPrimitives.randomBytes(count: 32)) ?? Data(UUID().uuidString.utf8)
             authenticationKey = generated
             try? KeychainDataStore.save(generated, service: keychainService, account: keychainAccount)
-            UserDefaults.standard.removeObject(forKey: key)
         }
     }
 
-    func read(id: String) -> SyncShadowSnapshot? {
-        guard let data = UserDefaults.standard.data(forKey: key),
+    func read(id: String, accountID: String) -> SyncShadowSnapshot? {
+        guard let data = data(for: accountID),
               let map = try? JSONDecoder().decode([String: SyncShadowSnapshot].self, from: data) else {
             return nil
         }
         return map[id]
     }
 
-    func save(_ portable: PortableServerConfig) {
-        var map = readAll()
+    func save(_ portable: PortableServerConfig, accountID: String) {
+        var map = readAll(accountID: accountID)
         map[portable.id] = snapshot(for: portable)
-        persist(map)
+        persist(map, accountID: accountID)
     }
 
-    func readAll() -> [String: SyncShadowSnapshot] {
-        guard let data = UserDefaults.standard.data(forKey: key),
+    func readAll(accountID: String) -> [String: SyncShadowSnapshot] {
+        guard let data = data(for: accountID),
               let map = try? JSONDecoder().decode([String: SyncShadowSnapshot].self, from: data) else {
             return [:]
         }
         return map
     }
 
-    func saveMany(_ portables: [PortableServerConfig]) {
+    func saveMany(_ portables: [PortableServerConfig], accountID: String) {
         guard !portables.isEmpty else { return }
-        var map = readAll()
+        var map = readAll(accountID: accountID)
         for portable in portables {
             map[portable.id] = snapshot(for: portable)
         }
-        persist(map)
+        persist(map, accountID: accountID)
     }
 
-    private func persist(_ map: [String: SyncShadowSnapshot]) {
-        guard let data = try? JSONEncoder().encode(map) else { return }
-        UserDefaults.standard.set(data, forKey: key)
+    private func data(for accountID: String) -> Data? {
+        guard let scope = AccountScope(username: accountID) else { return nil }
+        return UserDefaults.standard.data(forKey: scope.storageKey(storageNamespace))
+    }
+
+    private func persist(_ map: [String: SyncShadowSnapshot], accountID: String) {
+        guard let scope = AccountScope(username: accountID),
+              let data = try? JSONEncoder().encode(map) else { return }
+        UserDefaults.standard.set(data, forKey: scope.storageKey(storageNamespace))
     }
 
     func snapshot(for portable: PortableServerConfig) -> SyncShadowSnapshot {

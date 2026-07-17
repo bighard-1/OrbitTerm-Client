@@ -2,7 +2,7 @@ import SwiftUI
 
 struct AuthView: View {
     @EnvironmentObject private var session: AppSession
-    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appThemePalette) private var palette
     @Namespace private var modeAnimation
 
     @State private var isLoginMode: Bool = true
@@ -13,6 +13,7 @@ struct AuthView: View {
     @State private var isPressingPrimary: Bool = false
     @State private var isShowingPassword: Bool = false
     @State private var message: String = ""
+    @State private var messageKind: AuthStatusKind = .success
     @State private var shakeOffset: CGFloat = 0
     @State private var hiddenTapCount: Int = 0
     @State private var showServerConfigAlert: Bool = false
@@ -41,23 +42,16 @@ struct AuthView: View {
         NavigationStack {
             GeometryReader { proxy in
                 ZStack {
-                    LinearGradient(
-                        colors: colorScheme == .dark
-                            ? [Color(red: 0.03, green: 0.08, blue: 0.18), .black]
-                            : [Color(red: 0.78, green: 0.87, blue: 0.98), Color(red: 0.90, green: 0.94, blue: 0.99)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    .ignoresSafeArea()
+                    AppChromeBackground()
 
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(spacing: 24) {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("OrbitTerm")
                                     .font(.system(size: 28, weight: .bold, design: .rounded))
-                                    .foregroundStyle(.primary)
+                                    .foregroundStyle(palette.textPrimary.color)
                                 Text(isLoginMode ? "欢迎回来，继续你的终端旅程" : "创建账号，开启深空控制台")
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(palette.textSecondary.color)
                                     .font(.subheadline)
                                     .animation(.easeInOut(duration: 0.25), value: isLoginMode)
                             }
@@ -70,12 +64,8 @@ struct AuthView: View {
                             }
                             .padding(.horizontal, 24)
                             .padding(.vertical, 26)
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                    .stroke(Color.secondary.opacity(0.1), lineWidth: 1)
-                            )
-                            .shadow(color: .black.opacity(colorScheme == .dark ? 0.28 : 0.12), radius: 20, x: 0, y: 14)
+                            .themedGlassSurface()
+                            .shadow(color: .black.opacity(0.14), radius: 20, x: 0, y: 14)
                         }
                         .padding(.horizontal, 22)
                         .padding(.vertical, 32)
@@ -86,7 +76,7 @@ struct AuthView: View {
                 }
             }
             .onChange(of: message) { _, newValue in
-                if newValue.hasPrefix("失败") {
+                if !newValue.isEmpty, messageKind == .failure {
                     withAnimation(.easeInOut(duration: 0.08).repeatCount(3, autoreverses: true)) {
                         shakeOffset += 1
                     }
@@ -106,9 +96,9 @@ struct AuthView: View {
                 Button("确认切换", role: .destructive) {
                     do {
                         try network.updateBaseURL(pendingServerAddress)
-                        message = "成功: 服务地址已更新"
+                        setMessage("成功: 服务地址已更新", kind: .success)
                     } catch {
-                        message = "失败: \(error.localizedDescription)"
+                        setMessage("失败: \(error.localizedDescription)", kind: .failure)
                     }
                 }
                 Button("取消", role: .cancel) {}
@@ -150,7 +140,7 @@ struct AuthView: View {
                 )
                 Text("密码至少 12 位，且包含大小写字母、数字和特殊字符。")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary.color)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -170,7 +160,7 @@ struct AuthView: View {
     @ViewBuilder
     private var bannerArea: some View {
         if !message.isEmpty {
-            AuthStatusBanner(message: message, shakeOffset: shakeOffset)
+            AuthStatusBanner(message: message, kind: messageKind, shakeOffset: shakeOffset)
         }
     }
 
@@ -207,22 +197,25 @@ struct AuthView: View {
         isLoading = true
         defer { isLoading = false }
 
+        let canonicalUsername = AccountIdentity.canonicalUsername(username)
+
         do {
             if !isLoginMode {
-                try await network.register(username: username, password: password, inviteCode: inviteCode)
+                try await network.register(username: canonicalUsername, password: password, inviteCode: inviteCode)
             }
 
-            let loginData = try await network.login(username: username, password: password)
+            let loginData = try await network.login(username: canonicalUsername, password: password)
             try session.persistLogin(
                 accessToken: loginData.accessTokenValue,
                 refreshToken: loginData.refreshTokenValue,
-                username: username
+                username: canonicalUsername
             )
+            username = canonicalUsername
             password = ""
             inviteCode = ""
-            message = "成功: 已获取 JWT"
+            setMessage("成功: 已获取 JWT", kind: .success)
         } catch {
-            message = "失败: \(error.localizedDescription)"
+            setMessage("失败: \(error.localizedDescription)", kind: .failure)
         }
     }
 
@@ -232,12 +225,17 @@ struct AuthView: View {
             pendingServerAddress = normalized
             if network.isDefaultEndpoint(normalized) {
                 try network.updateBaseURL(normalized)
-                message = "成功: 服务地址已更新"
+                setMessage("成功: 服务地址已更新", kind: .success)
                 return
             }
             showServerConfirmAlert = true
         } catch {
-            message = "失败: \(error.localizedDescription)"
+            setMessage("失败: \(error.localizedDescription)", kind: .failure)
         }
+    }
+
+    private func setMessage(_ text: String, kind: AuthStatusKind) {
+        message = text
+        messageKind = kind
     }
 }

@@ -2,8 +2,6 @@ import Foundation
 import CryptoKit
 #if canImport(UIKit)
 import UIKit
-#elseif canImport(AppKit)
-import AppKit
 #endif
 
 @MainActor
@@ -12,6 +10,7 @@ final class AppSession: ObservableObject {
     @Published var isUnlocked: Bool = false
     @Published var username: String = ""
     @Published var transientStatus: String = ""
+    @Published private(set) var masterPasswordPersistenceError: String?
     @Published private(set) var authRevision: Int = 0
 
     private let keychain: KeychainManager
@@ -22,9 +21,10 @@ final class AppSession: ObservableObject {
     private let usernameAccount = "username"
     private let passwordService = "com.orbitterm.security"
     private let legacyPasswordAccount = "master_password"
-    private let passwordVerifierAccount = "master_password_verifier_v2"
-    private let passwordBlobAccount = "master_password_blob_v2"
-    private let wrapKeyAccount = "master_password_wrap_key_v2"
+    private let legacyPasswordVerifierAccount = "master_password_verifier_v2"
+    private let legacyPasswordBlobAccount = "master_password_blob_v2"
+    private let legacyWrapKeyAccount = "master_password_wrap_key_v2"
+    private let masterPasswordMigrationFlag = "orbitterm.master-password.account-scope-migrated.v1"
 
     init(keychain: KeychainManager = .shared) {
         self.keychain = keychain
@@ -40,6 +40,8 @@ final class AppSession: ObservableObject {
             if !isAuthenticated {
                 isUnlocked = false
                 username = ""
+            } else {
+                migrateLegacyMasterPasswordIfNeeded()
             }
             authRevision += 1
         } catch {
@@ -58,6 +60,7 @@ final class AppSession: ObservableObject {
         try keychain.saveString(username, service: tokenService, account: usernameAccount)
         self.username = username
         isAuthenticated = true
+        migrateLegacyMasterPasswordIfNeeded()
         authRevision += 1
     }
 
@@ -84,7 +87,9 @@ final class AppSession: ObservableObject {
             try keychain.delete(service: tokenService, account: tokenAccount)
             try keychain.delete(service: tokenService, account: refreshTokenAccount)
             try keychain.delete(service: tokenService, account: usernameAccount)
-            try keychain.delete(service: passwordService, account: passwordBlobAccount)
+            if let passwordBlobAccount = passwordBlobAccount {
+                try keychain.delete(service: passwordService, account: passwordBlobAccount)
+            }
         } catch {
             // 忽略删除异常，仍执行本地状态重置。
         }
@@ -95,15 +100,96 @@ final class AppSession: ObservableObject {
     }
 
     var hasMasterPassword: Bool {
+        guard let passwordVerifierAccount else { return false }
         let existing = (try? keychain.readString(service: passwordService, account: passwordVerifierAccount)) ?? nil
-        if !(existing?.isEmpty ?? true) {
-            return true
-        }
-        let legacy = (try? keychain.readString(service: passwordService, account: legacyPasswordAccount)) ?? nil
-        return !(legacy?.isEmpty ?? true)
+        return !(existing?.isEmpty ?? true)
     }
 
     func setupMasterPassword(_ value: String) throws {
+        try persistMasterPassword(value, verifierAccount: passwordVerifierAccount, blobAccount: passwordBlobAccount)
+        masterPasswordPersistenceError = nil
+        isUnlocked = true
+    }
+
+    // Validation intentionally has no persistence side effect. Password
+    // rotation uses it before preparing a new local keychain record.
+    func validateMasterPassword(_ input: String) -> Bool {
+        guard let passwordVerifierAccount,
+              let record = (try? keychain.readString(service: passwordService, account: passwordVerifierAccount)) ?? nil else {
+            return false
+        }
+        return matchesMasterPassword(input, record: record)
+    }
+
+    // Stage first so a successful remote re-encryption is never paired with a
+    // lost local replacement. A failed final Keychain write can be retried
+    // without ever storing a plaintext master password.
+    func stageMasterPasswordRotation(_ value: String) throws {
+        try persistMasterPassword(
+            value,
+            verifierAccount: stagedPasswordVerifierAccount,
+            blobAccount: stagedPasswordBlobAccount
+        )
+    }
+
+    var hasStagedMasterPasswordRotation: Bool {
+        guard let stagedPasswordVerifierAccount, let stagedPasswordBlobAccount else { return false }
+        let verifier = (try? keychain.readString(service: passwordService, account: stagedPasswordVerifierAccount)) ?? nil
+        let blob = (try? keychain.readString(service: passwordService, account: stagedPasswordBlobAccount)) ?? nil
+        return !(verifier?.isEmpty ?? true) && !(blob?.isEmpty ?? true)
+    }
+
+    func commitStagedMasterPasswordRotation() throws {
+        guard let stagedPasswordVerifierAccount,
+              let stagedPasswordBlobAccount,
+              let passwordVerifierAccount,
+              let passwordBlobAccount,
+              let verifier = try keychain.readString(service: passwordService, account: stagedPasswordVerifierAccount),
+              let blob = try keychain.readString(service: passwordService, account: stagedPasswordBlobAccount),
+              !verifier.isEmpty,
+              !blob.isEmpty else {
+            throw KeychainManager.KeychainError.invalidData
+        }
+        // Write the encrypted blob before its verifier. Either existing final
+        // verifier remains valid, or both final records identify the new key.
+        try keychain.saveString(blob, service: passwordService, account: passwordBlobAccount)
+        try keychain.saveString(verifier, service: passwordService, account: passwordVerifierAccount)
+        try keychain.delete(service: passwordService, account: stagedPasswordBlobAccount)
+        try keychain.delete(service: passwordService, account: stagedPasswordVerifierAccount)
+        masterPasswordPersistenceError = nil
+        isUnlocked = true
+    }
+
+    func discardStagedMasterPasswordRotation() {
+        guard let stagedPasswordVerifierAccount, let stagedPasswordBlobAccount else { return }
+        try? keychain.delete(service: passwordService, account: stagedPasswordBlobAccount)
+        try? keychain.delete(service: passwordService, account: stagedPasswordVerifierAccount)
+    }
+
+    func verifyMasterPassword(_ input: String) -> Bool {
+        guard validateMasterPassword(input), let passwordBlobAccount else {
+            return false
+        }
+        do {
+            let encryptedBlob = try encryptMasterPasswordForStorage(input)
+            try keychain.saveString(encryptedBlob, service: passwordService, account: passwordBlobAccount)
+            masterPasswordPersistenceError = nil
+            isUnlocked = true
+            return true
+        } catch {
+            recordMasterPasswordPersistenceFailure(error)
+            return false
+        }
+    }
+
+    private func persistMasterPassword(
+        _ value: String,
+        verifierAccount: String?,
+        blobAccount: String?
+    ) throws {
+        guard let verifierAccount, let blobAccount else {
+            throw KeychainManager.KeychainError.invalidData
+        }
         var input = value
         defer { SecurityPrimitives.secureZero(&input) }
 
@@ -115,26 +201,12 @@ final class AppSession: ObservableObject {
         defer { SecurityPrimitives.secureZero(&verifierWipe) }
 
         let record = "\(salt.base64EncodedString()):\(verifier.base64EncodedString())"
-        try keychain.saveString(record, service: passwordService, account: passwordVerifierAccount)
-
         let encryptedBlob = try encryptMasterPasswordForStorage(input)
-        try keychain.saveString(encryptedBlob, service: passwordService, account: passwordBlobAccount)
-        isUnlocked = true
+        try keychain.saveString(encryptedBlob, service: passwordService, account: blobAccount)
+        try keychain.saveString(record, service: passwordService, account: verifierAccount)
     }
 
-    func verifyMasterPassword(_ input: String) -> Bool {
-        guard let record = (try? keychain.readString(service: passwordService, account: passwordVerifierAccount)) ?? nil else {
-            // 兼容旧版明文存储：首次验证成功后迁移到 v2。
-            let legacy = (try? keychain.readString(service: passwordService, account: legacyPasswordAccount)) ?? nil
-            guard let legacy else { return false }
-            let passedLegacy = (legacy == input)
-            if passedLegacy {
-                try? setupMasterPassword(input)
-                try? keychain.delete(service: passwordService, account: legacyPasswordAccount)
-            }
-            isUnlocked = passedLegacy
-            return passedLegacy
-        }
+    private func matchesMasterPassword(_ input: String, record: String) -> Bool {
         let parts = record.split(separator: ":", maxSplits: 1).map(String.init)
         guard parts.count == 2,
               let salt = Data(base64Encoded: parts[0]),
@@ -143,13 +215,7 @@ final class AppSession: ObservableObject {
         }
         var candidate = (try? deriveArgon2id(password: input, salt: salt)) ?? Data()
         defer { SecurityPrimitives.secureZero(&candidate) }
-
-        let passed = candidate == expected
-        isUnlocked = passed
-        if passed, let encryptedBlob = try? encryptMasterPasswordForStorage(input) {
-            try? keychain.saveString(encryptedBlob, service: passwordService, account: passwordBlobAccount)
-        }
-        return passed
+        return candidate == expected
     }
 
     func markUnlockedByBiometric() {
@@ -157,7 +223,8 @@ final class AppSession: ObservableObject {
     }
 
     func readMasterPassword() -> String? {
-        guard let blob = (try? keychain.readString(service: passwordService, account: passwordBlobAccount)) ?? nil else {
+        guard let passwordBlobAccount,
+              let blob = (try? keychain.readString(service: passwordService, account: passwordBlobAccount)) ?? nil else {
             return nil
         }
         return try? decryptMasterPasswordFromStorage(blob)
@@ -178,19 +245,6 @@ final class AppSession: ObservableObject {
 #if canImport(UIKit)
         NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                if self.hasMasterPassword {
-                    self.isUnlocked = false
-                }
-            }
-        }
-#elseif canImport(AppKit)
-        NotificationCenter.default.addObserver(
-            forName: NSApplication.willResignActiveNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -233,6 +287,9 @@ final class AppSession: ObservableObject {
     }
 
     private func readOrCreateWrapKey() throws -> SymmetricKey {
+        guard let wrapKeyAccount else {
+            throw KeychainManager.KeychainError.invalidData
+        }
         if let existing = try keychain.readString(service: passwordService, account: wrapKeyAccount),
            let data = Data(base64Encoded: existing), data.count == 32 {
             return SymmetricKey(data: data)
@@ -266,5 +323,76 @@ final class AppSession: ObservableObject {
             throw KeychainManager.KeychainError.invalidData
         }
         return text
+    }
+
+    private func recordMasterPasswordPersistenceFailure(_ error: Error) {
+        isUnlocked = false
+        masterPasswordPersistenceError = "无法安全保存主密码以执行同步，请检查钥匙串权限后重试。"
+    }
+
+    private var accountScope: AccountScope? {
+        AccountScope(username: username)
+    }
+
+    private var passwordVerifierAccount: String? {
+        accountScope.map { "master_password_verifier_v3.\($0.storageIdentifier)" }
+    }
+
+    private var passwordBlobAccount: String? {
+        accountScope.map { "master_password_blob_v3.\($0.storageIdentifier)" }
+    }
+
+    private var wrapKeyAccount: String? {
+        accountScope.map { "master_password_wrap_key_v3.\($0.storageIdentifier)" }
+    }
+
+    private var stagedPasswordVerifierAccount: String? {
+        accountScope.map { "master_password_rotation_verifier_v1.\($0.storageIdentifier)" }
+    }
+
+    private var stagedPasswordBlobAccount: String? {
+        accountScope.map { "master_password_rotation_blob_v1.\($0.storageIdentifier)" }
+    }
+
+    private func migrateLegacyMasterPasswordIfNeeded() {
+        guard let scope = accountScope,
+              !UserDefaults.standard.bool(forKey: masterPasswordMigrationFlag),
+              let passwordVerifierAccount,
+              let passwordBlobAccount,
+              let wrapKeyAccount else {
+            return
+        }
+
+        do {
+            var migratedFromLegacyPlaintext = false
+            if let verifier = try keychain.readString(service: passwordService, account: legacyPasswordVerifierAccount),
+               !verifier.isEmpty {
+                try keychain.saveString(verifier, service: passwordService, account: passwordVerifierAccount)
+            } else if let legacyPlaintext = try keychain.readString(service: passwordService, account: legacyPasswordAccount),
+                      !legacyPlaintext.isEmpty {
+                let unlockedBeforeMigration = isUnlocked
+                try setupMasterPassword(legacyPlaintext)
+                isUnlocked = unlockedBeforeMigration
+                migratedFromLegacyPlaintext = true
+            }
+            if !migratedFromLegacyPlaintext,
+               let blob = try keychain.readString(service: passwordService, account: legacyPasswordBlobAccount),
+               !blob.isEmpty {
+                try keychain.saveString(blob, service: passwordService, account: passwordBlobAccount)
+            }
+            if !migratedFromLegacyPlaintext,
+               let wrapKey = try keychain.readString(service: passwordService, account: legacyWrapKeyAccount),
+               !wrapKey.isEmpty {
+                try keychain.saveString(wrapKey, service: passwordService, account: wrapKeyAccount)
+            }
+            // The scoped copy is complete (or there was nothing to migrate).
+            // Keep legacy records intact for recovery; never assign them to a
+            // later account after this one-time ownership claim.
+            UserDefaults.standard.set(true, forKey: masterPasswordMigrationFlag)
+            _ = scope
+        } catch {
+            // Do not mark the migration complete: a later authenticated launch
+            // can retry without weakening the existing keychain records.
+        }
     }
 }

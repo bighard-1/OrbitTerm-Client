@@ -1,57 +1,58 @@
 import SwiftUI
 
 struct WorkstationTerminalToolbarView: View {
+    @Environment(\.appThemePalette) private var palette
     @ObservedObject var session: WorkspaceSession
     @ObservedObject var sessionManager: SessionManager
-    @Binding var isStressRunning: Bool
-    let onSplitStateChanged: (Bool) -> Void
-    let onToggleStress: (WorkspaceSession) -> Void
 
     var body: some View {
         HStack {
-            Text("终端会话")
+            Label(session.server.name, systemImage: "terminal")
                 .font(.headline)
+                .foregroundStyle(palette.textPrimary.color)
             Spacer()
 #if os(macOS)
-            Button("分屏 +") {
-                Task { @MainActor in
-                    session.terminalSplitCount = min(3, session.terminalSplitCount + 1)
-                    onSplitStateChanged(session.terminalSplitCount > 0)
-                    await sessionManager.ensureTerminalSplitChannels(session: session)
-                }
-            }
-            .buttonStyle(.bordered)
-            .disabled(session.terminalSplitCount >= 3)
+            if session.isConnected, !session.isTelnetSession {
+                Menu {
+                    Button("添加分屏") {
+                        session.terminalSplitCount = min(3, session.terminalSplitCount + 1)
+                        Task {
+                            await sessionManager.ensureTerminalSplitChannels(session: session)
+                        }
+                    }
+                    .disabled(session.terminalSplitCount >= 3)
 
-            Button("合并 -") {
-                Task { @MainActor in
-                    session.terminalSplitCount = max(0, session.terminalSplitCount - 1)
-                    onSplitStateChanged(session.terminalSplitCount > 0)
-                    await sessionManager.ensureTerminalSplitChannels(session: session)
+                    Button("移除分屏") {
+                        session.terminalSplitCount = max(0, session.terminalSplitCount - 1)
+                        Task {
+                            await sessionManager.ensureTerminalSplitChannels(session: session)
+                        }
+                    }
+                    .disabled(session.terminalSplitCount == 0)
+
+                    if session.terminalChannelIDs.count > 1 {
+                        Divider()
+                        ForEach(Array(session.terminalChannelIDs.indices.dropFirst()), id: \.self) { index in
+                            Button("关闭分屏 \(index + 1)", role: .destructive) {
+                                Task {
+                                    await sessionManager.removeTerminalSplit(
+                                        session: session,
+                                        paneIndex: index
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "rectangle.split.2x1")
+                        .foregroundStyle(palette.accentPrimary.color)
                 }
+                .accessibilityLabel("终端分屏")
+                .accessibilityHint("添加或移除已验证终端会话的分屏")
             }
-            .buttonStyle(.bordered)
-            .disabled(session.terminalSplitCount <= 0)
 #endif
-
-            Button("测试连接") {
-                Task { await sessionManager.testConnection(session: session) }
-            }
-
-            Button("连接") {
-                Task { await sessionManager.connect(session: session) }
-            }
-            .buttonStyle(.borderedProminent)
-
-            Button("Ctrl+C") {
-                Task { await sessionManager.sendCtrlC(session: session) }
-            }
-            .buttonStyle(.bordered)
-
-            Button(isStressRunning ? "停止压测" : "yes 压测") {
-                onToggleStress(session)
-            }
-            .buttonStyle(.bordered)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("终端会话：\(session.server.name)")
     }
 }

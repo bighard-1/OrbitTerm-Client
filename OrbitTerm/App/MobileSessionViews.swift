@@ -221,7 +221,11 @@ struct MobileSessionView: View {
         .task {
             guard !hasLoadedRemoteSnippets else { return }
             hasLoadedRemoteSnippets = true
-            await snippetStore.pullFromCloud(token: appSession.readToken(), masterPassword: appSession.readMasterPassword())
+            await snippetStore.pullFromCloud(
+                token: appSession.readToken(),
+                masterPassword: appSession.readMasterPassword(),
+                accountID: appSession.username
+            )
         }
     }
 

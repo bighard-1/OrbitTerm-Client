@@ -44,6 +44,9 @@ struct ContentView: View {
             #endif
             await runAutoSyncIfPossible()
         }
+        .task(id: session.authRevision) {
+            configureAccountScope()
+        }
         .onOpenURL { url in
             deepLinkManager.handle(url: url)
         }
@@ -53,6 +56,9 @@ struct ContentView: View {
                 await runAutoSyncIfPossible()
             }
         }
+        #if os(macOS)
+        .frame(minWidth: 980, minHeight: 700)
+        #endif
         .alert(
             "检测到同步冲突",
             isPresented: Binding(
@@ -94,6 +100,7 @@ struct ContentView: View {
     }
 
     private func runAutoSyncIfPossible() async {
+        configureAccountScope()
         guard !isAutoSyncRunning else { return }
         // 避免前台频繁触发导致页面切换与首屏渲染抖动。
         #if os(macOS)
@@ -103,14 +110,23 @@ struct ContentView: View {
         #endif
 
         // 全端统一注册离线队列鉴权，避免仅桌面端可重试。
-        SyncQueue.shared.setAuthTokenProvider {
-            session.readToken()
+        SyncQueue.shared.setAuthContextProvider {
+            guard let token = session.readToken(),
+                  let scope = AccountScope(username: session.username) else {
+                return nil
+            }
+            return SyncQueueAuthContext(token: token, accountIdentifier: scope.storageIdentifier)
         }
 
-        guard session.isAuthenticated,
-              session.isUnlocked,
-              let token = session.readToken(),
-              let masterPassword = session.readMasterPassword() else {
+        guard session.isAuthenticated, session.isUnlocked else {
+            return
+        }
+        guard let token = session.readToken() else {
+            syncService.lastSyncMessage = "同步不可用：登录令牌不可用，请重新登录"
+            return
+        }
+        guard let masterPassword = session.readMasterPassword() else {
+            syncService.lastSyncMessage = "同步不可用：请重新输入主密码解锁后重试"
             return
         }
 
@@ -118,17 +134,22 @@ struct ContentView: View {
         lastAutoSyncAt = Date()
 
         // 自动同步不阻塞首屏：本地资产先可用，云端配置和片段在后台静默补齐。
+        let accountID = session.username
         Task(priority: .background) {
             let ok = await syncService.pullAndApplyConfigs(
                 token: token,
                 masterPassword: masterPassword,
                 store: serverStore,
-                accountID: session.username,
+                accountID: accountID,
                 incremental: true,
                 silentStart: true
             )
             try? await Task.sleep(nanoseconds: 1_500_000_000)
-            await snippetStore.pullFromCloud(token: token, masterPassword: masterPassword)
+            await snippetStore.pullFromCloud(
+                token: token,
+                masterPassword: masterPassword,
+                accountID: accountID
+            )
 
             await MainActor.run {
                 isAutoSyncRunning = false
@@ -143,12 +164,25 @@ struct ContentView: View {
             }
         }
     }
+
+    private func configureAccountScope() {
+        guard session.isAuthenticated, !session.username.isEmpty else {
+            serverStore.deactivateAccount()
+            snippetStore.deactivateAccount()
+            return
+        }
+        serverStore.activateAccount(username: session.username)
+        snippetStore.activateAccount(username: session.username)
+    }
 }
 
 private struct MainShellView: View {
 
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var serverStore: ServerStore
+    @Environment(\.appThemePalette) private var palette
+    @Environment(\.securitySemanticPalette) private var securityPalette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var diagnostics = DiagnosticsManager.shared
     @StateObject private var syncService = SyncService.shared
     @StateObject private var snippetStore = SnippetStore.shared
@@ -201,14 +235,7 @@ private struct MainShellView: View {
                     .tabItem { Label("更多", systemImage: "ellipsis.circle") }
             }
             .modifier(MobileShellTabBarStyle())
-            .background(
-                LinearGradient(
-                    colors: [Color(red: 0.04, green: 0.07, blue: 0.13), Color(red: 0.08, green: 0.11, blue: 0.17)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
-            )
+            .background(AppChromeBackground())
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     if diagnostics.isRetrying {
@@ -225,8 +252,8 @@ private struct MainShellView: View {
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
-            .animation(.easeInOut(duration: 0.2), value: shouldShowSyncBanner)
-            .animation(.interactiveSpring(response: 0.28, dampingFraction: 0.88), value: selectedTab)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: shouldShowSyncBanner)
+            .animation(reduceMotion ? nil : .interactiveSpring(response: 0.28, dampingFraction: 0.88), value: selectedTab)
             .safeAreaInset(edge: .bottom) {
                 Color.clear.frame(height: 6)
             }
@@ -247,7 +274,7 @@ private struct MainShellView: View {
             }
             .environmentObject(session)
 #if os(macOS)
-            .frame(minWidth: 500, minHeight: 650)
+            .frame(minWidth: 620, minHeight: 720)
 #endif
         }
         .sheet(
@@ -312,7 +339,7 @@ private struct MainShellView: View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(securityPalette.warning.color)
             Text(syncService.lastSyncMessage)
                 .font(.caption)
                 .lineLimit(2)
@@ -328,11 +355,7 @@ private struct MainShellView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
-        )
+        .themedReadableSurface()
     }
 
     private func processDeepLinkIfNeeded() {

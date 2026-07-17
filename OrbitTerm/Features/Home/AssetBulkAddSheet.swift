@@ -3,6 +3,7 @@ import SwiftUI
 struct BulkAddAssetsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var session: AppSession
+    @Environment(\.appThemePalette) private var palette
 
     @ObservedObject var store: ServerStore
     let onFinish: (Int) -> Void
@@ -21,13 +22,15 @@ struct BulkAddAssetsSheet: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("字段顺序：名称、分组、主机、端口、用户名、密码、协议、认证方式、私钥内容")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary.color)
 
                 TextEditor(text: $rawText)
                     .font(.system(.caption, design: .monospaced))
                     .frame(minHeight: 260)
                     .padding(8)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .foregroundStyle(palette.textPrimary.color)
+                    .background(palette.surfaceInput.color, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(palette.borderGlass.color))
 
                 HStack(spacing: 8) {
                     if isSaving {
@@ -36,23 +39,29 @@ struct BulkAddAssetsSheet: View {
                     }
                     Text(statusText)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.textSecondary.color)
                     Spacer()
                 }
 
                 HStack {
                     Button("取消") { dismiss() }
-                        .buttonStyle(.bordered)
+                    .buttonStyle(ThemedSecondaryButtonStyle())
                     Spacer()
                     Button("导入并同步") {
                         Task { await importAssets() }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(ThemedPrimaryButtonStyle())
                     .disabled(isSaving)
                 }
             }
             .padding(16)
             .navigationTitle("批量添加资产")
+            .background {
+                ZStack {
+                    AppChromeBackground()
+                    palette.surfaceReadable.color.opacity(0.8)
+                }
+            }
         }
 #if os(macOS)
         .frame(minWidth: 760, minHeight: 520)

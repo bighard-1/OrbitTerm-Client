@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct AddServerSectionCard<Content: View>: View {
+    @Environment(\.appThemePalette) private var palette
     let title: String
     @ViewBuilder var content: Content
 
@@ -13,19 +14,21 @@ struct AddServerSectionCard<Content: View>: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
                 .font(.headline)
+                .foregroundStyle(palette.textPrimary.color)
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(palette.surfaceReadable.color, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
+                .stroke(palette.borderGlass.color, lineWidth: 1)
         )
     }
 }
 
 struct AddServerFormRow<Field: View>: View {
+    @Environment(\.appThemePalette) private var palette
     let icon: String
     let title: String
     @ViewBuilder var field: Field
@@ -40,9 +43,10 @@ struct AddServerFormRow<Field: View>: View {
         HStack(alignment: .center, spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: icon)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.accentPrimary.color)
                     .frame(width: 16)
                 Text(title)
+                    .foregroundStyle(palette.textSecondary.color)
                     .lineLimit(1)
                     .minimumScaleFactor(0.9)
             }
@@ -56,6 +60,7 @@ struct AddServerFormRow<Field: View>: View {
 }
 
 struct AddServerTextField: View {
+    @Environment(\.appThemePalette) private var palette
     let placeholder: String
     @Binding var text: String
     var numeric = false
@@ -68,7 +73,11 @@ struct AddServerTextField: View {
 
     var body: some View {
         TextField(placeholder, text: $text)
-            .textFieldStyle(.roundedBorder)
+            .textFieldStyle(.plain)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .foregroundStyle(palette.textPrimary.color)
+            .themedInputSurface()
 #if os(iOS)
             .keyboardType(numeric ? .numberPad : .default)
             .textInputAutocapitalization(.never)
@@ -78,6 +87,7 @@ struct AddServerTextField: View {
 }
 
 struct AddServerSecureField: View {
+    @Environment(\.appThemePalette) private var palette
     let placeholder: String
     @Binding var text: String
 
@@ -88,12 +98,18 @@ struct AddServerSecureField: View {
 
     var body: some View {
         SecureField(placeholder, text: $text)
-            .textFieldStyle(.roundedBorder)
+            .textFieldStyle(.plain)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .foregroundStyle(palette.textPrimary.color)
+            .themedInputSurface()
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 struct AddServerStatusBar: View {
+    @Environment(\.appThemePalette) private var palette
+    @Environment(\.securitySemanticPalette) private var security
     let isTestingConnection: Bool
     let isConnectionVerified: Bool
     let testStatus: String
@@ -101,22 +117,26 @@ struct AddServerStatusBar: View {
     let onTest: () -> Void
 
     var body: some View {
+        let presentation = AssetConnectionTestPresentation.resolve(
+            isTesting: isTestingConnection,
+            isVerified: isConnectionVerified
+        )
         HStack(spacing: 10) {
             if isTestingConnection {
                 ProgressView()
                     .controlSize(.small)
                 Text("正在测试连接...")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(security.information.color)
             } else if isConnectionVerified {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(security.success.color)
                 Text("连接测试成功，可直接保存并连接")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(security.success.color)
             } else {
                 Image(systemName: "bolt.horizontal.circle")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary.color)
                 Text(testStatus)
-                    .foregroundStyle(statusColor(testStatus))
+                    .foregroundStyle(presentation.themeColor(in: security, fallback: palette).color)
             }
 
             Spacer()
@@ -124,20 +144,13 @@ struct AddServerStatusBar: View {
             Button("测试连接") {
                 onTest()
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(ThemedSecondaryButtonStyle())
             .disabled(isTestingConnection || !canTestConnection)
         }
         .font(.system(.body, design: .rounded))
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
-        .background(.thinMaterial)
-        .overlay(Rectangle().frame(height: 1).foregroundStyle(.secondary.opacity(0.1)), alignment: .top)
-    }
-
-    private func statusColor(_ text: String) -> Color {
-        if text.contains("成功") { return .green }
-        if text.contains("失败") { return .red }
-        if text.contains("测试") || text.contains("尚未") { return .secondary }
-        return .secondary
+        .background(palette.surfaceGlassStrong.color)
+        .overlay(Rectangle().frame(height: 1).foregroundStyle(palette.divider.color), alignment: .top)
     }
 }

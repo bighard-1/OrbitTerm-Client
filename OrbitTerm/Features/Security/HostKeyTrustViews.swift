@@ -30,7 +30,7 @@ struct HostKeyTrustView: View {
             case .idle:
                 EmptyView()
             case .connecting, .reconnecting:
-                progressView("Verifying Server Identity")
+                progressView("正在验证服务器身份")
             case let .awaitingUserDecision(_, challenge):
                 HostKeyChallengeSheet(
                     presentation: HostKeyChallengePresentation(payload: challenge),
@@ -84,9 +84,9 @@ struct HostKeyChallengeSheet: View {
 
     var body: some View {
         HostKeyCard {
-            Label("Verify Server Identity", systemImage: "key.horizontal.fill")
+            Label("验证服务器身份", systemImage: "key.horizontal.fill")
                 .font(.title2.weight(.semibold))
-            Text("This is the first time OrbitTerm has seen this server key. Verify the fingerprint before continuing.")
+            Text("这是 OrbitTerm 首次看到此服务器密钥。请先核对指纹，再决定是否信任。")
             HostKeyFingerprintView(
                 host: presentation.host,
                 port: presentation.port,
@@ -94,21 +94,21 @@ struct HostKeyChallengeSheet: View {
                 fingerprints: [("SHA256", presentation.fingerprint)]
             )
             HStack {
-                Button("Cancel", action: onCancel)
+                Button("取消", action: onCancel)
                 Spacer()
-                Button("Trust This Host", action: onTrust)
+                Button("信任此服务器", action: onTrust)
                     .buttonStyle(.borderedProminent)
                     .disabled(presentation.isPersisting || presentation.isExpired)
             }
             if presentation.isExpired {
                 Label(
-                    "This verification request has expired. Close this dialog and start again.",
+                    "此验证请求已过期。请关闭此窗口后重新发起连接。",
                     systemImage: "clock.badge.exclamationmark"
                 )
                 .foregroundStyle(.secondary)
             }
             if presentation.isPersisting {
-                ProgressView("Saving trust…")
+                ProgressView("正在保存信任信息…")
             }
         }
     }
@@ -131,38 +131,38 @@ struct HostKeyBlockedView: View {
                 fingerprints: fingerprintRows
             )
             HStack {
-                Button("Close", action: onClose)
+                Button("关闭", action: onClose)
                 Spacer()
-                Button("Copy Fingerprints") { onCopy(presentation.copyText) }
+                Button("复制指纹") { onCopy(presentation.copyText) }
             }
         }
     }
 
     private var title: String {
         switch presentation.severity {
-        case .changed: "Server Identity Changed"
-        case .revoked: "Server Key Revoked"
-        case .unsupported: "Server Key Blocked"
+        case .changed: "服务器身份已变更"
+        case .revoked: "服务器密钥已撤销"
+        case .unsupported: "服务器密钥已阻断"
         }
     }
 
     private var message: String {
         switch presentation.severity {
         case .changed:
-            "The server presented a different key. Connection is blocked until the change is verified outside OrbitTerm."
+            "服务器提供了不同的密钥。在通过独立渠道核实变更前，连接将保持阻断。"
         case .revoked:
-            "This server key has been revoked. OrbitTerm will not continue the connection."
+            "此服务器密钥已被撤销。OrbitTerm 不会继续连接。"
         case .unsupported:
-            "This server key cannot be safely verified. OrbitTerm will not continue the connection."
+            "此服务器密钥无法被安全验证。OrbitTerm 不会继续连接。"
         }
     }
 
     private var fingerprintRows: [(String, String)] {
         var rows: [(String, String)] = []
         if let previous = presentation.previousFingerprint {
-            rows.append(("Previous", previous))
+            rows.append(("原指纹", previous))
         }
-        rows.append(("Presented", presentation.presentedFingerprint))
+        rows.append(("当前指纹", presentation.presentedFingerprint))
         return rows
     }
 }
@@ -178,9 +178,9 @@ struct HostKeySaveErrorView: View {
                 .font(.title2.weight(.semibold))
             Text(presentation.message)
             HStack {
-                Button("Cancel", action: onCancel)
+                Button("取消", action: onCancel)
                 Spacer()
-                Button("Retry Save", action: onRetry)
+                Button("重新保存", action: onRetry)
                     .buttonStyle(.borderedProminent)
             }
         }
@@ -195,8 +195,8 @@ struct HostKeyFingerprintView: View {
 
     var body: some View {
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
-            row("Host", "\(host):\(port)")
-            row("Algorithm", algorithm)
+            row("主机", "\(host):\(port)")
+            row("算法", algorithm)
             ForEach(Array(fingerprints.enumerated()), id: \.offset) { _, item in
                 row(item.0, item.1, monospaced: true)
             }
@@ -248,10 +248,10 @@ private struct HostKeyFailureView: View {
 
     var body: some View {
         HostKeyCard(isWarning: true) {
-            Label("Connection Couldn’t Continue", systemImage: "exclamationmark.triangle.fill")
+            Label("连接无法继续", systemImage: "exclamationmark.triangle.fill")
                 .font(.title2.weight(.semibold))
-            Text("OrbitTerm stopped before opening the session. Try again after reviewing the connection details.")
-            Button("Close", action: onClose)
+            Text("OrbitTerm 在打开会话前已安全停止。请检查连接信息后重试。")
+            Button("关闭", action: onClose)
         }
     }
 }

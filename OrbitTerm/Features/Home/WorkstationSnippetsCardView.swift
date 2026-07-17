@@ -3,19 +3,18 @@ import SwiftUI
 struct WorkstationSnippetsCardView: View {
     let active: WorkspaceSession
     @ObservedObject var snippetStore: SnippetStore
-    let onHide: () -> Void
     let onInsertCommand: (String, Bool) -> Void
+    @Environment(\.appThemePalette) private var palette
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Snippets")
                     .font(.subheadline.weight(.semibold))
+                Text("按分类管理")
+                    .font(.caption)
+                    .foregroundStyle(palette.textSecondary.color)
                 Spacer()
-                Button(action: onHide) {
-                    Image(systemName: "eye.slash")
-                }
-                .buttonStyle(.borderless)
             }
 
             SnippetsPanelView(
@@ -25,6 +24,10 @@ struct WorkstationSnippetsCardView: View {
             )
         }
         .padding(10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(palette.surfaceGlassStrong.color, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(palette.borderGlass.color)
+        }
     }
 }

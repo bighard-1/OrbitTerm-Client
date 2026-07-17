@@ -153,6 +153,34 @@ final class NetworkService: NSObject {
         return data
     }
 
+    func changePassword(currentPassword: String, newPassword: String) async throws -> LoginData {
+        let body = ChangePasswordRequest(
+            current_password: currentPassword,
+            new_password: newPassword
+        )
+        return try await sendAuthorized(
+            path: "/api/v1/auth/password",
+            method: "POST",
+            body: body,
+            responseType: LoginData.self
+        )
+    }
+
+    func rotateMasterKey(
+        currentLoginPassword: String,
+        items: [MasterKeyRotationItemRequest]
+    ) async throws -> LoginData {
+        try await sendAuthorized(
+            path: "/api/v1/config/master-key/rotate",
+            method: "POST",
+            body: MasterKeyRotationRequest(
+                current_login_password: currentLoginPassword,
+                items: items
+            ),
+            responseType: LoginData.self
+        )
+    }
+
     func uploadConfig(token _: String, payload: UploadConfigRequest) async throws -> UploadConfigData {
         try await sendAuthorized(
             path: "/api/v1/config/upload",

@@ -9,17 +9,22 @@ struct DockerManagerView: View {
     @State private var editingContainer: DockerContainerCard?
     @State private var updateDraft = DockerContainerUpdateDraft()
     private let vault = CredentialVault.shared
+    @Environment(\.appThemePalette) private var palette
+    @Environment(\.securitySemanticPalette) private var security
     
     private var effectiveService: DockerService {
         resolvePreferredSession()?.dockerService ?? service
     }
 
     var body: some View {
-        Group {
-            if !effectiveService.isConnected {
-                connectPanel
-            } else {
-                containerList
+        ZStack {
+            AppChromeBackground()
+            Group {
+                if !effectiveService.isConnected {
+                    connectPanel
+                } else {
+                    containerList
+                }
             }
         }
         .navigationTitle("Docker 管理")
@@ -72,6 +77,8 @@ struct DockerManagerView: View {
                             .applyInputPolish()
                     }
                 }
+                .scrollContentBackground(.hidden)
+                .background(palette.surfaceReadable.color)
                 .navigationTitle("编辑 \(container.name)")
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
@@ -103,28 +110,28 @@ struct DockerManagerView: View {
                             Text("当前资产")
                             Spacer()
                             Text(preferred.server.name)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(palette.textSecondary.color)
                         }
                         Text("Docker 仅使用该工作区的已验证 SSH 会话。")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(palette.textSecondary.color)
                     } else {
                         Text("需要已验证会话")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(palette.textSecondary.color)
                     }
                 }
                 Section("操作") {
                     Button("从当前会话启动 Docker") {
                         Task { await sessionManager.startDockerForActiveSessionIfNeeded() }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(ThemedPrimaryButtonStyle())
                     .disabled(
                         resolvePreferredSession()?.verifiedSessionLease == nil ||
                             effectiveService.isLoading
                     )
                     Text("不会读取凭据、创建 SFTP 会话或回退到旧连接。")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.textSecondary.color)
                 }
             } else if let preferred = resolvePreferredSession() {
                 Section("自动关联资产") {
@@ -132,11 +139,11 @@ struct DockerManagerView: View {
                         Text("当前资产")
                         Spacer()
                         Text(preferred.server.name)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(palette.textSecondary.color)
                     }
                     Text("点击下方“连接 Docker”将优先复用该资产的会话凭据。")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.textSecondary.color)
                 }
             }
             if !sessionManager.requiresCheckedConnection {
@@ -172,16 +179,18 @@ struct DockerManagerView: View {
                             }
                         }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(ThemedPrimaryButtonStyle())
                     .disabled(effectiveService.isLoading)
                 }
             }
 
             Section("状态") {
                 Text(effectiveService.statusText)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(connectionPresentation.themeColor(in: security, fallback: palette).color)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(palette.surfaceReadable.color)
     }
 
     private var containerList: some View {
@@ -193,7 +202,7 @@ struct DockerManagerView: View {
                     }
                     .contextMenu {
                         ForEach(DockerAction.allCases, id: \.self) { action in
-                            Button(action.label) {
+                            Button(action.label, role: action.isDestructive ? .destructive : nil) {
                                 Task { await effectiveService.performAction(containerID: card.id, action: action) }
                             }
                         }
@@ -218,7 +227,7 @@ struct DockerManagerView: View {
                     Spacer()
                     Text(effectiveService.statusText)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.textSecondary.color)
                 }
                 .padding(.vertical, 2)
             }
@@ -228,6 +237,8 @@ struct DockerManagerView: View {
         #else
         .listStyle(.inset)
         #endif
+        .scrollContentBackground(.hidden)
+        .background(palette.surfaceReadable.color)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("刷新") {
@@ -241,6 +252,21 @@ struct DockerManagerView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private var connectionPresentation: DockerConnectionPresentationState {
+        if effectiveService.isLoading || effectiveService.isScanning { return .connecting }
+        if effectiveService.dockerEnvironmentMissing { return .unavailable }
+        return effectiveService.isConnected ? .connected : .disconnected
+    }
+}
+
+private extension DockerAction {
+    var isDestructive: Bool {
+        switch self {
+        case .kill, .remove: true
+        case .start, .stop, .restart: false
+        }
     }
 }
 

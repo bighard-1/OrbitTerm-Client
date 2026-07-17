@@ -2,7 +2,6 @@ import SwiftUI
 
 struct WorkstationSFTPCardView: View {
     let active: WorkspaceSession
-    let onHide: () -> Void
     let onRefresh: () -> Void
     let onCreateDirectory: () -> Void
     let onCreateFile: () -> Void
@@ -14,6 +13,7 @@ struct WorkstationSFTPCardView: View {
     let onChmod: (FileItem) -> Void
     let onSetMode: (FileItem, String) -> Void
     let onDelete: (FileItem) -> Void
+    @Environment(\.appThemePalette) private var palette
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -21,7 +21,7 @@ struct WorkstationSFTPCardView: View {
 
             Text(active.sftpManager.statusText)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.textSecondary.color)
 
             HStack(spacing: 10) {
                 Text("总计 \(active.sftpManager.items.count)")
@@ -29,12 +29,12 @@ struct WorkstationSFTPCardView: View {
                 Text("文件 \(active.sftpManager.items.filter { !$0.isDirectory }.count)")
             }
             .font(.caption2)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(palette.textSecondary.color)
 
             if active.sftpManager.items.isEmpty {
                 Text("连接后自动展示远程文件")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary.color)
             } else {
                 ForEach(active.sftpManager.items) { item in
                     fileRow(item)
@@ -42,7 +42,9 @@ struct WorkstationSFTPCardView: View {
             }
         }
         .padding(10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .foregroundStyle(palette.textPrimary.color)
+        .background(palette.surfaceGlassStrong.color, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(palette.borderGlass.color, lineWidth: 1))
     }
 
     private var header: some View {
@@ -50,10 +52,6 @@ struct WorkstationSFTPCardView: View {
             Text("SFTP")
                 .font(.subheadline.weight(.semibold))
             Spacer()
-            Button(action: onHide) {
-                Image(systemName: "eye.slash")
-            }
-            .buttonStyle(.borderless)
             Button("刷新", action: onRefresh)
                 .buttonStyle(.bordered)
             Button("新建目录", action: onCreateDirectory)
@@ -68,13 +66,13 @@ struct WorkstationSFTPCardView: View {
     private func fileRow(_ item: FileItem) -> some View {
         HStack {
             Image(systemName: item.iconName)
-                .foregroundStyle(item.isDirectory ? .blue : .secondary)
+                .foregroundStyle(item.isDirectory ? palette.accentPrimary.color : palette.textSecondary.color)
             Text(item.name)
                 .lineLimit(1)
             Spacer()
             Text(item.formattedSize)
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.textSecondary.color)
         }
         .contentShape(Rectangle())
         .onTapGesture {

@@ -1,9 +1,11 @@
 import SwiftUI
 
 struct WorkstationAssetSidebarView: View {
+    @Environment(\.appThemePalette) private var palette
     @ObservedObject var serverStore: ServerStore
     @ObservedObject var sessionManager: SessionManager
     @Binding var searchText: String
+    @State private var collapsedGroups: Set<String> = []
     let onCollapse: () -> Void
     let onAddServer: () -> Void
     let onEditServer: (ServerEntry) -> Void
@@ -29,10 +31,33 @@ struct WorkstationAssetSidebarView: View {
 
                 List {
                     ForEach(filteredGroupedServers, id: \.group) { section in
-                        Section(section.group) {
-                            ForEach(section.items) { server in
-                                serverRow(server)
+                        Section {
+                            if !isCollapsed(section.group) {
+                                ForEach(section.items) { server in
+                                    serverRow(server)
+                                }
                             }
+                        } header: {
+                            Button {
+                                toggleGroup(section.group)
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: isCollapsed(section.group) ? "chevron.right" : "chevron.down")
+                                        .font(.caption.weight(.semibold))
+                                    Text(section.group)
+                                    Spacer(minLength: 0)
+                                    Text("\(section.items.count)")
+                                        .font(.caption2.monospacedDigit())
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                            .accessibilityLabel("\(section.group)，\(section.items.count) 台服务器")
+                            .accessibilityValue(isCollapsed(section.group) ? "已折叠" : "已展开")
+                            .accessibilityHint(isCollapsed(section.group) ? "双击展开分组" : "双击折叠分组")
                         }
                     }
                 }
@@ -50,10 +75,12 @@ struct WorkstationAssetSidebarView: View {
                 Image(systemName: "sidebar.left")
             }
             .buttonStyle(.borderless)
+            .accessibilityLabel("收起服务器侧栏")
             Button(action: onAddServer) {
                 Image(systemName: "plus")
             }
             .buttonStyle(.borderless)
+            .accessibilityLabel("添加服务器")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -74,8 +101,11 @@ struct WorkstationAssetSidebarView: View {
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
-                            .background(.thinMaterial, in: Capsule())
-                            .foregroundStyle(.secondary)
+                            .background(palette.surfaceInput.color, in: Capsule())
+                            .overlay {
+                                Capsule().stroke(palette.borderGlass.color)
+                            }
+                            .foregroundStyle(palette.textSecondary.color)
                     }
                     HStack(spacing: 6) {
                         Text(server.endpointText)
@@ -83,15 +113,18 @@ struct WorkstationAssetSidebarView: View {
                         ServerConnectionText(session: sessionForServer(server))
                     }
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.textSecondary.color)
                 }
             }
             .padding(.vertical, 4)
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(server.name)，\(server.endpointText)，\(sessionForServer(server).map { ConnectionPresentationAdapter.checkedSSH(hasVerifiedSessionLease: $0.verifiedSessionLease != nil, hasTerminalChannel: $0.terminalChannelID != nil, isSessionUsable: $0.isConnected).label } ?? "未连接")")
+        .accessibilityHint("双击打开新会话")
         .listRowBackground(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(serverStore.selectedServerID == server.id ? Color.accentColor.opacity(0.13) : Color.clear)
+                .fill(serverStore.selectedServerID == server.id ? palette.accentPrimary.color.opacity(0.13) : Color.clear)
         )
         .simultaneousGesture(
             TapGesture(count: 2).onEnded {
@@ -142,6 +175,18 @@ struct WorkstationAssetSidebarView: View {
                 $0.group.localizedCaseInsensitiveCompare($1.group) == .orderedAscending
             }
     }
+
+    private func isCollapsed(_ group: String) -> Bool {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && collapsedGroups.contains(group)
+    }
+
+    private func toggleGroup(_ group: String) {
+        if collapsedGroups.contains(group) {
+            collapsedGroups.remove(group)
+        } else {
+            collapsedGroups.insert(group)
+        }
+    }
 }
 
 struct WorkstationLeftRailView: View {
@@ -154,6 +199,7 @@ struct WorkstationLeftRailView: View {
                     .rotationEffect(.degrees(180))
             }
             .buttonStyle(.borderless)
+            .accessibilityLabel("展开服务器侧栏")
             .padding(.top, 12)
             Spacer()
         }
@@ -178,11 +224,10 @@ private struct ObservedServerConnectionBadge: View {
     @ObservedObject var session: WorkspaceSession
 
     var body: some View {
-        Circle()
-            .fill(session.isConnected ? Color.green : Color.orange.opacity(0.75))
-            .frame(width: 8, height: 8)
-            .shadow(color: session.isConnected ? .green.opacity(0.45) : .clear, radius: 4)
+        ConnectionStatusBadge(presentation: presentation)
     }
+
+    private var presentation: ConnectionPresentation { ConnectionPresentationAdapter.checkedSSH(hasVerifiedSessionLease: session.verifiedSessionLease != nil, hasTerminalChannel: session.terminalChannelID != nil, isSessionUsable: session.isConnected) }
 }
 
 private struct ServerConnectionText: View {
@@ -201,7 +246,9 @@ private struct ObservedServerConnectionText: View {
     @ObservedObject var session: WorkspaceSession
 
     var body: some View {
-        Text(session.isConnected ? "已连接" : session.terminalStatus)
-            .foregroundStyle(session.isConnected ? .green : .secondary)
+        ConnectionStatusRow(presentation: presentation)
+            .font(.caption)
     }
+
+    private var presentation: ConnectionPresentation { ConnectionPresentationAdapter.checkedSSH(hasVerifiedSessionLease: session.verifiedSessionLease != nil, hasTerminalChannel: session.terminalChannelID != nil, isSessionUsable: session.isConnected) }
 }

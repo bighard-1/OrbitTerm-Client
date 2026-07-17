@@ -6,6 +6,7 @@ import AppKit
 struct SFTPBrowserView: View {
     @StateObject private var manager = SFTPManager()
     @ObservedObject private var sessionManager = SessionManager.shared
+    @Environment(\.appThemePalette) private var palette
 
     @State private var connectionDraft = SFTPBrowserConnectionDraft()
     @State private var isDropTargeted: Bool = false
@@ -24,22 +25,26 @@ struct SFTPBrowserView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            if !effectiveManager.isConnected {
-                if sessionManager.requiresCheckedConnection {
-                    SFTPVerifiedSessionPanel(
-                        hasVerifiedSession: sessionManager.activeSession?.verifiedSessionLease != nil,
-                        isLoading: effectiveManager.isLoading,
-                        statusText: effectiveManager.statusText,
-                        onOpen: {
-                            Task { await autoBindActiveSessionIfNeeded() }
-                        }
-                    )
+        ZStack {
+            AppChromeBackground()
+
+            VStack(spacing: 0) {
+                if !effectiveManager.isConnected {
+                    if sessionManager.requiresCheckedConnection {
+                        SFTPVerifiedSessionPanel(
+                            hasVerifiedSession: sessionManager.activeSession?.verifiedSessionLease != nil,
+                            isLoading: effectiveManager.isLoading,
+                            statusText: effectiveManager.statusText,
+                            onOpen: {
+                                Task { await autoBindActiveSessionIfNeeded() }
+                            }
+                        )
+                    } else {
+                        SFTPConnectPanel(draft: $connectionDraft, manager: effectiveManager)
+                    }
                 } else {
-                    SFTPConnectPanel(draft: $connectionDraft, manager: effectiveManager)
+                    browserPanel
                 }
-            } else {
-                browserPanel
             }
         }
         .navigationTitle("SFTP")
@@ -134,6 +139,8 @@ struct SFTPBrowserView: View {
 
                 if effectiveManager.isLoading {
                     ProgressView("加载中...")
+                        .tint(palette.accentPrimary.color)
+                        .foregroundStyle(palette.textPrimary.color)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if effectiveManager.items.isEmpty {
                     emptyFolderView
@@ -218,7 +225,8 @@ struct SFTPBrowserView: View {
                         .font(.caption2.bold())
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(.blue.opacity(0.15), in: Capsule())
+                        .foregroundStyle(palette.accentPrimary.color)
+                        .background(palette.surfaceInput.color, in: Capsule())
                 }
             }
         }

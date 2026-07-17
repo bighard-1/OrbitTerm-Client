@@ -13,6 +13,8 @@ enum SyncQueueOperation: Codable {
 
 struct SyncQueueItem: Codable, Identifiable {
     let id: UUID
+    /// Opaque account namespace. Queued work is never sent using another account's token.
+    let accountIdentifier: String
     let operation: SyncQueueOperation
     let requestHash: String
     let createdAt: Date
@@ -23,6 +25,7 @@ struct SyncQueueItem: Codable, Identifiable {
 
     init(
         id: UUID = UUID(),
+        accountIdentifier: String,
         operation: SyncQueueOperation,
         requestHash: String,
         createdAt: Date = Date(),
@@ -32,6 +35,7 @@ struct SyncQueueItem: Codable, Identifiable {
         lastError: String? = nil
     ) {
         self.id = id
+        self.accountIdentifier = accountIdentifier
         self.operation = operation
         self.requestHash = requestHash
         self.createdAt = createdAt
@@ -71,8 +75,8 @@ actor SyncQueueStore {
 
         let sql = """
         INSERT OR IGNORE INTO sync_queue
-        (id, request_hash, payload_json, created_at, updated_at, attempt_count, next_retry_at, last_error)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+        (id, account_identifier, request_hash, payload_json, created_at, updated_at, attempt_count, next_retry_at, last_error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return }
@@ -81,16 +85,17 @@ actor SyncQueueStore {
         let payloadData = (try? JSONEncoder().encode(item.operation)) ?? Data()
         let payloadText = String(data: payloadData, encoding: .utf8) ?? "{}"
         bindText(item.id.uuidString, stmt: stmt, index: 1)
-        bindText(item.requestHash, stmt: stmt, index: 2)
-        bindText(payloadText, stmt: stmt, index: 3)
-        sqlite3_bind_double(stmt, 4, item.createdAt.timeIntervalSince1970)
-        sqlite3_bind_double(stmt, 5, item.updatedAt.timeIntervalSince1970)
-        sqlite3_bind_int(stmt, 6, Int32(item.attemptCount))
-        sqlite3_bind_double(stmt, 7, item.nextRetryAt.timeIntervalSince1970)
+        bindText(item.accountIdentifier, stmt: stmt, index: 2)
+        bindText(item.requestHash, stmt: stmt, index: 3)
+        bindText(payloadText, stmt: stmt, index: 4)
+        sqlite3_bind_double(stmt, 5, item.createdAt.timeIntervalSince1970)
+        sqlite3_bind_double(stmt, 6, item.updatedAt.timeIntervalSince1970)
+        sqlite3_bind_int(stmt, 7, Int32(item.attemptCount))
+        sqlite3_bind_double(stmt, 8, item.nextRetryAt.timeIntervalSince1970)
         if let lastError = item.lastError {
-            bindText(lastError, stmt: stmt, index: 8)
+            bindText(lastError, stmt: stmt, index: 9)
         } else {
-            sqlite3_bind_null(stmt, 8)
+            sqlite3_bind_null(stmt, 9)
         }
         _ = sqlite3_step(stmt)
     }
@@ -128,35 +133,39 @@ actor SyncQueueStore {
         _ = sqlite3_step(stmt)
     }
 
-    func firstItem() -> SyncQueueItem? {
+    func firstItem(accountIdentifier: String) -> SyncQueueItem? {
         guard let db else { return nil }
         let sql = """
-        SELECT id, request_hash, payload_json, created_at, updated_at, attempt_count, next_retry_at, last_error
+        SELECT id, account_identifier, request_hash, payload_json, created_at, updated_at, attempt_count, next_retry_at, last_error
         FROM sync_queue
+        WHERE account_identifier = ?
         ORDER BY created_at ASC
         LIMIT 1;
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return nil }
         defer { sqlite3_finalize(stmt) }
+        bindText(accountIdentifier, stmt: stmt, index: 1)
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
 
         guard let idText = sqlite3_column_text(stmt, 0).map({ String(cString: $0) }),
               let id = UUID(uuidString: idText),
-              let hashText = sqlite3_column_text(stmt, 1).map({ String(cString: $0) }),
-              let payloadText = sqlite3_column_text(stmt, 2).map({ String(cString: $0) }),
+              let itemAccountIdentifier = sqlite3_column_text(stmt, 1).map({ String(cString: $0) }),
+              let hashText = sqlite3_column_text(stmt, 2).map({ String(cString: $0) }),
+              let payloadText = sqlite3_column_text(stmt, 3).map({ String(cString: $0) }),
               let payloadData = payloadText.data(using: .utf8),
               let operation = Self.decodeOperation(payloadData) else {
             return nil
         }
-        let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 3))
-        let updatedAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4))
-        let attemptCount = Int(sqlite3_column_int(stmt, 5))
-        let nextRetryAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 6))
-        let lastError = sqlite3_column_text(stmt, 7).map { String(cString: $0) }
+        let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4))
+        let updatedAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 5))
+        let attemptCount = Int(sqlite3_column_int(stmt, 6))
+        let nextRetryAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 7))
+        let lastError = sqlite3_column_text(stmt, 8).map { String(cString: $0) }
 
         return SyncQueueItem(
             id: id,
+            accountIdentifier: itemAccountIdentifier,
             operation: operation,
             requestHash: hashText,
             createdAt: createdAt,
@@ -183,6 +192,7 @@ actor SyncQueueStore {
         let sql = """
         CREATE TABLE IF NOT EXISTS sync_queue (
             id TEXT PRIMARY KEY NOT NULL,
+            account_identifier TEXT NULL,
             request_hash TEXT NOT NULL UNIQUE,
             payload_json TEXT NOT NULL,
             created_at REAL NOT NULL,
@@ -193,6 +203,8 @@ actor SyncQueueStore {
         );
         """
         _ = sqlite3_exec(db, sql, nil, nil, nil)
+        _ = sqlite3_exec(db, "ALTER TABLE sync_queue ADD COLUMN account_identifier TEXT NULL;", nil, nil, nil)
+        _ = sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS sync_queue_account_created ON sync_queue(account_identifier, created_at);", nil, nil, nil)
     }
 
     private func execute(_ db: OpaquePointer, sql: String) -> Bool {
@@ -208,6 +220,11 @@ actor SyncQueueStore {
 
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
+struct SyncQueueAuthContext {
+    let token: String
+    let accountIdentifier: String
+}
+
 final class SyncQueue {
     static let shared = SyncQueue()
 
@@ -220,7 +237,7 @@ final class SyncQueue {
     private var isNetworkReachable = true
     private var processingTask: Task<Void, Never>?
     private var wakeTask: Task<Void, Never>?
-    private var authTokenProvider: (() -> String?)?
+    private var authContextProvider: (() -> SyncQueueAuthContext?)?
 
     private let store: SyncQueueStore
 
@@ -231,32 +248,34 @@ final class SyncQueue {
         startMonitor()
     }
 
-    func setAuthTokenProvider(_ provider: @escaping () -> String?) {
+    func setAuthContextProvider(_ provider: @escaping () -> SyncQueueAuthContext?) {
         stateQueue.sync {
-            authTokenProvider = provider
+            authContextProvider = provider
         }
         triggerProcessing(reason: "token_provider_updated")
     }
 
-    func enqueueUpload(payload: UploadConfigRequest, reason: String?) async {
-        await enqueue(.upload(payload), reason: reason)
+    func enqueueUpload(payload: UploadConfigRequest, accountID: String, reason: String?) async {
+        await enqueue(.upload(payload), accountID: accountID, reason: reason)
     }
 
-    func enqueueDelete(assetID: UUID, request: AssetMutationRequest, reason: String?) async {
-        await enqueue(.delete(assetID: assetID, request: request), reason: reason)
+    func enqueueDelete(assetID: UUID, request: AssetMutationRequest, accountID: String, reason: String?) async {
+        await enqueue(.delete(assetID: assetID, request: request), accountID: accountID, reason: reason)
     }
 
-    func enqueueRestore(assetID: UUID, request: AssetMutationRequest, reason: String?) async {
-        await enqueue(.restore(assetID: assetID, request: request), reason: reason)
+    func enqueueRestore(assetID: UUID, request: AssetMutationRequest, accountID: String, reason: String?) async {
+        await enqueue(.restore(assetID: assetID, request: request), accountID: accountID, reason: reason)
     }
 
-    func enqueuePurge(assetID: UUID, request: AssetMutationRequest, reason: String?) async {
-        await enqueue(.purge(assetID: assetID, request: request), reason: reason)
+    func enqueuePurge(assetID: UUID, request: AssetMutationRequest, accountID: String, reason: String?) async {
+        await enqueue(.purge(assetID: assetID, request: request), accountID: accountID, reason: reason)
     }
 
-    private func enqueue(_ operation: SyncQueueOperation, reason: String?) async {
-        let hash = Self.requestHash(operation)
+    private func enqueue(_ operation: SyncQueueOperation, accountID: String, reason: String?) async {
+        guard let scope = AccountScope(username: accountID) else { return }
+        let hash = Self.requestHash(operation, accountIdentifier: scope.storageIdentifier)
         let item = SyncQueueItem(
+            accountIdentifier: scope.storageIdentifier,
             operation: operation,
             requestHash: hash,
             attemptCount: 0,
@@ -300,11 +319,11 @@ final class SyncQueue {
         logger.debug("[SYNCQ] process start reason=\(reason, privacy: .public)")
         while !Task.isCancelled {
             guard isNetworkUp else { return }
-            guard let token = currentToken(), !token.isEmpty else {
+            guard let auth = currentAuthContext(), !auth.token.isEmpty else {
                 logger.debug("[SYNCQ] process paused: token unavailable")
                 return
             }
-            guard let head = await store.firstItem() else {
+            guard let head = await store.firstItem(accountIdentifier: auth.accountIdentifier) else {
                 logger.debug("[SYNCQ] queue empty")
                 return
             }
@@ -315,7 +334,7 @@ final class SyncQueue {
             }
 
             do {
-                try await send(head.operation, token: token)
+                try await send(head.operation, token: auth.token)
                 await store.remove(id: head.id)
                 logger.debug("[SYNCQ] sent id=\(head.id.uuidString, privacy: .public)")
             } catch {
@@ -369,8 +388,8 @@ final class SyncQueue {
         stateQueue.sync { isNetworkReachable }
     }
 
-    private func currentToken() -> String? {
-        stateQueue.sync { authTokenProvider?() }
+    private func currentAuthContext() -> SyncQueueAuthContext? {
+        stateQueue.sync { authContextProvider?() }
     }
 
     private static func backoffSeconds(for attempt: Int) -> TimeInterval {
@@ -390,9 +409,10 @@ final class SyncQueue {
         Task {
             for item in items {
                 let operation = SyncQueueOperation.upload(item.payload)
-                let hash = Self.requestHash(operation)
+                let hash = Self.requestHash(operation, accountIdentifier: "legacy-unassigned")
                 let migrated = SyncQueueItem(
                     id: item.id,
+                    accountIdentifier: "legacy-unassigned",
                     operation: operation,
                     requestHash: hash,
                     createdAt: item.createdAt,
@@ -407,17 +427,17 @@ final class SyncQueue {
         }
     }
 
-    private static func requestHash(_ operation: SyncQueueOperation) -> String {
+    private static func requestHash(_ operation: SyncQueueOperation, accountIdentifier: String) -> String {
         if case let .upload(payload) = operation {
             // 保持与 SQLite v1 相同的哈希，升级时不会重复入队已有上传任务。
-            let legacyBase = "\(payload.id ?? 0)|\(payload.vector_clock)|\(payload.encrypted_blob_base64)"
+            let legacyBase = "\(accountIdentifier)|\(payload.id ?? 0)|\(payload.vector_clock)|\(payload.encrypted_blob_base64)"
             let digest = SHA256.hash(data: Data(legacyBase.utf8))
             return digest.map { String(format: "%02x", $0) }.joined()
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let encoded = (try? encoder.encode(operation)) ?? Data()
-        let digest = SHA256.hash(data: encoded)
+        let digest = SHA256.hash(data: Data(accountIdentifier.utf8) + encoded)
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 

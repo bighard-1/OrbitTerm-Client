@@ -57,12 +57,17 @@ final class DeepLinkManager: ObservableObject {
 
     private func parseSSH(url: URL) -> DeepLinkIntent? {
         guard let comp = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let host = comp.host?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !host.isEmpty else {
+              let host = safeHost(comp.host) else {
             return nil
         }
 
-        let username = (comp.user ?? "root").trimmingCharacters(in: .whitespacesAndNewlines)
+        let username: String
+        if let rawUsername = comp.user {
+            guard let validUsername = safeUsername(rawUsername) else { return nil }
+            username = validUsername
+        } else {
+            username = "root"
+        }
         let port = comp.port ?? 22
         guard (1...65535).contains(port) else { return nil }
 
@@ -84,22 +89,64 @@ final class DeepLinkManager: ObservableObject {
 
         let query = Dictionary((comp.queryItems ?? []).map { ($0.name.lowercased(), $0.value ?? "") }, uniquingKeysWith: { first, _ in first })
 
-        let host = query["host"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? comp.host?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !host.isEmpty else { return nil }
+        guard let host = safeHost(query["host"] ?? comp.host) else { return nil }
 
-        let username = query["username"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-            ?? query["user"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-            ?? "root"
+        let username: String
+        if let rawUsername = query["username"] ?? query["user"] {
+            guard let validUsername = safeUsername(rawUsername) else { return nil }
+            username = validUsername
+        } else {
+            username = "root"
+        }
 
-        let port = Int(query["port"] ?? "") ?? 22
+        let port = query["port"].flatMap(parsePort) ?? (query["port"] == nil ? 22 : 0)
         guard (1...65535).contains(port) else { return nil }
 
-        let name = query["name"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = safeDisplayName(query["name"])
         return DeepLinkIntent(
             host: host,
             port: port,
             username: username.isEmpty ? "root" : username,
             suggestedName: (name?.isEmpty == false ? name! : "\(host):\(port)")
         )
+    }
+
+    private func safeHost(_ raw: String?) -> String? {
+        guard let value = safeField(raw, rejectsWhitespace: true), !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    private func safeUsername(_ raw: String?) -> String? {
+        guard let value = safeField(raw, rejectsWhitespace: true), !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    private func safeDisplayName(_ raw: String?) -> String? {
+        safeField(raw, rejectsWhitespace: false)
+    }
+
+    private func safeField(_ raw: String?, rejectsWhitespace: Bool) -> String? {
+        guard let raw else { return nil }
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard value.rangeOfCharacter(from: .controlCharacters) == nil else {
+            return nil
+        }
+        guard !rejectsWhitespace || value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
+            return nil
+        }
+        return value
+    }
+
+    private func parsePort(_ raw: String) -> Int? {
+        guard !raw.isEmpty,
+              raw.unicodeScalars.allSatisfy({ (48...57).contains($0.value) }),
+              let port = Int(raw) else {
+            return nil
+        }
+        return port
     }
 }

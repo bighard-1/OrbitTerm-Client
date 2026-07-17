@@ -3,9 +3,12 @@ import Security
 
 /// 统一执行普通 Keychain 二进制数据的增删改查。
 /// 生物识别条目有独立的 AccessControl/LAContext 约束，不通过此类型读写。
+///
+/// 在 macOS 上，所有新条目均写入 Data Protection Keychain。该实现与 iOS 的
+/// SecItem 行为一致，并避免旧式文件钥匙串根据历史应用签名反复请求访问授权。
 enum KeychainDataStore {
     static func save(_ data: Data, service: String, account: String) throws {
-        let query = baseQuery(service: service, account: account)
+        let query = dataProtectionQuery(service: service, account: account)
         let attributes: [String: Any] = [
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
@@ -28,7 +31,61 @@ enum KeychainDataStore {
     }
 
     static func read(service: String, account: String) throws -> Data? {
-        var query = baseQuery(service: service, account: account)
+        if let data = try copyData(matching: dataProtectionQuery(service: service, account: account)) {
+            return data
+        }
+
+        #if os(macOS)
+        // 仅为此前使用旧式 macOS 文件钥匙串写入的条目提供一次性兼容读取。
+        // 成功读取后立即复制到 Data Protection Keychain；即使旧项清理被系统
+        // 拒绝，后续读取也会优先命中新条目，不会再次触发旧项的访问控制提示。
+        guard let legacyData = try copyData(matching: legacyQuery(service: service, account: account)) else {
+            return nil
+        }
+        try save(legacyData, service: service, account: account)
+        _ = SecItemDelete(legacyQuery(service: service, account: account) as CFDictionary)
+        return legacyData
+        #else
+        return nil
+        #endif
+    }
+
+    static func delete(service: String, account: String) throws {
+        let status = SecItemDelete(dataProtectionQuery(service: service, account: account) as CFDictionary)
+        if status == errSecSuccess {
+            return
+        }
+        guard status == errSecItemNotFound else {
+            throw KeychainManager.KeychainError.unhandled(status)
+        }
+
+        #if os(macOS)
+        let legacyStatus = SecItemDelete(legacyQuery(service: service, account: account) as CFDictionary)
+        guard legacyStatus == errSecSuccess || legacyStatus == errSecItemNotFound else {
+            throw KeychainManager.KeychainError.unhandled(legacyStatus)
+        }
+        #endif
+    }
+
+    static func dataProtectionQuery(service: String, account: String) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecUseDataProtectionKeychain as String: true
+        ]
+    }
+
+    private static func legacyQuery(service: String, account: String) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+    }
+
+    private static func copyData(matching baseQuery: [String: Any]) throws -> Data? {
+        var query = baseQuery
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
 
@@ -44,20 +101,5 @@ enum KeychainDataStore {
             throw KeychainManager.KeychainError.invalidData
         }
         return data
-    }
-
-    static func delete(service: String, account: String) throws {
-        let status = SecItemDelete(baseQuery(service: service, account: account) as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw KeychainManager.KeychainError.unhandled(status)
-        }
-    }
-
-    private static func baseQuery(service: String, account: String) -> [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account
-        ]
     }
 }

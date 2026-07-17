@@ -12,7 +12,14 @@ typealias PlatformView = TerminalView
 typealias PlatformColor = NSColor
 typealias PlatformFont = NSFont
 
-final class ContextMenuTerminalView: TerminalView {
+final class ContextMenuTerminalView: TerminalView, NSMenuItemValidation {
+    @objc private func handleClearLocalDisplayAction(_ sender: Any?) {
+        // Clear only SwiftTerm's local scrollback. Do not send `clear` or any
+        // other command to the remote shell.
+        getTerminal().resetNormalBuffer()
+        needsDisplay = true
+    }
+
     @objc private func handleCutAction(_ sender: Any?) {
         copy(sender ?? self)
         if let scalar = UnicodeScalar(21) {
@@ -25,10 +32,21 @@ final class ContextMenuTerminalView: TerminalView {
         menu.addItem(withTitle: "复制", action: #selector(copy(_:)), keyEquivalent: "")
         menu.addItem(withTitle: "粘贴", action: #selector(paste(_:)), keyEquivalent: "")
         menu.addItem(NSMenuItem.separator())
+        menu.addItem(withTitle: "清除本地终端显示", action: #selector(handleClearLocalDisplayAction(_:)), keyEquivalent: "")
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "剪切", action: #selector(handleCutAction(_:)), keyEquivalent: "")
         menu.addItem(withTitle: "全选", action: #selector(selectAll(_:)), keyEquivalent: "")
         menu.items.forEach { $0.target = self }
         return menu
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(handleClearLocalDisplayAction(_:)) {
+            // SwiftTerm's inherited validation does not know this local action.
+            // It is always safe because it only resets this view's scrollback.
+            return true
+        }
+        return responds(to: menuItem.action)
     }
 
     override func rightMouseDown(with event: NSEvent) {

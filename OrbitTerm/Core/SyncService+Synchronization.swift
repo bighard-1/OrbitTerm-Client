@@ -1,5 +1,9 @@
 import Foundation
 
+private struct IncrementalSyncPullResult {
+    let receivedRemoteChanges: Bool
+}
+
 @MainActor
 extension SyncService {
     func pullAndApplyConfigs(
@@ -8,10 +12,22 @@ extension SyncService {
         store: ServerStore,
         accountID: String,
         incremental: Bool = false,
-        silentStart: Bool = false
+        silentStart: Bool = false,
+        forceFullInventory: Bool = false
     ) async -> Bool {
+        guard store.isActiveAccount(accountID) else { return false }
         do {
-            return try await pullIncrementalAndApplyConfigs(
+            if forceFullInventory {
+                return await pullLegacyAndApplyConfigs(
+                    token: token,
+                    masterPassword: masterPassword,
+                    store: store,
+                    accountID: accountID,
+                    incremental: incremental,
+                    silentStart: silentStart
+                )
+            }
+            let incrementalResult = try await pullIncrementalAndApplyConfigs(
                 token: token,
                 masterPassword: masterPassword,
                 store: store,
@@ -19,12 +35,29 @@ extension SyncService {
                 incremental: incremental,
                 silentStart: silentStart
             )
+
+            if SyncPullRecoveryPolicy.shouldPerformFullPull(
+                localAssetCount: store.servers.count,
+                incrementalResponseHadChanges: incrementalResult.receivedRemoteChanges
+            ) {
+                return await pullLegacyAndApplyConfigs(
+                    token: token,
+                    masterPassword: masterPassword,
+                    store: store,
+                    accountID: accountID,
+                    incremental: incremental,
+                    silentStart: silentStart
+                )
+            }
+
+            return true
         } catch {
             if isMissingOrUnsupportedTombstoneAPI(error) {
                 return await pullLegacyAndApplyConfigs(
                     token: token,
                     masterPassword: masterPassword,
                     store: store,
+                    accountID: accountID,
                     incremental: incremental,
                     silentStart: silentStart
                 )
@@ -42,6 +75,7 @@ extension SyncService {
         token: String,
         masterPassword: String,
         store: ServerStore,
+        accountID: String,
         incremental: Bool,
         silentStart: Bool
     ) async -> Bool {
@@ -50,12 +84,23 @@ extension SyncService {
                 lastSyncMessage = "正在后台同步..."
             }
             let remoteItems = try await network.pullConfigs(token: token)
+            guard store.isActiveAccount(accountID) else { return false }
             if remoteItems.isEmpty {
-                lastSyncMessage = "拉取完成: 云端暂无配置"
+                let localAssetIDs = Set(store.servers.map { $0.id.uuidString.lowercased() })
+                let pendingIDs = Set(
+                    SyncPullRecoveryPolicy.localAssetIDsPendingExplicitPublication(
+                        localAssetIDs: localAssetIDs,
+                        cloudKnownAssetIDs: []
+                    ).compactMap(UUID.init(uuidString:))
+                )
+                setPendingLocalAssetRecoveryIDs(pendingIDs)
+                lastSyncMessage = pendingIDs.isEmpty
+                    ? "拉取完成: 云端暂无配置"
+                    : "云端暂无配置；本地有 \(pendingIDs.count) 项资产尚未发布"
                 return true
             }
 
-            let shadowSnapshot = shadowStore.readAll()
+            let shadowSnapshot = shadowStore.readAll(accountID: accountID)
             let tombstoneSnapshot = DeletedServerRegistry.shared.snapshot()
             let preparation = try await preparePullResultBackground(
                 remoteItems,
@@ -67,26 +112,68 @@ extension SyncService {
 
             let servers = preparation.items.map(\.server)
             let portables = preparation.items.map(\.portable)
+            let activeRemoteAssetIDs = Set(remoteItems.compactMap { item -> String? in
+                guard (item.state ?? "active") == "active",
+                      let id = item.asset_id?.lowercased(),
+                      UUID(uuidString: id) != nil else {
+                    return nil
+                }
+                return id
+            })
+            let knownRemoteAssetIDs = Set(remoteItems.compactMap { item -> String? in
+                guard let id = item.asset_id?.lowercased(), UUID(uuidString: id) != nil else {
+                    return nil
+                }
+                return id
+            })
+            if SyncPullRecoveryPolicy.remoteAssetsRequireMasterPasswordRecovery(
+                remoteAssetCount: activeRemoteAssetIDs.count,
+                decodedRemoteAssetCount: servers.count
+            ), preparation.tombstoneSkipped == 0 {
+                setPendingLocalAssetRecoveryIDs([])
+                lastSyncMessage = "云端有 \(activeRemoteAssetIDs.count) 项资产无法解密，请确认两端使用同一个主密码"
+                return false
+            }
+            let localAssetIDs = Set(store.servers.map { $0.id.uuidString.lowercased() })
+            let pendingIDs = Set(
+                SyncPullRecoveryPolicy.localAssetIDsPendingExplicitPublication(
+                    localAssetIDs: localAssetIDs,
+                    cloudKnownAssetIDs: knownRemoteAssetIDs
+                ).compactMap(UUID.init(uuidString:))
+            )
+            if activeRemoteAssetIDs.isEmpty && servers.isEmpty {
+                setPendingLocalAssetRecoveryIDs(pendingIDs)
+                lastSyncMessage = pendingIDs.isEmpty
+                    ? "拉取完成：云端未发现资产"
+                    : "云端未发现资产；本地有 \(pendingIDs.count) 项资产尚未发布"
+                return true
+            }
             let appliedServerCount: Int
             if incremental {
-                appliedServerCount = await store.applySyncedServersIncrementally(servers, batchSize: 6)
+                appliedServerCount = await store.applySyncedServersIncrementally(
+                    servers,
+                    accountID: accountID,
+                    batchSize: 6
+                )
             } else {
-                let metadataChanged = !store.containsSameServers(servers)
+                let metadataChanged = !store.containsSameServers(servers, accountID: accountID)
                 if metadataChanged {
-                    store.applySyncedServers(servers)
+                    store.applySyncedServers(servers, accountID: accountID)
                 }
                 appliedServerCount = metadataChanged ? servers.count : 0
             }
-            shadowStore.saveMany(portables)
+            shadowStore.saveMany(portables, accountID: accountID)
+            setPendingLocalAssetRecoveryIDs(pendingIDs)
 
             deleteRemoteConfigsInBackground(ids: preparation.remoteConfigIDsToDelete)
 
             let changedCount = preparation.credentialWriteCount + appliedServerCount
-            if changedCount == 0 {
+            if changedCount == 0, pendingIDs.isEmpty {
                 lastSyncMessage = "后台同步完成: 云端无变化"
             } else {
                 let ignored = preparation.skipped + preparation.tombstoneSkipped + preparation.duplicateSkipped
-                lastSyncMessage = "后台同步完成: 更新 \(appliedServerCount) 条，凭据变更 \(preparation.credentialWriteCount) 条，忽略 \(ignored) 条"
+                let pendingText = pendingIDs.isEmpty ? "" : "，本地待发布 \(pendingIDs.count) 条"
+                lastSyncMessage = "后台同步完成: 更新 \(appliedServerCount) 条，凭据变更 \(preparation.credentialWriteCount) 条，忽略 \(ignored) 条\(pendingText)"
             }
             return !servers.isEmpty || preparation.skipped == 0
         } catch {
@@ -100,14 +187,17 @@ extension SyncService {
         }
     }
 
-    func pullIncrementalAndApplyConfigs(
+    private func pullIncrementalAndApplyConfigs(
         token: String,
         masterPassword: String,
         store: ServerStore,
         accountID: String,
         incremental: Bool,
         silentStart: Bool
-    ) async throws -> Bool {
+    ) async throws -> IncrementalSyncPullResult {
+        guard store.isActiveAccount(accountID) else {
+            return IncrementalSyncPullResult(receivedRemoteChanges: false)
+        }
         if !silentStart {
             lastSyncMessage = "正在后台增量同步..."
         }
@@ -118,9 +208,13 @@ extension SyncService {
         var appliedCount = 0
         var deletedCount = 0
         var credentialCount = 0
+        var receivedRemoteChanges = false
 
         while true {
             let page = try await network.pullConfigChanges(cursor: cursor, limit: 100)
+            guard store.isActiveAccount(accountID) else {
+                return IncrementalSyncPullResult(receivedRemoteChanges: receivedRemoteChanges)
+            }
             if page.reset_required {
                 guard !resetAttempted else {
                     throw NetworkService.NetworkError.server("同步游标连续失效，请稍后重试")
@@ -131,10 +225,12 @@ extension SyncService {
                 continue
             }
 
+            receivedRemoteChanges = receivedRemoteChanges || !page.items.isEmpty
+
             let remoteDeletes = page.items.filter { ($0.state ?? "active") != "active" }
             for item in remoteDeletes {
                 guard let rawID = item.asset_id, let assetID = UUID(uuidString: rawID) else { continue }
-                store.applyRemoteDeletion(assetID)
+                store.applyRemoteDeletion(assetID, accountID: accountID)
                 metadata.saveAsset(item, fallbackAssetID: assetID, accountID: accountID)
                 deletedCount += 1
             }
@@ -143,7 +239,7 @@ extension SyncService {
             let preparation = try await preparePullResultBackground(
                 remoteActive,
                 masterPassword: masterPassword,
-                shadowSnapshot: shadowStore.readAll(),
+                shadowSnapshot: shadowStore.readAll(accountID: accountID),
                 shadowAuthenticationKey: shadowStore.authenticationKey,
                 tombstoneSnapshot: DeletedServerRegistry.shared.snapshot()
             )
@@ -160,17 +256,21 @@ extension SyncService {
             let servers = preparation.items.map(\.server)
             let changed: Int
             if incremental {
-                changed = await store.applySyncedServersIncrementally(servers, batchSize: 6)
+                changed = await store.applySyncedServersIncrementally(
+                    servers,
+                    accountID: accountID,
+                    batchSize: 6
+                )
             } else {
-                let metadataChanged = !store.containsSameServers(servers)
+                let metadataChanged = !store.containsSameServers(servers, accountID: accountID)
                 if metadataChanged {
-                    store.applySyncedServers(servers)
+                    store.applySyncedServers(servers, accountID: accountID)
                 }
                 changed = metadataChanged ? servers.count : 0
             }
             appliedCount += changed
             credentialCount += preparation.credentialWriteCount
-            shadowStore.saveMany(preparation.items.map(\.portable))
+            shadowStore.saveMany(preparation.items.map(\.portable), accountID: accountID)
             for prepared in preparation.items {
                 metadata.saveAsset(prepared.remote, fallbackAssetID: prepared.server.id, accountID: accountID)
             }
@@ -193,7 +293,7 @@ extension SyncService {
         } else {
             lastSyncMessage = "后台同步完成: 更新 \(appliedCount) 条，删除 \(deletedCount) 条，凭据变更 \(credentialCount) 条"
         }
-        return true
+        return IncrementalSyncPullResult(receivedRemoteChanges: receivedRemoteChanges)
     }
 
     func publishMigratedLocalTombstone(
@@ -217,13 +317,13 @@ extension SyncService {
                 let boundRemote = try await network.uploadConfig(token: token, payload: bindPayload)
                 metadata.saveAsset(boundRemote, fallbackAssetID: assetID, accountID: accountID)
             } catch {
-                await SyncQueue.shared.enqueueUpload(payload: bindPayload, reason: error.localizedDescription)
+                await SyncQueue.shared.enqueueUpload(payload: bindPayload, accountID: accountID, reason: error.localizedDescription)
                 let deleteClock = metadata.incrementVectorClock(bindClock)
                 let deleteRequest = AssetMutationRequest(
                     deviceID: metadata.deviceID,
                     vectorClock: deleteClock
                 )
-                await SyncQueue.shared.enqueueDelete(assetID: assetID, request: deleteRequest, reason: "waiting_for_asset_id_binding")
+                await SyncQueue.shared.enqueueDelete(assetID: assetID, request: deleteRequest, accountID: accountID, reason: "waiting_for_asset_id_binding")
                 return
             }
         }
@@ -237,7 +337,7 @@ extension SyncService {
             metadata.saveAsset(deleted, fallbackAssetID: assetID, accountID: accountID)
             DeletedServerRegistry.shared.clear(assetID)
         } catch {
-            await SyncQueue.shared.enqueueDelete(assetID: assetID, request: deleteRequest, reason: error.localizedDescription)
+            await SyncQueue.shared.enqueueDelete(assetID: assetID, request: deleteRequest, accountID: accountID, reason: error.localizedDescription)
         }
     }
 
@@ -295,14 +395,14 @@ extension SyncService {
             // 先确认 Keychain 写入成功，再把普通资产元数据暴露给 UI。
             try vault.save(credentials, for: server.credentialID)
             store.addOrUpdate(server)
-            shadowStore.save(portable)
+            shadowStore.save(portable, accountID: accountID)
             metadata.saveAsset(restored, fallbackAssetID: assetID, accountID: accountID)
             DeletedServerRegistry.shared.clear(assetID)
             lastSyncMessage = "已恢复 \(server.name)"
             return .completed
         } catch {
             if NetworkService.isRetriableNetworkError(error) || isUnauthorized(error) {
-                await SyncQueue.shared.enqueueRestore(assetID: assetID, request: request, reason: error.localizedDescription)
+                await SyncQueue.shared.enqueueRestore(assetID: assetID, request: request, accountID: accountID, reason: error.localizedDescription)
                 lastSyncMessage = "恢复任务已加入后台队列，联网后自动完成"
                 return .queued
             }
@@ -334,7 +434,7 @@ extension SyncService {
             return .completed
         } catch {
             if NetworkService.isRetriableNetworkError(error) || isUnauthorized(error) {
-                await SyncQueue.shared.enqueuePurge(assetID: assetID, request: request, reason: error.localizedDescription)
+                await SyncQueue.shared.enqueuePurge(assetID: assetID, request: request, accountID: accountID, reason: error.localizedDescription)
                 lastSyncMessage = "永久删除任务已加入后台队列"
                 return .queued
             }

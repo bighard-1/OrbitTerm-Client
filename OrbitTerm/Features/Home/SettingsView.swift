@@ -1,5 +1,5 @@
 import SwiftUI
-
+/*
 struct TerminalRGB: Hashable {
     let r: UInt8
     let g: UInt8
@@ -81,9 +81,12 @@ enum TerminalThemeManager {
         presets.first(where: { $0.id == id }) ?? presets[0]
     }
 }
+*/
 
 struct SettingsView: View {
     @EnvironmentObject private var session: AppSession
+    @EnvironmentObject private var serverStore: ServerStore
+    @EnvironmentObject private var appThemeManager: AppThemeManager
     @StateObject private var syncService = SyncService.shared
     @State private var showDiagnostics = false
     @State private var biometricStatus: String = ""
@@ -93,9 +96,44 @@ struct SettingsView: View {
     @AppStorage(TelnetAccessPolicy.enabledStorageKey) private var telnetEnabled: Bool = false
     @AppStorage("orbitterm.monitor.realtime.interval") private var monitorInterval: Double = 1.0
     @State private var showTelnetEnableConfirmation = false
+#if os(iOS)
+    @State private var showSwitchAccountConfirmation = false
+#endif
 
     var body: some View {
         List {
+            Section("应用外观") {
+                Picker("外观模式", selection: Binding(get: { appThemeManager.appearanceMode }, set: { appThemeManager.selectMode($0) })) {
+                    ForEach(AppearanceMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+
+                ForEach(AppThemeID.allCases) { theme in
+                    Button {
+                        appThemeManager.selectTheme(theme)
+                    } label: {
+                        HStack(spacing: 10) {
+                            HStack(spacing: 4) {
+                                ForEach(Array(AppThemePalette.make(theme: theme, colorScheme: .light).previewColors.enumerated()), id: \.offset) { _, color in
+                                    Circle().fill(color.color).frame(width: 16, height: 16)
+                                }
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(theme.displayName)
+                                Text(theme.themeDescription).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if appThemeManager.selectedTheme == theme {
+                                Label("已选", systemImage: "checkmark.circle.fill").labelStyle(.iconOnly)
+                            }
+                        }
+                    }
+                    .accessibilityLabel("界面主题：\(theme.displayName)")
+                    .accessibilityValue(appThemeManager.selectedTheme == theme ? "已选中" : "未选中")
+                }
+            }
+
             Section("终端外观") {
                 Picker("终端主题", selection: $terminalThemeID) {
                     ForEach(TerminalThemeManager.presets) { theme in
@@ -153,15 +191,35 @@ struct SettingsView: View {
                 Text(syncService.lastSyncMessage.isEmpty ? "暂无同步状态" : syncService.lastSyncMessage)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Button("立即重试同步") {
+                if !syncService.lastInventoryDiagnostic.isEmpty {
+                    Text(syncService.lastInventoryDiagnostic)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                Text("当前服务：\(NetworkService.shared.currentBaseURLString)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                Button("立即双向同步") {
                     Task {
-                        guard let token = session.readToken(),
-                              let masterPassword = session.readMasterPassword() else { return }
-                        _ = await syncService.pullAndApplyConfigs(
+                        guard let token = session.readToken() else {
+                            syncService.lastSyncMessage = "同步不可用：登录令牌不可用，请重新登录"
+                            return
+                        }
+                        guard let masterPassword = session.readMasterPassword() else {
+                            syncService.lastSyncMessage = "同步不可用：请重新输入主密码解锁后重试"
+                            return
+                        }
+                        await syncService.reconcileAssetInventory(
                             token: token,
                             masterPassword: masterPassword,
                             store: ServerStore.shared,
                             accountID: session.username
+                        )
+                        await syncService.refreshInventoryDiagnostic(
+                            token: token,
+                            store: ServerStore.shared
                         )
                     }
                 }
@@ -181,6 +239,12 @@ struct SettingsView: View {
             }
 
             Section("安全") {
+                NavigationLink {
+                    AccountSecurityView()
+                } label: {
+                    Label("账户安全", systemImage: "key.horizontal")
+                }
+
                 Toggle("启用生物识别解锁", isOn: $biometricEnabled)
                 if biometricEnabled {
                     Text("开启后会在应用解锁阶段优先触发 Face ID / Touch ID 验证。")
@@ -192,9 +256,22 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Button("退出登录", role: .destructive) {
-                    session.logout()
+#if os(macOS)
+                LabeledContent("当前账号") {
+                    Text(session.username)
+                        .textSelection(.enabled)
                 }
+                Text("切换账号和退出登录已移至工作台右上角头像菜单。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+#else
+                Button("切换账号") {
+                    showSwitchAccountConfirmation = true
+                }
+                Button("退出登录", role: .destructive) {
+                    AccountSessionActions.leaveCurrentAccount(session: session, serverStore: serverStore)
+                }
+#endif
             }
         }
         .navigationTitle("设置")
@@ -219,6 +296,16 @@ struct SettingsView: View {
         } message: {
             Text("Telnet 会以明文传输登录信息和终端内容。仅应连接隔离内网、VPN 内的受信旧设备；SSH 失败时 OrbitTerm 不会自动切换到 Telnet。")
         }
+#if os(iOS)
+        .alert("切换账号？", isPresented: $showSwitchAccountConfirmation) {
+            Button("切换账号", role: .destructive) {
+                AccountSessionActions.leaveCurrentAccount(session: session, serverStore: serverStore)
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("将断开当前所有会话并返回登录页。本机资产、片段和待同步操作会继续按原账号隔离保存，不会交给下一个账号。")
+        }
+#endif
         .onChange(of: biometricEnabled) { _, enabled in
             if enabled {
                 Task { await validateBiometricImmediately() }

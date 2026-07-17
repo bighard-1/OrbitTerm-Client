@@ -3,12 +3,15 @@ import SwiftUI
 struct MasterPasswordGateView: View {
     @EnvironmentObject private var session: AppSession
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.appThemePalette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @StateObject private var orbitManager = OrbitManager()
 
     @State private var masterPassword: String = ""
     @State private var confirmPassword: String = ""
     @State private var message: String = ""
+    @State private var messageKind: SecurityStatusKind = .information
     @State private var shakeOffset: CGFloat = 0
     @State private var isBiometricAuthenticating = false
     @AppStorage("orbitterm.biometric.enabled") private var biometricEnabled: Bool = false
@@ -16,15 +19,7 @@ struct MasterPasswordGateView: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.04, green: 0.08, blue: 0.18),
-                        Color.black
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
+                AppChromeBackground()
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 18) {
@@ -32,6 +27,7 @@ struct MasterPasswordGateView: View {
 
                         Text(session.hasMasterPassword ? "验证主密码" : "设置主密码")
                             .font(.title2.bold())
+                            .foregroundStyle(palette.textPrimary.color)
 
                         VStack(spacing: 12) {
                             secureInput(
@@ -45,22 +41,23 @@ struct MasterPasswordGateView: View {
 
                             Text("主密码用于解密您的服务器资产，确保您的数据安全。")
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(palette.textSecondary.color)
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
                             if !message.isEmpty {
                                 Text(message)
                                     .font(.callout)
-                                    .foregroundStyle(message.hasPrefix("成功") ? .green : .red)
+                                    .foregroundStyle(SecuritySemanticPalette().presentation(for: messageKind).color.color)
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .modifier(ShakeEffect(animatableData: shakeOffset))
+                                    .modifier(ShakeEffect(animatableData: reduceMotion ? 0 : shakeOffset))
+                                    .accessibilityLabel(message)
                             }
                         }
 
                         Button(session.hasMasterPassword ? "验证并解锁" : "保存并解锁") {
                             submit()
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(ThemedPrimaryButtonStyle())
                         .controlSize(.large)
                         .disabled(session.hasMasterPassword ? masterPassword.isEmpty : (masterPassword.isEmpty || confirmPassword.isEmpty))
 
@@ -70,18 +67,14 @@ struct MasterPasswordGateView: View {
                             } label: {
                                 Label(isBiometricAuthenticating ? "验证中..." : "使用生物识别解锁", systemImage: BiometricAuthService.shared.biometricIconName)
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(ThemedSecondaryButtonStyle())
                             .disabled(isBiometricAuthenticating)
                         }
                     }
                     .font(.system(.body, design: .rounded))
                     .padding(30)
                     .frame(maxWidth: 520)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .stroke(Color.secondary.opacity(0.14), lineWidth: 1)
-                    )
+                    .themedGlassSurface()
                     .shadow(color: .black.opacity(0.18), radius: 20, x: 0, y: 12)
                     .padding(24)
                     .frame(maxWidth: .infinity)
@@ -105,7 +98,7 @@ struct MasterPasswordGateView: View {
     private func secureInput(placeholder: String, text: Binding<String>) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "lock.shield.fill")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.textSecondary.color)
                 .frame(width: 18)
 
             SecureField(placeholder, text: text)
@@ -115,7 +108,7 @@ struct MasterPasswordGateView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 11)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .themedInputSurface()
     }
 
     private func submit() {
@@ -132,20 +125,24 @@ struct MasterPasswordGateView: View {
                 do {
                     try BiometricAuthService.shared.enroll(masterPassword: masterPassword)
                 } catch {
-                    message = "提示: 生物识别注册失败，请稍后在设置中重试"
+                    setMessage("提示: 生物识别注册失败，请稍后在设置中重试", kind: .warning)
                 }
             }
-            message = "成功: 主密码验证通过"
+            setMessage("成功: 主密码验证通过", kind: .success)
             clearSensitiveInputs()
         } else {
-            message = "失败: 主密码不正确"
+            let unlockFailure = session.masterPasswordPersistenceError ?? "主密码不正确"
+            setMessage(
+                "失败: \(unlockFailure)",
+                kind: .danger
+            )
             triggerShake()
         }
     }
 
     private func setup() {
         guard masterPassword == confirmPassword else {
-            message = "失败: 两次输入不一致"
+            setMessage("失败: 两次输入不一致", kind: .danger)
             triggerShake()
             return
         }
@@ -156,16 +153,16 @@ struct MasterPasswordGateView: View {
             if biometricEnabled {
                 try? BiometricAuthService.shared.enroll(masterPassword: masterPassword)
             }
-            message = "成功: 主密码已设置并通过 Rust 加密自检"
+            setMessage("成功: 主密码已设置并通过 Rust 加密自检", kind: .success)
             clearSensitiveInputs()
         } catch {
-            message = "失败: \(error.localizedDescription)"
+            setMessage("失败: \(error.localizedDescription)", kind: .danger)
             triggerShake()
         }
     }
 
     private func triggerShake() {
-        withAnimation(.easeInOut(duration: 0.08).repeatCount(3, autoreverses: true)) {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.08).repeatCount(3, autoreverses: true)) {
             shakeOffset += 1
         }
     }
@@ -192,23 +189,29 @@ struct MasterPasswordGateView: View {
         }
         if ok {
             session.markUnlockedByBiometric()
-            message = "成功: 已通过生物识别解锁"
+            setMessage("成功: 已通过生物识别解锁", kind: .success)
         } else if manual {
-            message = "失败: 生物识别验证失败，请使用主密码"
+            setMessage("失败: 生物识别验证失败，请使用主密码", kind: .danger)
             triggerShake()
         }
+    }
+
+    private func setMessage(_ text: String, kind: SecurityStatusKind) {
+        message = text
+        messageKind = kind
     }
 }
 
 private struct OrbitLogoBadgeView: View {
     let size: CGFloat
+    @Environment(\.appThemePalette) private var palette
 
     var body: some View {
         ZStack {
             Circle()
                 .fill(
                     LinearGradient(
-                        colors: [Color(red: 0.05, green: 0.12, blue: 0.28), Color(red: 0.03, green: 0.06, blue: 0.16)],
+                        colors: [palette.surfaceCritical.color, palette.surfaceInput.color],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
@@ -217,7 +220,7 @@ private struct OrbitLogoBadgeView: View {
             Circle()
                 .stroke(
                     LinearGradient(
-                        colors: [Color(red: 0.29, green: 0.64, blue: 1.0), Color(red: 0.48, green: 0.86, blue: 1.0)],
+                        colors: [palette.accentPrimary.color, palette.accentSecondary.color],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     ),
@@ -227,10 +230,10 @@ private struct OrbitLogoBadgeView: View {
 
             Text("OT")
                 .font(.system(size: size * 0.3, weight: .heavy, design: .rounded))
-                .foregroundStyle(Color(red: 0.76, green: 0.9, blue: 1.0))
+                .foregroundStyle(palette.textPrimary.color)
         }
         .frame(width: size, height: size)
-        .shadow(color: .blue.opacity(0.25), radius: 12, x: 0, y: 8)
+        .shadow(color: palette.accentPrimary.color.opacity(0.22), radius: 12, x: 0, y: 8)
     }
 }
 

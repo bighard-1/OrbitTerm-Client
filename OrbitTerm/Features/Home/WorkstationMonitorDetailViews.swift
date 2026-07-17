@@ -22,6 +22,7 @@ struct MonitorDetailInlineView: View {
     @ObservedObject var service: MonitorService
     let onClose: () -> Void
     @State private var range: MonitorHistoryRange = .min10
+    @Environment(\.appThemePalette) private var palette
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -43,21 +44,23 @@ struct MonitorDetailInlineView: View {
             if let panel = service.panel(id: panelID) {
                 Text(panel.status)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary.color)
 
-                chartCard(title: "CPU", points: filtered(panel.points), value: \.cpuUsage, tint: .blue, domain: 0...100, percent: true)
-                chartCard(title: "内存", points: filtered(panel.points), value: \.memUsedPercent, tint: .green, domain: 0...100, percent: true)
-                chartCard(title: "磁盘", points: filtered(panel.points), value: \.diskUsedPercent, tint: .orange, domain: 0...100, percent: true)
-                chartCard(title: "延迟", points: filtered(panel.points), value: { $0.pingLatencyMs ?? 0 }, tint: .purple, domain: 0...300, percent: false)
-                chartCard(title: "下载速率", points: filtered(panel.points), value: \.rxRateKBps, tint: .cyan, domain: 0...rateUpperBound(filtered(panel.points), keyPath: \.rxRateKBps), percent: false, unit: "KB/s")
-                chartCard(title: "上传速率", points: filtered(panel.points), value: \.txRateKBps, tint: .mint, domain: 0...rateUpperBound(filtered(panel.points), keyPath: \.txRateKBps), percent: false, unit: "KB/s")
+                chartCard(title: "CPU", points: filtered(panel.points), value: \.cpuUsage, tint: palette.accentPrimary.color, domain: 0...100, percent: true)
+                chartCard(title: "内存", points: filtered(panel.points), value: \.memUsedPercent, tint: palette.accentSecondary.color, domain: 0...100, percent: true)
+                chartCard(title: "磁盘", points: filtered(panel.points), value: \.diskUsedPercent, tint: palette.focusRing.color, domain: 0...100, percent: true)
+                chartCard(title: "延迟", points: filtered(panel.points), value: { $0.pingLatencyMs ?? 0 }, tint: palette.textSecondary.color, domain: 0...300, percent: false)
+                chartCard(title: "下载速率", points: filtered(panel.points), value: \.rxRateKBps, tint: palette.accentPrimary.color, domain: 0...rateUpperBound(filtered(panel.points), keyPath: \.rxRateKBps), percent: false, unit: "KB/s")
+                chartCard(title: "上传速率", points: filtered(panel.points), value: \.txRateKBps, tint: palette.accentSecondary.color, domain: 0...rateUpperBound(filtered(panel.points), keyPath: \.txRateKBps), percent: false, unit: "KB/s")
             } else {
                 ContentUnavailableView("暂无监控数据", systemImage: "chart.line.uptrend.xyaxis")
             }
             Spacer(minLength: 0)
         }
         .padding(10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .foregroundStyle(palette.textPrimary.color)
+        .background(palette.surfaceGlassStrong.color, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(palette.borderGlass.color, lineWidth: 1))
     }
 
     private func filtered(_ points: [MonitorPoint]) -> [MonitorPoint] {
@@ -80,7 +83,7 @@ struct MonitorDetailInlineView: View {
             if let latest = points.last {
                 Text(percent ? String(format: "%.1f%%", value(latest)) : String(format: "%.1f %@", value(latest), unit))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary.color)
             }
             Chart(points) { point in
                 LineMark(
@@ -92,9 +95,13 @@ struct MonitorDetailInlineView: View {
             }
             .chartYScale(domain: domain)
             .frame(height: 120)
+            .accessibilityLabel("\(title) 趋势图")
+            .accessibilityValue(points.last.map { point in
+                percent ? String(format: "当前 %.1f%%", value(point)) : String(format: "当前 %.1f %@", value(point), unit)
+            } ?? "暂无数据")
         }
         .padding(10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(palette.surfaceInput.color, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func rateUpperBound(_ points: [MonitorPoint], keyPath: KeyPath<MonitorPoint, Double>) -> Double {

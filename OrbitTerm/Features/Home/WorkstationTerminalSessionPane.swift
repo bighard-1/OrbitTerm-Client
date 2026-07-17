@@ -3,9 +3,7 @@ import SwiftUI
 struct TerminalSessionPane: View {
     @ObservedObject var session: WorkspaceSession
     @ObservedObject var sessionManager: SessionManager
-    @Binding var isStressRunning: Bool
-    let onSplitStateChanged: (Bool) -> Void
-    let onToggleStress: (WorkspaceSession) -> Void
+    @AppStorage(TerminalThemeManager.storageKey) private var terminalThemeID: String = TerminalThemeManager.defaultThemeID
     @State private var showSearchOverlay = false
     @State private var searchText = ""
     @State private var searchCommand: TerminalSearchCommand?
@@ -15,13 +13,8 @@ struct TerminalSessionPane: View {
         VStack(alignment: .leading, spacing: 12) {
             WorkstationTerminalToolbarView(
                 session: session,
-                sessionManager: sessionManager,
-                isStressRunning: $isStressRunning,
-                onSplitStateChanged: onSplitStateChanged,
-                onToggleStress: onToggleStress
+                sessionManager: sessionManager
             )
-
-            WorkstationTerminalSessionHeaderView(session: session)
 
             if showSearchOverlay {
                 WorkstationTerminalSearchOverlay(
@@ -47,7 +40,10 @@ struct TerminalSessionPane: View {
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(
+                TerminalThemeManager.theme(for: terminalThemeID).background.swiftUIColor,
+                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+            )
             .modifier(WorkstationTerminalDropUploadModifier(
                 session: session,
                 sessionManager: sessionManager
@@ -55,13 +51,8 @@ struct TerminalSessionPane: View {
             .modifier(WorkstationTerminalSearchShortcutModifier(isPresented: $showSearchOverlay))
             .modifier(WorkstationTerminalStartupModifier(
                 session: session,
-                sessionManager: sessionManager,
-                onSplitStateChanged: onSplitStateChanged
+                sessionManager: sessionManager
             ))
-
-            Text("状态：\(session.terminalStatus)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 }

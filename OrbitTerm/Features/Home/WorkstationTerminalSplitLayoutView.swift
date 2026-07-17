@@ -4,6 +4,7 @@ struct WorkstationTerminalSplitLayoutView: View {
     @ObservedObject var session: WorkspaceSession
     @ObservedObject var sessionManager: SessionManager
     let searchText: String
+    @Environment(\.appThemePalette) private var palette
     let searchCommand: TerminalSearchCommand?
     let onSearchFeedback: (Bool, TerminalSearchAction) -> Void
 
@@ -78,12 +79,33 @@ struct WorkstationTerminalSplitLayoutView: View {
         }
         .overlay(alignment: .topTrailing) {
 #if os(macOS)
-            Text("分屏 \(index + 1)\(session.activeTerminalPaneIndex == index ? " · 当前" : "")")
-                .font(.caption2)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(.ultraThinMaterial, in: Capsule())
-                .padding(6)
+            HStack(spacing: 4) {
+                Text("分屏 \(index + 1)\(session.activeTerminalPaneIndex == index ? " · 当前" : "")")
+                if index > 0 {
+                    Button {
+                        Task {
+                            await sessionManager.removeTerminalSplit(
+                                session: session,
+                                paneIndex: index
+                            )
+                        }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.caption2.weight(.bold))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("关闭分屏 \(index + 1)")
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(palette.textSecondary.color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(palette.surfaceGlassStrong.color, in: Capsule())
+            .overlay {
+                Capsule().stroke(palette.borderGlass.color)
+            }
+            .padding(6)
 #endif
         }
     }

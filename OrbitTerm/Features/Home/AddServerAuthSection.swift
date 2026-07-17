@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct AddServerAuthSection: View {
+    @Environment(\.appThemePalette) private var palette
+    @Environment(\.securitySemanticPalette) private var security
     @Binding var username: String
     @Binding var authMethod: ServerAuthMethod
     @Binding var transport: ServerTransportProtocol
@@ -14,7 +16,7 @@ struct AddServerAuthSection: View {
     let telnetEnabled: Bool
     let selectedKeyFileName: String
     let privateKeyValidationMessage: String
-    let privateKeyValidationColor: Color
+    let privateKeyValidationKind: SecurityStatusKind?
     let onSelectKeyFile: () -> Void
 
     var body: some View {
@@ -37,7 +39,7 @@ struct AddServerAuthSection: View {
                     if transport == .telnet {
                         Text("Telnet 使用文本提示符自动登录，认证方式固定为密码。")
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(palette.textSecondary.color)
                     }
                 }
             }
@@ -55,7 +57,7 @@ struct AddServerAuthSection: View {
                     if !telnetEnabled {
                         Text("Telnet 默认关闭。可在“设置 > 终端与连接”了解风险并手动启用；关闭状态下无法保存或连接 Telnet 资产。")
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(palette.textSecondary.color)
                     }
                 }
             }
@@ -73,7 +75,7 @@ struct AddServerAuthSection: View {
             } else {
                 Text("Telnet 密码仅存储在系统钥匙串，连接时用于自动应答设备登录提示符。")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary.color)
             }
         }
     }
@@ -95,7 +97,7 @@ struct AddServerAuthSection: View {
 
             Text("Telnet 无加密或服务器身份验证。OrbitTerm 会根据模板识别 Username/Password 等提示符并自动应答。")
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(security.warning.color)
         }
     }
 
@@ -121,18 +123,20 @@ struct AddServerAuthSection: View {
                                     .lineLimit(1)
                             }
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(ThemedSecondaryButtonStyle())
                     }
 
                     TextEditor(text: $privateKeyContent)
                         .font(.system(.caption, design: .monospaced))
                         .frame(minHeight: 120, maxHeight: 180)
                         .padding(6)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .foregroundStyle(palette.textPrimary.color)
+                        .background(palette.surfaceInput.color, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(palette.borderGlass.color))
 
                     Text(privateKeyValidationMessage)
                         .font(.caption)
-                        .foregroundStyle(privateKeyValidationColor)
+                        .foregroundStyle(privateKeyValidationKind.map { security.presentation(for: $0).color.color } ?? palette.textSecondary.color)
                 }
             }
 
@@ -154,12 +158,12 @@ struct AddServerAuthSection: View {
             if !allowPasswordFallback {
                 Text("已开启仅密钥模式：连接时将强制跳过密码认证。")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(security.warning.color)
             }
 
             Text("支持 OPENSSH/PEM 私钥。密码、私钥内容与口令仅存储在系统钥匙串。")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.textSecondary.color)
         }
     }
 }

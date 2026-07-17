@@ -7,15 +7,41 @@ final class ServerStore: ObservableObject {
     @Published private(set) var servers: [ServerEntry] = []
     @Published var selectedServerID: UUID?
 
-    private let defaultsKey = "orbitterm.servers.v1"
+    private let legacyDefaultsKey = "orbitterm.servers.v1"
+    private let legacyMigrationFlagKey = "orbitterm.servers.account-scope-migrated.v1"
     private let migrationFlagKey = "orbitterm.credentials.migrated.v1"
     private let vault = CredentialVault.shared
+    private var accountScope: AccountScope?
 
-    init() {
-        load()
+    init() {}
+
+    /// Makes this shared UI store represent exactly one authenticated account.
+    /// Calls while signed out intentionally expose no cached assets.
+    func activateAccount(username: String) {
+        guard let scope = AccountScope(username: username) else {
+            deactivateAccount()
+            return
+        }
+        guard accountScope != scope else { return }
+
+        accountScope = scope
+        DeletedServerRegistry.shared.activate(scope: scope)
+        load(scope: scope)
+    }
+
+    func deactivateAccount() {
+        accountScope = nil
+        servers = []
+        selectedServerID = nil
+        DeletedServerRegistry.shared.deactivate()
+    }
+
+    func isActiveAccount(_ username: String) -> Bool {
+        AccountScope(username: username) == accountScope
     }
 
     func addOrUpdate(_ server: ServerEntry, credentials: ServerCredentials) {
+        guard accountScope != nil else { return }
         do {
             try vault.save(credentials, for: server.credentialID)
         } catch {
@@ -37,6 +63,7 @@ final class ServerStore: ObservableObject {
     }
 
     func addOrUpdate(_ server: ServerEntry) {
+        guard accountScope != nil else { return }
         // 兼容旧调用：无新凭据时保留现有 Keychain 内容，仅更新普通配置。
         if let idx = servers.firstIndex(where: { $0.id == server.id }) {
             servers[idx] = server
@@ -51,7 +78,8 @@ final class ServerStore: ObservableObject {
         persist()
     }
 
-    func applySyncedServers(_ synced: [ServerEntry]) {
+    func applySyncedServers(_ synced: [ServerEntry], accountID: String) {
+        guard isActiveAccount(accountID) else { return }
         guard !synced.isEmpty else { return }
         var table = Dictionary(uniqueKeysWithValues: servers.map { ($0.id, $0) })
         for item in synced {
@@ -65,12 +93,18 @@ final class ServerStore: ObservableObject {
     }
 
     @MainActor
-    func applySyncedServersIncrementally(_ synced: [ServerEntry], batchSize: Int = 8) async -> Int {
+    func applySyncedServersIncrementally(
+        _ synced: [ServerEntry],
+        accountID: String,
+        batchSize: Int = 8
+    ) async -> Int {
+        guard isActiveAccount(accountID) else { return 0 }
         guard !synced.isEmpty else { return 0 }
 
         var changedCount = 0
         let safeBatchSize = max(1, batchSize)
         for batchStart in stride(from: 0, to: synced.count, by: safeBatchSize) {
+            guard isActiveAccount(accountID) else { return changedCount }
             let batchEnd = min(batchStart + safeBatchSize, synced.count)
             let batch = synced[batchStart..<batchEnd]
             var table = Dictionary(uniqueKeysWithValues: servers.map { ($0.id, $0) })
@@ -100,13 +134,15 @@ final class ServerStore: ObservableObject {
         return changedCount
     }
 
-    func containsSameServers(_ synced: [ServerEntry]) -> Bool {
+    func containsSameServers(_ synced: [ServerEntry], accountID: String) -> Bool {
+        guard isActiveAccount(accountID) else { return false }
         guard !synced.isEmpty else { return true }
         let table = Dictionary(uniqueKeysWithValues: servers.map { ($0.id, $0) })
         return synced.allSatisfy { table[$0.id] == $0 }
     }
 
     func remove(_ server: ServerEntry) {
+        guard accountScope != nil else { return }
         servers.removeAll { $0.id == server.id }
         if selectedServerID == server.id {
             selectedServerID = servers.first?.id
@@ -117,6 +153,7 @@ final class ServerStore: ObservableObject {
     }
 
     func removeMany(_ ids: Set<UUID>) {
+        guard accountScope != nil else { return }
         guard !ids.isEmpty else { return }
         let removed = servers.filter { ids.contains($0.id) }
         servers.removeAll { ids.contains($0.id) }
@@ -131,7 +168,8 @@ final class ServerStore: ObservableObject {
     }
 
     /// 应用云端墓碑，不重复生成本地删除操作，避免形成删除回环。
-    func applyRemoteDeletion(_ id: UUID) {
+    func applyRemoteDeletion(_ id: UUID, accountID: String) {
+        guard isActiveAccount(accountID) else { return }
         guard let removed = servers.first(where: { $0.id == id }) else {
             DeletedServerRegistry.shared.clear(id)
             return
@@ -146,6 +184,7 @@ final class ServerStore: ObservableObject {
     }
 
     func renameGroup(from oldName: String, to newName: String) {
+        guard accountScope != nil else { return }
         let trimmedNew = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedNew.isEmpty else { return }
         let targetOld = oldName == "未分组" ? "" : oldName
@@ -160,6 +199,7 @@ final class ServerStore: ObservableObject {
     }
 
     func removeGroup(_ groupName: String) {
+        guard accountScope != nil else { return }
         let target = groupName == "未分组" ? "" : groupName
         let removed = servers.filter { $0.displayGroup == groupName || $0.group == target }
         guard !removed.isEmpty else { return }
@@ -191,17 +231,32 @@ final class ServerStore: ObservableObject {
         }
     }
 
-    private func load() {
-        guard let data = UserDefaults.standard.data(forKey: defaultsKey),
-              let decoded = try? JSONDecoder().decode([ServerEntry].self, from: data) else {
-            servers = []
+    private func load(scope: AccountScope) {
+        let scopedKey = scope.storageKey("orbitterm.servers.v2")
+        if let data = UserDefaults.standard.data(forKey: scopedKey),
+           let decoded = try? JSONDecoder().decode([ServerEntry].self, from: data) {
+            servers = decoded
+            selectedServerID = decoded.first?.id
+            migrateLegacyCredentialsIfNeeded(decoded)
             return
         }
 
-        let migrated = decoded
-        servers = migrated
-        selectedServerID = migrated.first?.id
-        migrateLegacyCredentialsIfNeeded(migrated)
+        // A legacy cache predates account scoping. It may only be claimed once,
+        // by the first still-authenticated account that opens the upgraded app.
+        // Subsequent accounts always start empty and pull their own cloud state.
+        guard !UserDefaults.standard.bool(forKey: legacyMigrationFlagKey),
+              let data = UserDefaults.standard.data(forKey: legacyDefaultsKey),
+              let decoded = try? JSONDecoder().decode([ServerEntry].self, from: data) else {
+            servers = []
+            selectedServerID = nil
+            return
+        }
+
+        servers = decoded
+        selectedServerID = decoded.first?.id
+        persist()
+        UserDefaults.standard.set(true, forKey: legacyMigrationFlagKey)
+        migrateLegacyCredentialsIfNeeded(decoded)
     }
 
     private func migrateLegacyCredentialsIfNeeded(_ entries: [ServerEntry]) {
@@ -224,15 +279,17 @@ final class ServerStore: ObservableObject {
 
             UserDefaults.standard.set(true, forKey: self.migrationFlagKey)
             if migratedAny {
-                UserDefaults.standard.removeObject(forKey: self.defaultsKey)
+                UserDefaults.standard.removeObject(forKey: self.legacyDefaultsKey)
                 self.persist()
             }
         }
     }
 
     private func persist() {
-        if let encoded = try? JSONEncoder().encode(servers) {
-            UserDefaults.standard.set(encoded, forKey: defaultsKey)
+        guard let scope = accountScope,
+              let encoded = try? JSONEncoder().encode(servers) else {
+            return
         }
+        UserDefaults.standard.set(encoded, forKey: scope.storageKey("orbitterm.servers.v2"))
     }
 }

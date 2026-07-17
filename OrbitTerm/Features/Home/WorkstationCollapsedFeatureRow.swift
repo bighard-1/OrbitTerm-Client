@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct WorkstationCollapsedFeatureRow: View {
+    @Environment(\.appThemePalette) private var palette
     let title: String
     let onShow: () -> Void
 
@@ -8,13 +9,13 @@ struct WorkstationCollapsedFeatureRow: View {
         HStack {
             Text("\(title) 已隐藏")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.textSecondary.color)
             Spacer()
             Button("显示") { onShow() }
                 .buttonStyle(.bordered)
         }
         .padding(10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .themedGlassSurface()
     }
 }
 

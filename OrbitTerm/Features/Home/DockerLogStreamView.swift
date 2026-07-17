@@ -7,16 +7,18 @@ struct DockerLogStreamView: View {
     @State private var logs: String = "加载日志中..."
     @State private var isAutoRefresh: Bool = true
     @State private var logTask: Task<Void, Never>?
+    @Environment(\.appThemePalette) private var palette
 
     var body: some View {
         ScrollView {
             Text(logs)
                 .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(palette.textPrimary.color)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
         }
-        .background(Color.black.opacity(0.9))
-        .foregroundStyle(.green)
+        .background(palette.surfaceInput.color)
+        .overlay(Rectangle().stroke(palette.borderGlass.color, lineWidth: 1))
         .navigationTitle("\(container.name) 日志")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {

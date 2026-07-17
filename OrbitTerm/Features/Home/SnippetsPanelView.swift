@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SnippetsPanelView: View {
     @EnvironmentObject private var appSession: AppSession
+    @EnvironmentObject private var serverStore: ServerStore
     @ObservedObject var snippetStore: SnippetStore
 
     let session: WorkspaceSession?
@@ -10,12 +11,14 @@ struct SnippetsPanelView: View {
     @State private var query: String = ""
     @State private var editorTarget: Snippet?
     @State private var editorDraft = SnippetEditorDraft()
+    @State private var editorRestrictsAssets = false
+    @State private var editorAssetIDs: Set<UUID> = []
     @State private var variablePrompt: SnippetVariablePrompt?
     @State private var deleteTarget: Snippet?
     @FocusState private var focusedVariableKey: String?
 
     private var filtered: [Snippet] {
-        snippetStore.filteredSnippets(query: query)
+        snippetStore.filteredSnippets(query: query, assetID: session?.server.id)
     }
 
     private var grouped: [(group: String, items: [Snippet])] {
@@ -142,10 +145,7 @@ struct SnippetsPanelView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Text(snippet.command)
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
-                .lineLimit(3)
+            ShellSyntaxHighlightedText(snippet.command, lineLimit: 3)
 
             HStack(spacing: 8) {
                 Button("插入") {
@@ -165,6 +165,13 @@ struct SnippetsPanelView: View {
                 Text(snippet.category)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+
+                if snippet.assetScope.isRestricted {
+                    Label("限 \(snippet.assetScope.assetIDs.count) 台资产", systemImage: "lock.circle")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("此命令片段仅可用于 \(snippet.assetScope.assetIDs.count) 台指定资产")
+                }
             }
         }
         .padding(10)
@@ -200,11 +207,75 @@ struct SnippetsPanelView: View {
                 TextField("分类", text: $editorDraft.category)
                     .textFieldStyle(.roundedBorder)
 
+                Toggle("仅允许指定资产使用", isOn: $editorRestrictsAssets)
+
+                if editorRestrictsAssets {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("允许执行的资产")
+                            .font(.subheadline.weight(.medium))
+
+                        if serverStore.servers.isEmpty {
+                            Text("暂无可选资产。请先添加资产，或取消此限制。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ScrollView {
+                                LazyVStack(alignment: .leading, spacing: 4) {
+                                    ForEach(serverStore.servers) { server in
+                                        let isSelected = editorAssetIDs.contains(server.id)
+                                        Button {
+                                            if isSelected {
+                                                editorAssetIDs.remove(server.id)
+                                            } else {
+                                                editorAssetIDs.insert(server.id)
+                                            }
+                                        } label: {
+                                            HStack(spacing: 8) {
+                                                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                                VStack(alignment: .leading, spacing: 1) {
+                                                    Text(server.name)
+                                                    Text(server.endpointText)
+                                                        .font(.caption2)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                                Spacer()
+                                            }
+                                            .contentShape(Rectangle())
+                                        }
+                                        .buttonStyle(.plain)
+                                        .accessibilityLabel(isSelected ? "取消允许 \(server.name) 使用此命令片段" : "允许 \(server.name) 使用此命令片段")
+                                    }
+                                }
+                            }
+                            .frame(maxHeight: 150)
+                        }
+
+                        if editorAssetIDs.isEmpty {
+                            Text("请至少选择一台资产，或关闭限制。")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                    .padding(10)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+
                 TextEditor(text: $editorDraft.command)
                     .font(.system(.body, design: .monospaced))
                     .padding(8)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .frame(minHeight: 220)
+
+                if !editorDraft.command.isEmpty {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("代码预览")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        ShellSyntaxHighlightedText(editorDraft.command, lineLimit: 4)
+                    }
+                    .padding(10)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
 
                 HStack {
                     Button("取消") {
@@ -218,6 +289,9 @@ struct SnippetsPanelView: View {
                         let title = editorDraft.title
                         let command = editorDraft.command
                         let category = editorDraft.category
+                        let assetScope = editorRestrictsAssets
+                            ? SnippetAssetScope.selectedAssets(editorAssetIDs)
+                            : .allAssets
                         let isCreate = target.id == UUID.snippetDraftID
                         editorTarget = nil
                         Task {
@@ -226,6 +300,7 @@ struct SnippetsPanelView: View {
                                     title: title,
                                     command: command,
                                     category: category,
+                                    assetScope: assetScope,
                                     token: appSession.readToken(),
                                     masterPassword: appSession.readMasterPassword()
                                 )
@@ -235,6 +310,7 @@ struct SnippetsPanelView: View {
                                     title: title,
                                     command: command,
                                     category: category,
+                                    assetScope: assetScope,
                                     token: appSession.readToken(),
                                     masterPassword: appSession.readMasterPassword()
                                 )
@@ -242,6 +318,7 @@ struct SnippetsPanelView: View {
                         }
                     }
                     .buttonStyle(.borderedProminent)
+                    .disabled(editorRestrictsAssets && editorAssetIDs.isEmpty)
                 }
             }
             .padding(14)
@@ -326,6 +403,8 @@ struct SnippetsPanelView: View {
     private func startCreateSnippet() {
         let seed = Snippet(id: .snippetDraftID, title: "", command: "", category: "未分类")
         editorDraft = SnippetEditorDraft()
+        editorRestrictsAssets = false
+        editorAssetIDs = []
         editorTarget = seed
     }
 
@@ -335,6 +414,8 @@ struct SnippetsPanelView: View {
             command: snippet.command,
             category: snippet.category
         )
+        editorRestrictsAssets = snippet.assetScope.isRestricted
+        editorAssetIDs = snippet.assetScope.assetIDs
         editorTarget = snippet
     }
 

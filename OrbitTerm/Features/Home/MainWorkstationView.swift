@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct MainWorkstationView: View {
+    @Environment(\.appThemePalette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var serverStore: ServerStore
     @Environment(\.openWindow) private var openWindow
@@ -9,22 +11,17 @@ struct MainWorkstationView: View {
     @StateObject private var syncService = SyncService.shared
     @StateObject private var diagnostics = DiagnosticsManager.shared
     @StateObject private var snippetStore = SnippetStore.shared
-    @StateObject private var stressController = WorkstationStressController()
 
     @State private var showingAddServer = false
     @State private var editingServer: ServerEntry?
     @State private var pendingDeleteServer: ServerEntry?
     @State private var showingAssetManager = false
     @State private var showingSettings = false
-    @State private var showingDiagnostics = false
     @State private var showingBatchCommand = false
     @State private var leftSearchText = ""
     @State private var isLeftPanelCollapsed = false
     @State private var isRightPanelCollapsed = false
-    @State private var showMonitorPanel = true
-    @State private var showSFTPPanel = true
-    @State private var showDockerPanel = true
-    @State private var showSnippetsPanel = true
+    @State private var selectedRightPanelTab: WorkstationRightPanelTab = .sftp
     @State private var showingMonitorDetailPanelID: UUID?
     @State private var pendingSFTPRename: PendingSFTPRename?
     @State private var pendingSFTPRenameText: String = ""
@@ -42,7 +39,7 @@ struct MainWorkstationView: View {
                 rightCollapsed: isRightPanelCollapsed
             )
 
-            HStack(spacing: 0) {
+            ZStack { AppChromeBackground(); HStack(spacing: 0) {
                 if isLeftPanelCollapsed {
                     collapsedLeftRail
                         .frame(width: widths.left)
@@ -51,12 +48,12 @@ struct MainWorkstationView: View {
                         .frame(width: widths.left)
                 }
 
-                Divider()
+                ThemedDivider()
 
                 middleColumn
                     .frame(width: widths.middle)
 
-                Divider()
+                ThemedDivider()
 
                 if isRightPanelCollapsed {
                     collapsedRail
@@ -65,13 +62,12 @@ struct MainWorkstationView: View {
                     rightColumn
                         .frame(width: widths.right)
                 }
-            }
+            }}
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .animation(.interactiveSpring(response: 0.35, dampingFraction: 0.85), value: isRightPanelCollapsed)
+            .animation(reduceMotion ? nil : .interactiveSpring(response: 0.35, dampingFraction: 0.85), value: isRightPanelCollapsed)
         }
         .navigationTitle("工作站")
         .modifier(WorkstationToolbarModifier(
-            appSession: session,
             serverStore: serverStore,
             syncService: syncService,
             diagnostics: diagnostics,
@@ -79,7 +75,6 @@ struct MainWorkstationView: View {
             editingServer: $editingServer,
             showingAssetManager: $showingAssetManager,
             showingSettings: $showingSettings,
-            showingDiagnostics: $showingDiagnostics,
             showingBatchCommand: $showingBatchCommand
         ))
         .modifier(WorkstationSheetsAndAlerts(
@@ -89,7 +84,6 @@ struct MainWorkstationView: View {
             pendingDeleteServer: $pendingDeleteServer,
             showingAssetManager: $showingAssetManager,
             showingSettings: $showingSettings,
-            showingDiagnostics: $showingDiagnostics,
             showingBatchCommand: $showingBatchCommand,
             onOpenServer: { server in openServerSession(server) },
             onDeleteServer: { server in deleteServer(server) }
@@ -100,13 +94,13 @@ struct MainWorkstationView: View {
                     .font(.caption)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    .background(palette.surfaceGlassStrong.color, in: Capsule())
+                    .overlay {
+                        Capsule().stroke(palette.borderGlass.color)
+                    }
                     .padding(.bottom, 10)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
-        }
-        .onDisappear {
-            stressController.stop()
         }
         .modifier(WorkstationSFTPDialogs(
             sessionManager: sessionManager,
@@ -169,23 +163,19 @@ struct MainWorkstationView: View {
                 }
             )
 
-            Divider()
+            if let active = sessionManager.activeSession {
+                ConnectionProgressBanner(presentation: ConnectionPresentationAdapter.checkedSSH(hasVerifiedSessionLease: active.verifiedSessionLease != nil, hasTerminalChannel: active.terminalChannelID != nil, isSessionUsable: active.isConnected))
+                    .font(.caption)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+            }
+
+            ThemedDivider()
 
             if let active = sessionManager.activeSession {
                 TerminalSessionPane(
                     session: active,
-                    sessionManager: sessionManager,
-                    isStressRunning: $stressController.isRunning,
-                    onSplitStateChanged: { isSplitEnabled in
-                        if isSplitEnabled {
-                            showSFTPPanel = false
-                        } else {
-                            showSFTPPanel = true
-                        }
-                    },
-                    onToggleStress: { target in
-                        stressController.toggle(for: target)
-                    }
+                    sessionManager: sessionManager
                 )
                 .padding(12)
             } else {
@@ -203,10 +193,7 @@ struct MainWorkstationView: View {
         WorkstationRightPanelView(
             sessionManager: sessionManager,
             snippetStore: snippetStore,
-            showMonitorPanel: $showMonitorPanel,
-            showSFTPPanel: $showSFTPPanel,
-            showDockerPanel: $showDockerPanel,
-            showSnippetsPanel: $showSnippetsPanel,
+            selectedTab: $selectedRightPanelTab,
             showingMonitorDetailPanelID: $showingMonitorDetailPanelID,
             onCollapse: {
                 withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {

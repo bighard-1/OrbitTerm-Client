@@ -19,6 +19,7 @@ private struct BatchCommandTarget {
 struct BatchCommandRunnerView: View {
     @ObservedObject var store: ServerStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.securitySemanticPalette) private var securityPalette
 
     @State private var selectedServerIDs: Set<UUID> = []
     @State private var selectedGroups: Set<String> = []
@@ -55,7 +56,7 @@ struct BatchCommandRunnerView: View {
                     Button("执行命令") {
                         Task { await runBatchCommand() }
                     }
-                    .disabled(isRunning || commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || effectiveTargets.isEmpty)
+                    .disabled(!canExecute)
                 }
             }
         }
@@ -141,6 +142,16 @@ struct BatchCommandRunnerView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
+            if !targetsWithoutVerifiedSession.isEmpty {
+                Label(
+                    "\(targetsWithoutVerifiedSession.count) 台目标尚未建立已验证的 SSH 会话。请先从资产列表打开并完成主机身份确认。",
+                    systemImage: "shield.lefthalf.filled"
+                )
+                .font(.caption)
+                .foregroundStyle(securityPalette.warning.color)
+                .accessibilityLabel("批量命令需要已验证的 SSH 会话")
+            }
+
             TextEditor(text: $commandText)
                 .font(.system(.body, design: .monospaced))
                 .frame(minHeight: 120)
@@ -150,6 +161,17 @@ struct BatchCommandRunnerView: View {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .stroke(Color.secondary.opacity(0.14), lineWidth: 1)
                 )
+
+            if !commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("代码预览")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    ShellSyntaxHighlightedText(commandText, lineLimit: 4)
+                }
+                .padding(10)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
 
             HStack {
                 if isRunning {
@@ -204,11 +226,31 @@ struct BatchCommandRunnerView: View {
         }
     }
 
+    private var targetsWithoutVerifiedSession: [ServerEntry] {
+        guard SessionManager.shared.connectionSecurityPolicy.requiresCheckedNetwork else {
+            return []
+        }
+        return effectiveTargets.filter {
+            SessionManager.shared.verifiedSessionLease(for: $0.id) == nil
+        }
+    }
+
+    private var canExecute: Bool {
+        !isRunning
+            && !commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !effectiveTargets.isEmpty
+            && targetsWithoutVerifiedSession.isEmpty
+    }
+
     private func runBatchCommand() async {
         let command = commandText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else { return }
         let targets = effectiveTargets
         guard !targets.isEmpty else { return }
+        guard targetsWithoutVerifiedSession.isEmpty else {
+            summaryText = "请先为全部目标建立已验证的 SSH 会话；批量命令不会自动连接或跳过主机身份确认。"
+            return
+        }
 
         isRunning = true
         receipts = []
