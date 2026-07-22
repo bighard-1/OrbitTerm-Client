@@ -23,6 +23,7 @@ enum MobileSessionModule: String, CaseIterable, Identifiable {
     case terminal = "终端"
     case shortcuts = "快捷指令"
     case monitor = "监控"
+    case snippets = "Snippets"
 
     var id: String { rawValue }
 }
@@ -155,58 +156,4 @@ private struct MobileMonitorMetricCard: View {
     }
 }
 
-struct MobileTerminalKeyboardAccessory: View {
-    let onSend: ([UInt8]) -> Void
-
-    private let shortcuts: [(title: String, bytes: [UInt8])] = [
-        ("Tab", [9]),
-        ("Ctrl+C", [3]),
-        ("Esc", [27]),
-        ("Ctrl+D", [4])
-    ]
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(shortcuts, id: \.title) { item in
-                    Button {
-                        onSend(item.bytes)
-                    } label: {
-                        Text(item.title)
-                            .font(.caption.weight(.semibold))
-                            .lineLimit(1)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(.thinMaterial, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                Button {
-                    UIApplication.shared.sendAction(
-                        #selector(UIResponder.resignFirstResponder),
-                        to: nil,
-                        from: nil,
-                        for: nil
-                    )
-                } label: {
-                    Image(systemName: "keyboard.chevron.compact.down")
-                        .font(.caption.weight(.semibold))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(.thinMaterial, in: Capsule())
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-        }
-        .background(.ultraThinMaterial)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(Color.secondary.opacity(0.12))
-                .frame(height: 1)
-        }
-    }
-}
 #endif

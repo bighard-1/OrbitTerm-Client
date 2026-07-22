@@ -6,12 +6,12 @@ struct DockerCardView: View {
     @Environment(\.securitySemanticPalette) private var security
 
     private var presentation: DockerContainerPresentationState {
-        DockerContainerPresentationState.resolve(isRunning: card.isRunning)
+        DockerContainerPresentationState.resolve(isRunning: card.isRunning, isPaused: card.isPaused)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: presentation.symbol)
                     .foregroundStyle(presentation.themeColor(in: security, fallback: palette).color)
                     .accessibilityLabel(presentation.label)
@@ -19,26 +19,29 @@ struct DockerCardView: View {
                 Text(card.name)
                     .font(.headline)
                     .lineLimit(1)
+                    .truncationMode(.middle)
                     .foregroundStyle(palette.textPrimary.color)
-
-                Text(presentation.label)
-                    .font(.caption2.weight(.semibold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(presentation.themeColor(in: security, fallback: palette).color.opacity(0.14), in: Capsule())
-                    .foregroundStyle(presentation.themeColor(in: security, fallback: palette).color)
+                    .layoutPriority(1)
 
                 Spacer()
+            }
 
-                Text(card.runningFor.isEmpty ? card.state : card.runningFor)
-                    .font(.caption)
-                    .foregroundStyle(palette.textSecondary.color)
+            HStack(spacing: 8) {
+                DockerContainerStatusBadge(presentation: presentation)
+                if !card.runningFor.isEmpty {
+                    Text(card.runningFor)
+                        .font(.caption)
+                        .foregroundStyle(palette.textSecondary.color)
+                        .lineLimit(1)
+                }
             }
 
             Text(card.image)
                 .font(.subheadline)
                 .foregroundStyle(palette.textSecondary.color)
                 .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 6) {
                 metricBar(title: "CPU", value: card.cpuPercent)
@@ -51,6 +54,7 @@ struct DockerCardView: View {
                 .lineLimit(1)
         }
         .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(card.name)，\(presentation.label)，镜像 \(card.image)")
     }
@@ -74,5 +78,24 @@ struct DockerCardView: View {
                     .foregroundStyle(palette.textSecondary.color)
             }
         }
+    }
+}
+
+struct DockerContainerStatusBadge: View {
+    let presentation: DockerContainerPresentationState
+    @Environment(\.appThemePalette) private var palette
+    @Environment(\.securitySemanticPalette) private var security
+
+    var body: some View {
+        Text(presentation.label)
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                presentation.themeColor(in: security, fallback: palette).color.opacity(0.14),
+                in: Capsule()
+            )
+            .foregroundStyle(presentation.themeColor(in: security, fallback: palette).color)
+            .fixedSize(horizontal: true, vertical: false)
     }
 }

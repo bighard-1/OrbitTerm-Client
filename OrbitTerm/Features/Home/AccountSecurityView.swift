@@ -130,6 +130,10 @@ struct AccountSecurityView: View {
             }
         }
         .navigationTitle("个人信息管理")
+#if os(iOS)
+        .scrollContentBackground(.hidden)
+        .background(AppChromeBackground())
+#endif
     }
 
 #if os(macOS)

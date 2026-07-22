@@ -72,13 +72,17 @@ struct MasterPasswordGateView: View {
                         }
                     }
                     .font(.system(.body, design: .rounded))
-                    .padding(30)
-                    .frame(maxWidth: 520)
+                    .padding(24)
                     .themedGlassSurface()
                     .shadow(color: .black.opacity(0.18), radius: 20, x: 0, y: 12)
-                    .padding(24)
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: proxy.size.height)
+#if os(macOS)
+                    // The workstation window is wider than the unlock form.
+                    // Cap the form itself and center it in that window so the
+                    // secure-input experience stays dialog-like and legible.
+                    .frame(maxWidth: 520)
+#endif
+                    .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+                    .padding(.horizontal, 16)
                 }
             }
         }
@@ -104,10 +108,12 @@ struct MasterPasswordGateView: View {
             SecureField(placeholder, text: text)
                 .textFieldStyle(.plain)
                 .submitLabel(.go)
+                .frame(minWidth: 0, maxWidth: .infinity)
 
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 11)
+        .frame(maxWidth: .infinity)
         .themedInputSurface()
     }
 

@@ -75,49 +75,139 @@ typealias PlatformView = TerminalView
 typealias PlatformColor = UIColor
 typealias PlatformFont = UIFont
 
-final class ShortcutAccessoryView: UIView {
+final class MobileTerminalView: TerminalView {
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesBegan(touches, with: event)
+        // SwiftTerm is a UIKit terminal rather than a SwiftUI TextField. Make
+        // input activation explicit so tapping any terminal cell reliably opens
+        // the iOS keyboard on a touch-only device.
+        _ = becomeFirstResponder()
+    }
+}
+
+/// A keyboard accessory must participate in UIKit's input-view layout rather
+/// than behaving as an ordinary view. `UIInputView` reserves the correct space
+/// above the keyboard's rounded chrome on modern iOS, where a plain `UIView`
+/// can otherwise be visually clipped by the keyboard.
+final class ShortcutAccessoryView: UIInputView {
+    private static let height: CGFloat = 62
+
     var onSendBytes: (([UInt8]) -> Void)?
     var onHideKeyboard: (() -> Void)?
 
+    private enum Layout {
+        case common
+        case symbols
+    }
+
+    private let layoutControl = UISegmentedControl(items: ["常用", "符号"])
+    private let scrollView = UIScrollView()
+    private let shortcutStack = UIStackView()
+    private var layout: Layout = .common
+
     override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: 44)
+        // Keep the controls within a single, system-owned accessory row.
+        CGSize(width: UIView.noIntrinsicMetric, height: Self.height)
     }
 
     init() {
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
+        super.init(
+            frame: CGRect(x: 0, y: 0, width: 0, height: Self.height),
+            inputViewStyle: .keyboard
+        )
+        // iOS otherwise applies its compact default accessory height before
+        // this view's arranged shortcut row has been measured. Keep one stable
+        // system-owned height so no controls are clipped by the keyboard.
+        allowsSelfSizing = false
+        autoresizingMask = [.flexibleWidth]
         backgroundColor = .secondarySystemBackground
 
-        let scroll = UIScrollView()
-        scroll.showsHorizontalScrollIndicator = false
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(scroll)
+        layoutControl.selectedSegmentIndex = 0
+        layoutControl.translatesAutoresizingMaskIntoConstraints = false
+        layoutControl.accessibilityLabel = "终端快捷键布局"
+        layoutControl.addTarget(self, action: #selector(changeLayout), for: .valueChanged)
+        addSubview(layoutControl)
+
+        let hideButton = makeButton(title: "⌄")
+        hideButton.accessibilityLabel = "收起键盘与快捷键"
+        hideButton.addAction(UIAction { [weak self] _ in
+            self?.onHideKeyboard?()
+        }, for: .touchUpInside)
+        hideButton.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(hideButton)
+
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(scrollView)
         NSLayoutConstraint.activate([
-            scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: topAnchor),
-            scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
+            layoutControl.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            layoutControl.centerYAnchor.constraint(equalTo: centerYAnchor),
+            layoutControl.widthAnchor.constraint(equalToConstant: 96),
+            layoutControl.heightAnchor.constraint(equalToConstant: 32),
+            hideButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            hideButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            hideButton.widthAnchor.constraint(equalToConstant: 36),
+            hideButton.heightAnchor.constraint(equalToConstant: 32),
+            scrollView.leadingAnchor.constraint(equalTo: layoutControl.trailingAnchor, constant: 8),
+            scrollView.trailingAnchor.constraint(equalTo: hideButton.leadingAnchor, constant: -8),
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
 
-        let stack = UIStackView()
-        stack.axis = .horizontal
-        stack.alignment = .center
-        stack.spacing = 8
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        scroll.addSubview(stack)
+        shortcutStack.axis = .horizontal
+        shortcutStack.alignment = .center
+        shortcutStack.spacing = 8
+        shortcutStack.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(shortcutStack)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 10),
-            stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -10),
-            stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 6),
-            stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -6),
-            stack.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor, constant: -12),
+            shortcutStack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 8),
+            shortcutStack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -8),
+            shortcutStack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 6),
+            shortcutStack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -6),
+            shortcutStack.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor, constant: -12),
         ])
 
-        let shortcuts: [(String, [UInt8])] = [
+        renderShortcuts()
+    }
+
+    @objc private func changeLayout() {
+        layout = layoutControl.selectedSegmentIndex == 0 ? .common : .symbols
+        renderShortcuts()
+    }
+
+    private func renderShortcuts() {
+        shortcutStack.arrangedSubviews.forEach {
+            shortcutStack.removeArrangedSubview($0)
+            $0.removeFromSuperview()
+        }
+
+        let shortcuts: [(String, [UInt8])] = layout == .common ? [
             ("Tab", [9]),
             ("Ctrl+C", [3]),
             ("Esc", [27]),
             ("Ctrl+D", [4]),
+            ("Ctrl+L", [12]),
+            ("Ctrl+U", [21]),
+            ("Enter", [13]),
+        ] : [
+            ("←", [27, 91, 68]),
+            ("↑", [27, 91, 65]),
+            ("↓", [27, 91, 66]),
+            ("→", [27, 91, 67]),
+            ("-", [45]),
+            ("+", [43]),
+            ("×", [42]),
+            ("/", [47]),
+            ("|", [124]),
+            ("\\", [92]),
+            ("~", [126]),
+            ("=", [61]),
+            ("_", [95]),
+            ("$", [36]),
+            ("#", [35]),
+            (";", [59]),
+            (":", [58]),
+            ("?", [63]),
         ]
 
         for (title, bytes) in shortcuts {
@@ -125,19 +215,21 @@ final class ShortcutAccessoryView: UIView {
             button.addAction(UIAction { [weak self] _ in
                 self?.onSendBytes?(bytes)
             }, for: .touchUpInside)
-            stack.addArrangedSubview(button)
+            shortcutStack.addArrangedSubview(button)
         }
-
-        let hideButton = makeButton(title: "收起")
-        hideButton.addAction(UIAction { [weak self] _ in
-            self?.onHideKeyboard?()
-        }, for: .touchUpInside)
-        stack.addArrangedSubview(hideButton)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         nil
+    }
+
+    override func systemLayoutSizeFitting(
+        _ targetSize: CGSize,
+        withHorizontalFittingPriority horizontalFittingPriority: UILayoutPriority,
+        verticalFittingPriority: UILayoutPriority
+    ) -> CGSize {
+        CGSize(width: targetSize.width, height: Self.height)
     }
 
     private func makeButton(title: String) -> UIButton {
@@ -148,6 +240,22 @@ final class ShortcutAccessoryView: UIView {
         button.titleLabel?.font = .systemFont(ofSize: 13, weight: .semibold)
         return button
     }
+}
+
+/// Keeps terminal-only keys attached to the system keyboard lifecycle.  This
+/// avoids leaving a second, SwiftUI-owned shortcut strip visible after the
+/// keyboard is dismissed.
+func installMobileTerminalShortcutAccessory(
+    on terminal: TerminalView,
+    sendBytes: @escaping ([UInt8]) -> Void
+) {
+    let accessory = ShortcutAccessoryView()
+    accessory.onSendBytes = sendBytes
+    accessory.onHideKeyboard = { [weak terminal] in
+        _ = terminal?.resignFirstResponder()
+    }
+    terminal.inputAccessoryView = accessory
+    terminal.reloadInputViews()
 }
 #endif
 

@@ -37,27 +37,26 @@ struct WorkstationDockerCardView: View {
                 }
             } else {
                 ForEach(dockerService.cards.prefix(6)) { card in
-                    let presentation = DockerContainerPresentationState.resolve(isRunning: card.isRunning)
-                    HStack {
+                    let presentation = DockerContainerPresentationState.resolve(
+                        isRunning: card.isRunning,
+                        isPaused: card.isPaused
+                    )
+                    HStack(alignment: .top, spacing: 8) {
                         Image(systemName: presentation.symbol)
                             .foregroundStyle(presentation.themeColor(in: security, fallback: palette).color)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(card.name).lineLimit(1)
+                            Text(card.name)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .layoutPriority(1)
+                            DockerContainerStatusBadge(presentation: presentation)
                             Text(card.image).font(.caption2).foregroundStyle(palette.textSecondary.color).lineLimit(1)
-                            Text(presentation.label)
-                                .font(.caption2)
-                                .foregroundStyle(presentation.themeColor(in: security, fallback: palette).color)
                         }
                         Spacer()
-                        Text(presentation.label)
-                            .font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(presentation.themeColor(in: security, fallback: palette).color.opacity(0.14), in: Capsule())
-                            .foregroundStyle(presentation.themeColor(in: security, fallback: palette).color)
                         Text(String(format: "CPU %.1f%%", card.cpuPercent))
                             .font(.caption2.monospacedDigit())
                             .foregroundStyle(palette.textSecondary.color)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel("\(card.name)，\(presentation.label)，CPU \(String(format: "%.1f%%", card.cpuPercent))")
@@ -75,7 +74,10 @@ struct WorkstationDockerCardView: View {
                                 }
                             }
                         }
-                        ForEach(DockerAction.allCases, id: \.self) { action in
+                        Button("复制容器 ID") {
+                            TerminalPlatformSupport.copyToClipboard(Data(card.id.utf8))
+                        }
+                        ForEach(card.availableActions, id: \.self) { action in
                             Button(action.label) {
                                 Task { await dockerService.performAction(containerID: card.id, action: action) }
                             }

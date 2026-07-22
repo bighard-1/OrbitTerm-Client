@@ -192,7 +192,6 @@ private struct MainShellView: View {
     @State private var selectedTab: MobileShellTab = .servers
     @State private var showingDeepLinkAddServer = false
     @State private var deepLinkPrefill: ServerAddPrefill?
-    @State private var lastTabSwipeAt: Date = .distantPast
 
     var body: some View {
         Group {
@@ -232,7 +231,7 @@ private struct MainShellView: View {
 
                 NavigationStack { MobileMoreView() }
                     .tag(MobileShellTab.more)
-                    .tabItem { Label("更多", systemImage: "ellipsis.circle") }
+                    .tabItem { Label("个人中心", systemImage: "person.crop.circle.fill") }
             }
             .modifier(MobileShellTabBarStyle())
             .background(AppChromeBackground())
@@ -257,13 +256,10 @@ private struct MainShellView: View {
             .safeAreaInset(edge: .bottom) {
                 Color.clear.frame(height: 6)
             }
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 24, coordinateSpace: .local)
-                    .onEnded { value in
-                        handleTabSwipe(value)
-                    }
-            )
-            .applyKeyboardDismissToolbar()
+            // The terminal supplies a UIKit-owned shortcut accessory above the
+            // software keyboard. Other shell pages continue to use the normal
+            // SwiftUI dismiss action without competing for that same region.
+            .applyKeyboardDismissToolbar(enabled: selectedTab != .session)
             #endif
         }
         .sheet(isPresented: $showingDeepLinkAddServer) {
@@ -379,32 +375,6 @@ private struct MainShellView: View {
         deepLinkManager.consumePendingIntent()
     }
 
-    #if os(iOS)
-    private func handleTabSwipe(_ value: DragGesture.Value) {
-        // 会话页内部保留左右滑动给“终端/快捷指令/监控”子模块切换，避免误滑出会话。
-        if selectedTab == .session, SessionManager.shared.activeSession != nil {
-            return
-        }
-        let dx = value.translation.width
-        let dy = value.translation.height
-        guard abs(dx) > 56, abs(dx) > abs(dy) * 1.2 else { return }
-        guard Date().timeIntervalSince(lastTabSwipeAt) > 0.22 else { return }
-        lastTabSwipeAt = Date()
-
-        let order: [MobileShellTab] = [.servers, .session, .sftp, .docker, .more]
-        guard let idx = order.firstIndex(of: selectedTab) else { return }
-
-        if dx < 0, idx < order.count - 1 {
-            withAnimation(.interactiveSpring(response: 0.26, dampingFraction: 0.86)) {
-                selectedTab = order[idx + 1]
-            }
-        } else if dx > 0, idx > 0 {
-            withAnimation(.interactiveSpring(response: 0.26, dampingFraction: 0.86)) {
-                selectedTab = order[idx - 1]
-            }
-        }
-    }
-    #endif
 }
 
 #if os(iOS)

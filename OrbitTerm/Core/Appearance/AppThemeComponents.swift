@@ -4,29 +4,36 @@ struct AppChromeBackground: View {
     @Environment(\.appThemePalette) private var palette
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    palette.pageBackground.color,
-                    palette.backgroundGlowPrimary.color.opacity(0.18),
-                    palette.surfaceReadable.color
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            if !reduceTransparency {
-                Circle()
-                    .fill(palette.backgroundGlowPrimary.color)
-                    .frame(width: 540, height: 540)
-                    .blur(radius: 104)
-                    .offset(x: -190, y: -260)
-                Circle()
-                    .fill(palette.backgroundGlowSecondary.color)
-                    .frame(width: 430, height: 430)
-                    .blur(radius: 92)
-                    .offset(x: 190, y: 270)
+        GeometryReader { bounds in
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        palette.pageBackground.color,
+                        palette.backgroundGlowPrimary.color.opacity(0.18),
+                        palette.surfaceReadable.color
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                if !reduceTransparency {
+                    Circle()
+                        .fill(palette.backgroundGlowPrimary.color)
+                        .frame(width: 540, height: 540)
+                        .blur(radius: 104)
+                        .offset(x: -190, y: -260)
+                    Circle()
+                        .fill(palette.backgroundGlowSecondary.color)
+                        .frame(width: 430, height: 430)
+                        .blur(radius: 92)
+                        .offset(x: 190, y: 270)
+                }
             }
-        }.ignoresSafeArea()
+            // The glow may extend past the screen, but it must never enlarge the
+            // layout proposal of the page layered above it.
+            .frame(width: bounds.size.width, height: bounds.size.height)
+            .clipped()
+        }
+        .ignoresSafeArea()
     }
 }
 

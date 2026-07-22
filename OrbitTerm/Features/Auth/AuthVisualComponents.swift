@@ -3,6 +3,7 @@ import SwiftUI
 struct AuthModeSwitcher: View {
     @Binding var isLoginMode: Bool
     let namespace: Namespace.ID
+    let maximumWidth: CGFloat
     @Environment(\.appThemePalette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -21,8 +22,7 @@ struct AuthModeSwitcher: View {
         }
         .padding(4)
         .background(palette.surfaceInput.color, in: Capsule())
-        .frame(maxWidth: 320)
-        .frame(maxWidth: .infinity, alignment: .center)
+        .frame(width: maximumWidth)
         .frame(height: 48)
     }
 
@@ -53,50 +53,57 @@ struct AuthInputRow: View {
     let isSecure: Bool
     let showRevealToggle: Bool
     @Binding var isShowingPassword: Bool
+    let maximumWidth: CGFloat
     @Environment(\.appThemePalette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .foregroundStyle(palette.textSecondary.color)
-                .frame(width: 18)
+        GeometryReader { bounds in
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .foregroundStyle(palette.textSecondary.color)
+                    .frame(width: 18)
 
-            Group {
-                if isSecure {
-                    SecureField(placeholder, text: $text)
-                } else {
-                    plainTextInput
-                }
-            }
-            .applyInputPolish()
-
-            if !text.isEmpty {
-                Button {
-                    text = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(palette.textSecondary.color)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("清除\(placeholder)")
-            }
-
-            if showRevealToggle {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isShowingPassword.toggle()
+                Group {
+                    if isSecure {
+                        SecureField(placeholder, text: $text)
+                    } else {
+                        plainTextInput
                     }
-                } label: {
-                    Image(systemName: isShowingPassword ? "eye.slash.fill" : "eye.fill")
-                        .foregroundStyle(palette.textSecondary.color)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(isShowingPassword ? "隐藏密码" : "显示密码")
+                .applyInputPolish()
+                .frame(minWidth: 0, maxWidth: .infinity)
+
+                if !text.isEmpty {
+                    Button {
+                        text = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(palette.textSecondary.color)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("清除\(placeholder)")
+                }
+
+                if showRevealToggle {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isShowingPassword.toggle()
+                        }
+                    } label: {
+                        Image(systemName: isShowingPassword ? "eye.slash.fill" : "eye.fill")
+                            .foregroundStyle(palette.textSecondary.color)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(isShowingPassword ? "隐藏密码" : "显示密码")
+                }
             }
+            .frame(width: bounds.size.width, alignment: .leading)
         }
+        .frame(height: 22)
         .padding(.horizontal, 12)
         .padding(.vertical, 11)
+        .frame(width: maximumWidth)
         .themedInputSurface()
     }
 
@@ -117,6 +124,7 @@ struct AuthPrimaryButton: View {
     let isLoading: Bool
     let isDisabled: Bool
     @Binding var isPressing: Bool
+    let maximumWidth: CGFloat
     let onSubmit: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -140,8 +148,7 @@ struct AuthPrimaryButton: View {
             .frame(height: 52)
         }
         .buttonStyle(ThemedPrimaryButtonStyle())
-        .frame(maxWidth: 360)
-        .frame(maxWidth: .infinity, alignment: .center)
+        .frame(width: maximumWidth)
         .scaleEffect(AppAccessibilityPresentation.usesDecorativeMotion(reduceMotion: reduceMotion) && isPressing ? 0.98 : 1.0)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: isPressing)
         .simultaneousGesture(

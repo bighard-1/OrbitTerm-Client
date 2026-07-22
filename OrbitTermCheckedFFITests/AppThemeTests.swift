@@ -134,6 +134,14 @@ final class AppThemeTests: XCTestCase {
         }
     }
 
+    func testDockerPausedPresentationRetainsIndependentWarningSemantics() {
+        XCTAssertEqual(DockerContainerPresentationState.resolve(isRunning: true, isPaused: false), .running)
+        XCTAssertEqual(DockerContainerPresentationState.resolve(isRunning: false, isPaused: true), .paused)
+        XCTAssertEqual(DockerContainerPresentationState.paused.securityKind, .warning)
+        XCTAssertEqual(DockerContainerPresentationState.paused.label, "已暂停")
+        XCTAssertEqual(DockerContainerPresentationState.resolve(isRunning: false, isPaused: false), .stopped)
+    }
+
     func testMonitorPresentationSemanticsPreserveExistingCPUZones() {
         XCTAssertEqual(MonitorMetricPresentationLevel.existingCPUZone("normal"), .normal)
         XCTAssertEqual(MonitorMetricPresentationLevel.existingCPUZone("warning"), .warning)

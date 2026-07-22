@@ -39,14 +39,24 @@ struct AuthView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            GeometryReader { proxy in
-                ZStack {
-                    AppChromeBackground()
+        GeometryReader { proxy in
+            // The main macOS window is deliberately wide for the workstation.
+            // Authentication is a focused task, so keep its card readable rather
+            // than stretching its fields across that workstation-sized window.
+            let availableCardWidth = max(0, proxy.size.width - 32)
+#if os(macOS)
+            let cardWidth = min(availableCardWidth, 560)
+#else
+            let cardWidth = availableCardWidth
+#endif
+            let formWidth = max(0, cardWidth - 48)
 
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 24) {
-                            VStack(alignment: .leading, spacing: 8) {
+            ZStack {
+                AppChromeBackground()
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 24) {
+                        VStack(alignment: .leading, spacing: 8) {
                                 Text("OrbitTerm")
                                     .font(.system(size: 28, weight: .bold, design: .rounded))
                                     .foregroundStyle(palette.textPrimary.color)
@@ -54,27 +64,31 @@ struct AuthView: View {
                                     .foregroundStyle(palette.textSecondary.color)
                                     .font(.subheadline)
                                     .animation(.easeInOut(duration: 0.25), value: isLoginMode)
-                            }
-
-                            VStack(spacing: 18) {
-                                AuthModeSwitcher(isLoginMode: $isLoginMode, namespace: modeAnimation)
-                                credentialsForm
-                                actionArea
-                                bannerArea
-                            }
-                            .padding(.horizontal, 24)
-                            .padding(.vertical, 26)
-                            .themedGlassSurface()
-                            .shadow(color: .black.opacity(0.14), radius: 20, x: 0, y: 14)
                         }
-                        .padding(.horizontal, 22)
-                        .padding(.vertical, 32)
-                        .frame(maxWidth: 520)
-                        .frame(maxWidth: .infinity)
-                        .frame(minHeight: proxy.size.height)
+                        .frame(width: cardWidth, alignment: .center)
+
+                        VStack(spacing: 18) {
+                            AuthModeSwitcher(
+                                isLoginMode: $isLoginMode,
+                                namespace: modeAnimation,
+                                maximumWidth: min(320, formWidth)
+                            )
+                            credentialsForm(width: formWidth)
+                            actionArea(width: min(360, formWidth))
+                            bannerArea
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 26)
+                        .frame(width: cardWidth)
+                        .themedGlassSurface()
+                        .shadow(color: .black.opacity(0.14), radius: 20, x: 0, y: 14)
                     }
+                    .padding(.vertical, 32)
+                    .frame(width: proxy.size.width)
+                    .frame(minHeight: proxy.size.height)
                 }
             }
+        }
             .onChange(of: message) { _, newValue in
                 if !newValue.isEmpty, messageKind == .failure {
                     withAnimation(.easeInOut(duration: 0.08).repeatCount(3, autoreverses: true)) {
@@ -106,10 +120,9 @@ struct AuthView: View {
                 Text("新地址：\(pendingServerAddress)\n\n自定义后端可能会拦截您的加密凭据，请确认该端点来源可靠。")
             }
             .applyKeyboardDismissToolbar()
-        }
     }
 
-    private var credentialsForm: some View {
+    private func credentialsForm(width: CGFloat) -> some View {
         VStack(spacing: 14) {
             AuthInputRow(
                 icon: "envelope.fill",
@@ -117,7 +130,8 @@ struct AuthView: View {
                 text: $username,
                 isSecure: false,
                 showRevealToggle: false,
-                isShowingPassword: $isShowingPassword
+                isShowingPassword: $isShowingPassword,
+                maximumWidth: width
             )
 
             AuthInputRow(
@@ -126,7 +140,8 @@ struct AuthView: View {
                 text: $password,
                 isSecure: !isShowingPassword,
                 showRevealToggle: true,
-                isShowingPassword: $isShowingPassword
+                isShowingPassword: $isShowingPassword,
+                maximumWidth: width
             )
 
             if !isLoginMode {
@@ -136,7 +151,8 @@ struct AuthView: View {
                     text: $inviteCode,
                     isSecure: false,
                     showRevealToggle: false,
-                    isShowingPassword: $isShowingPassword
+                    isShowingPassword: $isShowingPassword,
+                    maximumWidth: width
                 )
                 Text("密码至少 12 位，且包含大小写字母、数字和特殊字符。")
                     .font(.caption)
@@ -146,12 +162,13 @@ struct AuthView: View {
         }
     }
 
-    private var actionArea: some View {
+    private func actionArea(width: CGFloat) -> some View {
         AuthPrimaryButton(
             isLoginMode: isLoginMode,
             isLoading: isLoading,
             isDisabled: !canSubmit,
-            isPressing: $isPressingPrimary
+            isPressing: $isPressingPrimary,
+            maximumWidth: width
         ) {
             Task { await submit() }
         }

@@ -102,6 +102,8 @@ struct SFTPFileListView: View {
                 isSelected: batchState.contains(item),
                 onToggleSelection: { toggleSelection(item) }
             )
+            .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+            .listRowBackground(palette.surfaceReadable.color)
             .contentShape(Rectangle())
             .onTapGesture {
                 if batchState.hasSelection {

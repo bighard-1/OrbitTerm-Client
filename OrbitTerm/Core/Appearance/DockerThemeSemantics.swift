@@ -4,11 +4,13 @@ import SwiftUI
 /// More detailed lifecycle or health states must not be inferred from status text.
 enum DockerContainerPresentationState: Equatable {
     case running
+    case paused
     case stopped
 
     var securityKind: SecurityStatusKind? {
         switch self {
         case .running: .success
+        case .paused: .warning
         case .stopped: nil
         }
     }
@@ -16,6 +18,7 @@ enum DockerContainerPresentationState: Equatable {
     var symbol: String {
         switch self {
         case .running: "play.circle.fill"
+        case .paused: "pause.circle.fill"
         case .stopped: "stop.circle"
         }
     }
@@ -23,6 +26,7 @@ enum DockerContainerPresentationState: Equatable {
     var label: String {
         switch self {
         case .running: "运行中"
+        case .paused: "已暂停"
         case .stopped: "已停止"
         }
     }
@@ -33,6 +37,11 @@ enum DockerContainerPresentationState: Equatable {
     }
 
     static func resolve(isRunning: Bool) -> Self { isRunning ? .running : .stopped }
+
+    static func resolve(isRunning: Bool, isPaused: Bool) -> Self {
+        if isPaused { return .paused }
+        return resolve(isRunning: isRunning)
+    }
 }
 
 enum DockerConnectionPresentationState: Equatable {

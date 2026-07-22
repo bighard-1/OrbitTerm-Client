@@ -97,7 +97,6 @@ struct SettingsView: View {
     @AppStorage("orbitterm.monitor.realtime.interval") private var monitorInterval: Double = 1.0
     @State private var showTelnetEnableConfirmation = false
 #if os(iOS)
-    @State private var showSwitchAccountConfirmation = false
 #endif
 
     var body: some View {
@@ -250,15 +249,6 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-#if os(macOS)
-#else
-                Button("切换账号") {
-                    showSwitchAccountConfirmation = true
-                }
-                Button("退出登录", role: .destructive) {
-                    AccountSessionActions.leaveCurrentAccount(session: session, serverStore: serverStore)
-                }
-#endif
             }
         }
         .scrollContentBackground(.hidden)
@@ -288,16 +278,6 @@ struct SettingsView: View {
         } message: {
             Text("Telnet 会以明文传输登录信息和终端内容。仅应连接隔离内网、VPN 内的受信旧设备；SSH 失败时 OrbitTerm 不会自动切换到 Telnet。")
         }
-#if os(iOS)
-        .alert("切换账号？", isPresented: $showSwitchAccountConfirmation) {
-            Button("切换账号", role: .destructive) {
-                AccountSessionActions.leaveCurrentAccount(session: session, serverStore: serverStore)
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("将断开当前所有会话并返回登录页。本机资产、片段和待同步操作会继续按原账号隔离保存，不会交给下一个账号。")
-        }
-#endif
         .onChange(of: biometricEnabled) { _, enabled in
             if enabled {
                 Task { await validateBiometricImmediately() }

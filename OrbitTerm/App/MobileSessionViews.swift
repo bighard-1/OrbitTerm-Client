@@ -30,81 +30,41 @@ struct MobileSessionView: View {
         VStack(spacing: 0) {
             if let active = manager.activeSession {
                 VStack(alignment: .leading, spacing: 10) {
-                    Picker("模块", selection: $selectedModule) {
-                        ForEach(MobileSessionModule.allCases) { module in
-                            Text(module.rawValue).tag(module)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 4)
+                    modulePicker
 
-                    ZStack {
-                        SwiftTermTerminalView(
-                            channelID: active.terminalChannelID,
-                            onResize: { cols, rows in
-                                Task { await manager.resizeTerminal(session: active, cols: cols, rows: rows) }
-                            },
-                            onInput: { bytes in
-                                Task { await manager.sendTerminalBytes(session: active, bytes: bytes) }
-                            },
-                            searchText: "",
-                            searchCommand: nil,
-                            onSearchFeedback: { _, _ in }
-                        )
-                        .background(.ultraThinMaterial)
-                        .opacity(selectedModule == .terminal ? 1 : 0)
-                        .allowsHitTesting(selectedModule == .terminal)
-                        .onAppear {
-                            Task { await manager.resizeTerminal(session: active, cols: 110, rows: 32) }
-                        }
-
-                        mobileQuickCommandsPanel(for: active)
-                            .opacity(selectedModule == .shortcuts ? 1 : 0)
-                            .allowsHitTesting(selectedModule == .shortcuts)
-
-                        MobileMonitorPanel(manager: manager, session: active)
-                            .opacity(selectedModule == .monitor ? 1 : 0)
-                            .allowsHitTesting(selectedModule == .monitor)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        if selectedModule == .terminal {
-                            MobileTerminalKeyboardAccessory { bytes in
-                                Task {
-                                    await manager.sendTerminalBytes(session: active, bytes: bytes)
-                                }
-                            }
-                        }
-                    }
+                    sessionModuleContent(for: active)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else {
-                ContentUnavailableView(
-                    "暂无活动会话",
-                    systemImage: "terminal",
-                    description: Text("在服务器页选择资产并连接后，这里会显示终端")
-                )
+                VStack(spacing: 14) {
+                    Image(systemName: "terminal")
+                        .font(.system(size: 42))
+                        .foregroundStyle(.secondary)
+                    Text("暂无活动会话")
+                        .font(.title3.weight(.semibold))
+                    Text("在服务器页选择资产并连接后，这里会显示终端")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    Button("返回服务器") {
+                        selectedTab = .servers
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding(24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .contentShape(Rectangle())
-        .highPriorityGesture(
-            DragGesture(minimumDistance: 20, coordinateSpace: .local)
-                .onEnded { value in
-                    let dx = value.translation.width
-                    let dy = value.translation.height
-                    guard abs(dx) > 50, abs(dx) > abs(dy) * 1.15 else { return }
-                    if dx < 0 {
-                        switchToNextModule()
-                    } else {
-                        switchToPreviousModule()
-                    }
-                }
-        )
         .navigationTitle("会话")
         .navigationBarTitleDisplayMode(.inline)
+        // The terminal is a dedicated workspace. Navigation happens through
+        // its own controls, so the application Dock never consumes viewport
+        // height on this tab.
+        // A live terminal owns the full workspace. If the last session closes,
+        // restore the Dock before navigating away so this view never becomes a
+        // dead end after an interruption.
+        .toolbar(manager.activeSession == nil ? .visible : .hidden, for: .tabBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 if let active = manager.activeSession {
@@ -129,6 +89,23 @@ struct MobileSessionView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 if let active = manager.activeSession {
                     HStack(spacing: 14) {
+                        if manager.tabs.count > 1 {
+                            Menu {
+                                ForEach(manager.tabs) { tab in
+                                    Button {
+                                        manager.activateTab(tab.id)
+                                    } label: {
+                                        HStack {
+                                            Image(systemName: tab.id == active.id ? "checkmark.circle.fill" : "terminal")
+                                            Text(tab.server.name)
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "rectangle.on.rectangle")
+                            }
+                            .accessibilityLabel("切换终端会话")
+                        }
                         Button {
                             onBackToAssets()
                         } label: {
@@ -145,6 +122,10 @@ struct MobileSessionView: View {
         }
         .onAppear {
             loadQuickCommands()
+        }
+        .onChange(of: manager.tabs.count) { _, count in
+            guard count == 0, selectedTab == .session else { return }
+            selectedTab = .servers
         }
         .alert("新增快捷指令", isPresented: $showAddQuickCommand) {
             TextField("标题", text: $newQuickTitle)
@@ -172,29 +153,6 @@ struct MobileSessionView: View {
             Section("常用运维") {
                 ForEach(builtInQuickCommands) { item in
                     quickCommandRow(item, session: session, allowDelete: false)
-                }
-            }
-            Section("命令片段（点击仅填入，不回车）") {
-                if snippetStore.snippets.isEmpty {
-                    Text("暂无命令片段")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(snippetStore.snippets.prefix(20)) { snippet in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(snippet.title).font(.subheadline.weight(.semibold))
-                            Text(snippet.command).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            Task {
-                                await manager.dispatchSnippetCommand(
-                                    session: session,
-                                    command: snippet.command,
-                                    executeImmediately: false
-                                )
-                            }
-                        }
-                    }
                 }
             }
             Section("自定义") {
@@ -227,6 +185,65 @@ struct MobileSessionView: View {
                 accountID: appSession.username
             )
         }
+    }
+
+    private var modulePicker: some View {
+        Picker("模块", selection: $selectedModule) {
+            ForEach(MobileSessionModule.allCases) { module in
+                Text(module.rawValue).tag(module)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 12)
+        .padding(.top, 4)
+    }
+
+    private func sessionModuleContent(for session: WorkspaceSession) -> some View {
+        ZStack {
+            SwiftTermTerminalView(
+                channelID: session.terminalChannelID,
+                onResize: { cols, rows in
+                    Task { await manager.resizeTerminal(session: session, cols: cols, rows: rows) }
+                },
+                onInput: { bytes in
+                    Task { await manager.sendTerminalBytes(session: session, bytes: bytes) }
+                },
+                searchText: "",
+                searchCommand: nil,
+                onSearchFeedback: { _, _ in }
+            )
+            .background(.ultraThinMaterial)
+            .opacity(selectedModule == .terminal ? 1 : 0)
+            .allowsHitTesting(selectedModule == .terminal)
+            .onAppear {
+                Task { await manager.resizeTerminal(session: session, cols: 110, rows: 32) }
+            }
+
+            mobileQuickCommandsPanel(for: session)
+                .opacity(selectedModule == .shortcuts ? 1 : 0)
+                .allowsHitTesting(selectedModule == .shortcuts)
+
+            MobileMonitorPanel(manager: manager, session: session)
+                .opacity(selectedModule == .monitor ? 1 : 0)
+                .allowsHitTesting(selectedModule == .monitor)
+
+            SnippetsPanelView(
+                snippetStore: snippetStore,
+                session: session,
+                onInsertCommand: { command, executeImmediately in
+                    Task {
+                        await manager.dispatchSnippetCommand(
+                            session: session,
+                            command: command,
+                            executeImmediately: executeImmediately
+                        )
+                    }
+                }
+            )
+            .opacity(selectedModule == .snippets ? 1 : 0)
+            .allowsHitTesting(selectedModule == .snippets)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private func quickCommandRow(_ item: MobileQuickCommand, session: WorkspaceSession, allowDelete: Bool) -> some View {
@@ -302,68 +319,125 @@ struct MobileSessionView: View {
         persistQuickCommands()
     }
 
-    private func switchToNextModule() {
-        guard let idx = MobileSessionModule.allCases.firstIndex(of: selectedModule),
-              idx < MobileSessionModule.allCases.count - 1 else { return }
-        withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.88)) {
-            selectedModule = MobileSessionModule.allCases[idx + 1]
-        }
-    }
-
-    private func switchToPreviousModule() {
-        guard let idx = MobileSessionModule.allCases.firstIndex(of: selectedModule),
-              idx > 0 else { return }
-        withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.88)) {
-            selectedModule = MobileSessionModule.allCases[idx - 1]
-        }
-    }
-
 }
 
 struct MobileMoreView: View {
     @EnvironmentObject private var session: AppSession
+    @EnvironmentObject private var serverStore: ServerStore
+    @Environment(\.appThemePalette) private var palette
     @State private var showSettings = false
+    @State private var showAccountCenter = false
+    @State private var showSwitchAccountConfirmation = false
 
     var body: some View {
         List {
-            Section("工具") {
-                NavigationLink("监控看板") {
-                    MonitorDashboardView()
+            Section {
+                VStack(spacing: 8) {
+                    Image(systemName: "person.crop.circle.fill")
+                        .font(.system(size: 72))
+                        .foregroundStyle(palette.accentPrimary.color)
+                        .accessibilityHidden(true)
+                    Text(session.username)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text("当前登录账户")
+                        .font(.caption)
+                        .foregroundStyle(palette.textSecondary.color)
                 }
-                NavigationLink("命令片段") {
-                    SnippetsPanelView(
-                        snippetStore: SnippetStore.shared,
-                        session: SessionManager.shared.activeSession,
-                        onInsertCommand: { command, executeImmediately in
-                            guard let active = SessionManager.shared.activeSession else { return }
-                            Task {
-                                await SessionManager.shared.dispatchSnippetCommand(
-                                    session: active,
-                                    command: command,
-                                    executeImmediately: executeImmediately
-                                )
-                            }
-                        }
-                    )
-                    .padding(.horizontal, 8)
-                    .navigationTitle("Snippets")
-                    .navigationBarTitleDisplayMode(.inline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("个人中心，当前账户 \(session.username)")
+            }
+            .listRowBackground(Color.clear)
+
+            Section("账户") {
+                Button {
+                    showAccountCenter = true
+                } label: {
+                    Label("个人信息管理", systemImage: "person.text.rectangle")
+                }
+                Button {
+                    showSettings = true
+                } label: {
+                    Label("设置", systemImage: "gearshape")
                 }
             }
 
-            Section("账户") {
-                Button("设置") { showSettings = true }
-                Button("退出登录", role: .destructive) { session.logout() }
+            Section("信息") {
+                NavigationLink {
+                    MobileAboutView()
+                } label: {
+                    Label("关于 OrbitTerm", systemImage: "info.circle")
+                }
+                NavigationLink {
+                    MobileTermsView()
+                } label: {
+                    Label("条款", systemImage: "doc.text")
+                }
+            }
+
+            Section {
+                Button {
+                    showSwitchAccountConfirmation = true
+                } label: {
+                    Label("切换账户", systemImage: "person.crop.circle.badge.arrow.counterclockwise")
+                }
+                Button(role: .destructive) {
+                    AccountSessionActions.leaveCurrentAccount(session: session, serverStore: serverStore)
+                } label: {
+                    Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
+                }
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("更多")
+        .scrollContentBackground(.hidden)
+        .background(AppChromeBackground())
+        .navigationTitle("个人中心")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showSettings) {
             NavigationStack {
                 SettingsView()
             }
         }
+        .sheet(isPresented: $showAccountCenter) {
+            NavigationStack {
+                AccountSecurityView()
+            }
+        }
+        .alert("切换账户？", isPresented: $showSwitchAccountConfirmation) {
+            Button("切换账户", role: .destructive) {
+                AccountSessionActions.leaveCurrentAccount(session: session, serverStore: serverStore)
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("将断开当前所有会话并返回登录页。本机资产、片段和待同步操作会继续按原账号隔离保存。")
+        }
+    }
+}
+
+private struct MobileAboutView: View {
+    var body: some View {
+        ContentUnavailableView(
+            "OrbitTerm",
+            systemImage: "terminal",
+            description: Text("面向多设备资产管理和安全远程会话的客户端。")
+        )
+        .navigationTitle("关于")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct MobileTermsView: View {
+    var body: some View {
+        ScrollView {
+            Text("使用 OrbitTerm 前，请确认您拥有目标资产的合法访问权限，并妥善保管登录凭据、主密码与密钥材料。")
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+        }
+        .navigationTitle("条款")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 #endif

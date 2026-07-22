@@ -7,6 +7,8 @@ struct DockerManagerView: View {
     @State private var connectionDraft = DockerConnectionDraft()
     @State private var renameDraft = DockerContainerRenameDraft()
     @State private var editingContainer: DockerContainerCard?
+    @State private var inspectingContainer: DockerContainerCard?
+    @State private var logContainer: DockerContainerCard?
     @State private var updateDraft = DockerContainerUpdateDraft()
     private let vault = CredentialVault.shared
     @Environment(\.appThemePalette) private var palette
@@ -96,6 +98,16 @@ struct DockerManagerView: View {
                         }
                     }
                 }
+            }
+        }
+        .sheet(item: $inspectingContainer) { container in
+            NavigationStack {
+                DockerContainerDetailsView(container: container)
+            }
+        }
+        .sheet(item: $logContainer) { container in
+            NavigationStack {
+                DockerLogStreamView(service: effectiveService, container: container)
             }
         }
     }
@@ -200,8 +212,20 @@ struct DockerManagerView: View {
                     NavigationLink(destination: DockerLogStreamView(service: effectiveService, container: card)) {
                         DockerCardView(card: card)
                     }
+                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                    .listRowBackground(palette.surfaceReadable.color)
                     .contextMenu {
-                        ForEach(DockerAction.allCases, id: \.self) { action in
+                        Button("查看详情") {
+                            inspectingContainer = card
+                        }
+                        Button("查看日志") {
+                            logContainer = card
+                        }
+                        Button("复制容器 ID") {
+                            TerminalPlatformSupport.copyToClipboard(Data(card.id.utf8))
+                        }
+                        Divider()
+                        ForEach(card.availableActions, id: \.self) { action in
                             Button(action.label, role: action.isDestructive ? .destructive : nil) {
                                 Task { await effectiveService.performAction(containerID: card.id, action: action) }
                             }
@@ -261,11 +285,77 @@ struct DockerManagerView: View {
     }
 }
 
+/// Presents only metadata supplied by the checked Docker list/stat payloads.
+/// It deliberately does not claim to be `docker inspect`: that command needs
+/// a dedicated, typed backend contract before it can be exposed safely.
+private struct DockerContainerDetailsView: View {
+    let container: DockerContainerCard
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.appThemePalette) private var palette
+
+    private var presentation: DockerContainerPresentationState {
+        DockerContainerPresentationState.resolve(
+            isRunning: container.isRunning,
+            isPaused: container.isPaused
+        )
+    }
+
+    var body: some View {
+        List {
+            Section("状态") {
+                LabeledContent("运行状态") {
+                    DockerContainerStatusBadge(presentation: presentation)
+                }
+                LabeledContent("状态详情", value: container.status)
+                LabeledContent("运行时长", value: container.runningFor.isEmpty ? "-" : container.runningFor)
+            }
+
+            Section("容器") {
+                LabeledContent("名称", value: container.name)
+                LabeledContent("镜像", value: container.image)
+                LabeledContent("容器 ID") {
+                    HStack(spacing: 8) {
+                        Text(container.id)
+                            .font(.caption.monospaced())
+                            .textSelection(.enabled)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Button {
+                            TerminalPlatformSupport.copyToClipboard(Data(container.id.utf8))
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("复制容器 ID")
+                    }
+                }
+            }
+
+            Section("资源") {
+                LabeledContent("CPU", value: String(format: "%.1f%%", container.cpuPercent))
+                LabeledContent("内存", value: String(format: "%.1f%%", container.memPercent))
+                LabeledContent("内存用量", value: container.memUsage)
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(palette.surfaceReadable.color)
+        .navigationTitle("容器详情")
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("关闭") { dismiss() }
+                    .foregroundStyle(palette.textPrimary.color)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("容器详情，\(container.name)，\(presentation.label)")
+    }
+}
+
 private extension DockerAction {
     var isDestructive: Bool {
         switch self {
         case .kill, .remove: true
-        case .start, .stop, .restart: false
+        case .start, .stop, .restart, .pause, .unpause: false
         }
     }
 }

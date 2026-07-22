@@ -12,25 +12,31 @@ struct RecentlyDeletedView: View {
     @State private var pendingPurge: RecentlyDeletedAsset?
 
     var body: some View {
-        List {
-            if isLoading && items.isEmpty {
-                HStack {
-                    Spacer()
-                    ProgressView("正在读取最近删除...")
-                    Spacer()
-                }
-                .listRowBackground(Color.clear)
-            } else if items.isEmpty {
-                ContentUnavailableView(
-                    "最近删除为空",
-                    systemImage: "trash",
-                    description: Text("删除的云端资产会在保留期内显示在这里")
-                )
-            } else {
-                ForEach(items) { item in
-                    deletedRow(item)
+        ZStack {
+            AppChromeBackground()
+
+            List {
+                if isLoading && items.isEmpty {
+                    HStack {
+                        Spacer()
+                        ProgressView("正在读取最近删除...")
+                        Spacer()
+                    }
+                    .listRowBackground(Color.clear)
+                } else if items.isEmpty {
+                    ContentUnavailableView(
+                        "最近删除为空",
+                        systemImage: "trash",
+                        description: Text("删除的云端资产会在保留期内显示在这里")
+                    )
+                } else {
+                    ForEach(items) { item in
+                        deletedRow(item)
+                    }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Color.clear)
         }
         .navigationTitle("最近删除")
 #if os(iOS)

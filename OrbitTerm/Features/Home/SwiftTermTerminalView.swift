@@ -22,6 +22,22 @@ struct SwiftTermTerminalView: View {
     @AppStorage(TerminalThemeManager.storageKey) private var terminalThemeID: String = TerminalThemeManager.defaultThemeID
     @AppStorage("orbitterm.terminal.font.size") private var terminalFontSize: Double = 13
 
+    init(
+        channelID: UInt64?,
+        onResize: @escaping (Int, Int) -> Void,
+        onInput: @escaping ([UInt8]) -> Void,
+        searchText: String,
+        searchCommand: TerminalSearchCommand?,
+        onSearchFeedback: @escaping (Bool, TerminalSearchAction) -> Void
+    ) {
+        self.channelID = channelID
+        self.onResize = onResize
+        self.onInput = onInput
+        self.searchText = searchText
+        self.searchCommand = searchCommand
+        self.onSearchFeedback = onSearchFeedback
+    }
+
     var body: some View {
         let theme = TerminalThemeManager.theme(for: terminalThemeID)
         Group {
@@ -89,10 +105,11 @@ private struct TerminalRepresentable: PlatformRepresentable {
 #else
     func makeUIView(context: Context) -> TerminalView {
         let view = configuredTerminalView(context: context)
+        installMobileTerminalShortcutAccessory(
+            on: view,
+            sendBytes: context.coordinator.emitInput
+        )
         context.coordinator.attach(view: view, channelID: channelID, theme: theme, fontSize: fontSize)
-        DispatchQueue.main.async {
-            _ = view.becomeFirstResponder()
-        }
         return view
     }
 
@@ -112,7 +129,7 @@ private struct TerminalRepresentable: PlatformRepresentable {
         #if os(macOS)
         let terminalView = ContextMenuTerminalView()
         #else
-        let terminalView = TerminalView()
+        let terminalView = MobileTerminalView()
         #endif
         terminalView.terminalDelegate = context.coordinator
         terminalView.nativeBackgroundColor = PlatformColor.clear

@@ -47,6 +47,7 @@ struct SFTPBrowserView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("SFTP")
 #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

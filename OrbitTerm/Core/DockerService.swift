@@ -61,6 +61,23 @@ struct DockerContainerCard: Identifiable, Hashable {
         let lower = state.lowercased()
         return lower == "running" || status.lowercased().contains("up")
     }
+
+    var isPaused: Bool {
+        state.caseInsensitiveCompare("paused") == .orderedSame
+    }
+
+    /// Only expose lifecycle operations Docker can accept for the container's
+    /// reliable daemon-reported state. This avoids presenting an action that
+    /// is known to fail simply because the card was rendered from stale UI.
+    var availableActions: [DockerAction] {
+        if isPaused {
+            return [.unpause, .stop, .kill, .remove]
+        }
+        if isRunning {
+            return [.stop, .restart, .pause, .kill, .remove]
+        }
+        return [.start, .remove]
+    }
 }
 
 enum DockerAction: String, CaseIterable {
@@ -68,6 +85,8 @@ enum DockerAction: String, CaseIterable {
     case stop
     case restart
     case kill
+    case pause
+    case unpause
     case remove
 
     var label: String {
@@ -76,6 +95,8 @@ enum DockerAction: String, CaseIterable {
         case .stop: return "停止"
         case .restart: return "重启"
         case .kill: return "强制终止"
+        case .pause: return "暂停"
+        case .unpause: return "恢复运行"
         case .remove: return "删除容器"
         }
     }

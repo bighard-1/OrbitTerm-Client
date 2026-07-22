@@ -48,13 +48,17 @@ struct SFTPSummaryBar: View {
     @Environment(\.appThemePalette) private var palette
 
     var body: some View {
-        HStack(spacing: 12) {
-            Text("总计 \(itemCount)")
-            Text("目录 \(directoryCount)")
-            Text("文件 \(fileCount)")
-            Spacer()
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 12) {
+                Text("总计 \(itemCount)")
+                Text("目录 \(directoryCount)")
+                Text("文件 \(fileCount)")
+                Spacer(minLength: 0)
+            }
             Text(currentPath)
                 .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .foregroundStyle(palette.textSecondary.color)
         }
         .font(.caption)
@@ -80,31 +84,38 @@ struct SFTPFileRow: View {
                     .font(.body)
             }
             .buttonStyle(.plain)
+            .frame(width: 28, height: 32)
             .accessibilityLabel(isSelected ? "取消选择 \(item.name)" : "选择 \(item.name)")
 
             Image(systemName: item.iconName)
                 .foregroundStyle(item.isDirectory ? palette.accentPrimary.color : palette.textSecondary.color)
                 .frame(width: 18)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name)
                     .lineLimit(1)
+                    .truncationMode(.middle)
                     .foregroundStyle(palette.textPrimary.color)
                 Text("\(item.permissions)  ·  \(item.formattedDate)")
                     .font(.caption)
                     .foregroundStyle(palette.textSecondary.color)
             }
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
 
-            Spacer()
+            Spacer(minLength: 0)
 
             if !item.isDirectory {
                 Text(item.formattedSize)
                     .font(.caption)
                     .foregroundStyle(palette.textSecondary.color)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 6)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         .background(isSelected ? palette.accentPrimary.color.opacity(0.14) : Color.clear)
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(isSelected ? palette.focusRing.color.opacity(0.7) : Color.clear, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))

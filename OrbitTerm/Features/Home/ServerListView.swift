@@ -17,6 +17,7 @@ struct ServerListView: View {
     @State private var pendingDeleteServer: ServerEntry?
     @State private var pendingDeleteGroup: String?
     @State private var searchText = ""
+    @State private var showingBulkAdd = false
     var onConnectRequested: ((ServerEntry) -> Void)?
 
     var body: some View {
@@ -92,6 +93,14 @@ struct ServerListView: View {
                                             Label("删除", systemImage: "trash")
                                         }
                                     }
+                                    .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                        Button {
+                                            connect(server)
+                                        } label: {
+                                            Label("连接", systemImage: "terminal.fill")
+                                        }
+                                        .tint(security.connectionConnected.color)
+                                    }
 
                                     if !batchMode {
                                         Button {
@@ -139,6 +148,8 @@ struct ServerListView: View {
         }
 #if os(iOS)
         .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(AppChromeBackground())
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索名称、IP、用户、分组或标签")
 #else
         .listStyle(.inset)
@@ -151,11 +162,19 @@ struct ServerListView: View {
         .toolbar {
 #if os(iOS)
             ToolbarItem(placement: .topBarLeading) {
-                if !store.servers.isEmpty {
-                    Button(batchMode ? "完成" : "批量") {
-                        batchMode.toggle()
-                        if !batchMode { selectedForDelete.removeAll() }
+                Menu {
+                    Button("批量添加资产") {
+                        showingBulkAdd = true
                     }
+                    if !store.servers.isEmpty {
+                        Divider()
+                        Button(batchMode ? "完成批量选择" : "批量选择") {
+                            batchMode.toggle()
+                            if !batchMode { selectedForDelete.removeAll() }
+                        }
+                    }
+                } label: {
+                    Label("批量", systemImage: "checklist")
                 }
             }
 #else
@@ -201,6 +220,10 @@ struct ServerListView: View {
         }
         .sheet(isPresented: $showingAddServer) {
             AddServerView(store: store) { _ in }
+                .environmentObject(session)
+        }
+        .sheet(isPresented: $showingBulkAdd) {
+            BulkAddAssetsSheet(store: store) { _ in }
                 .environmentObject(session)
         }
         .sheet(item: $editingServer) { server in

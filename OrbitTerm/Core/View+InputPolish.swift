@@ -30,6 +30,21 @@ extension View {
             }
         }
     }
+
+    /// TerminalView installs its own UIKit input accessory. Applying SwiftUI's
+    /// keyboard toolbar at the same time makes UIKit lay out two competing
+    /// accessory regions, which can clip the terminal-only shortcuts.
+    @ViewBuilder
+    func applyKeyboardDismissToolbar(
+        enabled: Bool,
+        title: String = "收起键盘"
+    ) -> some View {
+        if enabled {
+            applyKeyboardDismissToolbar(title: title)
+        } else {
+            self
+        }
+    }
 }
 #endif
 
