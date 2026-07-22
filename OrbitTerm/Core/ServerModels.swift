@@ -1,5 +1,31 @@
 import Foundation
 
+/// Keeps asset tags portable, predictable, and presentation-independent.
+/// Tags are metadata only: they never participate in endpoint identity or
+/// credential storage.
+enum ServerTagNormalizer {
+    static func parse(_ text: String) -> [String] {
+        normalize(
+            text.components(separatedBy: CharacterSet(charactersIn: ",，;；\n"))
+        )
+    }
+
+    static func normalize(_ tags: [String]) -> [String] {
+        var seen = Set<String>()
+        return tags.compactMap { raw in
+            let tag = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !tag.isEmpty else { return nil }
+
+            let key = tag.folding(
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: Locale(identifier: "en_US_POSIX")
+            )
+            guard seen.insert(key).inserted else { return nil }
+            return tag
+        }
+    }
+}
+
 enum ServerAuthMethod: String, Codable, CaseIterable, Identifiable, Sendable {
     case password
     case key
@@ -72,6 +98,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String
     var group: String
+    var tags: [String]
     var host: String
     var port: Int
     var username: String
@@ -86,6 +113,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         id: UUID = UUID(),
         name: String,
         group: String = "",
+        tags: [String] = [],
         host: String,
         port: Int = 22,
         username: String,
@@ -99,6 +127,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         self.id = id
         self.name = name
         self.group = group
+        self.tags = ServerTagNormalizer.normalize(tags)
         self.host = host
         self.port = port
         self.username = username
@@ -114,6 +143,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         case id
         case name
         case group
+        case tags
         case host
         case port
         case username
@@ -137,6 +167,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         id = try container.decode(UUID.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         group = try container.decodeIfPresent(String.self, forKey: .group) ?? ""
+        tags = ServerTagNormalizer.normalize(try container.decodeIfPresent([String].self, forKey: .tags) ?? [])
         host = try container.decode(String.self, forKey: .host)
         port = try container.decodeIfPresent(Int.self, forKey: .port) ?? 22
         username = try container.decode(String.self, forKey: .username)
@@ -155,6 +186,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)
         try container.encode(group, forKey: .group)
+        try container.encode(tags, forKey: .tags)
         try container.encode(host, forKey: .host)
         try container.encode(port, forKey: .port)
         try container.encode(username, forKey: .username)
@@ -173,6 +205,14 @@ struct ServerEntry: Identifiable, Codable, Hashable {
 
     var endpointText: String {
         "\(host):\(port)"
+    }
+
+    func matchesSearch(_ query: String) -> Bool {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+        return [name, displayGroup, host, username, endpointText, transport.displayName]
+            .contains { $0.localizedCaseInsensitiveContains(trimmed) }
+            || tags.contains { $0.localizedCaseInsensitiveContains(trimmed) }
     }
 
     // 跨端同步时使用的平台无关模型，避免携带 macOS 私有路径。
@@ -199,7 +239,8 @@ struct ServerEntry: Identifiable, Codable, Hashable {
             privateKeyPassphrase: privateKeyPassphrase,
             // 私钥内容来自 Keychain，不存在可跨端复用的本机文件路径。
             keyReference: "",
-            savedAtUnix: savedAtUnix
+            savedAtUnix: savedAtUnix,
+            tags: tags
         )
     }
 }
@@ -209,6 +250,7 @@ struct PortableServerConfig: Codable, Equatable {
     let credentialID: String
     let name: String
     let group: String
+    let tags: [String]
     let host: String
     let port: Int
     let username: String
@@ -227,6 +269,7 @@ struct PortableServerConfig: Codable, Equatable {
         case credentialID
         case name
         case group
+        case tags
         case host
         case port
         case username
@@ -257,12 +300,14 @@ struct PortableServerConfig: Codable, Equatable {
         privateKeyContent: String,
         privateKeyPassphrase: String,
         keyReference: String,
-        savedAtUnix: Int
+        savedAtUnix: Int,
+        tags: [String] = []
     ) {
         self.id = id
         self.credentialID = credentialID
         self.name = name
         self.group = group
+        self.tags = ServerTagNormalizer.normalize(tags)
         self.host = host
         self.port = port
         self.username = username
@@ -283,6 +328,7 @@ struct PortableServerConfig: Codable, Equatable {
         credentialID = try c.decodeIfPresent(String.self, forKey: .credentialID) ?? id
         name = try c.decode(String.self, forKey: .name)
         group = try c.decode(String.self, forKey: .group)
+        tags = ServerTagNormalizer.normalize(try c.decodeIfPresent([String].self, forKey: .tags) ?? [])
         host = try c.decode(String.self, forKey: .host)
         port = try c.decode(Int.self, forKey: .port)
         username = try c.decode(String.self, forKey: .username)

@@ -1122,6 +1122,57 @@ pub struct MonitorSnapshotStatsPayload {
     pub ping_latency_ms: Option<Number>,
     pub rx_rate_kbps: Number,
     pub tx_rate_kbps: Number,
+    pub system_info: MonitorSystemInfoPayload,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MonitorSystemInfoPayload {
+    pub os_name: String,
+    pub cpu_core_count: u32,
+    pub cpu_thread_count: u32,
+    pub memory_total_mb: u64,
+    pub swap_total_mb: u64,
+    pub swap_used_mb: u64,
+    pub disk_total_mb: u64,
+    pub disk_used_mb: u64,
+}
+
+impl MonitorSystemInfoPayload {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        os_name: String,
+        cpu_core_count: u32,
+        cpu_thread_count: u32,
+        memory_total_mb: u64,
+        swap_total_mb: u64,
+        swap_used_mb: u64,
+        disk_total_mb: u64,
+        disk_used_mb: u64,
+    ) -> Result<Self, HostKeyFfiProtocolError> {
+        let payload = Self {
+            os_name,
+            cpu_core_count,
+            cpu_thread_count,
+            memory_total_mb,
+            swap_total_mb,
+            swap_used_mb,
+            disk_total_mb,
+            disk_used_mb,
+        };
+        payload.validate()?;
+        Ok(payload)
+    }
+
+    fn validate(&self) -> Result<(), HostKeyFfiProtocolError> {
+        if self.os_name.trim().is_empty()
+            || self.os_name.len() > 160
+            || self.swap_used_mb > self.swap_total_mb
+            || self.disk_used_mb > self.disk_total_mb
+        {
+            return Err(HostKeyFfiProtocolError::InvalidPayload);
+        }
+        Ok(())
+    }
 }
 
 impl MonitorSnapshotStatsPayload {
@@ -1135,6 +1186,7 @@ impl MonitorSnapshotStatsPayload {
         ping_latency_ms: Option<f64>,
         rx_rate_kbps: f64,
         tx_rate_kbps: f64,
+        system_info: MonitorSystemInfoPayload,
     ) -> Result<Self, HostKeyFfiProtocolError> {
         let payload = Self {
             sampled_at_unix,
@@ -1145,6 +1197,7 @@ impl MonitorSnapshotStatsPayload {
             ping_latency_ms: ping_latency_ms.map(finite_number).transpose()?,
             rx_rate_kbps: finite_number(rx_rate_kbps)?,
             tx_rate_kbps: finite_number(tx_rate_kbps)?,
+            system_info,
         };
         payload.validate()?;
         Ok(payload)
@@ -1161,6 +1214,7 @@ impl MonitorSnapshotStatsPayload {
                 .is_some_and(number_is_negative)
             || number_is_negative(&self.rx_rate_kbps)
             || number_is_negative(&self.tx_rate_kbps)
+            || self.system_info.validate().is_err()
         {
             return Err(HostKeyFfiProtocolError::InvalidPayload);
         }

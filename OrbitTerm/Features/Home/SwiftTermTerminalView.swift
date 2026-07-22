@@ -130,6 +130,7 @@ private struct TerminalRepresentable: PlatformRepresentable {
         private var byteSubscriberID: UUID?
         private var appliedThemeID: String?
         private var lastSearchCommandID: UUID?
+        private var renderEscapeFilter = TerminalRenderEscapeFilter()
 
         init(
             onResize: @escaping (Int, Int) -> Void,
@@ -185,14 +186,17 @@ private struct TerminalRepresentable: PlatformRepresentable {
                     }
                 }
                 byteSubscriberID = nil
+                renderEscapeFilter.reset()
 
                 boundChannelID = channelID
                 Task { @MainActor [weak self, weak view] in
                     let subscriberID = TerminalService.shared.bindBytes(channelID: channelID) { data in
                         guard let view else { return }
-                        let bytes = Array(data)
-                        view.feed(byteArray: bytes[...])
-                        self?.terminalView = view
+                        guard let self else { return }
+                        let renderedBytes = self.renderEscapeFilter.filter(Array(data))
+                        guard !renderedBytes.isEmpty else { return }
+                        view.feed(byteArray: renderedBytes[...])
+                        self.terminalView = view
                     }
                     self?.byteSubscriberID = subscriberID
                 }
@@ -257,7 +261,7 @@ private struct TerminalRepresentable: PlatformRepresentable {
                 alpha: 1
             )
 
-            let palette: [SwiftTerm.Color] = theme.ansi16.map { item in
+            let palette: [SwiftTerm.Color] = theme.displayANSI16.map { item in
                 SwiftTerm.Color(
                     red: UInt16(item.r) * 257,
                     green: UInt16(item.g) * 257,

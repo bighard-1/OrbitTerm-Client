@@ -22,6 +22,7 @@ struct AddServerView: View {
 
     @State private var name: String = ""
     @State private var group: String = ""
+    @State private var tagsText: String = ""
     @State private var host: String = ""
     @State private var portText: String = "22"
     @State private var username: String = ""
@@ -56,6 +57,8 @@ struct AddServerView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                formHeader
+
                 ScrollView(.vertical, showsIndicators: true) {
                     VStack(spacing: 14) {
                         AddServerSectionCard(title: "主机信息") {
@@ -64,6 +67,9 @@ struct AddServerView: View {
                             }
                             AddServerFormRow(icon: "tray.full.fill", title: "分组（可选）") {
                                 AddServerTextField("例如：线上", text: $group)
+                            }
+                            AddServerFormRow(icon: "tag", title: "标签（可选）") {
+                                AddServerTextField("例如：生产、Web、华东", text: $tagsText)
                             }
                             AddServerFormRow(icon: "network", title: "IP 地址") {
                                 AddServerTextField("例如：192.168.1.10", text: $host)
@@ -131,23 +137,25 @@ struct AddServerView: View {
                     }
 
                     HStack(spacing: 10) {
-                        Spacer(minLength: 0)
-
                         Button("取消") { dismiss() }
                             .buttonStyle(ThemedSecondaryButtonStyle())
+                            .frame(width: 92)
 
                         Button(isSaving ? "保存中..." : "保存并连接") {
                             Task { await saveAndConnect() }
                         }
                         .buttonStyle(ThemedPrimaryButtonStyle())
                         .disabled(!saveButtonEnabled || isSaving)
+                        .frame(width: 224)
                     }
+                    .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.horizontal, 18)
-                    .padding(.vertical, 14)
+                    .padding(.top, 12)
+                    .padding(.bottom, 28)
                 }
                 .background(palette.surfaceReadable.color)
             }
-            .navigationTitle(editingServer == nil ? "添加服务器" : "编辑凭据")
+            .navigationTitle("")
             .background {
                 ZStack {
                     AppChromeBackground()
@@ -156,7 +164,7 @@ struct AddServerView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 #if os(macOS)
-            .frame(minWidth: 620, minHeight: 720)
+            .frame(minWidth: 560, minHeight: 640)
 #endif
             .onChange(of: name) { _, _ in invalidateVerification() }
             .onChange(of: host) { _, _ in invalidateVerification() }
@@ -221,6 +229,28 @@ struct AddServerView: View {
         }
     }
 
+    private var formHeader: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(editingServer == nil ? "添加服务器" : "编辑凭据")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(palette.textPrimary.color)
+                Text(editingServer == nil ? "保存后将建立经过身份验证的连接" : "更新资产连接与凭据设置")
+                    .font(.caption)
+                    .foregroundStyle(palette.textSecondary.color)
+            }
+            Spacer(minLength: 16)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 15)
+        .background(palette.surfaceReadable.color)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(palette.divider.color)
+                .frame(height: 1)
+        }
+    }
+
     private func handleTransportChange(_ newValue: ServerTransportProtocol) {
         if newValue == .telnet {
             if portText == "22" {
@@ -268,8 +298,11 @@ struct AddServerView: View {
     }
 
     private var canTestConnection: Bool {
-        ConnectionSecurityPolicy.allowsLegacyConnectionTest &&
-            AddServerValidation.canTestConnection(validationInput)
+        // In checked mode a legacy credential probe is intentionally unavailable,
+        // but the button remains actionable so the user receives the explicit
+        // security explanation from AddServerConnectionTester instead of a
+        // silent disabled control.
+        AddServerValidation.canTestConnection(validationInput)
     }
 
     private var hasValidPrivateKey: Bool {
@@ -303,6 +336,7 @@ struct AddServerView: View {
         AddServerDraftInput(
             name: name,
             group: group,
+            tags: ServerTagNormalizer.parse(tagsText),
             host: host,
             port: parsedPort ?? 22,
             username: username,
@@ -460,6 +494,7 @@ struct AddServerView: View {
     private func applyInitialState(_ state: AddServerInitialState) {
         name = state.name
         group = state.group
+        tagsText = state.tagsText
         host = state.host
         portText = state.portText
         username = state.username

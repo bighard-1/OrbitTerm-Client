@@ -86,7 +86,7 @@ struct AuthView: View {
                 hiddenTrigger
             }
             .alert("后端地址设置", isPresented: $showServerConfigAlert) {
-                TextField("https://server.orbitterm.com", text: $customServerAddress)
+                TextField("HTTPS 服务地址", text: $customServerAddress)
                 Button("下一步") { prepareServerAddressConfirmation() }
                 Button("取消", role: .cancel) {}
             } message: {
@@ -175,13 +175,13 @@ struct AuthView: View {
                     hiddenTapCount += 1
                     if hiddenTapCount >= 5 {
                         hiddenTapCount = 0
-                        customServerAddress = network.currentBaseURLString
+                        customServerAddress = ""
                         showServerConfigAlert = true
                     }
                 }
 #if os(macOS)
             Button("") {
-                customServerAddress = network.currentBaseURLString
+                customServerAddress = ""
                 showServerConfigAlert = true
             }
             .keyboardShortcut("s", modifiers: [.command, .option])

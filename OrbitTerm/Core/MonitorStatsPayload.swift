@@ -9,6 +9,7 @@ struct RustSystemStatsPayload: Decodable {
     let pingLatencyMs: Double?
     let rxRateKbps: Double
     let txRateKbps: Double
+    let systemInfo: MonitorSystemInfo
 
     enum CodingKeys: String, CodingKey {
         case sampledAtUnix = "sampled_at_unix"
@@ -19,6 +20,7 @@ struct RustSystemStatsPayload: Decodable {
         case pingLatencyMs = "ping_latency_ms"
         case rxRateKbps = "rx_rate_kbps"
         case txRateKbps = "tx_rate_kbps"
+        case systemInfo = "system_info"
     }
 
     var monitorPoint: MonitorPoint {
@@ -29,7 +31,8 @@ struct RustSystemStatsPayload: Decodable {
             diskUsedPercent: diskUsedPercent,
             pingLatencyMs: pingLatencyMs,
             rxRateKBps: rxRateKbps,
-            txRateKBps: txRateKbps
+            txRateKBps: txRateKbps,
+            systemInfo: systemInfo
         )
     }
 }

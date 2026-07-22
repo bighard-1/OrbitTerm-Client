@@ -5,10 +5,26 @@ struct AppChromeBackground: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     var body: some View {
         ZStack {
-            LinearGradient(colors: [palette.pageBackground.color, palette.surfaceReadable.color], startPoint: .topLeading, endPoint: .bottomTrailing)
+            LinearGradient(
+                colors: [
+                    palette.pageBackground.color,
+                    palette.backgroundGlowPrimary.color.opacity(0.18),
+                    palette.surfaceReadable.color
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
             if !reduceTransparency {
-                Circle().fill(palette.backgroundGlowPrimary.color).frame(width: 440, height: 440).blur(radius: 80).offset(x: -150, y: -230)
-                Circle().fill(palette.backgroundGlowSecondary.color).frame(width: 360, height: 360).blur(radius: 76).offset(x: 155, y: 250)
+                Circle()
+                    .fill(palette.backgroundGlowPrimary.color)
+                    .frame(width: 540, height: 540)
+                    .blur(radius: 104)
+                    .offset(x: -190, y: -260)
+                Circle()
+                    .fill(palette.backgroundGlowSecondary.color)
+                    .frame(width: 430, height: 430)
+                    .blur(radius: 92)
+                    .offset(x: 190, y: 270)
             }
         }.ignoresSafeArea()
     }

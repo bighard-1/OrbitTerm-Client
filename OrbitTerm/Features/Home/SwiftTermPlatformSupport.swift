@@ -13,11 +13,14 @@ typealias PlatformColor = NSColor
 typealias PlatformFont = NSFont
 
 final class ContextMenuTerminalView: TerminalView, NSMenuItemValidation {
-    @objc private func handleClearLocalDisplayAction(_ sender: Any?) {
-        // Clear only SwiftTerm's local scrollback. Do not send `clear` or any
-        // other command to the remote shell.
-        getTerminal().resetNormalBuffer()
-        needsDisplay = true
+    @objc func clearLocalTerminalDisplay(_ sender: Any?) {
+        // Feed standard erase sequences into the *local* terminal emulator.
+        // `resetNormalBuffer()` only replaces SwiftTerm's normal-buffer
+        // reference and can leave its active display buffer unchanged. These
+        // sequences instead erase the active viewport and scrollback without
+        // sending a command or byte to the remote shell.
+        feed(byteArray: [0x1B, 0x5B, 0x33, 0x4A, 0x1B, 0x5B, 0x32, 0x4A, 0x1B, 0x5B, 0x48][...])
+        setNeedsDisplay(bounds)
     }
 
     @objc private func handleCutAction(_ sender: Any?) {
@@ -32,7 +35,12 @@ final class ContextMenuTerminalView: TerminalView, NSMenuItemValidation {
         menu.addItem(withTitle: "复制", action: #selector(copy(_:)), keyEquivalent: "")
         menu.addItem(withTitle: "粘贴", action: #selector(paste(_:)), keyEquivalent: "")
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(withTitle: "清除本地终端显示", action: #selector(handleClearLocalDisplayAction(_:)), keyEquivalent: "")
+        let clearItem = menu.addItem(
+            withTitle: "清除本地终端显示",
+            action: #selector(clearLocalTerminalDisplay(_:)),
+            keyEquivalent: ""
+        )
+        clearItem.isEnabled = true
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "剪切", action: #selector(handleCutAction(_:)), keyEquivalent: "")
         menu.addItem(withTitle: "全选", action: #selector(selectAll(_:)), keyEquivalent: "")
@@ -41,12 +49,19 @@ final class ContextMenuTerminalView: TerminalView, NSMenuItemValidation {
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        if menuItem.action == #selector(handleClearLocalDisplayAction(_:)) {
+        if menuItem.action == #selector(clearLocalTerminalDisplay(_:)) {
             // SwiftTerm's inherited validation does not know this local action.
             // It is always safe because it only resets this view's scrollback.
             return true
         }
         return responds(to: menuItem.action)
+    }
+
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(clearLocalTerminalDisplay(_:)) {
+            return true
+        }
+        return responds(to: item.action)
     }
 
     override func rightMouseDown(with event: NSEvent) {

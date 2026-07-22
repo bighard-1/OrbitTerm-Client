@@ -102,7 +102,17 @@ enum CheckedFFIFixtures {
             "disk_used_percent": 78.9,
             "ping_latency_ms": 4.2,
             "rx_rate_kbps": 10.5,
-            "tx_rate_kbps": 3.5
+            "tx_rate_kbps": 3.5,
+            "system_info": {
+              "os_name": "Linux 6.8.0 x86_64",
+              "cpu_core_count": 4,
+              "cpu_thread_count": 8,
+              "memory_total_mb": 16384,
+              "swap_total_mb": 2048,
+              "swap_used_mb": 128,
+              "disk_total_mb": 512000,
+              "disk_used_mb": 192000
+            }
           },
           "diagnostics": ["ping_unavailable"]
         }

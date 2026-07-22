@@ -17,6 +17,7 @@ struct MainWorkstationView: View {
     @State private var pendingDeleteServer: ServerEntry?
     @State private var showingAssetManager = false
     @State private var showingSettings = false
+    @State private var showingAccountSecurity = false
     @State private var showingBatchCommand = false
     @State private var leftSearchText = ""
     @State private var isLeftPanelCollapsed = false
@@ -39,33 +40,49 @@ struct MainWorkstationView: View {
                 rightCollapsed: isRightPanelCollapsed
             )
 
-            ZStack { AppChromeBackground(); HStack(spacing: 0) {
-                if isLeftPanelCollapsed {
-                    collapsedLeftRail
-                        .frame(width: widths.left)
-                } else {
-                    leftColumn
-                        .frame(width: widths.left)
+            ZStack {
+                AppChromeBackground()
+                VStack(spacing: 0) {
+#if os(macOS)
+                    workstationTopChrome(widths: widths)
+#endif
+                    HStack(spacing: 0) {
+                        if isLeftPanelCollapsed {
+                            collapsedLeftRail
+                                .frame(width: widths.left)
+                        } else {
+                            leftColumn
+                                .frame(width: widths.left)
+                        }
+
+                        ThemedDivider()
+
+                        middleColumn
+                            .frame(width: widths.middle)
+
+                        ThemedDivider()
+
+                        if isRightPanelCollapsed {
+                            collapsedRail
+                                .frame(width: widths.right)
+                        } else {
+                            rightColumn
+                                .frame(width: widths.right)
+                        }
+                    }
+                    // The three workspace columns own the remaining height.  A
+                    // detail panel in the right column must never be allowed to
+                    // grow the whole workstation and squeeze the sidebar footer
+                    // or terminal pre-input bar out of view.
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
-
-                ThemedDivider()
-
-                middleColumn
-                    .frame(width: widths.middle)
-
-                ThemedDivider()
-
-                if isRightPanelCollapsed {
-                    collapsedRail
-                        .frame(width: widths.right)
-                } else {
-                    rightColumn
-                        .frame(width: widths.right)
-                }
-            }}
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .animation(reduceMotion ? nil : .interactiveSpring(response: 0.35, dampingFraction: 0.85), value: isRightPanelCollapsed)
         }
+#if os(macOS)
+        .navigationTitle("OrbitTerm")
+#else
         .navigationTitle("工作站")
         .modifier(WorkstationToolbarModifier(
             serverStore: serverStore,
@@ -75,8 +92,10 @@ struct MainWorkstationView: View {
             editingServer: $editingServer,
             showingAssetManager: $showingAssetManager,
             showingSettings: $showingSettings,
-            showingBatchCommand: $showingBatchCommand
+            showingBatchCommand: $showingBatchCommand,
+            showingAccountSecurity: $showingAccountSecurity
         ))
+#endif
         .modifier(WorkstationSheetsAndAlerts(
             serverStore: serverStore,
             showingAddServer: $showingAddServer,
@@ -85,23 +104,10 @@ struct MainWorkstationView: View {
             showingAssetManager: $showingAssetManager,
             showingSettings: $showingSettings,
             showingBatchCommand: $showingBatchCommand,
+            showingAccountSecurity: $showingAccountSecurity,
             onOpenServer: { server in openServerSession(server) },
             onDeleteServer: { server in deleteServer(server) }
         ))
-        .overlay(alignment: .bottom) {
-            if !session.transientStatus.isEmpty {
-                Text(session.transientStatus)
-                    .font(.caption)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(palette.surfaceGlassStrong.color, in: Capsule())
-                    .overlay {
-                        Capsule().stroke(palette.borderGlass.color)
-                    }
-                    .padding(.bottom, 10)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
-        }
         .modifier(WorkstationSFTPDialogs(
             sessionManager: sessionManager,
             pendingRename: $pendingSFTPRename,
@@ -114,10 +120,48 @@ struct MainWorkstationView: View {
         ))
     }
 
+#if os(macOS)
+    private func workstationTopChrome(
+        widths: (left: CGFloat, middle: CGFloat, right: CGFloat)
+    ) -> some View {
+        // The hidden-title-bar scene still reserves a native traffic-light safe
+        // area. Lift this chrome as one unit so the endpoint and workspace
+        // actions share that visual baseline without putting interactive views
+        // over the traffic-light lane.
+        VStack(spacing: 0) {
+            WorkstationTopBar(
+                serverStore: serverStore,
+                syncService: syncService,
+                diagnostics: diagnostics,
+                showingAddServer: $showingAddServer,
+                editingServer: $editingServer,
+                showingAssetManager: $showingAssetManager,
+                showingSettings: $showingSettings,
+                showingBatchCommand: $showingBatchCommand,
+                showingAccountSecurity: $showingAccountSecurity
+            )
+            WorkstationOverviewBand(
+                sidebarWidth: widths.left,
+                activeSession: sessionManager.activeSession,
+                monitorService: sessionManager.monitorService,
+                showingDetailPanelID: $showingMonitorDetailPanelID,
+                onStartCheckedMonitoring: {
+                    Task { await sessionManager.startMonitorForActiveSessionIfNeeded() }
+                }
+            )
+            WorkstationTopStatusBuffer(message: session.transientStatus)
+            ThemedDivider()
+        }
+        .offset(y: -24)
+        .padding(.bottom, -24)
+    }
+#endif
+
     private var leftColumn: some View {
         WorkstationAssetSidebarView(
             serverStore: serverStore,
             sessionManager: sessionManager,
+            syncService: syncService,
             searchText: $leftSearchText,
             onCollapse: {
                 withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {
@@ -160,14 +204,25 @@ struct MainWorkstationView: View {
                 },
                 onDetach: { tab in
                     openWindow(value: tab.id)
+                },
+                onDisconnect: { tab in
+                    Task { await sessionManager.disconnect(session: tab) }
+                },
+                onReconnect: { tab in
+                    Task {
+                        if tab.isConnected {
+                            await sessionManager.disconnect(session: tab)
+                        }
+                        await sessionManager.connect(session: tab)
+                    }
                 }
             )
 
             if let active = sessionManager.activeSession {
-                ConnectionProgressBanner(presentation: ConnectionPresentationAdapter.checkedSSH(hasVerifiedSessionLease: active.verifiedSessionLease != nil, hasTerminalChannel: active.terminalChannelID != nil, isSessionUsable: active.isConnected))
-                    .font(.caption)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
+                WorkstationSessionContextBar(
+                    session: active,
+                    sessionManager: sessionManager
+                )
             }
 
             ThemedDivider()

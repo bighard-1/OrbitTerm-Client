@@ -9,8 +9,8 @@ use super::checked_monitor_ffi::{
 use super::{
     fingerprint_sha256, CheckedChannelAccessError, HostIdentity, HostKeyFfiEnvelope,
     HostKeyFfiResultKind, MonitorSnapshotDiagnostic, MonitorSnapshotPayload,
-    MonitorSnapshotStatsPayload, SessionLifecycleState, SessionSecurityGeneration,
-    TrustStoreGeneration,
+    MonitorSnapshotStatsPayload, MonitorSystemInfoPayload, SessionLifecycleState,
+    SessionSecurityGeneration, TrustStoreGeneration,
 };
 use crate::c_ffi::orbit_free_string;
 use crate::checked_exec::CheckedExecError;
@@ -34,8 +34,28 @@ fn verified_generation() -> SessionSecurityGeneration {
 fn snapshot(base_session_id: u64) -> MonitorSnapshotPayload {
     MonitorSnapshotPayload::new(
         base_session_id,
-        MonitorSnapshotStatsPayload::new(1_700_000_000, 12.5, 512, 48.0, 61.0, None, 1.5, 2.5)
+        MonitorSnapshotStatsPayload::new(
+            1_700_000_000,
+            12.5,
+            512,
+            48.0,
+            61.0,
+            None,
+            1.5,
+            2.5,
+            MonitorSystemInfoPayload::new(
+                "Linux 6.8".to_string(),
+                4,
+                8,
+                1_024,
+                512,
+                64,
+                102_400,
+                20_480,
+            )
             .unwrap(),
+        )
+        .unwrap(),
         vec![MonitorSnapshotDiagnostic::PingUnavailable],
     )
     .unwrap()
@@ -142,6 +162,7 @@ fn success_returns_monitor_snapshot_with_string_id_and_no_sensitive_fields() {
     assert_eq!(value["data"]["base_session_id"], base.id.to_string());
     assert_eq!(value["data"]["security_generation"], "host_key_verified");
     assert_eq!(value["data"]["stats"]["cpu_usage_percent"], 12.5);
+    assert_eq!(value["data"]["stats"]["system_info"]["cpu_thread_count"], 8);
     assert_eq!(value["data"]["diagnostics"][0], "ping_unavailable");
     assert_eq!(
         HostKeyFfiEnvelope::from_json(&json).unwrap().kind(),
@@ -161,6 +182,19 @@ fn success_returns_monitor_snapshot_with_string_id_and_no_sensitive_fields() {
 
 #[test]
 fn monitor_stats_reject_non_finite_and_out_of_range_values() {
+    let system_info = || {
+        MonitorSystemInfoPayload::new(
+            "Linux 6.8".to_string(),
+            4,
+            8,
+            1_024,
+            512,
+            64,
+            102_400,
+            20_480,
+        )
+        .unwrap()
+    };
     assert!(MonitorSnapshotStatsPayload::new(
         1_700_000_000,
         f64::NAN,
@@ -170,6 +204,7 @@ fn monitor_stats_reject_non_finite_and_out_of_range_values() {
         None,
         1.5,
         2.5,
+        system_info(),
     )
     .is_err());
     assert!(MonitorSnapshotStatsPayload::new(
@@ -181,6 +216,7 @@ fn monitor_stats_reject_non_finite_and_out_of_range_values() {
         None,
         1.5,
         2.5,
+        system_info(),
     )
     .is_err());
 }

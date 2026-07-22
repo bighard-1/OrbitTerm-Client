@@ -8,6 +8,8 @@ struct TabBarView: View {
     let onClose: (WorkspaceSession) -> Void
     let onNew: () -> Void
     let onDetach: (WorkspaceSession) -> Void
+    let onDisconnect: (WorkspaceSession) -> Void
+    let onReconnect: (WorkspaceSession) -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -44,7 +46,9 @@ struct TabBarView: View {
             isActive: tab.id == activeTabID,
             onSelect: { onSelect(tab) },
             onClose: { onClose(tab) },
-            onDetach: { onDetach(tab) }
+            onDetach: { onDetach(tab) },
+            onDisconnect: { onDisconnect(tab) },
+            onReconnect: { onReconnect(tab) }
         )
     }
 }
@@ -55,6 +59,8 @@ private struct TabBarItemView: View {
     let onSelect: () -> Void
     let onClose: () -> Void
     let onDetach: () -> Void
+    let onDisconnect: () -> Void
+    let onReconnect: () -> Void
     @Environment(\.appThemePalette) private var palette
 
     var body: some View {
@@ -90,6 +96,11 @@ private struct TabBarItemView: View {
         .accessibilityHint("双击切换到此会话")
         .accessibilityAddTraits(.isButton)
         .contextMenu {
+            if tab.isConnected {
+                Button("断开连接", role: .destructive, action: onDisconnect)
+            }
+            Button(tab.isConnected ? "重新连接" : "连接", action: onReconnect)
+            Divider()
             Button("在新窗口打开", action: onDetach)
             Button("关闭标签", action: onClose)
         }

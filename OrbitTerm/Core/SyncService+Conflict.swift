@@ -211,8 +211,8 @@ extension SyncService {
         remote: PortableServerConfig,
         conflictedFields: [ConflictField]
     ) async -> ConflictDecision {
-        let localSummary = "名称: \(local.name)\n分组: \(local.group)\n主机: \(local.host):\(local.port)\n用户: \(local.username)"
-        let cloudSummary = "名称: \(remote.name)\n分组: \(remote.group)\n主机: \(remote.host):\(remote.port)\n用户: \(remote.username)"
+        let localSummary = "名称: \(local.name)\n分组: \(local.group)\n标签: \(local.tags.joined(separator: "、"))\n主机: \(local.host):\(local.port)\n用户: \(local.username)"
+        let cloudSummary = "名称: \(remote.name)\n分组: \(remote.group)\n标签: \(remote.tags.joined(separator: "、"))\n主机: \(remote.host):\(remote.port)\n用户: \(remote.username)"
         pendingConflictPrompt = SyncConflictPrompt(
             serverID: local.id,
             conflictedFields: conflictedFields,
@@ -245,7 +245,8 @@ extension SyncService {
             privateKeyContent: localChanged.contains(.privateKeyContent) ? local.privateKeyContent : remote.privateKeyContent,
             privateKeyPassphrase: localChanged.contains(.privateKeyPassphrase) ? local.privateKeyPassphrase : remote.privateKeyPassphrase,
             keyReference: local.keyReference,
-            savedAtUnix: Int(Date().timeIntervalSince1970)
+            savedAtUnix: Int(Date().timeIntervalSince1970),
+            tags: localChanged.contains(.tags) ? local.tags : remote.tags
         )
     }
 
@@ -253,6 +254,7 @@ extension SyncService {
         var changed = Set<ConflictField>()
         if base.name != newer.name { changed.insert(.name) }
         if base.group != newer.group { changed.insert(.group) }
+        if base.tags != newer.tags { changed.insert(.tags) }
         if base.host != newer.host { changed.insert(.host) }
         if base.port != newer.port { changed.insert(.port) }
         if base.username != newer.username { changed.insert(.username) }
@@ -334,7 +336,8 @@ extension SyncService {
             privateKeyContent: credentials.privateKeyContent,
             privateKeyPassphrase: credentials.privateKeyPassphrase,
             keyReference: portable.keyReference,
-            savedAtUnix: portable.savedAtUnix
+            savedAtUnix: portable.savedAtUnix,
+            tags: portable.tags
         )
     }
 

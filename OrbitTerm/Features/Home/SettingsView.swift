@@ -101,6 +101,9 @@ struct SettingsView: View {
 #endif
 
     var body: some View {
+        ZStack {
+            AppChromeBackground()
+
         List {
             Section("应用外观") {
                 Picker("外观模式", selection: Binding(get: { appThemeManager.appearanceMode }, set: { appThemeManager.selectMode($0) })) {
@@ -182,6 +185,7 @@ struct SettingsView: View {
                         Text("2 秒").tag(2.0)
                         Text("5 秒").tag(5.0)
                     }
+                    .labelsHidden()
                     .pickerStyle(.segmented)
                     .frame(maxWidth: 220)
                 }
@@ -197,10 +201,6 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
-                Text("当前服务：\(NetworkService.shared.currentBaseURLString)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
                 Button("立即双向同步") {
                     Task {
                         guard let token = session.readToken() else {
@@ -239,12 +239,6 @@ struct SettingsView: View {
             }
 
             Section("安全") {
-                NavigationLink {
-                    AccountSecurityView()
-                } label: {
-                    Label("账户安全", systemImage: "key.horizontal")
-                }
-
                 Toggle("启用生物识别解锁", isOn: $biometricEnabled)
                 if biometricEnabled {
                     Text("开启后会在应用解锁阶段优先触发 Face ID / Touch ID 验证。")
@@ -257,13 +251,6 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 #if os(macOS)
-                LabeledContent("当前账号") {
-                    Text(session.username)
-                        .textSelection(.enabled)
-                }
-                Text("切换账号和退出登录已移至工作台右上角头像菜单。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
 #else
                 Button("切换账号") {
                     showSwitchAccountConfirmation = true
@@ -274,15 +261,20 @@ struct SettingsView: View {
 #endif
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
+#if os(macOS)
+        .listStyle(.inset)
+#else
+        .listStyle(.insetGrouped)
+#endif
+        }
         .navigationTitle("设置")
 #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
 #endif
 #if os(macOS)
-        .listStyle(.inset)
         .frame(minWidth: 460, minHeight: 420)
-#else
-        .listStyle(.insetGrouped)
 #endif
         .sheet(isPresented: $showDiagnostics) {
             DiagnosticsExportView()

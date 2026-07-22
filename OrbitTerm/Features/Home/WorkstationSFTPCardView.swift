@@ -1,8 +1,9 @@
 import SwiftUI
 
 struct WorkstationSFTPCardView: View {
-    let active: WorkspaceSession
+    @ObservedObject var sftpManager: SFTPManager
     let onRefresh: () -> Void
+    let onUpload: () -> Void
     let onCreateDirectory: () -> Void
     let onCreateFile: () -> Void
     let onUp: () -> Void
@@ -14,32 +15,42 @@ struct WorkstationSFTPCardView: View {
     let onSetMode: (FileItem, String) -> Void
     let onDelete: (FileItem) -> Void
     @Environment(\.appThemePalette) private var palette
+    @State private var hoveredItemID: FileItem.ID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
 
-            Text(active.sftpManager.statusText)
+            Text(sftpManager.statusText)
                 .font(.caption)
                 .foregroundStyle(palette.textSecondary.color)
 
             HStack(spacing: 10) {
-                Text("总计 \(active.sftpManager.items.count)")
-                Text("目录 \(active.sftpManager.items.filter { $0.isDirectory }.count)")
-                Text("文件 \(active.sftpManager.items.filter { !$0.isDirectory }.count)")
+                Text("总计 \(sftpManager.items.count)")
+                Text("目录 \(sftpManager.items.filter { $0.isDirectory }.count)")
+                Text("文件 \(sftpManager.items.filter { !$0.isDirectory }.count)")
             }
             .font(.caption2)
             .foregroundStyle(palette.textSecondary.color)
 
-            if active.sftpManager.items.isEmpty {
-                Text("连接后自动展示远程文件")
-                    .font(.caption)
-                    .foregroundStyle(palette.textSecondary.color)
-            } else {
-                ForEach(active.sftpManager.items) { item in
-                    fileRow(item)
+            // The command bar and summary belong to the card chrome.  Only the
+            // directory listing scrolls so file navigation never hides actions.
+            ScrollView(.vertical, showsIndicators: true) {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    if sftpManager.items.isEmpty {
+                        Text("连接后自动展示远程文件")
+                            .font(.caption)
+                            .foregroundStyle(palette.textSecondary.color)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 6)
+                    } else {
+                        ForEach(sftpManager.items) { item in
+                            fileRow(item)
+                        }
+                    }
                 }
             }
+            .frame(maxHeight: .infinity)
         }
         .padding(10)
         .foregroundStyle(palette.textPrimary.color)
@@ -49,16 +60,15 @@ struct WorkstationSFTPCardView: View {
 
     private var header: some View {
         HStack {
-            Text("SFTP")
-                .font(.subheadline.weight(.semibold))
-            Spacer()
             Button("刷新", action: onRefresh)
+                .buttonStyle(.bordered)
+            Button("上传", action: onUpload)
                 .buttonStyle(.bordered)
             Button("新建目录", action: onCreateDirectory)
                 .buttonStyle(.bordered)
             Button("新建文件", action: onCreateFile)
                 .buttonStyle(.bordered)
-            Button("上级", action: onUp)
+            Button("返回上级", action: onUp)
                 .buttonStyle(.bordered)
         }
     }
@@ -75,14 +85,24 @@ struct WorkstationSFTPCardView: View {
                 .foregroundStyle(palette.textSecondary.color)
         }
         .contentShape(Rectangle())
-        .onTapGesture {
-            guard item.isDirectory else { return }
-            onEnterDirectory(item)
-        }
         .onTapGesture(count: 2) {
-            guard !item.isDirectory else { return }
-            onOpenFile(item)
+            if item.isDirectory {
+                onEnterDirectory(item)
+            } else {
+                onOpenFile(item)
+            }
         }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .background(
+            hoveredItemID == item.id ? palette.surfaceInput.color : Color.clear,
+            in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+        )
+        .scaleEffect(hoveredItemID == item.id ? 1.012 : 1)
+        .animation(.easeOut(duration: 0.14), value: hoveredItemID == item.id)
+#if os(macOS)
+        .onHover { hoveredItemID = $0 ? item.id : nil }
+#endif
         .contextMenu {
             if item.isDirectory {
                 Button("进入目录") { onEnterDirectory(item) }

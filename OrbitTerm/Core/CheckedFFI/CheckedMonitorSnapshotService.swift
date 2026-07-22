@@ -18,6 +18,26 @@ enum CheckedMonitorServiceError: Error, Hashable, Sendable {
     case internalInvariant
 }
 
+extension CheckedMonitorServiceError {
+    /// A transport or snapshot failure can be transient while the checked SSH
+    /// lease remains valid.  Only faults that prove the lease or protocol is
+    /// no longer usable stop the polling loop permanently.
+    var shouldContinuePolling: Bool {
+        switch self {
+        case .checkedMonitorSnapshotFailed, .unknownCheckedFFIError:
+            true
+        case .requiresVerifiedSession, .requestIDMismatch, .unexpectedKind,
+             .legacyMonitorDisabledInCheckedMode, .sessionClosed,
+             .pollingCancelled, .invalidBaseSessionID, .internalInvariant:
+            false
+        }
+    }
+
+    var retryMessage: String {
+        "监控采样暂时失败，正在重试"
+    }
+}
+
 extension CheckedMonitorServiceError: CustomStringConvertible, CustomDebugStringConvertible {
     var description: String {
         switch self {
@@ -145,6 +165,7 @@ actor CheckedMonitorPollingLoop {
     private let binding: CheckedMonitorBinding
     private let fetcher: any CheckedMonitorSnapshotFetching
     private let intervalNanoseconds: UInt64
+    private let retryDelayNanoseconds: UInt64 = 1_000_000_000
     private var task: Task<Void, Never>?
     private var activeRunID: UUID?
 
@@ -191,8 +212,16 @@ actor CheckedMonitorPollingLoop {
                 guard !Task.isCancelled, activeRunID == runID else { return }
                 let mapped = error as? CheckedMonitorServiceError ?? .unknownCheckedFFIError
                 await handler(.failure(mapped))
-                finish(runID: runID)
-                return
+                guard mapped.shouldContinuePolling else {
+                    finish(runID: runID)
+                    return
+                }
+                do {
+                    try await Task.sleep(nanoseconds: retryDelayNanoseconds)
+                } catch {
+                    return
+                }
+                continue
             }
 
             if intervalNanoseconds > 0 {

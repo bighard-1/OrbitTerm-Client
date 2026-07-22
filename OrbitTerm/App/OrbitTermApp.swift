@@ -16,7 +16,12 @@ struct OrbitTermApp: App {
                 .environmentObject(appThemeManager)
         }
         #if os(macOS)
-        .defaultSize(width: 1180, height: 780)
+        // The workstation's monitoring controls need enough horizontal room on
+        // a first launch.  macOS still preserves a user's later resize choice.
+        .defaultSize(width: 1360, height: 840)
+        // Keep the native traffic-light controls while letting the workstation
+        // render its own themed top bar below them.
+        .windowStyle(.hiddenTitleBar)
         #endif
 
         #if os(macOS)

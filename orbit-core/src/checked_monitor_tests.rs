@@ -56,10 +56,11 @@ impl FakeMonitorBackend {
         let values = [
             "%Cpu(s): 1.0 us, 2.0 sy, 90.0 id\n",
             "100 20 30 850 0 0 0\n",
-            "Mem: 1000 400 100 0 0 600\n",
+            "Mem: 1000 400 100 0 0 600\nSwap: 256 64 192\n",
             "MemTotal: 1024000 kB\nMemAvailable: 614400 kB\n",
-            "/dev/root 100 20 80 20% /\n",
+            "/dev/root 102400 20480 81920 20% /\n",
             "eth0: 1024 0 0 0 0 0 0 0 2048 0 0 0 0 0 0 0\n",
+            "os=Linux 6.8.0 x86_64\ncpu=4 8\n",
         ];
         let outputs = commands
             .into_iter()
@@ -123,12 +124,20 @@ async fn active_verified_snapshot_runs_every_checked_command_and_returns_stats()
         .await
         .unwrap();
 
-    assert_eq!(backend.call_count(), 6);
+    assert_eq!(backend.call_count(), 7);
     assert_eq!(payload.base_session_id, base.id.to_string());
     assert_eq!(payload.stats.cpu_usage_percent.as_f64(), Some(10.0));
     assert_eq!(payload.stats.mem_available_mb, 600);
     assert_eq!(payload.stats.mem_used_percent.as_f64(), Some(40.0));
     assert_eq!(payload.stats.disk_used_percent.as_f64(), Some(20.0));
+    assert_eq!(payload.stats.system_info.os_name, "Linux 6.8.0 x86_64");
+    assert_eq!(payload.stats.system_info.cpu_core_count, 4);
+    assert_eq!(payload.stats.system_info.cpu_thread_count, 8);
+    assert_eq!(payload.stats.system_info.memory_total_mb, 1_000);
+    assert_eq!(payload.stats.system_info.swap_total_mb, 256);
+    assert_eq!(payload.stats.system_info.swap_used_mb, 64);
+    assert_eq!(payload.stats.system_info.disk_total_mb, 100);
+    assert_eq!(payload.stats.system_info.disk_used_mb, 20);
     assert_eq!(
         payload
             .stats

@@ -10,7 +10,7 @@ use crate::current_unix_secs;
 use crate::monitor;
 use crate::security::{
     CheckedChannelAccessError, MonitorSnapshotDiagnostic, MonitorSnapshotPayload,
-    MonitorSnapshotStatsPayload,
+    MonitorSnapshotStatsPayload, MonitorSystemInfoPayload,
 };
 use crate::session_pool::{require_active_verified_base_session, VerifiedBaseSessionGuard};
 
@@ -21,6 +21,7 @@ const FREE_COMMAND: &str = "free -m 2>/dev/null";
 const MEMINFO_COMMAND: &str = "cat /proc/meminfo 2>/dev/null";
 const DISK_COMMAND: &str = "df -P / 2>/dev/null";
 const NET_COMMAND: &str = "cat /proc/net/dev 2>/dev/null";
+const SYSTEM_IDENTITY_COMMAND: &str = monitor::SYSTEM_IDENTITY_COMMAND;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MonitorMetric {
@@ -102,15 +103,18 @@ pub(crate) async fn fetch_system_stats_checked_with_backend<B: CheckedMonitorBac
     let meminfo_output = execute_checked(&guard, backend, MEMINFO_COMMAND).await?;
     let disk_output = execute_checked(&guard, backend, DISK_COMMAND).await?;
     let net_output = execute_checked(&guard, backend, NET_COMMAND).await?;
+    let system_identity_output = execute_checked(&guard, backend, SYSTEM_IDENTITY_COMMAND).await?;
 
     let cpu_usage_percent = monitor::parse_cpu_usage(top_output.stdout())
         .or_else(|_| monitor::parse_cpu_from_proc_stat(cpu_proc.stdout()))
         .map_err(|_| CheckedMonitorSnapshotError::MetricUnavailable(MonitorMetric::Cpu))?;
-    let (mem_available_mb, mem_used_percent) = monitor::parse_memory_stats(free_output.stdout())
+    let memory = monitor::parse_memory_inventory(free_output.stdout())
         .or_else(|_| monitor::parse_memory_from_meminfo(meminfo_output.stdout()))
         .map_err(|_| CheckedMonitorSnapshotError::MetricUnavailable(MonitorMetric::Memory))?;
-    let disk_used_percent = monitor::parse_disk_usage(disk_output.stdout())
+    let disk = monitor::parse_disk_inventory(disk_output.stdout())
         .map_err(|_| CheckedMonitorSnapshotError::MetricUnavailable(MonitorMetric::Disk))?;
+    let (os_name, cpu_core_count, cpu_thread_count) =
+        monitor::parse_system_identity(system_identity_output.stdout());
     let (rx_rate_kbps, tx_rate_kbps) =
         monitor::compute_network_rate_kbps(guard.base(), net_output.stdout())
             .await
@@ -127,12 +131,23 @@ pub(crate) async fn fetch_system_stats_checked_with_backend<B: CheckedMonitorBac
     let stats = MonitorSnapshotStatsPayload::new(
         current_unix_secs(),
         cpu_usage_percent,
-        mem_available_mb,
-        mem_used_percent,
-        disk_used_percent,
+        memory.available_mb,
+        memory.used_percent,
+        disk.used_percent,
         ping_latency_ms,
         rx_rate_kbps,
         tx_rate_kbps,
+        MonitorSystemInfoPayload::new(
+            os_name,
+            cpu_core_count,
+            cpu_thread_count,
+            memory.total_mb,
+            memory.swap_total_mb,
+            memory.swap_used_mb,
+            disk.total_mb,
+            disk.used_mb,
+        )
+        .map_err(|_| CheckedMonitorSnapshotError::InternalInvariantViolation)?,
     )
     .map_err(|_| CheckedMonitorSnapshotError::InternalInvariantViolation)?;
     MonitorSnapshotPayload::new(base_session_id, stats, diagnostics)
@@ -151,7 +166,7 @@ async fn execute_checked<B: CheckedMonitorBackend>(
 }
 
 #[cfg(test)]
-pub(crate) const fn monitor_commands_for_tests() -> [&'static str; 6] {
+pub(crate) const fn monitor_commands_for_tests() -> [&'static str; 7] {
     [
         TOP_COMMAND,
         CPU_PROC_COMMAND,
@@ -159,5 +174,6 @@ pub(crate) const fn monitor_commands_for_tests() -> [&'static str; 6] {
         MEMINFO_COMMAND,
         DISK_COMMAND,
         NET_COMMAND,
+        SYSTEM_IDENTITY_COMMAND,
     ]
 }

@@ -105,7 +105,7 @@ final class CheckedMonitorServiceTests: XCTestCase {
         XCTAssertEqual(checked.plan(verifiedSession: lease), .checked(lease))
     }
 
-    func testPollingStopsAfterFirstFailureWithoutReconnect() async throws {
+    func testPollingRetriesTransientFailureWithoutReconnect() async throws {
         let client = ScriptedCheckedFFIClient(
             connect: [],
             monitor: [
@@ -127,20 +127,60 @@ final class CheckedMonitorServiceTests: XCTestCase {
         await loop.start { result in
             await events.append(result)
         }
-        try await Task.sleep(nanoseconds: 50_000_000)
+        try await Task.sleep(nanoseconds: 1_100_000_000)
 
         let isRunning = await loop.isRunning()
         let monitorCallCount = await client.monitorRequestIDs.count
         let connectCallCount = await client.connectRequestIDs.count
         let sftpCallCount = await client.sftpRequestIDs.count
-        XCTAssertFalse(isRunning)
-        XCTAssertEqual(monitorCallCount, 1)
+        XCTAssertTrue(isRunning)
+        XCTAssertGreaterThanOrEqual(monitorCallCount, 2)
         XCTAssertEqual(connectCallCount, 0)
         XCTAssertEqual(sftpCallCount, 0)
         let recorded = await events.values
-        XCTAssertEqual(recorded.count, 1)
+        XCTAssertGreaterThanOrEqual(recorded.count, 2)
         guard case .failure(.unknownCheckedFFIError) = recorded[0] else {
-            return XCTFail("Expected a single structured terminal failure")
+            return XCTFail("Expected a structured transient failure")
+        }
+        guard recorded.contains(where: { if case .success = $0 { return true }; return false }) else {
+            return XCTFail("Expected polling to recover with a subsequent snapshot")
+        }
+        await loop.stop()
+    }
+
+    func testPollingStopsForClosedVerifiedSession() async throws {
+        let payload = CheckedFFIErrorPayload(
+            code: .known("session_closed"),
+            messageKey: "error.session.closed",
+            detailCode: nil,
+            retryable: false,
+            requestID: nil,
+            challengeID: nil
+        )
+        let client = ScriptedCheckedFFIClient(
+            connect: [],
+            monitor: [.init(.clientError(.ffiErrorPayload(payload)))]
+        )
+        let loop = CheckedMonitorPollingLoop(
+            binding: CheckedMonitorBinding(workspaceID: UUID(), baseSessionID: baseSessionID),
+            fetcher: CheckedMonitorSnapshotService(client: client),
+            intervalNanoseconds: 1_000_000
+        )
+        let events = EventRecorder()
+
+        await loop.start { result in
+            await events.append(result)
+        }
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        let isRunning = await loop.isRunning()
+        let monitorCallCount = await client.monitorRequestIDs.count
+        XCTAssertFalse(isRunning)
+        XCTAssertEqual(monitorCallCount, 1)
+        let recorded = await events.values
+        XCTAssertEqual(recorded.count, 1)
+        guard case .failure(.sessionClosed) = recorded[0] else {
+            return XCTFail("Expected a terminal checked-session failure")
         }
     }
 
@@ -187,6 +227,16 @@ final class CheckedMonitorServiceTests: XCTestCase {
                 XCTAssertFalse(output.contains(forbidden))
             }
         }
+    }
+
+    func testOnlyTransientCheckedErrorsRemainRetryable() {
+        XCTAssertTrue(CheckedMonitorServiceError.unknownCheckedFFIError.shouldContinuePolling)
+        XCTAssertTrue(
+            CheckedMonitorServiceError.checkedMonitorSnapshotFailed(.known("exec_timeout"))
+                .shouldContinuePolling
+        )
+        XCTAssertFalse(CheckedMonitorServiceError.sessionClosed.shouldContinuePolling)
+        XCTAssertFalse(CheckedMonitorServiceError.requestIDMismatch.shouldContinuePolling)
     }
 }
 

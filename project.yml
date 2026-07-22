@@ -87,6 +87,7 @@ targets:
           - Core/AccountIdentity.swift
           - Core/AccountScope.swift
           - Core/SnippetAssetScope.swift
+          - Core/MonitorSystemInfo.swift
           - Core/Appearance/*.swift
           - Core/TerminalAppearance/*.swift
           - Core/ShellPathResolver.swift

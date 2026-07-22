@@ -4,6 +4,7 @@ import CryptoKit
 enum ConflictField: String, CaseIterable {
     case name
     case group
+    case tags
     case host
     case port
     case username
@@ -80,6 +81,7 @@ struct SyncShadowSnapshot: Codable, Equatable {
     let id: String
     let name: String
     let group: String
+    let tags: [String]
     let host: String
     let port: Int
     let username: String
@@ -96,6 +98,7 @@ struct SyncShadowSnapshot: Codable, Equatable {
         id = portable.id
         name = portable.name
         group = portable.group
+        tags = portable.tags
         host = portable.host
         port = portable.port
         username = portable.username
@@ -106,6 +109,30 @@ struct SyncShadowSnapshot: Codable, Equatable {
         passwordDigest = Self.digest(portable.password, key: key)
         privateKeyDigest = Self.digest(portable.privateKeyContent, key: key)
         privateKeyPassphraseDigest = Self.digest(portable.privateKeyPassphrase, key: key)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, group, tags, host, port, username, authMethod, transport
+        case networkDeviceProfile, allowPasswordFallback, passwordDigest
+        case privateKeyDigest, privateKeyPassphraseDigest
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        group = try container.decode(String.self, forKey: .group)
+        tags = ServerTagNormalizer.normalize(try container.decodeIfPresent([String].self, forKey: .tags) ?? [])
+        host = try container.decode(String.self, forKey: .host)
+        port = try container.decode(Int.self, forKey: .port)
+        username = try container.decode(String.self, forKey: .username)
+        authMethod = try container.decode(String.self, forKey: .authMethod)
+        transport = try container.decode(String.self, forKey: .transport)
+        networkDeviceProfile = try container.decode(String.self, forKey: .networkDeviceProfile)
+        allowPasswordFallback = try container.decode(Bool.self, forKey: .allowPasswordFallback)
+        passwordDigest = try container.decode(String.self, forKey: .passwordDigest)
+        privateKeyDigest = try container.decode(String.self, forKey: .privateKeyDigest)
+        privateKeyPassphraseDigest = try container.decode(String.self, forKey: .privateKeyPassphraseDigest)
     }
 
     private static func digest(_ value: String, key: SymmetricKey) -> String {

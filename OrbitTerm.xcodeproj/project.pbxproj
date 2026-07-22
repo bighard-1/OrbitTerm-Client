@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 54;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -42,6 +42,7 @@
 		16BA0EEF9A6CF0B76D52DC1F /* SyncModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 995C008B81C1BCF2CC6B5122 /* SyncModels.swift */; };
 		178C38DEDA6E06CA911BF38B /* MasterPasswordRotationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06DA37BAF41E86E707C8281D /* MasterPasswordRotationService.swift */; };
 		18619758F4910BBBEF71E2D8 /* AddServerConnectionTester.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8477779BBFFBE8F7C7B613F /* AddServerConnectionTester.swift */; };
+		18A71B2EF44CC9399EB7AE2B /* TerminalRenderEscapeFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CDA09138D12C60748CCF5EC /* TerminalRenderEscapeFilter.swift */; };
 		19FBF035B680B9D5356F068A /* AuthVisualComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B97BFDF6F22DC746B3C1C6B0 /* AuthVisualComponents.swift */; };
 		1A9995384BBEA7ACBECE96C4 /* CheckedFFIPayloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = 656C4A6BCB0AD2479795FBDB /* CheckedFFIPayloads.swift */; };
 		1CA23122CB3D32319E80C7BB /* NetworkModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4AE5E8FEC909FFBA6B236E /* NetworkModels.swift */; };
@@ -152,6 +153,7 @@
 		5BAA624D9CBB114A3C91E165 /* TelnetAccessPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDB1034B7939B68118FACF98 /* TelnetAccessPolicy.swift */; };
 		5C144C6F938F96E9A34F819F /* View+InputPolish.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */; };
 		5CD76ACDD9BEF9D839843476 /* CredentialInputHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 442AD4AADE13BA0E4204549B /* CredentialInputHelpers.swift */; };
+		5CD7DEFB5603F280E3F85C28 /* MonitorSystemInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1AE9D38C2788923B752E7F1 /* MonitorSystemInfo.swift */; };
 		5D96C914A888A7B30A93B1AF /* AddServerValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B73F5D9381F2705029E0D544 /* AddServerValidation.swift */; };
 		5DEFB6E623894B15CAD45DE4 /* WorkstationSheetsAndAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 745FBDA528F6B4F8EA9D4467 /* WorkstationSheetsAndAlerts.swift */; };
 		5E0B5CECBC6D53F21433B284 /* HostKeyTrustCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FC5B32387271FA418F10773 /* HostKeyTrustCoordinator.swift */; };
@@ -170,6 +172,8 @@
 		64F544A29C8DC4526D624C8F /* OrbitTermApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */; };
 		6599D89B9C262F7D2644455D /* RustFFI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61D05FDE086817AEB654082D /* RustFFI.swift */; };
 		6608879835CA152C64A6758A /* WorkstationTerminalSplitLayoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DF9DDD34658EA3851E06DC7 /* WorkstationTerminalSplitLayoutView.swift */; };
+		660B11DCC75EC8F6C1F5F46F /* MonitorSystemInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1AE9D38C2788923B752E7F1 /* MonitorSystemInfo.swift */; };
+		668D23AA3968C4CE6CBFC76C /* MonitorSystemInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1AE9D38C2788923B752E7F1 /* MonitorSystemInfo.swift */; };
 		67064B2CD98F8D19E68BF216 /* AccountIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53A8B2620CBD9DE9FD6D92EE /* AccountIdentityTests.swift */; };
 		674C91AC3FC66C978290E3C8 /* MonitorTargetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A780B78BD56BAD6B05BC3378 /* MonitorTargetStore.swift */; };
 		67536C13CA08E03FF3A12BA8 /* DockerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B49A5D57724B8383BD06C96 /* DockerService.swift */; };
@@ -220,6 +224,7 @@
 		84289195393271759EB77452 /* WorkstationTerminalDropUploadModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33EF6481439C305953E69B86 /* WorkstationTerminalDropUploadModifier.swift */; };
 		848D3B050BB8EBB582EB0B72 /* CheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9D64379CFB1DF22B325FB09 /* CheckedFFIClient.swift */; };
 		84DCCEEBB105C8E4BB112AD3 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DC29E7DEA20362E09F501D3 /* AppSession.swift */; };
+		8502184A1E660FCADEEC31E3 /* TerminalRenderEscapeFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CDA09138D12C60748CCF5EC /* TerminalRenderEscapeFilter.swift */; };
 		85652ACC0968D7AF4EF480CD /* SFTPBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF8482667CCEAB37877728A8 /* SFTPBrowserView.swift */; };
 		85C885B99FB84BE5EAAE9F91 /* DockerManagerDrafts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D45567695C4B41D14FEEBBDA /* DockerManagerDrafts.swift */; };
 		875E84D50E1D56A200A5CBA1 /* WorkstationMonitorCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24CD1624F5A719FD6E790B98 /* WorkstationMonitorCardView.swift */; };
@@ -249,6 +254,7 @@
 		9B0F0B374F2C7C7BB4014906 /* DiagnosticsExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38CC52AC1F19BBC544F8D872 /* DiagnosticsExportView.swift */; };
 		9C22346C922E947A2F2BB050 /* MonitorThemeSemantics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ED00230D30C220DF33E79C8 /* MonitorThemeSemantics.swift */; };
 		9C306E0D4D6C0E6AAD0063D3 /* WorkstationTerminalSessionChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 403D0958371C1A8C3391BAA9 /* WorkstationTerminalSessionChrome.swift */; };
+		9DD0C7A1AFBFCDA64C82F893 /* TerminalRenderEscapeFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CDA09138D12C60748CCF5EC /* TerminalRenderEscapeFilter.swift */; };
 		9E5D6D3C6FE8FBEE67FF0AC5 /* SFTPBrowserPathHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6DB68C1BB7FFE44287C2058 /* SFTPBrowserPathHelper.swift */; };
 		9F1366E7205ADC8CF2850D1D /* WorkstationCollapsedFeatureRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 841FF37C9A712E391D0B0781 /* WorkstationCollapsedFeatureRow.swift */; };
 		9F34C0206362FA67CED289A3 /* CredentialVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 190E90A490AB0BEFD1B5F1EA /* CredentialVault.swift */; };
@@ -380,6 +386,7 @@
 		F77C77AC2901981A7DDBE1E1 /* WorkstationSheetsAndAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 745FBDA528F6B4F8EA9D4467 /* WorkstationSheetsAndAlerts.swift */; };
 		F7D19D889AB075F94D00D7C8 /* AssetDetailThemeSemantics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7523280FF81ED3A80729122 /* AssetDetailThemeSemantics.swift */; };
 		F9554E92C4614C8CFDC6F3BE /* WorkstationCollapsedFeatureRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 841FF37C9A712E391D0B0781 /* WorkstationCollapsedFeatureRow.swift */; };
+		FA46D170248094CC389198D9 /* TerminalRenderEscapeFilterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69ABC9043C869E78633E9DF7 /* TerminalRenderEscapeFilterTests.swift */; };
 		FA545669F05944A4103C8438 /* AppThemePalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8A22F3FFCBA53A57236BDD6 /* AppThemePalette.swift */; };
 		FA5E044F14A579FEE3D4F1BA /* HostKeyPresentationSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E98B77FA2367EC90E7474B58 /* HostKeyPresentationSnapshot.swift */; };
 		FBA0C2E21905742915FF9E3E /* CheckedConnectionMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 328F84C5034D50790C4E2250 /* CheckedConnectionMode.swift */; };
@@ -463,6 +470,7 @@
 		62847EC28220849324529ECF /* TabBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabBarView.swift; sourceTree = "<group>"; };
 		656C4A6BCB0AD2479795FBDB /* CheckedFFIPayloads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIPayloads.swift; sourceTree = "<group>"; };
 		690770EDC7E1AC93C9D9BDFD /* WorkstationTerminalSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSearchOverlay.swift; sourceTree = "<group>"; };
+		69ABC9043C869E78633E9DF7 /* TerminalRenderEscapeFilterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRenderEscapeFilterTests.swift; sourceTree = "<group>"; };
 		6A6CAAD2E51DFF2618790ECC /* TelnetRiskConfirmationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelnetRiskConfirmationView.swift; sourceTree = "<group>"; };
 		6D0958086BAEA5C2D32B4BA5 /* SFTPModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPModels.swift; sourceTree = "<group>"; };
 		6D1E354AA0263B020B77C1DB /* AccountScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountScope.swift; sourceTree = "<group>"; };
@@ -476,6 +484,7 @@
 		78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterPasswordGateView.swift; sourceTree = "<group>"; };
 		79C98A67B69AA654CC5A6B77 /* DetachedSessionWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedSessionWindowView.swift; sourceTree = "<group>"; };
 		7B74BC2A072244011E0AF309 /* SFTPManager+Mock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+Mock.swift"; sourceTree = "<group>"; };
+		7CDA09138D12C60748CCF5EC /* TerminalRenderEscapeFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRenderEscapeFilter.swift; sourceTree = "<group>"; };
 		7CDABB2A6CDA0C6532845C89 /* CheckedBatchCommandService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedBatchCommandService.swift; sourceTree = "<group>"; };
 		7DA03126726F8585CE9F3B82 /* AssetQuickKeySetupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetQuickKeySetupSheet.swift; sourceTree = "<group>"; };
 		7DAB223E842154D2614BEFDB /* MonitorPollingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorPollingPolicy.swift; sourceTree = "<group>"; };
@@ -515,6 +524,7 @@
 		9EBA9ADD7B50F769A714D880 /* CheckedFFIIDs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIIDs.swift; sourceTree = "<group>"; };
 		9F14341CBA2F36F648BF5800 /* MonitorService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorService.swift; sourceTree = "<group>"; };
 		A0599BB6B03494D8A6791ABA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A1AE9D38C2788923B752E7F1 /* MonitorSystemInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorSystemInfo.swift; sourceTree = "<group>"; };
 		A3DE23E2FB664A118F6B8646 /* WorkstationTerminalSessionPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSessionPane.swift; sourceTree = "<group>"; };
 		A622FE572935B57F21E6515A /* OrbitTerm.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = OrbitTerm.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A6F5A3407984B279EF080673 /* SFTPBrowserComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserComponents.swift; sourceTree = "<group>"; };
@@ -619,6 +629,7 @@
 				7DAB223E842154D2614BEFDB /* MonitorPollingPolicy.swift */,
 				9F14341CBA2F36F648BF5800 /* MonitorService.swift */,
 				AB6B5AD58F8D1496F4973531 /* MonitorStatsPayload.swift */,
+				A1AE9D38C2788923B752E7F1 /* MonitorSystemInfo.swift */,
 				A780B78BD56BAD6B05BC3378 /* MonitorTargetStore.swift */,
 				7E4AE5E8FEC909FFBA6B236E /* NetworkModels.swift */,
 				3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */,
@@ -800,6 +811,7 @@
 				60D4D8AF8B15F9B660BC1E13 /* SnippetAssetScopeTests.swift */,
 				FBA4D64E2874ED0C905BBF3D /* SyncPullRecoveryPolicyTests.swift */,
 				FC1976CD3FBAA98751C994BE /* TelnetAccessPolicyTests.swift */,
+				69ABC9043C869E78633E9DF7 /* TerminalRenderEscapeFilterTests.swift */,
 				EF400D2E0BEDF8A64BD70819 /* TerminalThemeIsolationTests.swift */,
 			);
 			path = OrbitTermCheckedFFITests;
@@ -874,6 +886,7 @@
 		E1A50DA47C6BF403582D80C4 /* TerminalAppearance */ = {
 			isa = PBXGroup;
 			children = (
+				7CDA09138D12C60748CCF5EC /* TerminalRenderEscapeFilter.swift */,
 				7FE24416787F6EA53CF4E59A /* TerminalTheme.swift */,
 				508EB3B71E213C9F1AC37945 /* TerminalThemeReadability.swift */,
 			);
@@ -987,7 +1000,6 @@
 				};
 			};
 			buildConfigurationList = B0979EF4A02DA3DF25DFC616 /* Build configuration list for PBXProject "OrbitTerm" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -999,13 +1011,14 @@
 			packageReferences = (
 				4355C47EEEB7C4FF1A17DEFF /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
-			preferredProjectObjectVersion = 54;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5BD31C74C2737D02F64C8B9C /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				F315953FC26D7D933FC1B9C6 /* OrbitTermCheckedFFITests */,
 				9037F5C81C57EF6606CFD7B1 /* OrbitTerm_iOS */,
 				5D894F6ED837B8E66D8BC143 /* OrbitTerm_macOS */,
+				F315953FC26D7D933FC1B9C6 /* OrbitTermCheckedFFITests */,
 			);
 		};
 /* End PBXProject section */
@@ -1081,6 +1094,7 @@
 				0FD297BBBDD76E0DD9DF4E9F /* KeychainDataStore.swift in Sources */,
 				47DBCBCA1415646E778C5A76 /* KeychainDataStoreTests.swift in Sources */,
 				FCA07310BDE5A8CD20DF6C9C /* KeychainManager.swift in Sources */,
+				5CD7DEFB5603F280E3F85C28 /* MonitorSystemInfo.swift in Sources */,
 				8E8868F92DAC015D8A48696C /* MonitorThemeSemantics.swift in Sources */,
 				C366A32CC05E89AA5FA38DDD /* OrbitCStringResult.swift in Sources */,
 				3DA37901A4E63DF0BEF2FA20 /* OrbitCoreCheckedFFIClient.swift in Sources */,
@@ -1098,6 +1112,8 @@
 				783A87571BE91B3744CEEF83 /* SyncPullRecoveryPolicyTests.swift in Sources */,
 				5BAA624D9CBB114A3C91E165 /* TelnetAccessPolicy.swift in Sources */,
 				B51FDE8C38374BC39208498C /* TelnetAccessPolicyTests.swift in Sources */,
+				9DD0C7A1AFBFCDA64C82F893 /* TerminalRenderEscapeFilter.swift in Sources */,
+				FA46D170248094CC389198D9 /* TerminalRenderEscapeFilterTests.swift in Sources */,
 				F360670D78E967C8E2DA4130 /* TerminalTheme.swift in Sources */,
 				40B4D116C9C7C02F64B7A4E3 /* TerminalThemeIsolationTests.swift in Sources */,
 				082F783302A56581D9180327 /* TerminalThemeReadability.swift in Sources */,
@@ -1181,6 +1197,7 @@
 				FCF23D982451D4A34FA66976 /* MonitorPollingPolicy.swift in Sources */,
 				3DBFDFBCF613C85F01A8B88D /* MonitorService.swift in Sources */,
 				BB3CC25F517066968F068F48 /* MonitorStatsPayload.swift in Sources */,
+				668D23AA3968C4CE6CBFC76C /* MonitorSystemInfo.swift in Sources */,
 				674C91AC3FC66C978290E3C8 /* MonitorTargetStore.swift in Sources */,
 				75CAE8F43F6EC022201E10A1 /* MonitorThemeSemantics.swift in Sources */,
 				1CA23122CB3D32319E80C7BB /* NetworkModels.swift in Sources */,
@@ -1240,6 +1257,7 @@
 				EF43DE3737F749EF46B8E1AE /* TelnetAccessPolicy.swift in Sources */,
 				61BFC3FD1801C09266473767 /* TelnetClient.swift in Sources */,
 				A576219730B3BAE8A38335CB /* TelnetRiskConfirmationView.swift in Sources */,
+				18A71B2EF44CC9399EB7AE2B /* TerminalRenderEscapeFilter.swift in Sources */,
 				37C9B427752B20DE73F01307 /* TerminalService.swift in Sources */,
 				AFEDC577FF6830CE8F9299F8 /* TerminalTheme.swift in Sources */,
 				B750CA07776E82064E61F903 /* TerminalThemeReadability.swift in Sources */,
@@ -1343,6 +1361,7 @@
 				7B78C1ED8A77E79C38BA52EB /* MonitorPollingPolicy.swift in Sources */,
 				B809495F666036CEF46DA5F7 /* MonitorService.swift in Sources */,
 				FD0C6A4F574BFACD94B54770 /* MonitorStatsPayload.swift in Sources */,
+				660B11DCC75EC8F6C1F5F46F /* MonitorSystemInfo.swift in Sources */,
 				B76CC755BA5AA5EBBDA8C4CE /* MonitorTargetStore.swift in Sources */,
 				9C22346C922E947A2F2BB050 /* MonitorThemeSemantics.swift in Sources */,
 				1E9B9E49F948508485F30D9C /* NetworkModels.swift in Sources */,
@@ -1402,6 +1421,7 @@
 				BA1AEEBB5304C3C65480839C /* TelnetAccessPolicy.swift in Sources */,
 				5317C2D57A549A07C99F2426 /* TelnetClient.swift in Sources */,
 				34BBFC62ED15166EA8680C67 /* TelnetRiskConfirmationView.swift in Sources */,
+				8502184A1E660FCADEEC31E3 /* TerminalRenderEscapeFilter.swift in Sources */,
 				5640BE786C6F90A9FCC3203A /* TerminalService.swift in Sources */,
 				379A91BC424763BE5988F91D /* TerminalTheme.swift in Sources */,
 				5ED95F7FA7FA42DDB817D2F1 /* TerminalThemeReadability.swift in Sources */,

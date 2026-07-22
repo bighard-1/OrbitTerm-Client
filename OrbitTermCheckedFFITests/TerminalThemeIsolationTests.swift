@@ -53,6 +53,22 @@ final class TerminalThemeIsolationTests: XCTestCase {
         XCTAssertEqual(TerminalThemeManager.theme(for: "invalid-theme-id").id, TerminalThemeManager.presets[0].id)
     }
 
+    func testDisplayANSIEnhancementPreservesCanonicalThemePalettes() {
+        for theme in TerminalThemeManager.presets {
+            XCTAssertEqual(theme.ansi16.count, theme.displayANSI16.count)
+            XCTAssertEqual(theme.ansi16[0], theme.displayANSI16[0])
+            XCTAssertEqual(theme.ansi16[8], theme.displayANSI16[8])
+
+            for index in theme.ansi16.indices where index != 0 && index != 8 {
+                let canonical = theme.ansi16[index]
+                let display = theme.displayANSI16[index]
+                XCTAssertGreaterThanOrEqual(display.r, canonical.r)
+                XCTAssertGreaterThanOrEqual(display.g, canonical.g)
+                XCTAssertGreaterThanOrEqual(display.b, canonical.b)
+            }
+        }
+    }
+
     func testEveryProductionThemeKeepsReadableDefaultTextWithoutUsingAppThemeTokens() {
         for theme in TerminalThemeManager.presets {
             XCTAssertTrue(

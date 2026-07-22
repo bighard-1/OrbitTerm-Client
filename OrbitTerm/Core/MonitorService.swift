@@ -61,6 +61,27 @@ struct MonitorPoint: Identifiable, Hashable {
     let pingLatencyMs: Double?
     let rxRateKBps: Double
     let txRateKBps: Double
+    let systemInfo: MonitorSystemInfo
+
+    init(
+        time: Date,
+        cpuUsage: Double,
+        memUsedPercent: Double,
+        diskUsedPercent: Double,
+        pingLatencyMs: Double?,
+        rxRateKBps: Double,
+        txRateKBps: Double,
+        systemInfo: MonitorSystemInfo = .unavailable
+    ) {
+        self.time = time
+        self.cpuUsage = cpuUsage
+        self.memUsedPercent = memUsedPercent
+        self.diskUsedPercent = diskUsedPercent
+        self.pingLatencyMs = pingLatencyMs
+        self.rxRateKBps = rxRateKBps
+        self.txRateKBps = txRateKBps
+        self.systemInfo = systemInfo
+    }
 
     var cpuZone: String {
         if cpuUsage >= 90 { return "alert" }
@@ -591,6 +612,7 @@ final class MonitorService: ObservableObject {
 
         switch result {
         case let .success(payload):
+            checkedErrors.removeValue(forKey: targetID)
             var buffer = buffers[targetID] ?? CircularBuffer(capacity: 600)
             buffer.append(payload.stats.monitorPoint)
             buffers[targetID] = buffer
@@ -601,9 +623,14 @@ final class MonitorService: ObservableObject {
                 : "安全监控中"
         case let .failure(error):
             checkedErrors[targetID] = error
-            panels[panelIndex].isRunning = false
-            panels[panelIndex].status = error.userMessage
-            checkedPollers.removeValue(forKey: targetID)
+            if error.shouldContinuePolling {
+                panels[panelIndex].isRunning = true
+                panels[panelIndex].status = error.retryMessage
+            } else {
+                panels[panelIndex].isRunning = false
+                panels[panelIndex].status = error.userMessage
+                checkedPollers.removeValue(forKey: targetID)
+            }
         }
     }
 
@@ -632,7 +659,8 @@ private extension MonitorSnapshotStatsPayload {
             diskUsedPercent: diskUsedPercent,
             pingLatencyMs: pingLatencyMS,
             rxRateKBps: rxRateKBPS,
-            txRateKBps: txRateKBPS
+            txRateKBps: txRateKBPS,
+            systemInfo: systemInfo
         )
     }
 }

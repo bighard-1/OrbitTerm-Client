@@ -139,10 +139,10 @@ struct ServerListView: View {
         }
 #if os(iOS)
         .listStyle(.insetGrouped)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索名称、IP、用户或分组")
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索名称、IP、用户、分组或标签")
 #else
         .listStyle(.inset)
-        .searchable(text: $searchText, prompt: "搜索名称、IP、用户或分组")
+        .searchable(text: $searchText, prompt: "搜索名称、IP、用户、分组或标签")
 #endif
         .navigationTitle("服务器")
 #if os(iOS)
@@ -303,18 +303,7 @@ struct ServerListView: View {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return store.groupedServers }
 
-        let lowered = query.lowercased()
-        let filtered = store.servers.filter { server in
-            [
-                server.name,
-                server.displayGroup,
-                server.host,
-                server.username,
-                server.endpointText,
-                server.transport.displayName
-            ]
-            .contains { $0.lowercased().contains(lowered) }
-        }
+        let filtered = store.servers.filter { $0.matchesSearch(query) }
         let grouped = Dictionary(grouping: filtered, by: { $0.displayGroup })
         return grouped.keys.sorted().map { key in
             (group: key, items: grouped[key] ?? [])

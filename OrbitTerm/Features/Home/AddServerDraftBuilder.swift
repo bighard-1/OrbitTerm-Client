@@ -3,6 +3,7 @@ import Foundation
 struct AddServerDraftInput {
     let name: String
     let group: String
+    let tags: [String]
     let host: String
     let port: Int
     let username: String
@@ -42,6 +43,7 @@ enum AddServerDraftBuilder {
                 id: existing.id,
                 name: input.name.trimmingCharacters(in: .whitespacesAndNewlines),
                 group: input.group.trimmingCharacters(in: .whitespacesAndNewlines),
+                tags: input.tags,
                 host: input.host.trimmingCharacters(in: .whitespacesAndNewlines),
                 port: input.port,
                 username: input.username.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -57,6 +59,7 @@ enum AddServerDraftBuilder {
         return ServerEntry(
             name: input.name.trimmingCharacters(in: .whitespacesAndNewlines),
             group: input.group.trimmingCharacters(in: .whitespacesAndNewlines),
+            tags: input.tags,
             host: input.host.trimmingCharacters(in: .whitespacesAndNewlines),
             port: input.port,
             username: input.username.trimmingCharacters(in: .whitespacesAndNewlines),

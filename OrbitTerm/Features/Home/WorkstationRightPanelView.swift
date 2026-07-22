@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum WorkstationRightPanelTab: String, CaseIterable, Identifiable {
     case sftp
@@ -31,6 +32,7 @@ struct WorkstationRightPanelView: View {
 
     @Binding var selectedTab: WorkstationRightPanelTab
     @Binding var showingMonitorDetailPanelID: UUID?
+    @State private var showingSFTPUploadImporter = false
 
     let onCollapse: () -> Void
     let onCreateSFTPItem: (UUID, SFTPCreateKind) -> Void
@@ -42,19 +44,49 @@ struct WorkstationRightPanelView: View {
         VStack(alignment: .leading, spacing: 0) {
             header
 
-            ScrollView(.vertical, showsIndicators: true) {
-                VStack(alignment: .leading, spacing: 12) {
-                    if let active = sessionManager.activeSession {
-                        activeSessionContent(active)
-                    } else {
-                        emptyState
-                    }
+            if let active = sessionManager.activeSession {
+                featurePicker
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+
+                ThemedDivider()
+
+                if let panelID = showingMonitorDetailPanelID,
+                   panelID == active.activeMonitorPanelID {
+                    MonitorDetailInlineView(
+                        panelID: panelID,
+                        service: sessionManager.monitorService,
+                        onClose: { showingMonitorDetailPanelID = nil }
+                    )
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .frame(maxHeight: 310)
+
+                    ThemedDivider()
                 }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
+
+                featureContent(active)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            } else {
+                emptyState
+                    .padding(12)
+                    .frame(maxHeight: .infinity, alignment: .top)
             }
         }
         .background(palette.surfaceReadable.color)
+        .fileImporter(
+            isPresented: $showingSFTPUploadImporter,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: true
+        ) { result in
+            guard case let .success(urls) = result,
+                  let active = sessionManager.activeSession else {
+                return
+            }
+            Task {
+                await uploadSelectedSFTPFiles(urls, to: active.sftpManager)
+            }
+        }
     }
 
     private var header: some View {
@@ -77,13 +109,6 @@ struct WorkstationRightPanelView: View {
         .padding(.bottom, 8)
     }
 
-    @ViewBuilder
-    private func activeSessionContent(_ active: WorkspaceSession) -> some View {
-        monitorSection(active)
-        featurePicker
-        selectedFeatureSection(active)
-    }
-
     private var featurePicker: some View {
         Picker("下方工具面板", selection: $selectedTab) {
             ForEach(WorkstationRightPanelTab.allCases) { tab in
@@ -98,40 +123,27 @@ struct WorkstationRightPanelView: View {
     }
 
     @ViewBuilder
-    private func monitorSection(_ active: WorkspaceSession) -> some View {
-        WorkstationMonitorCardView(
-            active: active,
-            monitorService: sessionManager.monitorService,
-            isDetailShown: showingMonitorDetailPanelID == active.activeMonitorPanelID,
-            onShowDetail: {
-                if let panelID = active.activeMonitorPanelID {
-                    showingMonitorDetailPanelID = panelID
-                }
-            },
-            onHideDetail: { showingMonitorDetailPanelID = nil },
-            onStartCheckedMonitoring: {
-                Task { await sessionManager.startMonitorForActiveSessionIfNeeded() }
-            }
-        )
-        if let panelID = showingMonitorDetailPanelID,
-           panelID == active.activeMonitorPanelID {
-            MonitorDetailInlineView(
-                panelID: panelID,
-                service: sessionManager.monitorService,
-                onClose: { showingMonitorDetailPanelID = nil }
-            )
-        }
-    }
-
-    @ViewBuilder
-    private func selectedFeatureSection(_ active: WorkspaceSession) -> some View {
+    private func featureContent(_ active: WorkspaceSession) -> some View {
         switch selectedTab {
         case .sftp:
             sftpSection(active)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 12)
+                .accessibilityLabel("SFTP 工具内容")
         case .docker:
-            dockerSection(active)
+            ScrollView(.vertical, showsIndicators: true) {
+                dockerSection(active)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 12)
+            }
+            .accessibilityLabel("Docker 工具内容")
         case .snippets:
-            snippetsSection(active)
+            ScrollView(.vertical, showsIndicators: true) {
+                snippetsSection(active)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 12)
+            }
+            .accessibilityLabel("Snippets 工具内容")
         }
     }
 
@@ -141,9 +153,12 @@ struct WorkstationRightPanelView: View {
             WorkstationCollapsedFeatureRow(title: "SFTP（分屏模式已禁用同步）") { }
         } else {
             WorkstationSFTPCardView(
-                active: active,
+                sftpManager: active.sftpManager,
                 onRefresh: {
                     Task { try? await active.sftpManager.refresh() }
+                },
+                onUpload: {
+                    showingSFTPUploadImporter = true
                 },
                 onCreateDirectory: {
                     onCreateSFTPItem(active.id, .directory)
@@ -191,6 +206,7 @@ struct WorkstationRightPanelView: View {
     private func dockerSection(_ active: WorkspaceSession) -> some View {
         WorkstationDockerCardView(
             active: active,
+            dockerService: active.dockerService,
             onStartCheckedDocker: {
                 Task { await sessionManager.startDockerForActiveSessionIfNeeded() }
             }
@@ -246,5 +262,23 @@ struct WorkstationRightPanelView: View {
             ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         return docs.appendingPathComponent(fileName, isDirectory: false)
 #endif
+    }
+
+    private func uploadSelectedSFTPFiles(_ urls: [URL], to manager: SFTPManager) async {
+        for url in urls {
+            let hasSecurityScope = url.startAccessingSecurityScopedResource()
+            defer {
+                if hasSecurityScope {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
+            guard values?.isDirectory != true else {
+                manager.statusText = "上传失败: 暂不支持直接上传文件夹"
+                continue
+            }
+            await manager.upload(localURL: url)
+        }
     }
 }

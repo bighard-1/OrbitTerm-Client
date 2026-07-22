@@ -27,6 +27,34 @@ struct SystemStatsResponse {
     ping_latency_ms: Option<f64>,
     rx_rate_kbps: f64,
     tx_rate_kbps: f64,
+    system_info: SystemInventory,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct SystemInventory {
+    pub os_name: String,
+    pub cpu_core_count: u32,
+    pub cpu_thread_count: u32,
+    pub memory_total_mb: u64,
+    pub swap_total_mb: u64,
+    pub swap_used_mb: u64,
+    pub disk_total_mb: u64,
+    pub disk_used_mb: u64,
+}
+
+impl Default for SystemInventory {
+    fn default() -> Self {
+        Self {
+            os_name: "系统信息暂不可用".to_string(),
+            cpu_core_count: 0,
+            cpu_thread_count: 0,
+            memory_total_mb: 0,
+            swap_total_mb: 0,
+            swap_used_mb: 0,
+            disk_total_mb: 0,
+            disk_used_mb: 0,
+        }
+    }
 }
 
 pub(crate) async fn fetch_system_stats_for_base(
@@ -55,14 +83,19 @@ pub(crate) async fn fetch_system_stats_for_base(
     let net_output = run_remote_command(base, "cat /proc/net/dev 2>/dev/null")
         .await
         .unwrap_or_default();
+    let system_identity_output = run_remote_command(base, SYSTEM_IDENTITY_COMMAND)
+        .await
+        .unwrap_or_default();
 
     let cpu_usage_percent = parse_cpu_usage(&top_output)
         .or_else(|_| parse_cpu_from_proc_stat(&cpu_proc))
         .unwrap_or(0.0);
-    let (mem_available_mb, mem_used_percent) = parse_memory_stats(&free_output)
+    let memory = parse_memory_inventory(&free_output)
         .or_else(|_| parse_memory_from_meminfo(&meminfo_output))
-        .unwrap_or((0, 0.0));
-    let disk_used_percent = parse_disk_usage(&disk_output).unwrap_or(0.0);
+        .unwrap_or_default();
+    let disk = parse_disk_inventory(&disk_output).unwrap_or_default();
+    let (os_name, cpu_core_count, cpu_thread_count) =
+        parse_system_identity(&system_identity_output);
     let (rx_rate_kbps, tx_rate_kbps) = compute_network_rate_kbps(base, &net_output)
         .await
         .unwrap_or((0.0, 0.0));
@@ -72,12 +105,22 @@ pub(crate) async fn fetch_system_stats_for_base(
     let payload = SystemStatsResponse {
         sampled_at_unix,
         cpu_usage_percent,
-        mem_available_mb,
-        mem_used_percent,
-        disk_used_percent,
+        mem_available_mb: memory.available_mb,
+        mem_used_percent: memory.used_percent,
+        disk_used_percent: disk.used_percent,
         ping_latency_ms,
         rx_rate_kbps,
         tx_rate_kbps,
+        system_info: SystemInventory {
+            os_name,
+            cpu_core_count,
+            cpu_thread_count,
+            memory_total_mb: memory.total_mb,
+            swap_total_mb: memory.swap_total_mb,
+            swap_used_mb: memory.swap_used_mb,
+            disk_total_mb: disk.total_mb,
+            disk_used_mb: disk.used_mb,
+        },
     };
 
     serde_json::to_string(&payload).map_err(|e| OrbitCoreError::Internal(e.to_string()))
@@ -132,7 +175,18 @@ pub(crate) fn parse_cpu_from_proc_stat(raw: &str) -> Result<f64, OrbitCoreError>
     Ok(((total - idle) / total * 100.0).clamp(0.0, 100.0))
 }
 
-pub(crate) fn parse_memory_stats(free_output: &str) -> Result<(u64, f64), OrbitCoreError> {
+pub(crate) const SYSTEM_IDENTITY_COMMAND: &str = "os=$(. /etc/os-release 2>/dev/null && printf '%s' \"${PRETTY_NAME:-}\"); [ -n \"$os\" ] || os=$(uname -srm 2>/dev/null); threads=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo 0); cores=$(lscpu -p=CORE,SOCKET 2>/dev/null | awk -F, '!/^#/ && NF>=2 {print $1\",\"$2}' | sort -u | wc -l | tr -d ' '); printf 'os=%s\\ncpu=%s %s\\n' \"$os\" \"$cores\" \"$threads\"";
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct MemoryInventory {
+    pub total_mb: u64,
+    pub available_mb: u64,
+    pub used_percent: f64,
+    pub swap_total_mb: u64,
+    pub swap_used_mb: u64,
+}
+
+pub(crate) fn parse_memory_inventory(free_output: &str) -> Result<MemoryInventory, OrbitCoreError> {
     let mem_line = free_output
         .lines()
         .find(|line| line.trim_start().starts_with("Mem:"))
@@ -157,14 +211,38 @@ pub(crate) fn parse_memory_stats(free_output: &str) -> Result<(u64, f64), OrbitC
         (used as f64 / total as f64) * 100.0
     };
 
-    Ok((available, used_percent.clamp(0.0, 100.0)))
+    let swap = free_output
+        .lines()
+        .find(|line| line.trim_start().starts_with("Swap:"))
+        .map(|line| {
+            let values: Vec<u64> = line
+                .split_whitespace()
+                .skip(1)
+                .filter_map(|value| value.parse::<u64>().ok())
+                .collect();
+            (
+                values.first().copied().unwrap_or(0),
+                values.get(1).copied().unwrap_or(0),
+            )
+        })
+        .unwrap_or((0, 0));
+
+    Ok(MemoryInventory {
+        total_mb: total,
+        available_mb: available,
+        used_percent: used_percent.clamp(0.0, 100.0),
+        swap_total_mb: swap.0,
+        swap_used_mb: swap.1,
+    })
 }
 
 pub(crate) fn parse_memory_from_meminfo(
     meminfo_output: &str,
-) -> Result<(u64, f64), OrbitCoreError> {
+) -> Result<MemoryInventory, OrbitCoreError> {
     let mut total_kb = 0u64;
     let mut available_kb = 0u64;
+    let mut swap_total_kb = 0u64;
+    let mut swap_free_kb = 0u64;
     for line in meminfo_output.lines() {
         if line.starts_with("MemTotal:") {
             total_kb = line
@@ -178,6 +256,18 @@ pub(crate) fn parse_memory_from_meminfo(
                 .nth(1)
                 .and_then(|v| v.parse::<u64>().ok())
                 .unwrap_or(0);
+        } else if line.starts_with("SwapTotal:") {
+            swap_total_kb = line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(0);
+        } else if line.starts_with("SwapFree:") {
+            swap_free_kb = line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(0);
         }
     }
 
@@ -187,22 +277,84 @@ pub(crate) fn parse_memory_from_meminfo(
 
     let used_kb = total_kb.saturating_sub(available_kb);
     let used_percent = (used_kb as f64 / total_kb as f64 * 100.0).clamp(0.0, 100.0);
-    Ok((available_kb / 1024, used_percent))
+    Ok(MemoryInventory {
+        total_mb: total_kb / 1024,
+        available_mb: available_kb / 1024,
+        used_percent,
+        swap_total_mb: swap_total_kb / 1024,
+        swap_used_mb: swap_total_kb.saturating_sub(swap_free_kb) / 1024,
+    })
 }
 
-pub(crate) fn parse_disk_usage(df_output: &str) -> Result<f64, OrbitCoreError> {
-    let re = Regex::new(r"(?m)^\S+\s+\S+\s+\S+\s+\S+\s+(\d+)%\s+/\s*$")
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct DiskInventory {
+    pub total_mb: u64,
+    pub used_mb: u64,
+    pub used_percent: f64,
+}
+
+pub(crate) fn parse_disk_inventory(df_output: &str) -> Result<DiskInventory, OrbitCoreError> {
+    let re = Regex::new(r"(?m)^\S+\s+(\d+)\s+(\d+)\s+\S+\s+(\d+)%\s+/\s*$")
         .map_err(|e| OrbitCoreError::Internal(e.to_string()))?;
 
     if let Some(caps) = re.captures(df_output) {
-        let used = caps
+        let total_kb = caps
             .get(1)
+            .and_then(|m| m.as_str().parse::<u64>().ok())
+            .unwrap_or(0);
+        let used_kb = caps
+            .get(2)
+            .and_then(|m| m.as_str().parse::<u64>().ok())
+            .unwrap_or(0);
+        let used_percent = caps
+            .get(3)
             .and_then(|m| m.as_str().parse::<f64>().ok())
             .unwrap_or(0.0);
-        return Ok(used.clamp(0.0, 100.0));
+        return Ok(DiskInventory {
+            total_mb: total_kb / 1024,
+            used_mb: used_kb / 1024,
+            used_percent: used_percent.clamp(0.0, 100.0),
+        });
     }
 
     Err(OrbitCoreError::Internal("无法解析磁盘使用率".to_string()))
+}
+
+pub(crate) fn parse_os_name(raw: &str) -> String {
+    let compact = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.is_empty() {
+        "系统信息暂不可用".to_string()
+    } else {
+        compact.chars().take(120).collect()
+    }
+}
+
+pub(crate) fn parse_system_identity(raw: &str) -> (String, u32, u32) {
+    let os_name = raw
+        .lines()
+        .find_map(|line| line.strip_prefix("os="))
+        .map(parse_os_name)
+        .unwrap_or_else(|| parse_os_name(raw));
+    let cpu_raw = raw
+        .lines()
+        .find_map(|line| line.strip_prefix("cpu="))
+        .unwrap_or_default();
+    let (cores, threads) = parse_cpu_topology(cpu_raw);
+    (os_name, cores, threads)
+}
+
+pub(crate) fn parse_cpu_topology(raw: &str) -> (u32, u32) {
+    let values: Vec<u32> = raw
+        .split_whitespace()
+        .filter_map(|value| value.parse::<u32>().ok())
+        .collect();
+    let threads = values.get(1).copied().unwrap_or(0);
+    let cores = values
+        .first()
+        .copied()
+        .filter(|count| *count > 0)
+        .unwrap_or(threads);
+    (cores, threads)
 }
 
 pub(crate) async fn compute_network_rate_kbps(

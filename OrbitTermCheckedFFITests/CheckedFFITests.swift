@@ -133,6 +133,8 @@ final class CheckedFFIPayloadTests: XCTestCase {
         XCTAssertEqual(sftp.sftpSessionID.decimalString, "72057594037927937")
         XCTAssertEqual(monitor.baseSessionID.decimalString, "72057594037927936")
         XCTAssertEqual(monitor.diagnostics, [.pingUnavailable])
+        XCTAssertEqual(monitor.stats.systemInfo.cpuThreadCount, 8)
+        XCTAssertEqual(monitor.stats.systemInfo.diskTotalMB, 512_000)
     }
 
     func testTerminalPayloadUsesTypedStringIDsAndValidatedDimensions() throws {

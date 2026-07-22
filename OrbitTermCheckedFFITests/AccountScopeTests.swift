@@ -1,5 +1,4 @@
 import XCTest
-@testable import OrbitTerm
 
 final class AccountScopeTests: XCTestCase {
     func testCanonicalVariantsShareOneOpaqueStorageNamespace() throws {

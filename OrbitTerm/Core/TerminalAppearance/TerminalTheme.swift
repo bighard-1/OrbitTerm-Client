@@ -1,7 +1,38 @@
 import SwiftUI
 
-struct TerminalRGB: Hashable { let r: UInt8; let g: UInt8; let b: UInt8; var swiftUIColor: Color { Color(red: Double(r)/255, green: Double(g)/255, blue: Double(b)/255) } }
-struct TerminalTheme: Identifiable, Hashable { let id: String; let name: String; let background: TerminalRGB; let foreground: TerminalRGB; let ansi16: [TerminalRGB] }
+struct TerminalRGB: Hashable {
+    let r: UInt8
+    let g: UInt8
+    let b: UInt8
+
+    var swiftUIColor: Color {
+        Color(red: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255)
+    }
+
+    func brightened(multiplier: Double) -> TerminalRGB {
+        TerminalRGB(
+            r: UInt8(min(255, (Double(r) * multiplier).rounded())),
+            g: UInt8(min(255, (Double(g) * multiplier).rounded())),
+            b: UInt8(min(255, (Double(b) * multiplier).rounded()))
+        )
+    }
+}
+
+struct TerminalTheme: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let background: TerminalRGB
+    let foreground: TerminalRGB
+    let ansi16: [TerminalRGB]
+
+    /// Preserves each preset's canonical palette while improving the legibility
+    /// of ANSI syntax colours in the live terminal viewport.
+    var displayANSI16: [TerminalRGB] {
+        ansi16.enumerated().map { index, color in
+            index == 0 || index == 8 ? color : color.brightened(multiplier: 1.14)
+        }
+    }
+}
 enum TerminalThemeManager {
     static let storageKey = "orbitterm.terminal.theme.id"
     static let defaultThemeID = "dracula"

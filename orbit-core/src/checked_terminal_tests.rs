@@ -48,7 +48,9 @@ impl Drop for TestBase {
 
 struct FakeBackend {
     error: Option<CheckedTerminalError>,
+    reject_preferred_terminal: bool,
     calls: AtomicUsize,
+    requested_terminal_types: std::sync::Mutex<Vec<&'static str>>,
     register_metadata: bool,
 }
 
@@ -56,7 +58,9 @@ impl FakeBackend {
     fn successful() -> Self {
         Self {
             error: None,
+            reject_preferred_terminal: false,
             calls: AtomicUsize::new(0),
+            requested_terminal_types: std::sync::Mutex::new(Vec::new()),
             register_metadata: false,
         }
     }
@@ -74,6 +78,13 @@ impl FakeBackend {
             ..Self::successful()
         }
     }
+
+    fn rejects_preferred_terminal() -> Self {
+        Self {
+            reject_preferred_terminal: true,
+            ..Self::successful()
+        }
+    }
 }
 
 impl CheckedTerminalBackend for FakeBackend {
@@ -81,10 +92,18 @@ impl CheckedTerminalBackend for FakeBackend {
         &'a self,
         guard: &'a VerifiedBaseSessionGuard,
         size: CheckedPtySize,
+        terminal_type: &'static str,
     ) -> Pin<Box<dyn Future<Output = Result<TerminalChannelId, CheckedTerminalError>> + Send + 'a>>
     {
         Box::pin(async move {
             self.calls.fetch_add(1, Ordering::SeqCst);
+            self.requested_terminal_types
+                .lock()
+                .unwrap()
+                .push(terminal_type);
+            if self.reject_preferred_terminal && terminal_type == "xterm-256color" {
+                return Err(CheckedTerminalError::PtyRequestFailed);
+            }
             if let Some(error) = self.error {
                 return Err(error);
             }
@@ -97,6 +116,25 @@ impl CheckedTerminalBackend for FakeBackend {
             Ok(TerminalChannelId::new(77))
         })
     }
+}
+
+#[tokio::test]
+async fn checked_terminal_retries_windows_compatible_terminal_type_after_pty_rejection() {
+    let base = TestBase::new(verified_generation());
+    let backend = FakeBackend::rejects_preferred_terminal();
+
+    assert_eq!(
+        open_terminal_channel_checked_with_backend(base.id, 120, 32, &backend)
+            .await
+            .unwrap()
+            .get(),
+        77
+    );
+    assert_eq!(backend.calls.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        *backend.requested_terminal_types.lock().unwrap(),
+        vec!["xterm-256color", "xterm"]
+    );
 }
 
 #[test]
@@ -205,7 +243,12 @@ async fn checked_terminal_propagates_open_pty_shell_and_registration_failures() 
                 .unwrap_err(),
             error
         );
-        assert_eq!(backend.calls.load(Ordering::SeqCst), 1);
+        let expected_calls = if error == CheckedTerminalError::PtyRequestFailed {
+            2
+        } else {
+            1
+        };
+        assert_eq!(backend.calls.load(Ordering::SeqCst), expected_calls);
     }
 }
 

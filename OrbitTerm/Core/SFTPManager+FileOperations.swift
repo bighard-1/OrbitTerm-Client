@@ -1,6 +1,17 @@
 import Foundation
 
+private final class SFTPRecursiveDeleteBudget {
+    var remainingEntries: Int
+
+    init(remainingEntries: Int) {
+        self.remainingEntries = remainingEntries
+    }
+}
+
 extension SFTPManager {
+    private static let maximumRecursiveDeleteDepth = 48
+    private static let maximumRecursiveDeleteEntries = 10_000
+
     func rename(item: FileItem, to newName: String) async {
         let cleaned = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty else {
@@ -193,20 +204,83 @@ extension SFTPManager {
 
         let remotePath = makeChildPath(name: item.name)
         do {
-            _ = try await RustFFI.runWithTimeout(seconds: 10) {
-                try RustFFI.parseOKPayload(
-                    RustFFI.call {
-                        remotePath.withCString { path in
-                            orbit_sftp_remove_file(sid, path)
-                        }
-                    }
+            if item.isDirectory {
+                statusText = "正在删除目录及其内容…"
+                let budget = SFTPRecursiveDeleteBudget(
+                    remainingEntries: Self.maximumRecursiveDeleteEntries
                 )
+                try await deleteDirectoryTree(
+                    at: remotePath,
+                    sessionID: sid,
+                    depth: 0,
+                    budget: budget
+                )
+            } else {
+                try await removeRemoteEntry(at: remotePath, sessionID: sid)
             }
             try await refresh(path: currentPath)
+            statusText = item.isDirectory ? "目录及其内容已删除" : "文件已删除"
             successHaptic()
         } catch {
             statusText = "删除失败: \(error.localizedDescription)"
         }
+    }
+
+    private func deleteDirectoryTree(
+        at directoryPath: String,
+        sessionID: UInt64,
+        depth: Int,
+        budget: SFTPRecursiveDeleteBudget
+    ) async throws {
+        guard depth < Self.maximumRecursiveDeleteDepth else {
+            throw SFTPError.rustError("目录层级超过安全删除上限")
+        }
+
+        let children = try await directoryItems(at: directoryPath, sessionID: sessionID)
+        for child in children {
+            guard let childPath = safeChildPath(parent: directoryPath, name: child.name) else {
+                throw SFTPError.rustError("远程目录包含不安全名称，已停止删除")
+            }
+            guard budget.remainingEntries > 0 else {
+                throw SFTPError.rustError("目录项目超过安全删除上限")
+            }
+            budget.remainingEntries -= 1
+
+            if child.isDirectory {
+                try await deleteDirectoryTree(
+                    at: childPath,
+                    sessionID: sessionID,
+                    depth: depth + 1,
+                    budget: budget
+                )
+            } else {
+                try await removeRemoteEntry(at: childPath, sessionID: sessionID)
+            }
+        }
+        try await removeRemoteEntry(at: directoryPath, sessionID: sessionID)
+    }
+
+    private func removeRemoteEntry(at path: String, sessionID: UInt64) async throws {
+        _ = try await RustFFI.runWithTimeout(seconds: 12) {
+            try RustFFI.parseOKPayload(
+                RustFFI.call {
+                    path.withCString { cPath in
+                        orbit_sftp_remove_file(sessionID, cPath)
+                    }
+                }
+            )
+        }
+    }
+
+    private func safeChildPath(parent: String, name: String) -> String? {
+        guard !name.isEmpty,
+              name != ".",
+              name != "..",
+              !name.contains("/"),
+              !name.utf8.contains(0) else {
+            return nil
+        }
+        return parent == "/" ? "/\(name)" : "\(parent)/\(name)"
     }
 
     func batchDelete(paths: [String]) async -> BatchOperationSummary {

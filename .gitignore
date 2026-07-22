@@ -3,6 +3,7 @@ build/
 Build/
 .derived/
 .derived-ios/
+**/xcuserdata/
 clients/android/OrbitTermAndroid/.gradle/
 clients/android/OrbitTermAndroid/build/
 clients/android/OrbitTermAndroid/app/build/

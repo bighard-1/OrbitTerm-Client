@@ -89,7 +89,12 @@ final class SessionManager: ObservableObject {
     func openTab(for server: ServerEntry, autoConnect: Bool = false) {
         if let existing = tabs.first(where: { $0.server.id == server.id }) {
             activeTabID = existing.id
-            if autoConnect {
+            // Selecting an already open session must not rebuild a healthy
+            // connection. A repeated sidebar click while its checked route is
+            // awaiting a decision must likewise leave that single route intact.
+            if autoConnect,
+               !existing.isConnected,
+               checkedHostKeyRoute?.workspaceID != existing.id {
                 Task { await connect(session: existing) }
             }
             return
@@ -212,63 +217,87 @@ final class SessionManager: ObservableObject {
             }
             return
         }
-        active.sftpManager.configureConnectionMode(checkedConnectionDispatcher.policy)
-        guard active.server.transport == .ssh else {
+        await openSFTPIfNeeded(for: active)
+    }
+
+    private func openSFTPIfNeeded(for session: WorkspaceSession) async {
+        session.sftpManager.configureConnectionMode(checkedConnectionDispatcher.policy)
+        guard session.server.transport == .ssh else {
             if requiresCheckedConnection {
-                active.sftpManager.rejectCheckedStandalone(.requiresVerifiedSession)
+                session.sftpManager.rejectCheckedStandalone(.requiresVerifiedSession)
             }
             return
         }
-        if active.sftpManager.isConnected { return }
+        if session.sftpManager.isConnected { return }
 
         switch SFTPConnectionPolicy(mode: checkedConnectionDispatcher.policy).plan(
-            verifiedSession: active.verifiedSessionLease
+            verifiedSession: session.verifiedSessionLease
         ) {
         case let .checked(lease):
-            _ = await active.sftpManager.connectChecked(
-                workspaceID: active.id,
+            guard session.isConnected,
+                  session.verifiedSessionLease?.baseSessionID == lease.baseSessionID else {
+                return
+            }
+            let result = await session.sftpManager.connectChecked(
+                workspaceID: session.id,
                 baseSessionID: lease.baseSessionID,
                 opener: checkedSFTPService
             )
+            guard case .success = result,
+                  session.isConnected,
+                  session.verifiedSessionLease?.baseSessionID == lease.baseSessionID else {
+                if case .success = result {
+                    await session.sftpManager.disconnect()
+                }
+                return
+            }
         case let .rejected(error):
-            active.sftpManager.rejectCheckedStandalone(error)
+            session.sftpManager.rejectCheckedStandalone(error)
         case .legacy:
             #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
-            guard active.isConnected,
-                  let credentials = try? credentialVault.read(for: active.server.credentialID),
+            guard session.isConnected,
+                  let credentials = try? credentialVault.read(for: session.server.credentialID),
                   !credentials.isEmpty else {
                 return
             }
-            await active.sftpManager.connect(
-                host: active.server.host,
-                port: active.server.port,
-                username: active.server.username,
+            await session.sftpManager.connect(
+                host: session.server.host,
+                port: session.server.port,
+                username: session.server.username,
                 password: credentials.password,
                 privateKeyContent: credentials.privateKeyContent,
                 privateKeyPassphrase: credentials.privateKeyPassphrase,
-                allowPasswordFallback: active.server.allowPasswordFallback,
+                allowPasswordFallback: session.server.allowPasswordFallback,
                 preferMock: false
             )
             #else
-            active.sftpManager.rejectCheckedStandalone(.legacySFTPDisabledInCheckedMode)
+            session.sftpManager.rejectCheckedStandalone(.legacySFTPDisabledInCheckedMode)
             #endif
         }
     }
 
     func startMonitorForActiveSessionIfNeeded() async {
         guard let active = activeSession else { return }
+        await startMonitorIfNeeded(for: active)
+    }
 
+    private func startMonitorIfNeeded(for session: WorkspaceSession) async {
+        guard session.activeMonitorPanelID == nil else { return }
         switch MonitorConnectionPolicy(mode: checkedConnectionDispatcher.policy).plan(
-            verifiedSession: active.verifiedSessionLease
+            verifiedSession: session.verifiedSessionLease
         ) {
         case let .checked(lease):
             let result = await monitorService.startCheckedMonitoring(
-                workspaceID: active.id,
+                workspaceID: session.id,
                 baseSessionID: lease.baseSessionID,
-                name: active.server.name
+                name: session.server.name
             )
-            if case let .success(panelID) = result {
-                active.activeMonitorPanelID = panelID
+            if case let .success(panelID) = result,
+               session.isConnected,
+               session.verifiedSessionLease?.baseSessionID == lease.baseSessionID {
+                session.activeMonitorPanelID = panelID
+            } else if case let .success(panelID) = result {
+                await monitorService.disconnect(panelID)
             }
         case let .rejected(error):
             monitorService.rejectCheckedStandalone(error)
@@ -280,21 +309,37 @@ final class SessionManager: ObservableObject {
 
     func startDockerForActiveSessionIfNeeded() async {
         guard let active = activeSession else { return }
-        active.dockerService.configureConnectionMode(
+        await startDockerIfNeeded(for: active)
+    }
+
+    private func startDockerIfNeeded(for session: WorkspaceSession) async {
+        session.dockerService.configureConnectionMode(
             checkedConnectionDispatcher.policy,
             checkedOperator: checkedDockerService
         )
 
         switch DockerConnectionPolicy(mode: checkedConnectionDispatcher.policy).plan(
-            verifiedSession: active.verifiedSessionLease
+            verifiedSession: session.verifiedSessionLease
         ) {
         case let .checked(lease):
-            _ = await active.dockerService.startCheckedDocker(
-                workspaceID: active.id,
+            guard session.isConnected,
+                  session.verifiedSessionLease?.baseSessionID == lease.baseSessionID else {
+                return
+            }
+            let result = await session.dockerService.startCheckedDocker(
+                workspaceID: session.id,
                 baseSessionID: lease.baseSessionID
             )
+            guard case .success = result,
+                  session.isConnected,
+                  session.verifiedSessionLease?.baseSessionID == lease.baseSessionID else {
+                if case .success = result {
+                    await session.dockerService.disconnect()
+                }
+                return
+            }
         case let .rejected(error):
-            active.dockerService.rejectCheckedStandalone(error)
+            session.dockerService.rejectCheckedStandalone(error)
         case .legacy:
             // Legacy sessions retain their existing connect-time Docker initialization.
             break
@@ -536,8 +581,23 @@ final class SessionManager: ObservableObject {
         if terminalConnected {
             session.terminalStatus = "终端在线（已验证）"
             session.appendTerminal("[ok] 已验证 SSH 与终端通道建立成功")
-            session.appendTerminal("[checked] SFTP、监控与 Docker 可按需从已验证会话启动；Batch 仍禁用")
+            session.appendTerminal("[checked] 正在从已验证会话启动 SFTP、监控与 Docker；Batch 仍禁用")
+            Task { [weak self, weak session] in
+                guard let self, let session else { return }
+                await self.startCheckedCompanionServices(for: session)
+            }
         }
+    }
+
+    private func startCheckedCompanionServices(for session: WorkspaceSession) async {
+        guard session.server.transport == .ssh,
+              session.isConnected,
+              session.verifiedSessionLease != nil else {
+            return
+        }
+        await openSFTPIfNeeded(for: session)
+        await startMonitorIfNeeded(for: session)
+        await startDockerIfNeeded(for: session)
     }
 
     private func checkedFailureStatus(_ failure: HostKeyTrustFailure) -> String {

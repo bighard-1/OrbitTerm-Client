@@ -9,6 +9,8 @@ use crate::terminal::{self, TerminalChannelMetadata};
 
 pub(crate) const MIN_PTY_DIMENSION: u32 = 1;
 pub(crate) const MAX_PTY_DIMENSION: u32 = 1_000;
+const PREFERRED_TERMINAL_TYPE: &str = "xterm-256color";
+const WINDOWS_COMPATIBLE_TERMINAL_TYPE: &str = "xterm";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct TerminalChannelId(u64);
@@ -67,6 +69,7 @@ pub(crate) trait CheckedTerminalBackend {
         &'a self,
         guard: &'a VerifiedBaseSessionGuard,
         size: CheckedPtySize,
+        terminal_type: &'static str,
     ) -> Pin<Box<dyn Future<Output = Result<TerminalChannelId, CheckedTerminalError>> + Send + 'a>>;
 }
 
@@ -77,6 +80,7 @@ impl CheckedTerminalBackend for RusshCheckedTerminalBackend {
         &'a self,
         guard: &'a VerifiedBaseSessionGuard,
         size: CheckedPtySize,
+        terminal_type: &'static str,
     ) -> Pin<Box<dyn Future<Output = Result<TerminalChannelId, CheckedTerminalError>> + Send + 'a>>
     {
         Box::pin(async move {
@@ -89,7 +93,7 @@ impl CheckedTerminalBackend for RusshCheckedTerminalBackend {
             drop(ssh);
 
             channel
-                .request_pty(true, "xterm-256color", size.cols(), size.rows(), 0, 0, &[])
+                .request_pty(true, terminal_type, size.cols(), size.rows(), 0, 0, &[])
                 .await
                 .map_err(|_| CheckedTerminalError::PtyRequestFailed)?;
             channel
@@ -129,7 +133,19 @@ pub(crate) async fn open_terminal_channel_checked_with_backend<B: CheckedTermina
     let size = CheckedPtySize::new(cols, rows)?;
     let guard = require_active_verified_base_session(base_session_id)?;
     guard.revalidate()?;
-    backend.open(&guard, size).await
+    match backend.open(&guard, size, PREFERRED_TERMINAL_TYPE).await {
+        // Some older Windows OpenSSH deployments reject xterm-256color while
+        // accepting the baseline xterm value.  Retry only that capability
+        // negotiation; authentication, host-key verification, and the base
+        // session are unchanged.
+        Err(CheckedTerminalError::PtyRequestFailed) => {
+            guard.revalidate()?;
+            backend
+                .open(&guard, size, WINDOWS_COMPATIBLE_TERMINAL_TYPE)
+                .await
+        }
+        result => result,
+    }
 }
 
 pub(crate) async fn discard_terminal_channel_checked(terminal_id: TerminalChannelId) {

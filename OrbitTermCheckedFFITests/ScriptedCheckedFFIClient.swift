@@ -336,7 +336,17 @@ actor ScriptedCheckedFFIClient: CheckedFFIClient {
                     diskUsedPercent: 78.9,
                     pingLatencyMS: nil,
                     rxRateKBPS: 10.5,
-                    txRateKBPS: 3.5
+                    txRateKBPS: 3.5,
+                    systemInfo: MonitorSystemInfo(
+                        osName: "Linux 6.8",
+                        cpuCoreCount: 4,
+                        cpuThreadCount: 8,
+                        memoryTotalMB: 16_384,
+                        swapTotalMB: 2_048,
+                        swapUsedMB: 128,
+                        diskTotalMB: 512_000,
+                        diskUsedMB: 192_000
+                    )
                 ),
                 diagnostics: [.pingUnavailable]
             )

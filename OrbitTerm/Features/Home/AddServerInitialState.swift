@@ -3,6 +3,7 @@ import Foundation
 struct AddServerInitialState {
     let name: String
     let group: String
+    let tagsText: String
     let host: String
     let portText: String
     let username: String
@@ -23,6 +24,7 @@ struct AddServerInitialState {
         return AddServerInitialState(
             name: server.name,
             group: server.group,
+            tagsText: server.tags.joined(separator: ", "),
             host: server.host,
             portText: String(server.port),
             username: server.username,
@@ -42,6 +44,7 @@ struct AddServerInitialState {
         AddServerInitialState(
             name: prefill.name,
             group: prefill.group,
+            tagsText: "",
             host: prefill.host,
             portText: String(prefill.port),
             username: prefill.username,

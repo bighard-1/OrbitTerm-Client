@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct WorkstationDockerCardView: View {
-    let active: WorkspaceSession
+    @ObservedObject var active: WorkspaceSession
+    @ObservedObject var dockerService: DockerService
     let onStartCheckedDocker: () -> Void
     @Environment(\.appThemePalette) private var palette
     @Environment(\.securitySemanticPalette) private var security
@@ -14,11 +15,11 @@ struct WorkstationDockerCardView: View {
                 Spacer()
             }
 
-            if active.dockerService.isScanning {
+            if dockerService.isScanning {
                 Text("正在扫描容器...")
                     .font(.caption)
                     .foregroundStyle(security.information.color)
-            } else if active.dockerService.dockerEnvironmentMissing {
+            } else if dockerService.dockerEnvironmentMissing {
                 Text("环境待安装，是否查看一键安装教程？")
                     .font(.caption)
                     .foregroundStyle(security.warning.color)
@@ -26,16 +27,16 @@ struct WorkstationDockerCardView: View {
                     Link("查看 Docker 官方安装文档", destination: docsURL)
                         .font(.caption)
                 }
-            } else if active.dockerService.cards.isEmpty {
-                Text(active.dockerService.statusText)
+            } else if dockerService.cards.isEmpty {
+                Text(dockerService.statusText)
                     .font(.caption)
                     .foregroundStyle(palette.textSecondary.color)
-                if active.verifiedSessionLease != nil, !active.dockerService.isConnected {
+                if active.verifiedSessionLease != nil, !dockerService.isConnected {
                     Button("启动安全 Docker", action: onStartCheckedDocker)
                         .buttonStyle(.borderedProminent)
                 }
             } else {
-                ForEach(active.dockerService.cards.prefix(6)) { card in
+                ForEach(dockerService.cards.prefix(6)) { card in
                     let presentation = DockerContainerPresentationState.resolve(isRunning: card.isRunning)
                     HStack {
                         Image(systemName: presentation.symbol)
@@ -64,7 +65,7 @@ struct WorkstationDockerCardView: View {
                         Button("查看日志") {
                             Task {
                                 do {
-                                    let logs = try await active.dockerService.fetchLogs(containerID: card.id, tailLines: 200)
+                                    let logs = try await dockerService.fetchLogs(containerID: card.id, tailLines: 200)
                                     active.appendTerminal("[docker-logs][\(card.name)]")
                                     logs.split(separator: "\n").suffix(60).forEach { line in
                                         active.appendTerminal(String(line))
@@ -76,7 +77,7 @@ struct WorkstationDockerCardView: View {
                         }
                         ForEach(DockerAction.allCases, id: \.self) { action in
                             Button(action.label) {
-                                Task { await active.dockerService.performAction(containerID: card.id, action: action) }
+                                Task { await dockerService.performAction(containerID: card.id, action: action) }
                             }
                         }
                     }

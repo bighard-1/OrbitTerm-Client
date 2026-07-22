@@ -4,8 +4,10 @@ struct WorkstationAssetSidebarView: View {
     @Environment(\.appThemePalette) private var palette
     @ObservedObject var serverStore: ServerStore
     @ObservedObject var sessionManager: SessionManager
+    @ObservedObject var syncService: SyncService
     @Binding var searchText: String
     @State private var collapsedGroups: Set<String> = []
+    @State private var hoveredServerID: UUID?
     let onCollapse: () -> Void
     let onAddServer: () -> Void
     let onEditServer: (ServerEntry) -> Void
@@ -24,12 +26,12 @@ struct WorkstationAssetSidebarView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                TextField("搜索名称、IP、用户或分组", text: $searchText)
+                TextField("搜索名称、IP、用户、分组或标签", text: $searchText)
                     .textFieldStyle(.roundedBorder)
                     .padding(.horizontal, 12)
                     .padding(.bottom, 8)
 
-                List {
+                List(selection: $serverStore.selectedServerID) {
                     ForEach(filteredGroupedServers, id: \.group) { section in
                         Section {
                             if !isCollapsed(section.group) {
@@ -49,21 +51,56 @@ struct WorkstationAssetSidebarView: View {
                                     Text("\(section.items.count)")
                                         .font(.caption2.monospacedDigit())
                                 }
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(palette.textPrimary.color)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(palette.surfaceGlassStrong.color, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                        .stroke(palette.borderGlass.color, lineWidth: 1)
+                                }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.trailing, 12)
                             .contentShape(Rectangle())
                             .accessibilityLabel("\(section.group)，\(section.items.count) 台服务器")
                             .accessibilityValue(isCollapsed(section.group) ? "已折叠" : "已展开")
                             .accessibilityHint(isCollapsed(section.group) ? "双击展开分组" : "双击折叠分组")
                         }
+                        .listRowSeparatorTint(palette.divider.color)
                     }
                 }
                 .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
+                .background(
+                    LinearGradient(
+                        colors: [palette.surfaceReadable.color, palette.accentPrimary.color.opacity(0.11)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .onChange(of: serverStore.selectedServerID) { _, selectedID in
+                    guard let selectedID,
+                          let selected = serverStore.servers.first(where: { $0.id == selectedID }) else {
+                        return
+                    }
+                    sessionManager.quickOpenServer = selected
+                }
             }
+
+            syncStatusFooter
         }
+        .background(
+            LinearGradient(
+                colors: [palette.surfaceReadable.color, palette.accentPrimary.color.opacity(0.13)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
     }
 
     private var header: some View {
@@ -86,50 +123,94 @@ struct WorkstationAssetSidebarView: View {
         .padding(.vertical, 10)
     }
 
+    private var syncStatusFooter: some View {
+        HStack(spacing: 6) {
+            Image(systemName: syncStatusMessage.contains("失败") ? "arrow.triangle.2.circlepath.circle.fill" : "checkmark.icloud.fill")
+                .font(.caption)
+            Text(syncStatusMessage)
+                .lineLimit(2)
+        }
+        .font(.caption2)
+        .foregroundStyle(
+            syncStatusMessage.contains("失败")
+                ? SecuritySemanticPalette().warning.color
+                : palette.textSecondary.color
+        )
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(palette.surfaceGlassStrong.color)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(palette.divider.color)
+                .frame(height: 1)
+        }
+        .help(syncStatusMessage)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("同步状态：\(syncStatusMessage)")
+        .fixedSize(horizontal: false, vertical: true)
+        .layoutPriority(1)
+    }
+
+    private var syncStatusMessage: String {
+        let message = syncService.lastSyncMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        return message.isEmpty ? "尚未同步" : message
+    }
+
     private func serverRow(_ server: ServerEntry) -> some View {
-        Button {
-            serverStore.select(server)
-            sessionManager.quickOpenServer = server
-        } label: {
-            HStack(spacing: 8) {
-                ServerConnectionBadge(session: sessionForServer(server))
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 5) {
-                        Text(server.name)
-                            .lineLimit(1)
-                        Text(server.transport.displayName)
-                            .font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(palette.surfaceInput.color, in: Capsule())
-                            .overlay {
-                                Capsule().stroke(palette.borderGlass.color)
-                            }
-                            .foregroundStyle(palette.textSecondary.color)
-                    }
-                    HStack(spacing: 6) {
-                        Text(server.endpointText)
-                            .lineLimit(1)
-                        ServerConnectionText(session: sessionForServer(server))
-                    }
-                    .font(.caption)
+        HStack(spacing: 8) {
+            ServerConnectionBadge(session: sessionForServer(server))
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 5) {
+                    Text(server.name)
+                        .lineLimit(1)
+                    Text(server.transport.displayName)
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(palette.surfaceInput.color, in: Capsule())
+                        .overlay {
+                            Capsule().stroke(palette.borderGlass.color)
+                        }
                         .foregroundStyle(palette.textSecondary.color)
                 }
+                HStack(spacing: 6) {
+                    Text(server.endpointText)
+                        .lineLimit(1)
+                    ServerConnectionText(session: sessionForServer(server))
+                }
+                .font(.caption)
+                .foregroundStyle(palette.textSecondary.color)
+                if !server.tags.isEmpty {
+                    Text(server.tags.joined(separator: " · "))
+                        .font(.caption2)
+                        .lineLimit(1)
+                        .foregroundStyle(palette.accentSecondary.color)
+                        .accessibilityLabel("标签：\(server.tags.joined(separator: "、"))")
+                }
             }
-            .padding(.vertical, 4)
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .listRowInsets(EdgeInsets(top: 3, leading: 8, bottom: 3, trailing: 8))
+        .tag(server.id)
+        .scaleEffect(hoveredServerID == server.id ? 1.015 : 1, anchor: .leading)
+        .animation(.easeOut(duration: 0.12), value: hoveredServerID == server.id)
+#if os(macOS)
+        .onHover { isHovering in
+            hoveredServerID = isHovering ? server.id : nil
+        }
+#endif
+        .onTapGesture(count: 2) {
+            onOpenServer(server)
+        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(server.name)，\(server.endpointText)，\(sessionForServer(server).map { ConnectionPresentationAdapter.checkedSSH(hasVerifiedSessionLease: $0.verifiedSessionLease != nil, hasTerminalChannel: $0.terminalChannelID != nil, isSessionUsable: $0.isConnected).label } ?? "未连接")")
-        .accessibilityHint("双击打开新会话")
+        .accessibilityHint("单击选中，双击打开并连接此服务器")
         .listRowBackground(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(serverStore.selectedServerID == server.id ? palette.accentPrimary.color.opacity(0.13) : Color.clear)
-        )
-        .simultaneousGesture(
-            TapGesture(count: 2).onEnded {
-                onOpenServer(server)
-            }
         )
         .contextMenu {
             Button("新建会话") {
@@ -153,14 +234,7 @@ struct WorkstationAssetSidebarView: View {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return serverStore.groupedServers }
 
-        let lowered = query.lowercased()
-        let filtered = serverStore.servers.filter { server in
-            server.name.lowercased().contains(lowered) ||
-            server.host.lowercased().contains(lowered) ||
-            server.username.lowercased().contains(lowered) ||
-            server.displayGroup.lowercased().contains(lowered) ||
-            server.endpointText.lowercased().contains(lowered)
-        }
+        let filtered = serverStore.servers.filter { $0.matchesSearch(query) }
         let grouped = Dictionary(grouping: filtered, by: { $0.displayGroup })
         return grouped
             .map { group, items in

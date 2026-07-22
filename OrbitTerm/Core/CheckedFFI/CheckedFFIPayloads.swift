@@ -328,6 +328,7 @@ struct MonitorSnapshotStatsPayload: Hashable, Sendable, Codable {
     let pingLatencyMS: Double?
     let rxRateKBPS: Double
     let txRateKBPS: Double
+    let systemInfo: MonitorSystemInfo
 
     private enum CodingKeys: String, CodingKey {
         case sampledAtUnix = "sampled_at_unix"
@@ -338,6 +339,7 @@ struct MonitorSnapshotStatsPayload: Hashable, Sendable, Codable {
         case pingLatencyMS = "ping_latency_ms"
         case rxRateKBPS = "rx_rate_kbps"
         case txRateKBPS = "tx_rate_kbps"
+        case systemInfo = "system_info"
     }
 }
 

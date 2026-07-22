@@ -1,5 +1,10 @@
 import SwiftUI
 
+private enum WorkstationSheetLayout {
+    static let width: CGFloat = 560
+    static let height: CGFloat = 640
+}
+
 struct WorkstationSheetsAndAlerts: ViewModifier {
     @EnvironmentObject private var session: AppSession
 
@@ -10,6 +15,7 @@ struct WorkstationSheetsAndAlerts: ViewModifier {
     @Binding var showingAssetManager: Bool
     @Binding var showingSettings: Bool
     @Binding var showingBatchCommand: Bool
+    @Binding var showingAccountSecurity: Bool
 
     let onOpenServer: (ServerEntry) -> Void
     let onDeleteServer: (ServerEntry) -> Void
@@ -22,7 +28,7 @@ struct WorkstationSheetsAndAlerts: ViewModifier {
                 }
                 .environmentObject(session)
 #if os(macOS)
-                .frame(minWidth: 620, minHeight: 720)
+                .frame(width: WorkstationSheetLayout.width, height: WorkstationSheetLayout.height)
 #endif
             }
             .sheet(item: $editingServer) { server in
@@ -31,7 +37,7 @@ struct WorkstationSheetsAndAlerts: ViewModifier {
                 }
                 .environmentObject(session)
 #if os(macOS)
-                .frame(minWidth: 620, minHeight: 720)
+                .frame(width: WorkstationSheetLayout.width, height: WorkstationSheetLayout.height)
 #endif
             }
             .sheet(isPresented: $showingAssetManager) {
@@ -46,7 +52,15 @@ struct WorkstationSheetsAndAlerts: ViewModifier {
                     SettingsView()
                 }
 #if os(macOS)
-                    .frame(minWidth: 520, minHeight: 480)
+                    .frame(width: WorkstationSheetLayout.width, height: WorkstationSheetLayout.height)
+#endif
+            }
+            .sheet(isPresented: $showingAccountSecurity) {
+                NavigationStack {
+                    AccountSecurityView()
+                }
+#if os(macOS)
+                .frame(width: WorkstationSheetLayout.width, height: WorkstationSheetLayout.height)
 #endif
             }
             .sheet(isPresented: $showingBatchCommand) {
