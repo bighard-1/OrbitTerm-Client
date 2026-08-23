@@ -68,12 +68,19 @@ enum KeychainDataStore {
     }
 
     static func dataProtectionQuery(service: String, account: String) -> [String: Any] {
-        [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecUseDataProtectionKeychain as String: true
+            kSecAttrAccount as String: account
         ]
+        // Data Protection Keychain is a macOS storage selection. iOS already
+        // uses the protected system keychain by default; requesting the macOS
+        // selection from an unsigned simulator build produces errSecMissingEntitlement
+        // (-34018) before any login record can be saved.
+        #if os(macOS)
+        query[kSecUseDataProtectionKeychain as String] = true
+        #endif
+        return query
     }
 
     private static func legacyQuery(service: String, account: String) -> [String: Any] {

@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use russh::client::{self, KeyboardInteractiveAuthResponse, Prompt};
-use russh::keys::{decode_secret_key, PrivateKeyWithHashAlg};
+use russh::keys::{decode_secret_key, PrivateKey, PrivateKeyWithHashAlg};
 
 use crate::OrbitCoreError;
 
@@ -30,11 +30,54 @@ pub(crate) fn normalize_host_port(ip: &str, port: u16) -> String {
 
 pub(crate) fn new_client_config() -> Arc<client::Config> {
     let config = client::Config {
+        window_size: 8 * 1024 * 1024,
+        maximum_packet_size: 256 * 1024,
+        channel_buffer_size: 256,
         keepalive_interval: Some(Duration::from_secs(30)),
         keepalive_max: 3,
+        nodelay: true,
         ..Default::default()
     };
     Arc::new(config)
+}
+
+/// Parses key material with the exact decoder used by live SSH sessions and
+/// rejects legacy/hardware-backed algorithms that OrbitTerm cannot safely use
+/// as a portable private key.  Keeping this check beside authentication avoids
+/// the UI, encrypted sync and connection paths drifting apart.
+pub(crate) fn decode_supported_private_key(
+    private_key_content: &str,
+    private_key_passphrase: &str,
+) -> Result<PrivateKey, OrbitCoreError> {
+    let passphrase = if private_key_passphrase.is_empty() {
+        None
+    } else {
+        Some(private_key_passphrase)
+    };
+    let private_key = decode_secret_key(private_key_content.trim(), passphrase)
+        .map_err(|_| OrbitCoreError::SshFailed("SSH 私钥无法解析，或私钥口令不正确".to_string()))?;
+    let algorithm = private_key.algorithm();
+    if private_key_algorithm_supported(&algorithm) {
+        Ok(private_key)
+    } else {
+        Err(OrbitCoreError::SshFailed(format!(
+            "不支持的 SSH 私钥算法: {}",
+            algorithm.as_str()
+        )))
+    }
+}
+
+fn private_key_algorithm_supported(algorithm: &russh::keys::Algorithm) -> bool {
+    matches!(
+        algorithm.as_str(),
+        "ssh-ed25519"
+            | "ssh-rsa"
+            | "rsa-sha2-256"
+            | "rsa-sha2-512"
+            | "ecdsa-sha2-nistp256"
+            | "ecdsa-sha2-nistp384"
+            | "ecdsa-sha2-nistp521"
+    )
 }
 
 pub(crate) async fn authenticate_ssh<H: client::Handler>(
@@ -48,14 +91,7 @@ pub(crate) async fn authenticate_ssh<H: client::Handler>(
     let trimmed_key = private_key_content.trim();
     let mut key_auth_failed = false;
     if !trimmed_key.is_empty() {
-        let passphrase = if private_key_passphrase.is_empty() {
-            None
-        } else {
-            Some(private_key_passphrase)
-        };
-
-        let private_key = decode_secret_key(trimmed_key, passphrase)
-            .map_err(|e| OrbitCoreError::SshFailed(format!("私钥解析失败: {e}")))?;
+        let private_key = decode_supported_private_key(trimmed_key, private_key_passphrase)?;
         let hash_alg = ssh_session
             .best_supported_rsa_hash()
             .await
@@ -147,6 +183,38 @@ async fn authenticate_keyboard_interactive_password<H: client::Handler>(
         }
     }
     Ok(false)
+}
+
+#[cfg(test)]
+mod private_key_policy_tests {
+    use super::{decode_supported_private_key, private_key_algorithm_supported};
+    use russh::keys::{ssh_key::LineEnding, Algorithm, EcdsaCurve, PrivateKey};
+
+    #[test]
+    fn portable_algorithm_allowlist_matches_the_connection_policy() {
+        for algorithm in &[
+            Algorithm::Ed25519,
+            Algorithm::Rsa { hash: None },
+            Algorithm::Ecdsa {
+                curve: EcdsaCurve::NistP256,
+            },
+        ] {
+            assert!(private_key_algorithm_supported(algorithm));
+        }
+        assert!(!private_key_algorithm_supported(&Algorithm::Dsa));
+        assert!(!private_key_algorithm_supported(&Algorithm::SkEd25519));
+    }
+
+    #[test]
+    fn portable_ed25519_material_uses_the_live_decoder() {
+        let generated = PrivateKey::random(&mut rand10::rng(), Algorithm::Ed25519)
+            .expect("generate runtime-only Ed25519 key");
+        let encoded = generated
+            .to_openssh(LineEnding::LF)
+            .expect("encode runtime-only Ed25519 key");
+        let decoded = decode_supported_private_key(&encoded, "").expect("supported Ed25519 key");
+        assert_eq!(decoded.algorithm(), Algorithm::Ed25519);
+    }
 }
 
 fn keyboard_interactive_password_responses(

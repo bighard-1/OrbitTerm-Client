@@ -8,9 +8,24 @@ struct OrbitCoreCheckedConnectCall: Sendable, CustomStringConvertible,
     let credentials: CheckedCredentials
     let knownHostsPath: String
     let requestID: String
+    let jumpHost: OrbitCoreCheckedJumpHostCall?
 
     var description: String {
-        "OrbitCoreCheckedConnectCall(host: [REDACTED], port: \(port), credentials: [REDACTED])"
+        "OrbitCoreCheckedConnectCall(host: [REDACTED], port: \(port), credentials: [REDACTED], jump: \(jumpHost == nil ? "none" : "configured"))"
+    }
+
+    var debugDescription: String { description }
+}
+
+struct OrbitCoreCheckedJumpHostCall: Sendable, CustomStringConvertible,
+    CustomDebugStringConvertible {
+    let host: String
+    let port: Int32
+    let username: String
+    let credentials: CheckedCredentials
+
+    var description: String {
+        "OrbitCoreCheckedJumpHostCall(host: [REDACTED], port: \(port), credentials: [REDACTED])"
     }
 
     var debugDescription: String { description }
@@ -143,6 +158,28 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
         guard !credentials.password.isEmpty || !credentials.privateKey.isEmpty else {
             throw CheckedFFIClientError.invalidInput
         }
+        let jumpHost: OrbitCoreCheckedJumpHostCall?
+        if let configuredJumpHost = input.jumpHost {
+            let hopHost = configuredJumpHost.host.trimmingCharacters(in: .whitespacesAndNewlines)
+            let hopUsername = configuredJumpHost.username.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !hopHost.isEmpty, !hopUsername.isEmpty, configuredJumpHost.port > 0 else {
+                throw CheckedFFIClientError.invalidInput
+            }
+            let hopCredentials = try await credentialProvider.credentials(
+                for: configuredJumpHost.credentialReference
+            )
+            guard !hopCredentials.password.isEmpty || !hopCredentials.privateKey.isEmpty else {
+                throw CheckedFFIClientError.invalidInput
+            }
+            jumpHost = OrbitCoreCheckedJumpHostCall(
+                host: hopHost,
+                port: Int32(configuredJumpHost.port),
+                username: hopUsername,
+                credentials: hopCredentials
+            )
+        } else {
+            jumpHost = nil
+        }
 
         let call = OrbitCoreCheckedConnectCall(
             host: host,
@@ -150,7 +187,8 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             username: username,
             credentials: credentials,
             knownHostsPath: try loadKnownHostsPath(),
-            requestID: requestID.rawValue
+            requestID: requestID.rawValue,
+            jumpHost: jumpHost
         )
         let json = try resultReader.take(functions.connect(call))
         let response = try decodeConnect(json, expectedRequestID: requestID)

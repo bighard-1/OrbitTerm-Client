@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 
 use crate::checked_exec::{CheckedExecError, CheckedExecOutput};
 use crate::checked_monitor::{
-    fetch_system_stats_checked_with_backend, monitor_commands_for_tests, CheckedMonitorBackend,
-    CheckedMonitorSnapshotError, MonitorMetric,
+    fetch_system_stats_checked_with_backend, monitor_command_for_tests, monitor_output_for_tests,
+    CheckedMonitorBackend, CheckedMonitorSnapshotError, MonitorMetric,
 };
 use crate::security::{
     fingerprint_sha256, CheckedChannelAccessError, HostIdentity, MonitorSnapshotDiagnostic,
@@ -45,14 +46,13 @@ impl Drop for TestBase {
 }
 
 struct FakeMonitorBackend {
-    outputs: HashMap<&'static str, Result<CheckedExecOutput, CheckedExecError>>,
+    outputs: HashMap<String, Result<CheckedExecOutput, CheckedExecError>>,
     calls: Mutex<Vec<String>>,
     ping: Option<f64>,
 }
 
 impl FakeMonitorBackend {
     fn successful(ping: Option<f64>) -> Self {
-        let commands = monitor_commands_for_tests();
         let values = [
             "%Cpu(s): 1.0 us, 2.0 sy, 90.0 id\n",
             "100 20 30 850 0 0 0\n",
@@ -62,16 +62,14 @@ impl FakeMonitorBackend {
             "eth0: 1024 0 0 0 0 0 0 0 2048 0 0 0 0 0 0 0\n",
             "os=Linux 6.8.0 x86_64\ncpu=4 8\n",
         ];
-        let outputs = commands
-            .into_iter()
-            .zip(values)
-            .map(|(command, value)| {
-                (
-                    command,
-                    Ok(CheckedExecOutput::new(value.to_string(), String::new(), 0)),
-                )
-            })
-            .collect();
+        let outputs = HashMap::from([(
+            monitor_command_for_tests(),
+            Ok(CheckedExecOutput::new(
+                monitor_output_for_tests(values),
+                String::new(),
+                0,
+            )),
+        )]);
         Self {
             outputs,
             calls: Mutex::new(Vec::new()),
@@ -83,7 +81,7 @@ impl FakeMonitorBackend {
         let mut backend = Self::successful(Some(1.0));
         backend
             .outputs
-            .insert(monitor_commands_for_tests()[0], Err(error));
+            .insert(monitor_command_for_tests(), Err(error));
         backend
     }
 
@@ -119,12 +117,18 @@ impl CheckedMonitorBackend for FakeMonitorBackend {
 #[tokio::test]
 async fn active_verified_snapshot_runs_every_checked_command_and_returns_stats() {
     let base = TestBase::new(verified_generation());
+    let session = resolve_base_session_by_base_id(base.id).expect("resolve synthetic base");
+    let generation_before = session.monitor_sample_generation.load(Ordering::SeqCst);
     let backend = FakeMonitorBackend::successful(Some(4.5));
     let payload = fetch_system_stats_checked_with_backend(base.id, &backend)
         .await
         .unwrap();
 
-    assert_eq!(backend.call_count(), 7);
+    assert_eq!(backend.call_count(), 1);
+    assert_eq!(
+        session.monitor_sample_generation.load(Ordering::SeqCst),
+        generation_before + 1
+    );
     assert_eq!(payload.base_session_id, base.id.to_string());
     assert_eq!(payload.stats.cpu_usage_percent.as_f64(), Some(10.0));
     assert_eq!(payload.stats.mem_available_mb, 600);
@@ -208,9 +212,17 @@ async fn exec_and_parse_failures_are_not_replaced_with_zero_metrics() {
 
     let mut backend = FakeMonitorBackend::successful(Some(1.0));
     backend.outputs.insert(
-        monitor_commands_for_tests()[4],
+        monitor_command_for_tests(),
         Ok(CheckedExecOutput::new(
-            "not-disk-stats".to_string(),
+            monitor_output_for_tests([
+                "%Cpu(s): 1.0 us, 2.0 sy, 90.0 id\n",
+                "100 20 30 850 0 0 0\n",
+                "Mem: 1000 400 100 0 0 600\nSwap: 256 64 192\n",
+                "MemTotal: 1024000 kB\nMemAvailable: 614400 kB\n",
+                "not-disk-stats",
+                "eth0: 1024 0 0 0 0 0 0 0 2048 0 0 0 0 0 0 0\n",
+                "os=Linux 6.8.0 x86_64\ncpu=4 8\n",
+            ]),
             String::new(),
             0,
         )),

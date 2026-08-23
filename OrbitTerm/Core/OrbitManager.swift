@@ -3,6 +3,8 @@ import Foundation
 @MainActor
 final class OrbitManager: ObservableObject {
     @Published var statusText: String = "未开始"
+    private var configRootKeyV2 = Data()
+    private var configRootScopeV2: String?
 
     // Swift 封装：调用 Rust C-API 完成加密。
     // 入参 data 为明文字符串，返回密文 Data。
@@ -36,6 +38,86 @@ final class OrbitManager: ObservableObject {
 
         let resultPtr = orbit_decrypt_config(passwordCString, encryptedCString)
         return try parseResultAsData(resultPtr)
+    }
+
+    /// Prepares one account-scoped V2 root key for the current unlocked owner.
+    /// The caller owns the lifecycle and must clear it as soon as that account
+    /// locks, signs out, or changes. This method never persists key material.
+    func prepareConfigRootKeyV2(masterPassword: String, accountScope: AccountScope) throws {
+        let scope = accountScope.storageIdentifier
+        guard configRootScopeV2 != scope || configRootKeyV2.isEmpty else { return }
+        clearConfigRootKeyV2()
+        guard let passwordCString = masterPassword.cString(using: .utf8),
+              let scopeCString = scope.cString(using: .utf8) else {
+            throw OrbitManagerError.invalidInput("配置密钥参数编码失败")
+        }
+        configRootKeyV2 = try parseResultAsData(
+            orbit_derive_config_root_key_v2(passwordCString, scopeCString)
+        )
+        guard configRootKeyV2.count == 32 else {
+            clearConfigRootKeyV2()
+            throw OrbitManagerError.invalidResponse("配置根密钥长度无效")
+        }
+        configRootScopeV2 = scope
+    }
+
+    func encryptConfigV2(_ plaintext: Data) throws -> Data {
+        guard !configRootKeyV2.isEmpty else {
+            throw OrbitManagerError.invalidInput("配置根密钥不可用")
+        }
+        let result = configRootKeyV2.withUnsafeBytes { keyBuffer in
+            plaintext.withUnsafeBytes { plaintextBuffer in
+                orbit_encrypt_config_v2(
+                    keyBuffer.bindMemory(to: UInt8.self).baseAddress,
+                    configRootKeyV2.count,
+                    plaintextBuffer.bindMemory(to: UInt8.self).baseAddress,
+                    plaintext.count
+                )
+            }
+        }
+        return try parseResultAsData(result)
+    }
+
+    func decryptConfigV2(_ encrypted: Data) throws -> Data {
+        guard !configRootKeyV2.isEmpty else {
+            throw OrbitManagerError.invalidInput("配置根密钥不可用")
+        }
+        let encoded = encrypted.base64EncodedString()
+        guard let encodedCString = encoded.cString(using: .utf8) else {
+            throw OrbitManagerError.invalidInput("密文编码失败")
+        }
+        let result = configRootKeyV2.withUnsafeBytes { keyBuffer in
+            orbit_decrypt_config_v2(
+                keyBuffer.bindMemory(to: UInt8.self).baseAddress,
+                configRootKeyV2.count,
+                encodedCString
+            )
+        }
+        return try parseResultAsData(result)
+    }
+
+    func clearConfigRootKeyV2() {
+        guard !configRootKeyV2.isEmpty else {
+            configRootScopeV2 = nil
+            return
+        }
+        configRootKeyV2.resetBytes(in: 0..<configRootKeyV2.count)
+        configRootKeyV2 = Data()
+        configRootScopeV2 = nil
+    }
+
+    /// A short-lived copy for a detached, bounded decrypt operation. The
+    /// owning service clears both copies when the account locks or changes.
+    func configRootKeyV2ForBackground(scope: AccountScope) throws -> Data {
+        guard configRootScopeV2 == scope.storageIdentifier,
+              configRootKeyV2.count == 32 else {
+            throw OrbitManagerError.invalidInput("配置根密钥不可用")
+        }
+        return configRootKeyV2
+    }
+
+    nonisolated static func isV2ConfigBlob(_ encrypted: Data) -> Bool {
+        encrypted.starts(with: Data([0x4f, 0x54, 0x43, 0x32])) // OTC2
     }
 
     // 调用 Rust 的 SSH 测试接口，支持密码认证与密钥认证（含口令私钥）。

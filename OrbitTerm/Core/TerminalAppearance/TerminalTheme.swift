@@ -35,6 +35,7 @@ struct TerminalTheme: Identifiable, Hashable {
 }
 enum TerminalThemeManager {
     static let storageKey = "orbitterm.terminal.theme.id"
+    static let followsApplicationThemeStorageKey = "orbitterm.terminal.follows.application.theme"
     static let defaultThemeID = "dracula"
     static let presets: [TerminalTheme] = [
         .init(id:"dracula",name:"Dracula",background:.init(r:40,g:42,b:54),foreground:.init(r:248,g:248,b:242),ansi16:[.init(r:40,g:42,b:54),.init(r:255,g:85,b:85),.init(r:80,g:250,b:123),.init(r:241,g:250,b:140),.init(r:98,g:114,b:164),.init(r:255,g:121,b:198),.init(r:139,g:233,b:253),.init(r:248,g:248,b:242),.init(r:68,g:71,b:90),.init(r:255,g:110,b:110),.init(r:105,g:255,b:160),.init(r:255,g:255,b:170),.init(r:189,g:147,b:249),.init(r:255,g:146,b:213),.init(r:170,g:255,b:255),.init(r:255,g:255,b:255)]),
@@ -42,4 +43,19 @@ enum TerminalThemeManager {
         .init(id:"nord",name:"Nord",background:.init(r:46,g:52,b:64),foreground:.init(r:216,g:222,b:233),ansi16:[.init(r:59,g:66,b:82),.init(r:191,g:97,b:106),.init(r:163,g:190,b:140),.init(r:235,g:203,b:139),.init(r:129,g:161,b:193),.init(r:180,g:142,b:173),.init(r:136,g:192,b:208),.init(r:229,g:233,b:240),.init(r:76,g:86,b:106),.init(r:191,g:97,b:106),.init(r:163,g:190,b:140),.init(r:235,g:203,b:139),.init(r:129,g:161,b:193),.init(r:180,g:142,b:173),.init(r:143,g:188,b:187),.init(r:236,g:239,b:244)]),
         .init(id:"homebrew",name:"Homebrew",background:.init(r:0,g:0,b:0),foreground:.init(r:0,g:255,b:102),ansi16:[.init(r:0,g:0,b:0),.init(r:0,g:221,b:0),.init(r:0,g:255,b:85),.init(r:85,g:255,b:85),.init(r:0,g:170,b:0),.init(r:0,g:204,b:0),.init(r:102,g:255,b:153),.init(r:170,g:255,b:187),.init(r:0,g:68,b:0),.init(r:51,g:255,b:51),.init(r:102,g:255,b:102),.init(r:153,g:255,b:153),.init(r:0,g:136,b:0),.init(r:51,g:204,b:51),.init(r:187,g:255,b:204),.init(r:221,g:255,b:221)])]
     static func theme(for id: String) -> TerminalTheme { presets.first(where:{$0.id==id}) ?? presets[0] }
+
+    static func resolvedThemeID(
+        selectedTerminalThemeID: String,
+        followsApplicationTheme: Bool,
+        applicationThemeID: String
+    ) -> String {
+        guard followsApplicationTheme else { return selectedTerminalThemeID }
+        return switch AppThemeID.resolved(applicationThemeID) {
+        case .skyCandy: "solarized-dark"
+        case .emeraldFlow: "homebrew"
+        case .peachDawn: "dracula"
+        case .lavenderMist: "nord"
+        case .glacierMint: "solarized-dark"
+        }
+    }
 }

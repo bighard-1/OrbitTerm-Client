@@ -6,6 +6,7 @@ struct WorkstationDockerCardView: View {
     let onStartCheckedDocker: () -> Void
     @Environment(\.appThemePalette) private var palette
     @Environment(\.securitySemanticPalette) private var security
+    @State private var logContainer: DockerContainerCard?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -62,20 +63,10 @@ struct WorkstationDockerCardView: View {
                     .accessibilityLabel("\(card.name)，\(presentation.label)，CPU \(String(format: "%.1f%%", card.cpuPercent))")
                     .contextMenu {
                         Button("查看日志") {
-                            Task {
-                                do {
-                                    let logs = try await dockerService.fetchLogs(containerID: card.id, tailLines: 200)
-                                    active.appendTerminal("[docker-logs][\(card.name)]")
-                                    logs.split(separator: "\n").suffix(60).forEach { line in
-                                        active.appendTerminal(String(line))
-                                    }
-                                } catch {
-                                    active.appendTerminal("[docker-logs][error] \(error.localizedDescription)")
-                                }
-                            }
+                            logContainer = card
                         }
                         Button("复制容器 ID") {
-                            TerminalPlatformSupport.copyToClipboard(Data(card.id.utf8))
+                            TerminalPlatformSupport.copyToClipboard(Data(card.id.utf8), kind: .ordinaryText)
                         }
                         ForEach(card.availableActions, id: \.self) { action in
                             Button(action.label) {
@@ -90,5 +81,9 @@ struct WorkstationDockerCardView: View {
         .foregroundStyle(palette.textPrimary.color)
         .background(palette.surfaceGlassStrong.color, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(palette.borderGlass.color, lineWidth: 1))
+        .sheet(item: $logContainer) { container in
+            DockerLogStreamView(service: dockerService, container: container)
+                .frame(minWidth: 720, minHeight: 520)
+        }
     }
 }

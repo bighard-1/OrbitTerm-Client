@@ -4,6 +4,8 @@ import SwiftUI
 /// separate because it must atomically re-encrypt every cloud configuration.
 struct AccountSecurityView: View {
     @EnvironmentObject private var session: AppSession
+    @EnvironmentObject private var serverStore: ServerStore
+    @EnvironmentObject private var syncService: SyncService
     @Environment(\.dismiss) private var dismiss
     @Environment(\.appThemePalette) private var palette
 
@@ -19,13 +21,17 @@ struct AccountSecurityView: View {
     @State private var masterPasswordLoginConfirmation = ""
     @State private var isRotatingMasterPassword = false
     @State private var masterPasswordFeedback = ""
+    @State private var securityTask: Task<Void, Never>?
+    @State private var securityOwner = PageOperationOwner()
+    @State private var showDiagnostics = false
+    @State private var showingLeaveAccountConfirmation = false
 
     private var canSubmit: Bool {
         !currentPassword.isEmpty &&
             !newPassword.isEmpty &&
             newPassword == confirmation &&
             newPassword != currentPassword &&
-            !isSubmitting
+            !isSubmitting && securityTask == nil
     }
 
     private var canRotateMasterPassword: Bool {
@@ -34,15 +40,54 @@ struct AccountSecurityView: View {
             newMasterPassword == masterPasswordConfirmation &&
             newMasterPassword != currentMasterPassword &&
             !masterPasswordLoginConfirmation.isEmpty &&
-            !isRotatingMasterPassword
+            !isRotatingMasterPassword && securityTask == nil
     }
 
     var body: some View {
+        Group {
 #if os(macOS)
-        macOSContent
+            macOSContent
 #else
-        formContent
+            formContent
 #endif
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .orbitTermClearTransientSensitiveInput)) { _ in
+            cancelSecurityOperation(.accountLocked)
+            clearTransientPasswords()
+        }
+        .onDisappear { cancelSecurityOperation(.pageDisappeared) }
+        .onChange(of: session.username) { _, _ in cancelSecurityOperation(.accountChanged) }
+        .onChange(of: session.isAuthenticated) { _, authenticated in
+            if !authenticated { cancelSecurityOperation(.accountSignedOut) }
+        }
+        .onChange(of: session.isUnlocked) { _, unlocked in
+            if !unlocked { cancelSecurityOperation(.accountLocked) }
+        }
+#if os(macOS)
+        .confirmationDialog(
+            "退出或切换账户？",
+            isPresented: $showingLeaveAccountConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("退出并返回登录页", role: .destructive) {
+                AccountSessionActions.leaveCurrentAccount(session: session, serverStore: serverStore)
+                dismiss()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("当前会话将断开；本机数据继续按账户隔离保存，不会交给下一个账户。")
+        }
+#endif
+    }
+
+    private func clearTransientPasswords() {
+        currentPassword = ""
+        newPassword = ""
+        confirmation = ""
+        currentMasterPassword = ""
+        newMasterPassword = ""
+        masterPasswordConfirmation = ""
+        masterPasswordLoginConfirmation = ""
     }
 
     private var formContent: some View {
@@ -82,7 +127,7 @@ struct AccountSecurityView: View {
                 }
 
                 Button(isSubmitting ? "正在更新…" : "更新登录密码") {
-                    Task { await changePassword() }
+                    startPasswordChange()
                 }
                 .disabled(!canSubmit)
             }
@@ -92,7 +137,7 @@ struct AccountSecurityView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                if session.hasStagedMasterPasswordRotation {
+                if session.hasAcceptedStagedMasterPasswordRotation {
                     Label("检测到已完成的云端轮换，等待本地钥匙串提交。", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
                         .foregroundStyle(.orange)
@@ -117,7 +162,7 @@ struct AccountSecurityView: View {
                     }
 
                     Button(isRotatingMasterPassword ? "正在轮换…" : "轮换主密码并重新加密云端配置") {
-                        Task { await rotateMasterPassword() }
+                        startMasterPasswordRotation()
                     }
                     .disabled(!canRotateMasterPassword)
                 }
@@ -144,6 +189,7 @@ struct AccountSecurityView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     accountSummary
+                    accountOperationsCard
                     loginPasswordCard
                     masterPasswordCard
                 }
@@ -181,6 +227,43 @@ struct AccountSecurityView: View {
         .themedReadableSurface()
     }
 
+    private var accountOperationsCard: some View {
+        securityCard(
+            title: "账户与同步",
+            detail: syncService.lastSyncMessage.isEmpty ? "当前尚无同步状态。" : syncService.lastSyncMessage
+        ) {
+            HStack(spacing: 10) {
+                Button("导出脱敏诊断") { showDiagnostics = true }
+                    .buttonStyle(ThemedSecondaryButtonStyle())
+
+                Spacer()
+                Button("锁定工作站") {
+                    Task {
+                        for workspace in SessionManager.shared.tabs {
+                            await SessionManager.shared.disconnect(session: workspace)
+                        }
+                        session.isUnlocked = false
+                        dismiss()
+                    }
+                }
+                .buttonStyle(ThemedSecondaryButtonStyle())
+            }
+
+            Divider()
+            HStack {
+                Text("需要在本机使用其他账户时，可安全退出并返回登录页。")
+                    .font(.caption)
+                    .foregroundStyle(palette.textSecondary.color)
+                Spacer()
+                Button("退出或切换账户", role: .destructive) {
+                    showingLeaveAccountConfirmation = true
+                }
+                .buttonStyle(ThemedSecondaryButtonStyle())
+            }
+        }
+        .sheet(isPresented: $showDiagnostics) { DiagnosticsExportView() }
+    }
+
     private var loginPasswordCard: some View {
         securityCard(
             title: "登录密码",
@@ -205,7 +288,7 @@ struct AccountSecurityView: View {
             HStack {
                 Spacer()
                 Button(isSubmitting ? "正在更新…" : "更新登录密码") {
-                    Task { await changePassword() }
+                    startPasswordChange()
                 }
                 .buttonStyle(ThemedPrimaryButtonStyle())
                 .frame(minWidth: 170, maxWidth: 230)
@@ -219,7 +302,7 @@ struct AccountSecurityView: View {
             title: "主密码",
             detail: "轮换会在本机重新加密全部云端资产与最近删除记录；服务器只接收新的密文。完成后，其他设备必须更新客户端并使用新主密码重新解锁。"
         ) {
-            if session.hasStagedMasterPasswordRotation {
+            if session.hasAcceptedStagedMasterPasswordRotation {
                 Label("检测到已完成的云端轮换，等待本地钥匙串提交。", systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(SecuritySemanticPalette().warning.color)
@@ -247,7 +330,7 @@ struct AccountSecurityView: View {
                 HStack {
                     Spacer()
                     Button(isRotatingMasterPassword ? "正在轮换…" : "轮换主密码并重新加密云端配置") {
-                        Task { await rotateMasterPassword() }
+                        startMasterPasswordRotation()
                     }
                     .buttonStyle(ThemedPrimaryButtonStyle())
                     .frame(minWidth: 250, maxWidth: 330)
@@ -304,17 +387,75 @@ struct AccountSecurityView: View {
     }
 #endif
 
-    private func changePassword() async {
+    private var accountOperationScope: OperationScope {
+        guard let account = AccountScope(username: session.username) else { return .anonymous }
+        return .account(account.storageIdentifier)
+    }
+
+    private func startPasswordChange() {
+        guard securityTask == nil, canSubmit else { return }
+        let scope = accountOperationScope
+        let lease = securityOwner.begin(scope: scope, timeout: PageOperationTimeout.authentication)
+        securityTask = Task {
+            await changePassword(lease: lease, scope: scope)
+            finishSecurityOperation(lease, scope: scope)
+        }
+    }
+
+    private func startMasterPasswordRotation() {
+        guard securityTask == nil, canRotateMasterPassword else { return }
+        let scope = accountOperationScope
+        let lease = securityOwner.begin(scope: scope, timeout: PageOperationTimeout.assetMutation)
+        securityTask = Task {
+            await rotateMasterPassword(lease: lease, scope: scope)
+            finishSecurityOperation(lease, scope: scope)
+        }
+    }
+
+    private func finishSecurityOperation(_ lease: PageOperationLease, scope: OperationScope) {
+        if securityOwner.timeoutReached(lease) {
+            let wasRotatingMasterPassword = isRotatingMasterPassword
+            securityOwner.cancel(.timedOut)
+            isSubmitting = false
+            isRotatingMasterPassword = false
+            if wasRotatingMasterPassword {
+                masterPasswordFeedback = "主密码轮换请求超时；本地恢复状态已保留，请检查网络后重试。"
+            } else {
+                feedback = "请求超时，请检查网络后重试。"
+            }
+            securityTask = nil
+            return
+        }
+        guard securityOwner.accepts(lease, scope: scope) else { return }
+        securityTask = nil
+    }
+
+    private func cancelSecurityOperation(_ reason: PageOperationCancellationReason) {
+        securityOwner.cancel(reason)
+        securityTask?.cancel()
+        securityTask = nil
+        isSubmitting = false
+        isRotatingMasterPassword = false
+        clearTransientPasswords()
+    }
+
+    private func accepts(_ lease: PageOperationLease, scope: OperationScope) -> Bool {
+        !Task.isCancelled && securityOwner.accepts(lease, scope: scope)
+    }
+
+    private func changePassword(lease: PageOperationLease, scope: OperationScope) async {
+        guard accepts(lease, scope: scope) else { return }
         guard canSubmit else { return }
         isSubmitting = true
         feedback = ""
-        defer { isSubmitting = false }
+        defer { if accepts(lease, scope: scope) { isSubmitting = false } }
 
         do {
             let result = try await NetworkService.shared.changePassword(
                 currentPassword: currentPassword,
                 newPassword: newPassword
             )
+            guard accepts(lease, scope: scope) else { return }
             guard !result.accessTokenValue.isEmpty else {
                 feedback = "服务未返回有效登录令牌，请重新登录。"
                 return
@@ -329,15 +470,17 @@ struct AccountSecurityView: View {
             confirmation = ""
             feedback = "已更新登录密码；其他设备需要重新登录。"
         } catch {
+            guard accepts(lease, scope: scope) else { return }
             feedback = error.localizedDescription
         }
     }
 
-    private func rotateMasterPassword() async {
+    private func rotateMasterPassword(lease: PageOperationLease, scope: OperationScope) async {
+        guard accepts(lease, scope: scope) else { return }
         guard canRotateMasterPassword else { return }
         isRotatingMasterPassword = true
         masterPasswordFeedback = ""
-        defer { isRotatingMasterPassword = false }
+        defer { if accepts(lease, scope: scope) { isRotatingMasterPassword = false } }
 
         do {
             try await MasterPasswordRotationService.shared.rotate(
@@ -346,12 +489,14 @@ struct AccountSecurityView: View {
                 currentLoginPassword: masterPasswordLoginConfirmation,
                 session: session
             )
+            guard accepts(lease, scope: scope) else { return }
             currentMasterPassword = ""
             newMasterPassword = ""
             masterPasswordConfirmation = ""
             masterPasswordLoginConfirmation = ""
             masterPasswordFeedback = "已完成主密码轮换；其他设备需要重新登录并使用新主密码解锁。"
         } catch {
+            guard accepts(lease, scope: scope) else { return }
             masterPasswordFeedback = error.localizedDescription
         }
     }

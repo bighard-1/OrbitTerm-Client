@@ -113,3 +113,46 @@ final class WorkspaceSession: ObservableObject, Identifiable {
         }
     }
 }
+
+extension WorkspaceSession: WorkspaceSessionPresenting {
+    var presentationServerID: UUID { server.id }
+}
+
+extension WorkspaceSession: WorkspaceToolSession {
+    var toolTransport: ServerTransportProtocol { server.transport }
+    var toolHost: String { server.host }
+    var toolPort: Int { server.port }
+    var isSFTPConnected: Bool { sftpManager.isConnected }
+
+    func configureToolConnection(
+        policy: ConnectionSecurityPolicy,
+        checkedDockerOperator: (any CheckedDockerOperating)?
+    ) {
+        sftpManager.configureConnectionMode(policy)
+        dockerService.configureConnectionMode(policy, checkedOperator: checkedDockerOperator)
+    }
+
+    func openCheckedSFTP(
+        baseSessionID: BaseSessionID,
+        opener: any CheckedSFTPConnectionOpening
+    ) async -> Result<CheckedSFTPConnection, CheckedSFTPServiceError> {
+        await sftpManager.connectChecked(
+            workspaceID: id,
+            baseSessionID: baseSessionID,
+            opener: opener,
+            initialPath: SFTPInitialPathPolicy.preferredPath(username: server.username)
+        )
+    }
+
+    func disconnectSFTP() async { await sftpManager.disconnect() }
+    func rejectCheckedSFTP(_ error: CheckedSFTPServiceError) { sftpManager.rejectCheckedStandalone(error) }
+
+    func startCheckedDocker(baseSessionID: BaseSessionID) async -> Result<Void, CheckedDockerServiceError> {
+        await dockerService.startCheckedDocker(workspaceID: id, baseSessionID: baseSessionID)
+    }
+
+    func disconnectDocker() async { await dockerService.disconnect() }
+    func rejectCheckedDocker(_ error: CheckedDockerServiceError) { dockerService.rejectCheckedStandalone(error) }
+    func suspendDockerRefresh() async { await dockerService.suspendAutomaticRefresh() }
+    func resumeDockerRefresh() async { await dockerService.resumeAutomaticRefresh() }
+}

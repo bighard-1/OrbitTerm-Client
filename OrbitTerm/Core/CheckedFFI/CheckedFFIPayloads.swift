@@ -224,11 +224,13 @@ struct ConnectedPayload: Hashable, Sendable, Codable, CustomDebugStringConvertib
 struct SFTPChannelOpenedPayload: Hashable, Sendable, Codable {
     let baseSessionID: BaseSessionID
     let sftpSessionID: SFTPSessionID
+    let homePath: String?
     let securityGeneration: CheckedFFISecurityGeneration
 
     private enum CodingKeys: String, CodingKey {
         case baseSessionID = "base_session_id"
         case sftpSessionID = "sftp_session_id"
+        case homePath = "home_path"
         case securityGeneration = "security_generation"
     }
 }

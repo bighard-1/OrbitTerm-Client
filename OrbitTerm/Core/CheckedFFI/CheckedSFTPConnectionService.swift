@@ -4,6 +4,7 @@ struct CheckedSFTPConnection: Hashable, Sendable {
     let workspaceID: UUID
     let baseSessionID: BaseSessionID
     let sftpSessionID: SFTPSessionID
+    let homePath: String
 }
 
 enum CheckedSFTPServiceError: Error, Hashable, Sendable {
@@ -88,7 +89,8 @@ actor CheckedSFTPConnectionService: CheckedSFTPConnectionOpening {
             return CheckedSFTPConnection(
                 workspaceID: workspaceID,
                 baseSessionID: baseSessionID,
-                sftpSessionID: response.value.sftpSessionID
+                sftpSessionID: response.value.sftpSessionID,
+                homePath: response.value.homePath ?? "/"
             )
         } catch let error as CheckedSFTPServiceError {
             throw error

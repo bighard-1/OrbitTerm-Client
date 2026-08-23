@@ -81,7 +81,10 @@ struct AddServerAuthSection: View {
     }
 
     private var availableTransports: [ServerTransportProtocol] {
-        ServerTransportProtocol.allCases
+        if telnetEnabled || transport == .telnet {
+            return ServerTransportProtocol.allCases
+        }
+        return [.ssh]
     }
 
     private var telnetProfileSection: some View {

@@ -65,6 +65,10 @@ struct TransferTaskItem: Identifiable {
     var progress: Double
     var statusText: String
     var isDone: Bool
+
+    var hasFailed: Bool {
+        isDone && (statusText.contains("失败") || statusText.contains("取消"))
+    }
 }
 
 struct BatchOperationSummary {

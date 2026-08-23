@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <UseWindowsForms>true</UseWindowsForms>
+    <SelfContained>true</SelfContained>
+    <Platforms>x64</Platforms>
+    <AssemblyName>OrbitTerm.RdpHost</AssemblyName>
+    <RootNamespace>OrbitTerm.RdpHost</RootNamespace>
+  </PropertyGroup>
+</Project>

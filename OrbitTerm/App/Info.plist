@@ -40,6 +40,17 @@
     </array>
     <key>UILaunchScreen</key>
     <dict/>
+    <key>UIRequiresFullScreen</key>
+    <true/>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+    </array>
     <key>NSFaceIDUsageDescription</key>
     <string>OrbitTerm 使用 Face ID 验证您的身份，以便安全解锁本地服务器资产。</string>
 </dict>

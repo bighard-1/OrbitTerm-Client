@@ -5,6 +5,9 @@ import Charts
 #if canImport(UIKit)
 import UIKit
 #endif
+#if canImport(AppKit)
+import AppKit
+#endif
 
 enum MobileShellTab: Hashable {
     case servers
@@ -18,44 +21,95 @@ struct ContentView: View {
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var serverStore: ServerStore
     @Environment(\.scenePhase) private var scenePhase
-    @StateObject private var syncService = SyncService.shared
+    @EnvironmentObject private var syncService: SyncService
+    @EnvironmentObject private var diagnostics: DiagnosticsManager
+    @ObservedObject private var sessionManager = SessionManager.shared
     @StateObject private var snippetStore = SnippetStore.shared
     @StateObject private var deepLinkManager = DeepLinkManager.shared
     @State private var isAutoSyncRunning = false
     @State private var lastAutoSyncAt: Date = .distantPast
+    @State private var autoSyncTask: Task<Void, Never>?
+    @State private var autoSyncGeneration = UUID()
+
+    /// UI-test states are deliberately in-memory only. They must not start
+    /// account-scoped work or derive recovery UI from absent credentials.
+    private var isIsolatedUITestLaunch: Bool {
+        AppUITestLaunchState.current != .standard
+    }
 
     var body: some View {
         Group {
             if !session.isAuthenticated {
                 AuthView()
+                    .accessibilityIdentifier("orbit.root.auth")
             } else if !session.isUnlocked {
                 MasterPasswordGateView()
+                    .accessibilityIdentifier("orbit.root.locked")
             } else {
                 MainShellView()
+                    .accessibilityIdentifier("orbit.root.workspace")
             }
         }
         .task(id: autoSyncTaskKey) {
+            guard !isIsolatedUITestLaunch else { return }
+            applyOperationLifecycle(event(for: scenePhase))
             // 每次鉴权/解锁/token变更后都允许重试拉取，避免“仅首轮触发”导致不再同步。
             #if os(iOS)
-            try? await Task.sleep(nanoseconds: 700_000_000)
+            scheduleAutoSync(after: 700_000_000)
             #else
             // 首屏先展示本地缓存资产，云端同步以后台增量方式补齐。
-            try? await Task.sleep(nanoseconds: 900_000_000)
+            scheduleAutoSync(after: 900_000_000)
             #endif
-            await runAutoSyncIfPossible()
         }
         .task(id: session.authRevision) {
+            guard !isIsolatedUITestLaunch else { return }
             configureAccountScope()
         }
         .onOpenURL { url in
+            guard !isIsolatedUITestLaunch else { return }
             deepLinkManager.handle(url: url)
         }
         .onChange(of: scenePhase) { _, newPhase in
-            guard newPhase == .active else { return }
-            Task {
-                await runAutoSyncIfPossible()
+            guard !isIsolatedUITestLaunch else { return }
+            guard newPhase == .active else {
+                cancelAutoSync()
+                applyOperationLifecycle(event(for: newPhase))
+                return
+            }
+            applyOperationLifecycle(.becameActive)
+            scheduleAutoSync(after: 0)
+        }
+        .onChange(of: session.isUnlocked) { _, isUnlocked in
+            guard !isIsolatedUITestLaunch else { return }
+            if isUnlocked {
+                applyOperationLifecycle(event(for: scenePhase))
+            } else if session.isAuthenticated {
+                cancelAutoSync()
+                applyOperationLifecycle(.accountLocked)
             }
         }
+        .onChange(of: session.isAuthenticated) { _, isAuthenticated in
+            guard !isIsolatedUITestLaunch else { return }
+            guard !isAuthenticated else { return }
+            cancelAutoSync()
+            applyOperationLifecycle(.accountSignedOut)
+        }
+        .onDisappear {
+            guard !isIsolatedUITestLaunch else { return }
+            cancelAutoSync()
+            #if os(macOS)
+            applyOperationLifecycle(.mainWindowClosed)
+            #else
+            applyOperationLifecycle(.enteredBackground)
+            #endif
+        }
+        #if os(macOS)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+            guard !isIsolatedUITestLaunch else { return }
+            cancelAutoSync()
+            applyOperationLifecycle(.applicationTerminating)
+        }
+        #endif
         #if os(macOS)
         .frame(minWidth: 980, minHeight: 700)
         #endif
@@ -99,7 +153,75 @@ struct ContentView: View {
         "\(session.isAuthenticated)-\(session.isUnlocked)-\(session.authRevision)"
     }
 
-    private func runAutoSyncIfPossible() async {
+    private func applyOperationLifecycle(_ event: ApplicationOperationLifecycleEvent) {
+        ApplicationOperationLifecycle.apply(
+            event,
+            isAuthenticated: session.isAuthenticated,
+            isUnlocked: session.isUnlocked,
+            sessionManager: sessionManager
+        )
+    }
+
+    private func event(for phase: ScenePhase) -> ApplicationOperationLifecycleEvent {
+        switch phase {
+        case .active:
+            return .becameActive
+        case .inactive:
+            return .becameInactive
+        case .background:
+            return .enteredBackground
+        @unknown default:
+            return .becameInactive
+        }
+    }
+
+    /// Owns the one automatic sync for this view lifecycle. The generation
+    /// prevents a cancelled request from a prior account, unlock state, or
+    /// foreground activation from publishing a late result.
+    private func scheduleAutoSync(after delayNanoseconds: UInt64) {
+        cancelAutoSync()
+        guard session.isAuthenticated, session.isUnlocked else { return }
+
+        let generation = UUID()
+        let expectedRevision = session.authRevision
+        let expectedAccountID = session.username
+        autoSyncGeneration = generation
+        autoSyncTask = Task(priority: .background) {
+            if delayNanoseconds > 0 {
+                do {
+                    try await Task.sleep(nanoseconds: delayNanoseconds)
+                } catch {
+                    return
+                }
+            }
+            guard !Task.isCancelled else { return }
+            await runAutoSyncIfPossible(
+                generation: generation,
+                expectedRevision: expectedRevision,
+                expectedAccountID: expectedAccountID
+            )
+        }
+    }
+
+    private func cancelAutoSync() {
+        autoSyncTask?.cancel()
+        autoSyncTask = nil
+        autoSyncGeneration = UUID()
+        isAutoSyncRunning = false
+    }
+
+    private func runAutoSyncIfPossible(
+        generation: UUID,
+        expectedRevision: Int,
+        expectedAccountID: String
+    ) async {
+        guard isCurrentAutoSync(
+            generation: generation,
+            expectedRevision: expectedRevision,
+            expectedAccountID: expectedAccountID
+        ) else {
+            return
+        }
         configureAccountScope()
         guard !isAutoSyncRunning else { return }
         // 避免前台频繁触发导致页面切换与首屏渲染抖动。
@@ -118,15 +240,21 @@ struct ContentView: View {
             return SyncQueueAuthContext(token: token, accountIdentifier: scope.storageIdentifier)
         }
 
-        guard session.isAuthenticated, session.isUnlocked else {
-            return
-        }
+        guard isCurrentAutoSync(
+            generation: generation,
+            expectedRevision: expectedRevision,
+            expectedAccountID: expectedAccountID
+        ) else { return }
         guard let token = session.readToken() else {
-            syncService.lastSyncMessage = "同步不可用：登录令牌不可用，请重新登录"
+            syncService.setSyncRecoveryPresentation(
+                OperationRecoveryMapper.syncTokenUnavailable()
+            )
             return
         }
         guard let masterPassword = session.readMasterPassword() else {
-            syncService.lastSyncMessage = "同步不可用：请重新输入主密码解锁后重试"
+            syncService.setSyncRecoveryPresentation(
+                OperationRecoveryMapper.syncMasterPasswordUnavailable()
+            )
             return
         }
 
@@ -135,44 +263,84 @@ struct ContentView: View {
 
         // 自动同步不阻塞首屏：本地资产先可用，云端配置和片段在后台静默补齐。
         let accountID = session.username
-        Task(priority: .background) {
-            let ok = await syncService.pullAndApplyConfigs(
-                token: token,
-                masterPassword: masterPassword,
-                store: serverStore,
-                accountID: accountID,
-                incremental: true,
-                silentStart: true
-            )
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            await snippetStore.pullFromCloud(
-                token: token,
-                masterPassword: masterPassword,
-                accountID: accountID
-            )
+        let ok = await syncService.pullAndApplyConfigs(
+            token: token,
+            masterPassword: masterPassword,
+            store: serverStore,
+            accountID: accountID,
+            incremental: true,
+            silentStart: true
+        )
+        guard isCurrentAutoSync(
+            generation: generation,
+            expectedRevision: expectedRevision,
+            expectedAccountID: expectedAccountID
+        ) else { return }
 
-            await MainActor.run {
-                isAutoSyncRunning = false
-                if !ok {
-                    if syncService.lastSyncMessage.contains("过期") {
-                        session.showTransientStatus("登录已过期，正在返回登录页")
-                        session.logout()
-                        return
-                    }
-                    session.showTransientStatus("云端拉取失败，已保留本地数据")
-                }
+        do {
+            try await Task.sleep(nanoseconds: 1_500_000_000)
+        } catch {
+            return
+        }
+        guard isCurrentAutoSync(
+            generation: generation,
+            expectedRevision: expectedRevision,
+            expectedAccountID: expectedAccountID
+        ) else { return }
+
+        await snippetStore.pullFromCloud(
+            token: token,
+            masterPassword: masterPassword,
+            accountID: accountID
+        )
+        guard isCurrentAutoSync(
+            generation: generation,
+            expectedRevision: expectedRevision,
+            expectedAccountID: expectedAccountID
+        ) else { return }
+
+        isAutoSyncRunning = false
+        autoSyncTask = nil
+        if !ok {
+            if syncService.lastRecoveryPresentation?.code == .authenticationExpired {
+                session.showTransientStatus("登录已失效，正在返回登录页")
+                AccountSessionActions.leaveCurrentAccount(session: session, serverStore: serverStore)
+                return
             }
+            session.showTransientStatus("云端拉取失败，已保留本地数据")
         }
     }
 
+    private func isCurrentAutoSync(
+        generation: UUID,
+        expectedRevision: Int,
+        expectedAccountID: String
+    ) -> Bool {
+        !Task.isCancelled &&
+            autoSyncGeneration == generation &&
+            session.authRevision == expectedRevision &&
+            session.isAuthenticated &&
+            session.isUnlocked &&
+            session.username == expectedAccountID
+    }
+
     private func configureAccountScope() {
+        AccountScopedServiceLifecycle.reconcile(
+            isAuthenticated: session.isAuthenticated,
+            username: session.username,
+            services: [syncService, diagnostics]
+        )
         guard session.isAuthenticated, !session.username.isEmpty else {
             serverStore.deactivateAccount()
             snippetStore.deactivateAccount()
+            SshKeySyncStore.shared.deactivate()
+            PortForwardProfileStore.shared.deactivate()
             return
         }
         serverStore.activateAccount(username: session.username)
         snippetStore.activateAccount(username: session.username)
+        try? SshKeySyncStore.shared.activate(username: session.username)
+        try? PortForwardProfileStore.shared.activate(username: session.username)
     }
 }
 
@@ -183,8 +351,8 @@ private struct MainShellView: View {
     @Environment(\.appThemePalette) private var palette
     @Environment(\.securitySemanticPalette) private var securityPalette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @StateObject private var diagnostics = DiagnosticsManager.shared
-    @StateObject private var syncService = SyncService.shared
+    @EnvironmentObject private var diagnostics: DiagnosticsManager
+    @EnvironmentObject private var syncService: SyncService
     @StateObject private var snippetStore = SnippetStore.shared
     @StateObject private var deepLinkManager = DeepLinkManager.shared
     @ObservedObject private var sessionManager = SessionManager.shared
@@ -285,6 +453,9 @@ private struct MainShellView: View {
         ) { route in
             HostKeyTrustView(
                 coordinator: route.coordinator,
+                copyText: { text in
+                    _ = SecureClipboard.copy(text, kind: .hostKeyFingerprint)
+                },
                 onCancel: sessionManager.cancelCheckedHostKeyFlow,
                 onTrust: {
                     Task { await sessionManager.trustCheckedHostKey() }
@@ -328,30 +499,70 @@ private struct MainShellView: View {
     }
 
     private var shouldShowSyncBanner: Bool {
-        syncService.lastSyncMessage.contains("过期") || syncService.lastSyncMessage.contains("失败")
+        syncService.lastRecoveryPresentation != nil
     }
 
     private var syncStatusBanner: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
+        let recovery = syncService.lastRecoveryPresentation
+        return HStack(spacing: 8) {
+            Image(systemName: recovery?.systemImage ?? "exclamationmark.triangle.fill")
                 .font(.caption)
-                .foregroundStyle(securityPalette.warning.color)
-            Text(syncService.lastSyncMessage)
+                .foregroundStyle(recovery?.severity == .danger ? securityPalette.danger.color : securityPalette.warning.color)
+            Text(recovery.map { "\($0.title)：\($0.message)" } ?? syncService.lastSyncMessage)
                 .font(.caption)
                 .lineLimit(2)
             Spacer(minLength: 0)
-            Button(syncService.lastSyncMessage.contains("过期") ? "重新登录" : "关闭") {
-                if syncService.lastSyncMessage.contains("过期") {
-                    session.logout()
-                } else {
-                    syncService.lastSyncMessage = "已忽略本次提示"
-                }
+            Button(syncBannerActionTitle(for: recovery)) {
+                performSyncBannerAction(recovery)
             }
             .font(.caption.weight(.semibold))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .themedReadableSurface()
+    }
+
+    private func syncBannerActionTitle(for recovery: OperationRecoveryPresentation?) -> String {
+        guard let recovery else { return "关闭" }
+        if recovery.actions.contains(.reauthenticate) { return "重新登录" }
+        if recovery.actions.contains(.retry) { return "重试" }
+        if recovery.actions.contains(.unlock) { return "解锁" }
+        return "关闭"
+    }
+
+    private func performSyncBannerAction(_ recovery: OperationRecoveryPresentation?) {
+        guard let recovery else {
+            syncService.clearSyncRecoveryPresentation()
+            return
+        }
+        if recovery.actions.contains(.reauthenticate) {
+            AccountSessionActions.leaveCurrentAccount(session: session, serverStore: serverStore)
+        } else if recovery.actions.contains(.retry) {
+            syncService.clearSyncRecoveryPresentation()
+            Task { await retrySyncFromBanner() }
+        } else if recovery.actions.contains(.unlock) {
+            session.isUnlocked = false
+        } else {
+            syncService.clearSyncRecoveryPresentation()
+        }
+    }
+
+    private func retrySyncFromBanner() async {
+        guard let token = session.readToken() else {
+            syncService.setSyncRecoveryPresentation(OperationRecoveryMapper.syncTokenUnavailable())
+            return
+        }
+        guard let masterPassword = session.readMasterPassword() else {
+            syncService.setSyncRecoveryPresentation(OperationRecoveryMapper.syncMasterPasswordUnavailable())
+            return
+        }
+        await syncService.reconcileAssetInventory(
+            token: token,
+            masterPassword: masterPassword,
+            store: serverStore,
+            accountID: session.username
+        )
+        await syncService.refreshInventoryDiagnostic(token: token, store: serverStore)
     }
 
     private func processDeepLinkIfNeeded() {

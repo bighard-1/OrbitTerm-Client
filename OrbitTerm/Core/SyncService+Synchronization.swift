@@ -16,9 +16,12 @@ extension SyncService {
         forceFullInventory: Bool = false
     ) async -> Bool {
         guard store.isActiveAccount(accountID) else { return false }
+        let span = PerformanceSignpost.begin(.syncRoundTrip)
+        defer { span.finish() }
+        let completed: Bool
         do {
             if forceFullInventory {
-                return await pullLegacyAndApplyConfigs(
+                completed = await pullLegacyAndApplyConfigs(
                     token: token,
                     masterPassword: masterPassword,
                     store: store,
@@ -26,21 +29,8 @@ extension SyncService {
                     incremental: incremental,
                     silentStart: silentStart
                 )
-            }
-            let incrementalResult = try await pullIncrementalAndApplyConfigs(
-                token: token,
-                masterPassword: masterPassword,
-                store: store,
-                accountID: accountID,
-                incremental: incremental,
-                silentStart: silentStart
-            )
-
-            if SyncPullRecoveryPolicy.shouldPerformFullPull(
-                localAssetCount: store.servers.count,
-                incrementalResponseHadChanges: incrementalResult.receivedRemoteChanges
-            ) {
-                return await pullLegacyAndApplyConfigs(
+            } else {
+                let incrementalResult = try await pullIncrementalAndApplyConfigs(
                     token: token,
                     masterPassword: masterPassword,
                     store: store,
@@ -48,12 +38,26 @@ extension SyncService {
                     incremental: incremental,
                     silentStart: silentStart
                 )
-            }
 
-            return true
+                if SyncPullRecoveryPolicy.shouldPerformFullPull(
+                    localAssetCount: store.servers.count,
+                    incrementalResponseHadChanges: incrementalResult.receivedRemoteChanges
+                ) {
+                    completed = await pullLegacyAndApplyConfigs(
+                        token: token,
+                        masterPassword: masterPassword,
+                        store: store,
+                        accountID: accountID,
+                        incremental: incremental,
+                        silentStart: silentStart
+                    )
+                } else {
+                    completed = true
+                }
+            }
         } catch {
             if isMissingOrUnsupportedTombstoneAPI(error) {
-                return await pullLegacyAndApplyConfigs(
+                completed = await pullLegacyAndApplyConfigs(
                     token: token,
                     masterPassword: masterPassword,
                     store: store,
@@ -61,13 +65,103 @@ extension SyncService {
                     incremental: incremental,
                     silentStart: silentStart
                 )
-            }
-            if isUnauthorized(error) {
-                lastSyncMessage = "登录已过期，请重新登录"
             } else {
-                lastSyncMessage = "拉取失败: \(error.localizedDescription)"
+                recordSyncFailure(error)
+                return false
             }
+        }
+        if completed {
+            clearSyncRecoveryPresentation()
+            _ = await synchronizeSshKeyLibrary(
+                token: token,
+                masterPassword: masterPassword,
+                accountID: accountID,
+                store: store
+            )
+            do {
+                try PortForwardProfileStore.shared.activate(username: accountID)
+                try await PortForwardProfileStore.shared.synchronize(
+                    token: token,
+                    masterPassword: masterPassword,
+                    accountID: accountID,
+                    network: network,
+                    orbitManager: orbitManager
+                )
+            } catch {
+                lastSyncMessage = "资产已同步；端口映射配置将在下次重试"
+            }
+            await attemptConfigCipherMigrationIfNeeded(
+                token: token,
+                masterPassword: masterPassword,
+                accountID: accountID,
+                store: store,
+                isExplicitFullSync: forceFullInventory
+            )
+        }
+        return completed
+    }
+
+    /// Explicitly publishes or refreshes the reusable SSH-key library after a
+    /// key-management mutation, without requiring an additional asset edit.
+    func synchronizeSshKeyLibrary(
+        token: String,
+        masterPassword: String,
+        accountID: String,
+        store: ServerStore
+    ) async -> Bool {
+        guard store.isActiveAccount(accountID) else { return false }
+        do {
+            try SshKeySyncStore.shared.activate(username: accountID)
+            try await SshKeySyncStore.shared.synchronize(
+                token: token,
+                masterPassword: masterPassword,
+                accountID: accountID,
+                network: network,
+                orbitManager: orbitManager,
+                serverStore: store,
+                credentialVault: vault
+            )
+            return true
+        } catch {
+            lastSyncMessage = "SSH 密钥库同步暂不可用，本机变更已安全保留"
             return false
+        }
+    }
+
+    /// A migration endpoint is an optional rollout capability. Its absence or
+    /// a concurrent cloud edit must never turn an otherwise successful normal
+    /// sync into a failure; the next completed sync retries from a new exact
+    /// snapshot.
+    private func attemptConfigCipherMigrationIfNeeded(
+        token: String,
+        masterPassword: String,
+        accountID: String,
+        store: ServerStore,
+        isExplicitFullSync: Bool
+    ) async {
+        guard store.isActiveAccount(accountID),
+              let scope = AccountScope(username: accountID),
+              activeAccountScope == scope else { return }
+        guard SyncConfigCipherMigrationPolicy.shouldAttempt(
+            hasCompletedMarker: Self.isV2CipherWriteEnabled(scope: scope),
+            isExplicitFullSync: isExplicitFullSync,
+            cooldownAllowsRetry: shouldAttemptV2Migration(for: scope)
+        ) else { return }
+        recordV2MigrationAttempt(for: scope)
+        do {
+            let result = try await migrateRemoteConfigCryptoToV2(
+                token: token,
+                masterPassword: masterPassword,
+                accountID: accountID
+            )
+            lastSyncMessage = SyncConfigCipherMigrationPolicy.userMessage(for: result)
+        } catch {
+            // The full sync has already succeeded. Keep that success intact at
+            // the data layer while making the deferred migration observable
+            // through an app-owned, redacted recovery code.
+            lastSyncMessage = SyncConfigCipherMigrationPolicy.userMessage(
+                for: .pendingRetry(OperationRecoveryMapper.sync(error).diagnosticCode)
+            )
         }
     }
 
@@ -83,7 +177,22 @@ extension SyncService {
             if !silentStart {
                 lastSyncMessage = "正在后台同步..."
             }
-            let remoteItems = try await network.pullConfigs(token: token)
+            let remotePullSpan = PerformanceSignpost.begin(.syncRemotePull)
+            let remoteItems: [UploadConfigData]
+            do {
+                let activeItems = try await network.pullConfigs(token: token)
+                let trashItems = try await pullDeletedRemoteConfigs()
+                remoteItems = SyncPullRecoveryPolicy.mergeRemoteInventory(
+                    activeItems: activeItems,
+                    trashItems: trashItems,
+                    assetID: { $0.asset_id },
+                    recordID: { String($0.id) }
+                )
+                remotePullSpan.finish()
+            } catch {
+                remotePullSpan.cancel()
+                throw error
+            }
             guard store.isActiveAccount(accountID) else { return false }
             if remoteItems.isEmpty {
                 let localAssetIDs = Set(store.servers.map { $0.id.uuidString.lowercased() })
@@ -100,21 +209,50 @@ extension SyncService {
                 return true
             }
 
+            // Explicit "立即双向同步" uses this full-inventory path.  Unlike an
+            // incremental page, a full response can contain tombstones beside
+            // active records; applying only the active records would leave a
+            // deleted server visible on this device indefinitely.  Apply those
+            // tombstones before any active-record merge and keep their metadata
+            // so an older local copy is never republished as a new asset.
+            let deletedRemoteItems = remoteItems.filter { ($0.state ?? "active") != "active" }
+            var fullPullDeletedCount = 0
+            for item in deletedRemoteItems {
+                guard let rawID = item.asset_id, let assetID = UUID(uuidString: rawID) else { continue }
+                store.applyRemoteDeletion(assetID, accountID: accountID)
+                SyncMetadataStore.shared.saveAsset(item, fallbackAssetID: assetID, accountID: accountID)
+                fullPullDeletedCount += 1
+            }
+            let activeRemoteItems = remoteItems.filter { ($0.state ?? "active") == "active" }
+
             let shadowSnapshot = shadowStore.readAll(accountID: accountID)
             let tombstoneSnapshot = DeletedServerRegistry.shared.snapshot()
-            let preparation = try await preparePullResultBackground(
-                remoteItems,
+            let v2RootKey = try prepareV2RootKeyIfRequired(
+                for: activeRemoteItems,
                 masterPassword: masterPassword,
-                shadowSnapshot: shadowSnapshot,
-                shadowAuthenticationKey: shadowStore.authenticationKey,
-                tombstoneSnapshot: tombstoneSnapshot
+                accountID: accountID
             )
+            let preparationSpan = PerformanceSignpost.begin(.syncPreparation)
+            let preparation: SyncPullPreparation
+            do {
+                preparation = try await preparePullResultBackground(
+                    activeRemoteItems,
+                    masterPassword: masterPassword,
+                    v2RootKey: v2RootKey,
+                    shadowSnapshot: shadowSnapshot,
+                    shadowAuthenticationKey: shadowStore.authenticationKey,
+                    tombstoneSnapshot: tombstoneSnapshot
+                )
+                preparationSpan.finish()
+            } catch {
+                preparationSpan.cancel()
+                throw error
+            }
 
             let servers = preparation.items.map(\.server)
             let portables = preparation.items.map(\.portable)
-            let activeRemoteAssetIDs = Set(remoteItems.compactMap { item -> String? in
-                guard (item.state ?? "active") == "active",
-                      let id = item.asset_id?.lowercased(),
+            let activeRemoteAssetIDs = Set(activeRemoteItems.compactMap { item -> String? in
+                guard let id = item.asset_id?.lowercased(),
                       UUID(uuidString: id) != nil else {
                     return nil
                 }
@@ -131,7 +269,7 @@ extension SyncService {
                 decodedRemoteAssetCount: servers.count
             ), preparation.tombstoneSkipped == 0 {
                 setPendingLocalAssetRecoveryIDs([])
-                lastSyncMessage = "云端有 \(activeRemoteAssetIDs.count) 项资产无法解密，请确认两端使用同一个主密码"
+                setSyncRecoveryPresentation(OperationRecoveryMapper.syncMasterPasswordMismatch())
                 return false
             }
             let localAssetIDs = Set(store.servers.map { $0.id.uuidString.lowercased() })
@@ -163,27 +301,63 @@ extension SyncService {
                 appliedServerCount = metadataChanged ? servers.count : 0
             }
             shadowStore.saveMany(portables, accountID: accountID)
+            shadowStore.retainOnly(
+                assetIDs: Set(store.servers.map { $0.id.uuidString }),
+                accountID: accountID
+            )
             setPendingLocalAssetRecoveryIDs(pendingIDs)
 
-            deleteRemoteConfigsInBackground(ids: preparation.remoteConfigIDsToDelete)
+            // A complete reconciliation can discover an old active cloud
+            // record for an asset that this Mac deleted while deletion sync
+            // was unavailable.  Skipping that record locally is insufficient:
+            // another device would continue to see it.  Promote the durable
+            // local deletion marker to an authenticated remote tombstone before
+            // removing any duplicate records, so every platform observes the
+            // same authoritative deletion on its next full reconciliation.
+            for tombstone in preparation.tombstonedRemotes {
+                await publishMigratedLocalTombstone(
+                    assetID: tombstone.assetID,
+                    remote: tombstone.remote,
+                    token: token,
+                    accountID: accountID
+                )
+            }
 
-            let changedCount = preparation.credentialWriteCount + appliedServerCount
+            // Do not permanently delete the record just converted into a
+            // tombstone. Other devices need that record to observe the delete.
+            let migratedRecordIDs = Set(preparation.tombstonedRemotes.map { $0.remote.id })
+            deleteRemoteConfigsInBackground(
+                ids: SyncPullRecoveryPolicy.remoteRecordIDsSafeToPurge(
+                    candidateRecordIDs: Set(preparation.remoteConfigIDsToDelete),
+                    migratedTombstoneRecordIDs: migratedRecordIDs
+                )
+            )
+
+            let changedCount = preparation.credentialWriteCount + appliedServerCount + fullPullDeletedCount
             if changedCount == 0, pendingIDs.isEmpty {
                 lastSyncMessage = "后台同步完成: 云端无变化"
             } else {
                 let ignored = preparation.skipped + preparation.tombstoneSkipped + preparation.duplicateSkipped
                 let pendingText = pendingIDs.isEmpty ? "" : "，本地待发布 \(pendingIDs.count) 条"
-                lastSyncMessage = "后台同步完成: 更新 \(appliedServerCount) 条，凭据变更 \(preparation.credentialWriteCount) 条，忽略 \(ignored) 条\(pendingText)"
+                lastSyncMessage = "后台同步完成: 更新 \(appliedServerCount) 条，删除 \(fullPullDeletedCount) 条，凭据变更 \(preparation.credentialWriteCount) 条，忽略 \(ignored) 条\(pendingText)"
             }
             return !servers.isEmpty || preparation.skipped == 0
         } catch {
-            if let net = error as? NetworkService.NetworkError,
-               case .unauthorized = net {
-                lastSyncMessage = "登录已过期，请重新登录"
-                return false
-            }
-            lastSyncMessage = "拉取失败: \(error.localizedDescription)"
+            recordSyncFailure(error)
             return false
+        }
+    }
+
+    /// The full inventory endpoint exposes active records only. Fetching the
+    /// trash separately is required to apply deletions made on another device.
+    private func pullDeletedRemoteConfigs() async throws -> [UploadConfigData] {
+        var items: [UploadConfigData] = []
+        var offset = 0
+        while true {
+            let page = try await network.pullTrash(limit: 500, offset: offset)
+            items.append(contentsOf: page.items)
+            offset += page.items.count
+            if page.items.isEmpty || offset >= page.total { return items }
         }
     }
 
@@ -211,7 +385,18 @@ extension SyncService {
         var receivedRemoteChanges = false
 
         while true {
-            let page = try await network.pullConfigChanges(cursor: cursor, limit: 100)
+            let remotePullSpan = PerformanceSignpost.begin(.syncRemotePull)
+            let page: SyncPullData
+            do {
+                page = try await network.pullConfigChanges(
+                    cursor: cursor,
+                    limit: OperationResourceBudget.syncIncrementalPageSize
+                )
+                remotePullSpan.finish()
+            } catch {
+                remotePullSpan.cancel()
+                throw error
+            }
             guard store.isActiveAccount(accountID) else {
                 return IncrementalSyncPullResult(receivedRemoteChanges: receivedRemoteChanges)
             }
@@ -236,13 +421,27 @@ extension SyncService {
             }
 
             let remoteActive = page.items.filter { ($0.state ?? "active") == "active" }
-            let preparation = try await preparePullResultBackground(
-                remoteActive,
+            let v2RootKey = try prepareV2RootKeyIfRequired(
+                for: remoteActive,
                 masterPassword: masterPassword,
-                shadowSnapshot: shadowStore.readAll(accountID: accountID),
-                shadowAuthenticationKey: shadowStore.authenticationKey,
-                tombstoneSnapshot: DeletedServerRegistry.shared.snapshot()
+                accountID: accountID
             )
+            let preparationSpan = PerformanceSignpost.begin(.syncPreparation)
+            let preparation: SyncPullPreparation
+            do {
+                preparation = try await preparePullResultBackground(
+                    remoteActive,
+                    masterPassword: masterPassword,
+                    v2RootKey: v2RootKey,
+                    shadowSnapshot: shadowStore.readAll(accountID: accountID),
+                    shadowAuthenticationKey: shadowStore.authenticationKey,
+                    tombstoneSnapshot: DeletedServerRegistry.shared.snapshot()
+                )
+                preparationSpan.finish()
+            } catch {
+                preparationSpan.cancel()
+                throw error
+            }
 
             for tombstone in preparation.tombstonedRemotes {
                 await publishMigratedLocalTombstone(
@@ -271,6 +470,10 @@ extension SyncService {
             appliedCount += changed
             credentialCount += preparation.credentialWriteCount
             shadowStore.saveMany(preparation.items.map(\.portable), accountID: accountID)
+            shadowStore.retainOnly(
+                assetIDs: Set(store.servers.map { $0.id.uuidString }),
+                accountID: accountID
+            )
             for prepared in preparation.items {
                 metadata.saveAsset(prepared.remote, fallbackAssetID: prepared.server.id, accountID: accountID)
             }
@@ -317,7 +520,7 @@ extension SyncService {
                 let boundRemote = try await network.uploadConfig(token: token, payload: bindPayload)
                 metadata.saveAsset(boundRemote, fallbackAssetID: assetID, accountID: accountID)
             } catch {
-                await SyncQueue.shared.enqueueUpload(payload: bindPayload, accountID: accountID, reason: error.localizedDescription)
+                await SyncQueue.shared.enqueueUpload(payload: bindPayload, accountID: accountID, reason: OperationRecoveryMapper.sync(error).diagnosticCode)
                 let deleteClock = metadata.incrementVectorClock(bindClock)
                 let deleteRequest = AssetMutationRequest(
                     deviceID: metadata.deviceID,
@@ -337,7 +540,7 @@ extension SyncService {
             metadata.saveAsset(deleted, fallbackAssetID: assetID, accountID: accountID)
             DeletedServerRegistry.shared.clear(assetID)
         } catch {
-            await SyncQueue.shared.enqueueDelete(assetID: assetID, request: deleteRequest, accountID: accountID, reason: error.localizedDescription)
+            await SyncQueue.shared.enqueueDelete(assetID: assetID, request: deleteRequest, accountID: accountID, reason: OperationRecoveryMapper.sync(error).diagnosticCode)
         }
     }
 
@@ -346,6 +549,11 @@ extension SyncService {
         accountID: String
     ) async throws -> [RecentlyDeletedAsset] {
         let trash = try await network.pullTrash(limit: 500)
+        let v2RootKey = try prepareV2RootKeyIfRequired(
+            for: trash.items,
+            masterPassword: masterPassword,
+            accountID: accountID
+        )
         let metadata = SyncMetadataStore.shared
         var results: [RecentlyDeletedAsset] = []
 
@@ -354,7 +562,11 @@ extension SyncService {
                 metadata.saveAsset(remote, fallbackAssetID: assetID, accountID: accountID)
             }
             do {
-                let portable = try await decryptPortableBackground(remote, masterPassword: masterPassword)
+                let portable = try await decryptPortableBackground(
+                    remote,
+                    masterPassword: masterPassword,
+                    v2RootKey: v2RootKey
+                )
                 results.append(RecentlyDeletedAsset(remote: remote, portable: portable, decryptionError: nil))
             } catch {
                 // 密文无法解密时仍允许用户查看并永久清理墓碑，但禁止不完整恢复。
@@ -386,14 +598,21 @@ extension SyncService {
             deviceID: metadata.deviceID,
             vectorClock: metadata.nextVectorClock(assetID: assetID, accountID: accountID)
         )
+        // Validate the encrypted route before mutating its remote deletion
+        // state. An invalid jump descriptor must not turn into a direct route
+        // or restore a remote asset that the client cannot safely use.
+        let server = try Self.makeServer(from: portable)
+        let credentials = Self.makeCredentials(from: portable)
 
         do {
             let restored = try await network.restoreAsset(assetID: assetID, request: request)
-            let server = try Self.makeServer(from: portable)
-            let credentials = Self.makeCredentials(from: portable)
 
             // 先确认 Keychain 写入成功，再把普通资产元数据暴露给 UI。
             try vault.save(credentials, for: server.credentialID)
+            if let jumpHost = server.jumpHost,
+               let jumpHostCredentials = Self.makeJumpHostCredentials(from: portable) {
+                try vault.save(jumpHostCredentials, for: jumpHost.credentialID)
+            }
             store.addOrUpdate(server)
             shadowStore.save(portable, accountID: accountID)
             metadata.saveAsset(restored, fallbackAssetID: assetID, accountID: accountID)
@@ -402,7 +621,7 @@ extension SyncService {
             return .completed
         } catch {
             if NetworkService.isRetriableNetworkError(error) || isUnauthorized(error) {
-                await SyncQueue.shared.enqueueRestore(assetID: assetID, request: request, accountID: accountID, reason: error.localizedDescription)
+                await SyncQueue.shared.enqueueRestore(assetID: assetID, request: request, accountID: accountID, reason: OperationRecoveryMapper.sync(error).diagnosticCode)
                 lastSyncMessage = "恢复任务已加入后台队列，联网后自动完成"
                 return .queued
             }
@@ -434,7 +653,7 @@ extension SyncService {
             return .completed
         } catch {
             if NetworkService.isRetriableNetworkError(error) || isUnauthorized(error) {
-                await SyncQueue.shared.enqueuePurge(assetID: assetID, request: request, accountID: accountID, reason: error.localizedDescription)
+                await SyncQueue.shared.enqueuePurge(assetID: assetID, request: request, accountID: accountID, reason: OperationRecoveryMapper.sync(error).diagnosticCode)
                 lastSyncMessage = "永久删除任务已加入后台队列"
                 return .queued
             }
@@ -445,6 +664,19 @@ extension SyncService {
     nonisolated static func makeServer(from portable: PortableServerConfig) throws -> ServerEntry {
         guard let serverID = UUID(uuidString: portable.id) else {
             throw NetworkService.NetworkError.server("资产 UUID 无效")
+        }
+        let credentialID = UUID(uuidString: portable.credentialID) ?? serverID
+        let jumpHost: JumpHostConfiguration?
+        if let portableJumpHost = portable.jumpHost {
+            guard portable.transport == ServerTransportProtocol.ssh.rawValue,
+                  let configuration = portableJumpHost.makeConfiguration(),
+                  configuration.credentialID != credentialID,
+                  portableJumpHost.hasAuthenticationMaterial else {
+                throw NetworkService.NetworkError.server("跳板机加密配置无效")
+            }
+            jumpHost = configuration
+        } else {
+            jumpHost = nil
         }
         return ServerEntry(
             id: serverID,
@@ -458,7 +690,8 @@ extension SyncService {
             transport: portable.transport == ServerTransportProtocol.telnet.rawValue ? .telnet : .ssh,
             networkDeviceProfile: NetworkDeviceProfile(rawValue: portable.networkDeviceProfile) ?? .auto,
             allowPasswordFallback: portable.allowPasswordFallback,
-            credentialID: UUID(uuidString: portable.credentialID) ?? serverID,
+            credentialID: credentialID,
+            jumpHost: jumpHost,
             createdAt: Date(timeIntervalSince1970: TimeInterval(portable.savedAtUnix))
         )
     }
@@ -471,9 +704,16 @@ extension SyncService {
         )
     }
 
+    nonisolated static func makeJumpHostCredentials(
+        from portable: PortableServerConfig
+    ) -> ServerCredentials? {
+        portable.jumpHost?.credentials
+    }
+
     func preparePullResultBackground(
         _ remoteItems: [UploadConfigData],
         masterPassword: String,
+        v2RootKey: Data?,
         shadowSnapshot: [String: SyncShadowSnapshot],
         shadowAuthenticationKey: Data,
         tombstoneSnapshot: [String: TimeInterval]
@@ -490,7 +730,11 @@ extension SyncService {
 
             for item in remoteItems {
                 do {
-                    let portable = try Self.decryptPortableStatic(item, masterPassword: masterPassword)
+                    let portable = try Self.decryptPortableStatic(
+                        item,
+                        masterPassword: masterPassword,
+                        v2RootKey: v2RootKey
+                    )
                     if tombstoneSnapshot[portable.id] != nil {
                         tombstoneSkipped += 1
                         remoteConfigIDsToDelete.insert(item.id)
@@ -509,6 +753,19 @@ extension SyncService {
                         privateKeyContent: portable.privateKeyContent,
                         privateKeyPassphrase: portable.privateKeyPassphrase
                     )
+                    let jumpHost: JumpHostConfiguration?
+                    if let portableJumpHost = portable.jumpHost {
+                        guard portable.transport == ServerTransportProtocol.ssh.rawValue,
+                              let configuration = portableJumpHost.makeConfiguration(),
+                              configuration.credentialID != credentialID,
+                              portableJumpHost.hasAuthenticationMaterial else {
+                            skipped += 1
+                            continue
+                        }
+                        jumpHost = configuration
+                    } else {
+                        jumpHost = nil
+                    }
 
                     let server = ServerEntry(
                         id: serverID,
@@ -523,6 +780,7 @@ extension SyncService {
                         networkDeviceProfile: NetworkDeviceProfile(rawValue: portable.networkDeviceProfile) ?? .auto,
                         allowPasswordFallback: portable.allowPasswordFallback,
                         credentialID: credentialID,
+                        jumpHost: jumpHost,
                         createdAt: Date(timeIntervalSince1970: TimeInterval(portable.savedAtUnix))
                     )
                     let decoded = SyncDecodedRemoteItem(
@@ -562,6 +820,14 @@ extension SyncService {
                 if shouldCheckCredentials || existingCredentials == nil || existingCredentials != item.credentials {
                     try vault.save(item.credentials, for: item.server.credentialID)
                     credentialWriteCount += 1
+                }
+                if let jumpHost = item.server.jumpHost,
+                   let jumpHostCredentials = item.portable.jumpHost?.credentials {
+                    let existingJumpCredentials = try? vault.read(for: jumpHost.credentialID)
+                    if shouldCheckCredentials || existingJumpCredentials == nil || existingJumpCredentials != jumpHostCredentials {
+                        try vault.save(jumpHostCredentials, for: jumpHost.credentialID)
+                        credentialWriteCount += 1
+                    }
                 }
                 prepared.append(SyncPreparedItem(server: item.server, portable: item.portable, remote: item.remote))
             }

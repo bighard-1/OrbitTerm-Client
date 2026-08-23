@@ -139,7 +139,8 @@ public sealed class WindowsSnippetStore : ISnippetStore
             {
                 Title = title,
                 Command = command,
-                Category = category.Length == 0 ? "Uncategorized" : category,
+                Category = category.Length == 0 ? "未分类" : category,
+                AssetScope = SnippetAssetScope.Normalize(snippet.AssetScope),
             });
         }
 

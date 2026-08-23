@@ -123,11 +123,17 @@ final class DockerService: ObservableObject {
     private var checkedOperator: (any CheckedDockerOperating)?
     private var checkedBinding: CheckedDockerBinding?
     private var checkedRefreshLoop: CheckedDockerRefreshLoop?
+    private var checkedRefreshOwner = OperationOwner()
+    private var checkedInteractiveOwner = OperationOwner()
     private var sessionID: UInt64?
     private var refreshTask: Task<Void, Never>?
 
     var isRenameUpdateAvailable: Bool {
         connectionMode.allowsLegacyNetwork
+    }
+
+    var recoveryPresentation: OperationRecoveryPresentation? {
+        checkedError.map(OperationRecoveryMapper.docker)
     }
 
     func configureConnectionMode(
@@ -246,6 +252,8 @@ final class DockerService: ObservableObject {
 
     func disconnect() async {
         if connectionMode.requiresCheckedNetwork {
+            checkedRefreshOwner.invalidate()
+            checkedInteractiveOwner.invalidate()
             await checkedRefreshLoop?.stop()
             checkedRefreshLoop = nil
             checkedBinding = nil
@@ -278,6 +286,37 @@ final class DockerService: ObservableObject {
         statusText = "已断开"
     }
 
+    /// Stops only automatic refresh work for a non-visible session. The
+    /// underlying checked binding/SSH channel remains intact and can be
+    /// resumed when that session becomes active again.
+    func suspendAutomaticRefresh() async {
+        checkedRefreshOwner.invalidate()
+        checkedInteractiveOwner.invalidate()
+        refreshTask?.cancel()
+        refreshTask = nil
+
+        let loop = checkedRefreshLoop
+        checkedRefreshLoop = nil
+        await loop?.stop()
+    }
+
+    /// Recreates the polling loop for a still-connected service without
+    /// opening another channel or changing Docker connection semantics.
+    func resumeAutomaticRefresh() async {
+        guard isConnected else { return }
+
+        if connectionMode.requiresCheckedNetwork {
+            guard let binding = checkedBinding,
+                  let checkedOperator,
+                  checkedRefreshLoop == nil else {
+                return
+            }
+            await startCheckedRefreshLoop(binding: binding, operatorService: checkedOperator)
+        } else {
+            startRefreshLoop()
+        }
+    }
+
     func refreshNow() async throws {
         if connectionMode.requiresCheckedNetwork {
             guard let binding = checkedBinding else {
@@ -286,14 +325,18 @@ final class DockerService: ObservableObject {
             guard let checkedOperator else {
                 throw CheckedDockerServiceError.internalInvariant
             }
+            let lease = checkedInteractiveOwner.begin(scope: .workspace(binding.workspaceID))
             do {
                 let refresh = try await checkedOperator.refresh(binding: binding)
+                guard acceptsCheckedInteractiveResult(lease, binding: binding) else { return }
                 applyCheckedRefresh(refresh)
                 return
             } catch let error as CheckedDockerServiceError {
+                guard acceptsCheckedInteractiveResult(lease, binding: binding) else { return }
                 handleCheckedFailure(error)
                 throw error
             } catch {
+                guard acceptsCheckedInteractiveResult(lease, binding: binding) else { return }
                 let mapped = CheckedDockerServiceError.unknownCheckedFFIError
                 handleCheckedFailure(mapped)
                 throw mapped
@@ -480,7 +523,7 @@ final class DockerService: ObservableObject {
                 } catch {
                     self.statusText = "刷新失败: \(error.localizedDescription)"
                 }
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                try? await Task.sleep(nanoseconds: OperationResourceBudget.dockerRefreshIntervalNanoseconds)
             }
         }
     }
@@ -503,12 +546,15 @@ final class DockerService: ObservableObject {
             return .failure(.internalInvariant)
         }
 
-        await checkedRefreshLoop?.stop()
+        let priorLoop = checkedRefreshLoop
+        checkedRefreshLoop = nil
+        await priorLoop?.stop()
         let binding = CheckedDockerBinding(
             workspaceID: workspaceID,
             baseSessionID: baseSessionID
         )
         checkedBinding = binding
+        let setupLease = checkedInteractiveOwner.begin(scope: .workspace(workspaceID))
         checkedError = nil
         isLoading = true
         isScanning = true
@@ -516,23 +562,24 @@ final class DockerService: ObservableObject {
 
         do {
             let refresh = try await checkedOperator.refresh(binding: binding)
-            applyCheckedRefresh(refresh)
-            let loop = CheckedDockerRefreshLoop(
-                binding: binding,
-                operatorService: checkedOperator,
-                intervalNanoseconds: 2_000_000_000
-            )
-            checkedRefreshLoop = loop
-            await loop.start { [weak self] result in
-                await self?.applyCheckedRefreshResult(result)
+            guard acceptsCheckedInteractiveResult(setupLease, binding: binding) else {
+                return .failure(.sessionClosed)
             }
+            applyCheckedRefresh(refresh)
+            await startCheckedRefreshLoop(binding: binding, operatorService: checkedOperator)
             isLoading = false
             return .success(())
         } catch let error as CheckedDockerServiceError {
+            guard acceptsCheckedInteractiveResult(setupLease, binding: binding) else {
+                return .failure(.sessionClosed)
+            }
             isLoading = false
             handleCheckedFailure(error)
             return .failure(error)
         } catch {
+            guard acceptsCheckedInteractiveResult(setupLease, binding: binding) else {
+                return .failure(.sessionClosed)
+            }
             isLoading = false
             let mapped = CheckedDockerServiceError.unknownCheckedFFIError
             handleCheckedFailure(mapped)
@@ -543,6 +590,8 @@ final class DockerService: ObservableObject {
     func rejectCheckedStandalone(
         _ error: CheckedDockerServiceError = .requiresVerifiedSession
     ) {
+        checkedRefreshOwner.invalidate()
+        checkedInteractiveOwner.invalidate()
         checkedError = error
         isConnected = false
         isScanning = false
@@ -553,9 +602,26 @@ final class DockerService: ObservableObject {
         checkedBinding
     }
 
+    private func startCheckedRefreshLoop(
+        binding: CheckedDockerBinding,
+        operatorService: any CheckedDockerOperating
+    ) async {
+        guard checkedRefreshLoop == nil else { return }
+        let lease = checkedRefreshOwner.begin(scope: .workspace(binding.workspaceID))
+        let loop = CheckedDockerRefreshLoop(
+            binding: binding,
+            operatorService: operatorService,
+            intervalNanoseconds: OperationResourceBudget.dockerRefreshIntervalNanoseconds
+        )
+        checkedRefreshLoop = loop
+        await loop.start { [weak self] result in
+            await self?.applyCheckedRefreshResult(result, binding: binding, lease: lease)
+        }
+    }
+
     private func applyCheckedRefresh(_ refresh: CheckedDockerRefresh) {
         let statsMap = Dictionary(uniqueKeysWithValues: refresh.stats.stats.map { ($0.id, $0) })
-        cards = refresh.containers.containers.map { container in
+        let refreshedCards: [DockerContainerCard] = refresh.containers.containers.map { container in
             let stat = statsMap[container.id]
             return DockerContainerCard(
                 id: container.id,
@@ -570,6 +636,9 @@ final class DockerService: ObservableObject {
             )
         }
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        if cards != refreshedCards {
+            cards = refreshedCards
+        }
         checkedError = nil
         isConnected = true
         isScanning = false
@@ -578,9 +647,12 @@ final class DockerService: ObservableObject {
     }
 
     private func applyCheckedRefreshResult(
-        _ result: Result<CheckedDockerRefresh, CheckedDockerServiceError>
+        _ result: Result<CheckedDockerRefresh, CheckedDockerServiceError>,
+        binding: CheckedDockerBinding,
+        lease: OperationLease
     ) {
-        guard checkedBinding != nil else { return }
+        guard checkedRefreshOwner.owns(lease, scope: .workspace(binding.workspaceID)),
+              checkedBinding == binding else { return }
         switch result {
         case let .success(refresh):
             applyCheckedRefresh(refresh)
@@ -597,11 +669,21 @@ final class DockerService: ObservableObject {
         isScanning = false
         statusText = error.userMessage
         if disconnect {
+            checkedRefreshOwner.invalidate()
+            checkedInteractiveOwner.invalidate()
             isConnected = false
             let loop = checkedRefreshLoop
             checkedRefreshLoop = nil
             Task { await loop?.stop() }
         }
+    }
+
+    private func acceptsCheckedInteractiveResult(
+        _ lease: OperationLease,
+        binding: CheckedDockerBinding
+    ) -> Bool {
+        checkedInteractiveOwner.owns(lease, scope: .workspace(binding.workspaceID)) &&
+            checkedBinding == binding
     }
 
     private func rejectLegacyDocker() {

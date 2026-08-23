@@ -31,6 +31,30 @@ pub(crate) struct PortableServerConfigV1 {
     key_reference: String,
     #[serde(default)]
     saved_at_unix: u64,
+    #[serde(default)]
+    jump_host: Option<PortableJumpHostConfigV1>,
+}
+
+/// Embedded only inside the encrypted portable asset payload. The normal
+/// client-side asset cache keeps the corresponding secret in the platform
+/// credential vault instead.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PortableJumpHostConfigV1 {
+    #[serde(default)]
+    credential_id: String,
+    host: String,
+    port: u16,
+    username: String,
+    auth_method: String,
+    #[serde(default = "default_allow_password_fallback")]
+    allow_password_fallback: bool,
+    #[serde(default)]
+    password: String,
+    #[serde(default)]
+    private_key_content: String,
+    #[serde(default)]
+    private_key_passphrase: String,
 }
 
 fn default_transport() -> String {
@@ -60,6 +84,18 @@ pub(crate) fn parse_portable_config(raw: &str) -> Result<PortableServerConfigV1,
     }
     if config.credential_id.trim().is_empty() {
         config.credential_id = config.id.clone();
+    }
+    if let Some(jump) = config.jump_host.as_mut() {
+        if jump.host.trim().is_empty()
+            || jump.username.trim().is_empty()
+            || jump.port == 0
+            || (jump.password.is_empty() && jump.private_key_content.trim().is_empty())
+        {
+            return Err(OrbitCoreError::InvalidInput);
+        }
+        if jump.credential_id.trim().is_empty() {
+            return Err(OrbitCoreError::InvalidInput);
+        }
     }
     if config.saved_at_unix == 0 {
         config.saved_at_unix = current_unix_secs();
@@ -107,6 +143,9 @@ pub(crate) fn portable_changed_fields(
     }
     if base.private_key_passphrase != newer.private_key_passphrase {
         fields.push("privateKeyPassphrase");
+    }
+    if jump_host_changed(base.jump_host.as_ref(), newer.jump_host.as_ref()) {
+        fields.push("jumpHost");
     }
     fields
 }
@@ -182,5 +221,31 @@ pub(crate) fn portable_merge(
         },
         key_reference: local.key_reference,
         saved_at_unix: current_unix_secs(),
+        jump_host: if changed("jumpHost") {
+            local.jump_host
+        } else {
+            remote.jump_host
+        },
+    }
+}
+
+fn jump_host_changed(
+    base: Option<&PortableJumpHostConfigV1>,
+    newer: Option<&PortableJumpHostConfigV1>,
+) -> bool {
+    match (base, newer) {
+        (None, None) => false,
+        (Some(left), Some(right)) => {
+            left.credential_id != right.credential_id
+                || left.host != right.host
+                || left.port != right.port
+                || left.username != right.username
+                || left.auth_method != right.auth_method
+                || left.allow_password_fallback != right.allow_password_fallback
+                || left.password != right.password
+                || left.private_key_content != right.private_key_content
+                || left.private_key_passphrase != right.private_key_passphrase
+        }
+        _ => true,
     }
 }

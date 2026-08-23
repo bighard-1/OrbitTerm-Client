@@ -15,6 +15,7 @@ struct SnippetsPanelView: View {
     @State private var editorAssetIDs: Set<UUID> = []
     @State private var variablePrompt: SnippetVariablePrompt?
     @State private var deleteTarget: Snippet?
+    @State private var batchRequest: SnippetBatchRequest?
     @FocusState private var focusedVariableKey: String?
 
     private var filtered: [Snippet] {
@@ -105,6 +106,16 @@ struct SnippetsPanelView: View {
         .sheet(item: $variablePrompt) { prompt in
             snippetVariableSheet(prompt: prompt)
         }
+#if os(iOS)
+        .sheet(item: $batchRequest) { request in
+            BatchCommandRunnerView(
+                store: serverStore,
+                initialCommand: request.command,
+                allowedServerIDs: request.allowedServerIDs
+            )
+            .environmentObject(appSession)
+        }
+#endif
     }
 
     @ViewBuilder
@@ -149,16 +160,23 @@ struct SnippetsPanelView: View {
 
             HStack(spacing: 8) {
                 Button("插入") {
-                    triggerSnippet(snippet, executeImmediately: false)
+                    triggerSnippet(snippet, invocation: .insert)
                 }
                 .buttonStyle(.bordered)
                 .disabled(session == nil)
 
                 Button("执行") {
-                    triggerSnippet(snippet, executeImmediately: true)
+                    triggerSnippet(snippet, invocation: .execute)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(session == nil)
+
+#if os(iOS)
+                Button("批量") {
+                    triggerSnippet(snippet, invocation: .batch)
+                }
+                .buttonStyle(.bordered)
+#endif
 
                 Spacer(minLength: 0)
 
@@ -178,11 +196,16 @@ struct SnippetsPanelView: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .contextMenu {
             Button("插入到终端") {
-                triggerSnippet(snippet, executeImmediately: false)
+                triggerSnippet(snippet, invocation: .insert)
             }
             Button("立即执行") {
-                triggerSnippet(snippet, executeImmediately: true)
+                triggerSnippet(snippet, invocation: .execute)
             }
+#if os(iOS)
+            Button("批量执行") {
+                triggerSnippet(snippet, invocation: .batch)
+            }
+#endif
             Button("编辑") {
                 startEditSnippet(snippet)
             }
@@ -191,10 +214,10 @@ struct SnippetsPanelView: View {
             }
         }
         .onTapGesture {
-            triggerSnippet(snippet, executeImmediately: false)
+            triggerSnippet(snippet, invocation: .insert)
         }
         .onTapGesture(count: 2) {
-            triggerSnippet(snippet, executeImmediately: true)
+            triggerSnippet(snippet, invocation: .execute)
         }
     }
 
@@ -364,7 +387,7 @@ struct SnippetsPanelView: View {
 
                     Spacer()
 
-                    Button(prompt.executeImmediately ? "填入并执行" : "填入终端") {
+                    Button(promptButtonTitle(prompt.invocation)) {
                         executeVariablePromptIfReady()
                     }
                     .buttonStyle(.borderedProminent)
@@ -391,7 +414,19 @@ struct SnippetsPanelView: View {
             variablePrompt.snippet.command,
             values: variablePrompt.variableValues
         )
-        onInsertCommand(command, variablePrompt.executeImmediately)
+        switch variablePrompt.invocation {
+        case .insert:
+            onInsertCommand(command, false)
+        case .execute:
+            onInsertCommand(command, true)
+        case .batch:
+            batchRequest = SnippetBatchRequest(
+                command: command,
+                allowedServerIDs: variablePrompt.snippet.assetScope.isRestricted
+                    ? variablePrompt.snippet.assetScope.assetIDs
+                    : nil
+            )
+        }
         self.variablePrompt = nil
     }
 
@@ -419,20 +454,44 @@ struct SnippetsPanelView: View {
         editorTarget = snippet
     }
 
-    private func triggerSnippet(_ snippet: Snippet, executeImmediately: Bool) {
-        guard session != nil else { return }
+    private func triggerSnippet(_ snippet: Snippet, invocation: SnippetInvocation) {
+        if invocation != .batch, session == nil { return }
         let keys = SnippetVariableResolver.extractVariables(from: snippet.command)
         if !keys.isEmpty {
             var values: [String: String] = [:]
             keys.forEach { values[$0] = "" }
             variablePrompt = SnippetVariablePrompt(
                 snippet: snippet,
-                executeImmediately: executeImmediately,
+                invocation: invocation,
                 variableValues: values
             )
             return
         }
 
-        onInsertCommand(snippet.command, executeImmediately)
+        switch invocation {
+        case .insert:
+            onInsertCommand(snippet.command, false)
+        case .execute:
+            onInsertCommand(snippet.command, true)
+        case .batch:
+            batchRequest = SnippetBatchRequest(
+                command: snippet.command,
+                allowedServerIDs: snippet.assetScope.isRestricted ? snippet.assetScope.assetIDs : nil
+            )
+        }
     }
+
+    private func promptButtonTitle(_ invocation: SnippetInvocation) -> String {
+        switch invocation {
+        case .insert: "填入终端"
+        case .execute: "填入并执行"
+        case .batch: "选择批量目标"
+        }
+    }
+}
+
+private struct SnippetBatchRequest: Identifiable {
+    let id = UUID()
+    let command: String
+    let allowedServerIDs: Set<UUID>?
 }

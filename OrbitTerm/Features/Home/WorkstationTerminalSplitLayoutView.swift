@@ -60,14 +60,12 @@ struct WorkstationTerminalSplitLayoutView: View {
             },
             onInput: { bytes in
                 guard let paneChannelID else { return }
-                Task { @MainActor in
-                    session.activeTerminalPaneIndex = index
-                    await sessionManager.sendTerminalBytes(
-                        session: session,
-                        bytes: bytes,
-                        channelID: paneChannelID
-                    )
-                }
+                session.activeTerminalPaneIndex = index
+                sessionManager.enqueueTerminalInput(
+                    session: session,
+                    bytes: bytes,
+                    channelID: paneChannelID
+                )
             },
             searchText: searchText,
             searchCommand: searchCommand,
@@ -77,37 +75,33 @@ struct WorkstationTerminalSplitLayoutView: View {
         .onTapGesture {
             session.activeTerminalPaneIndex = index
         }
-        .overlay(alignment: .topTrailing) {
+        .overlay {
 #if os(macOS)
-            HStack(spacing: 4) {
-                Text("分屏 \(index + 1)\(session.activeTerminalPaneIndex == index ? " · 当前" : "")")
-                if index > 0 {
-                    Button {
-                        Task {
-                            await sessionManager.removeTerminalSplit(
-                                session: session,
-                                paneIndex: index
-                            )
-                        }
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.caption2.weight(.bold))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("关闭分屏 \(index + 1)")
-                }
-            }
-            .font(.caption2)
-            .foregroundStyle(palette.textSecondary.color)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(palette.surfaceGlassStrong.color, in: Capsule())
-            .overlay {
-                Capsule().stroke(palette.borderGlass.color)
-            }
-            .padding(6)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(
+                    session.activeTerminalPaneIndex == index
+                        ? palette.accentPrimary.color
+                        : palette.borderGlass.color.opacity(0.55),
+                    lineWidth: session.activeTerminalPaneIndex == index ? 1.5 : 1
+                )
+                .allowsHitTesting(false)
 #endif
         }
+#if os(macOS)
+        .contextMenu {
+            if index > 0 {
+                Button("关闭此分屏", role: .destructive) {
+                    Task {
+                        await sessionManager.removeTerminalSplit(
+                            session: session,
+                            paneIndex: index
+                        )
+                    }
+                }
+            }
+        }
+        .accessibilityLabel("终端分屏 \(index + 1)\(session.activeTerminalPaneIndex == index ? "，当前" : "")")
+#endif
     }
 
     private func paneChannel(for index: Int) -> UInt64? {

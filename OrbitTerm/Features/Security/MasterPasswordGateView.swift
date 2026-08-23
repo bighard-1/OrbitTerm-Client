@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MasterPasswordGateView: View {
     @EnvironmentObject private var session: AppSession
+    @EnvironmentObject private var serverStore: ServerStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.appThemePalette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -14,7 +15,8 @@ struct MasterPasswordGateView: View {
     @State private var messageKind: SecurityStatusKind = .information
     @State private var shakeOffset: CGFloat = 0
     @State private var isBiometricAuthenticating = false
-    @AppStorage("orbitterm.biometric.enabled") private var biometricEnabled: Bool = false
+    @State private var isShowingAccountSwitchConfirmation = false
+    @State private var biometricEnabled: Bool = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -54,22 +56,46 @@ struct MasterPasswordGateView: View {
                             }
                         }
 
-                        Button(session.hasMasterPassword ? "验证并解锁" : "保存并解锁") {
-                            submit()
+                        HStack(spacing: 10) {
+#if os(macOS)
+                            Button {
+                                isShowingAccountSwitchConfirmation = true
+                            } label: {
+                                Label("使用其他账号", systemImage: "person.crop.circle.badge.arrow.counterclockwise")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(ThemedSecondaryButtonStyle())
+                            .controlSize(.large)
+                            .accessibilityHint("断开当前账号的会话并返回登录页面")
+#endif
+
+                            Button(session.hasMasterPassword ? "验证并解锁" : "保存并解锁") {
+                                submit()
+                            }
+                            .buttonStyle(ThemedPrimaryButtonStyle())
+                            .controlSize(.large)
+                            .frame(maxWidth: .infinity)
+                            .disabled(session.hasMasterPassword ? masterPassword.isEmpty : (masterPassword.isEmpty || confirmPassword.isEmpty))
                         }
-                        .buttonStyle(ThemedPrimaryButtonStyle())
-                        .controlSize(.large)
-                        .disabled(session.hasMasterPassword ? masterPassword.isEmpty : (masterPassword.isEmpty || confirmPassword.isEmpty))
 
                         if session.hasMasterPassword && biometricEnabled && BiometricAuthService.shared.isBiometricAvailable {
                             Button {
                                 Task { await attemptBiometricUnlock(manual: true) }
                             } label: {
-                                Label(isBiometricAuthenticating ? "验证中..." : "使用生物识别解锁", systemImage: BiometricAuthService.shared.biometricIconName)
+                                HStack(alignment: .center, spacing: 8) {
+                                    Image(systemName: BiometricAuthService.shared.biometricIconName)
+                                    Text(isBiometricAuthenticating ? "验证中..." : "使用生物识别解锁")
+                                        .lineLimit(2)
+                                        .multilineTextAlignment(.center)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .frame(maxWidth: .infinity)
                             }
                             .buttonStyle(ThemedSecondaryButtonStyle())
+                            .frame(maxWidth: .infinity)
                             .disabled(isBiometricAuthenticating)
                         }
+
                     }
                     .font(.system(.body, design: .rounded))
                     .padding(24)
@@ -94,9 +120,34 @@ struct MasterPasswordGateView: View {
                 clearSensitiveInputs()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .orbitTermClearTransientSensitiveInput)) { _ in
+            clearSensitiveInputs()
+        }
         .onAppear {
+            biometricEnabled = BiometricAuthService.shared.isEnabled(for: session.username)
             Task { await attemptBiometricUnlock(manual: false) }
         }
+        .onChange(of: session.username) { _, username in
+            biometricEnabled = BiometricAuthService.shared.isEnabled(for: username)
+        }
+#if os(macOS)
+        .confirmationDialog(
+            "使用其他账号？",
+            isPresented: $isShowingAccountSwitchConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("切换账号", role: .destructive) {
+                clearSensitiveInputs()
+                AccountSessionActions.leaveCurrentAccount(
+                    session: session,
+                    serverStore: serverStore
+                )
+            }
+            Button("继续解锁当前账号", role: .cancel) {}
+        } message: {
+            Text("将断开当前所有会话并返回登录页。本机资产、快捷指令和待同步操作继续按原账号隔离保存，不会交给下一个账号。")
+        }
+#endif
     }
 
     private func secureInput(placeholder: String, text: Binding<String>) -> some View {
@@ -126,10 +177,12 @@ struct MasterPasswordGateView: View {
     }
 
     private func verify() {
+        let span = PerformanceSignpost.begin(.unlock)
+        defer { span.finish() }
         if session.verifyMasterPassword(masterPassword) {
             if biometricEnabled {
                 do {
-                    try BiometricAuthService.shared.enroll(masterPassword: masterPassword)
+                    try BiometricAuthService.shared.enroll(masterPassword: masterPassword, accountID: session.username)
                 } catch {
                     setMessage("提示: 生物识别注册失败，请稍后在设置中重试", kind: .warning)
                 }
@@ -147,6 +200,8 @@ struct MasterPasswordGateView: View {
     }
 
     private func setup() {
+        let span = PerformanceSignpost.begin(.unlock)
+        defer { span.finish() }
         guard masterPassword == confirmPassword else {
             setMessage("失败: 两次输入不一致", kind: .danger)
             triggerShake()
@@ -157,7 +212,7 @@ struct MasterPasswordGateView: View {
             _ = try orbitManager.encrypt(password: masterPassword, data: "master-password-check")
             try session.setupMasterPassword(masterPassword)
             if biometricEnabled {
-                try? BiometricAuthService.shared.enroll(masterPassword: masterPassword)
+                try? BiometricAuthService.shared.enroll(masterPassword: masterPassword, accountID: session.username)
             }
             setMessage("成功: 主密码已设置并通过 Rust 加密自检", kind: .success)
             clearSensitiveInputs()
@@ -183,6 +238,9 @@ struct MasterPasswordGateView: View {
         guard BiometricAuthService.shared.isBiometricAvailable else { return }
         guard !isBiometricAuthenticating else { return }
 
+        let span = PerformanceSignpost.begin(.unlock)
+        defer { span.finish() }
+
         isBiometricAuthenticating = true
         defer { isBiometricAuthenticating = false }
 
@@ -190,7 +248,7 @@ struct MasterPasswordGateView: View {
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
 
-        let ok = await BiometricAuthService.shared.authenticate {
+        let ok = await BiometricAuthService.shared.authenticate(accountID: session.username) {
             session.readMasterPassword()
         }
         if ok {

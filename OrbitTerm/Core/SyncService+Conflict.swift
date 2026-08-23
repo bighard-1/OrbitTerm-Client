@@ -31,18 +31,23 @@ extension SyncService {
                 syncedCount += 1
             } catch {
                 if NetworkService.isRetriableNetworkError(error) || isUnauthorized(error) {
-                    await SyncQueue.shared.enqueueDelete(assetID: server.id, request: request, accountID: accountID, reason: error.localizedDescription)
+                    await SyncQueue.shared.enqueueDelete(assetID: server.id, request: request, accountID: accountID, reason: OperationRecoveryMapper.sync(error).diagnosticCode)
                     queuedCount += 1
                     continue
                 }
                 if isMissingOrUnsupportedTombstoneAPI(error),
                    let masterPassword,
-                   await deleteLegacyRemoteConfig(server, token: token, masterPassword: masterPassword) {
+                   await deleteLegacyRemoteConfig(
+                    server,
+                    token: token,
+                    masterPassword: masterPassword,
+                    accountID: accountID
+                   ) {
                     DeletedServerRegistry.shared.clear(server.id)
                     syncedCount += 1
                     continue
                 }
-                await SyncQueue.shared.enqueueDelete(assetID: server.id, request: request, accountID: accountID, reason: error.localizedDescription)
+                await SyncQueue.shared.enqueueDelete(assetID: server.id, request: request, accountID: accountID, reason: OperationRecoveryMapper.sync(error).diagnosticCode)
                 queuedCount += 1
             }
         }
@@ -54,12 +59,26 @@ extension SyncService {
         }
     }
 
-    func deleteLegacyRemoteConfig(_ server: ServerEntry, token: String?, masterPassword: String) async -> Bool {
+    func deleteLegacyRemoteConfig(
+        _ server: ServerEntry,
+        token: String?,
+        masterPassword: String,
+        accountID: String
+    ) async -> Bool {
         guard let token else { return false }
         do {
             let remoteItems = try await network.pullConfigs(token: token)
+            let v2RootKey = try prepareV2RootKeyIfRequired(
+                for: remoteItems,
+                masterPassword: masterPassword,
+                accountID: accountID
+            )
             for item in remoteItems {
-                guard let portable = try? await decryptPortableBackground(item, masterPassword: masterPassword),
+                guard let portable = try? await decryptPortableBackground(
+                    item,
+                    masterPassword: masterPassword,
+                    v2RootKey: v2RootKey
+                ),
                       portable.id == server.id.uuidString else { continue }
                 try await network.deleteConfig(id: item.id)
                 return true
@@ -119,8 +138,17 @@ extension SyncService {
     ) async -> Bool {
         do {
             let remoteItems = try await network.pullConfigs(token: token)
+            let v2RootKey = try prepareV2RootKeyIfRequired(
+                for: remoteItems,
+                masterPassword: masterPassword,
+                accountID: accountID
+            )
             let decoded = remoteItems.compactMap { item -> (UploadConfigData, PortableServerConfig)? in
-                guard let portable = try? decryptPortable(item, masterPassword: masterPassword) else { return nil }
+                guard let portable = try? Self.decryptPortableStatic(
+                    item,
+                    masterPassword: masterPassword,
+                    v2RootKey: v2RootKey
+                ) else { return nil }
                 return (item, portable)
             }
 
@@ -201,7 +229,7 @@ extension SyncService {
                 }
             }
         } catch {
-            lastSyncMessage = "冲突处理失败: \(error.localizedDescription)"
+            recordSyncFailure(error)
             return false
         }
     }
@@ -246,7 +274,8 @@ extension SyncService {
             privateKeyPassphrase: localChanged.contains(.privateKeyPassphrase) ? local.privateKeyPassphrase : remote.privateKeyPassphrase,
             keyReference: local.keyReference,
             savedAtUnix: Int(Date().timeIntervalSince1970),
-            tags: localChanged.contains(.tags) ? local.tags : remote.tags
+            tags: localChanged.contains(.tags) ? local.tags : remote.tags,
+            jumpHost: localChanged.contains(.jumpHost) ? local.jumpHost : remote.jumpHost
         )
     }
 
@@ -265,6 +294,7 @@ extension SyncService {
         if base.passwordDigest != current.passwordDigest { changed.insert(.password) }
         if base.privateKeyDigest != current.privateKeyDigest { changed.insert(.privateKeyContent) }
         if base.privateKeyPassphraseDigest != current.privateKeyPassphraseDigest { changed.insert(.privateKeyPassphrase) }
+        if base.jumpHostDigest != current.jumpHostDigest { changed.insert(.jumpHost) }
         return changed
     }
 
@@ -275,7 +305,13 @@ extension SyncService {
         identityFingerprint: String?
     ) async throws -> UploadConfigRequest {
         let plain = try encodePortable(portable)
-        let encrypted = try orbitManager.encrypt(password: masterPassword, data: plain)
+        let encrypted: Data
+        if let scope = activeAccountScope, Self.isV2CipherWriteEnabled(scope: scope) {
+            try orbitManager.prepareConfigRootKeyV2(masterPassword: masterPassword, accountScope: scope)
+            encrypted = try orbitManager.encryptConfigV2(Data(plain.utf8))
+        } else {
+            encrypted = try orbitManager.encrypt(password: masterPassword, data: plain)
+        }
         let mergedClock = Self.bumpClock(remoteMeta.vector_clock, actor: "client")
         return UploadConfigRequest(
             id: remoteMeta.id,
@@ -320,6 +356,17 @@ extension SyncService {
               let credentials = try vault.read(for: credentialUUID) else {
             return portable
         }
+        let jumpHost: PortableJumpHostConfiguration?
+        if let configuredJumpHost = portable.jumpHost,
+           let jumpConfiguration = configuredJumpHost.makeConfiguration(),
+           let jumpCredentials = try vault.read(for: jumpConfiguration.credentialID) {
+            jumpHost = PortableJumpHostConfiguration(
+                configuration: jumpConfiguration,
+                credentials: jumpCredentials
+            )
+        } else {
+            jumpHost = portable.jumpHost
+        }
         return PortableServerConfig(
             id: portable.id,
             credentialID: portable.credentialID,
@@ -337,15 +384,24 @@ extension SyncService {
             privateKeyPassphrase: credentials.privateKeyPassphrase,
             keyReference: portable.keyReference,
             savedAtUnix: portable.savedAtUnix,
-            tags: portable.tags
+            tags: portable.tags,
+            jumpHost: jumpHost
         )
     }
 
-    func decryptPortable(_ item: UploadConfigData, masterPassword: String) throws -> PortableServerConfig {
+    nonisolated static func decryptPortableStatic(
+        _ item: UploadConfigData,
+        masterPassword: String,
+        v2RootKey: Data? = nil
+    ) throws -> PortableServerConfig {
         guard let encrypted = Data(base64Encoded: item.encrypted_blob_base64) else {
             throw NetworkService.NetworkError.decodeFailed
         }
-        let plainData = try orbitManager.decrypt(password: masterPassword, encrypted: encrypted)
+        let plainData = try decryptBlob(
+            password: masterPassword,
+            encrypted: encrypted,
+            v2RootKey: v2RootKey
+        )
         guard let plainText = String(data: plainData, encoding: .utf8),
               let portableData = plainText.data(using: .utf8) else {
             throw NetworkService.NetworkError.decodeFailed
@@ -353,25 +409,47 @@ extension SyncService {
         return try JSONDecoder().decode(PortableServerConfig.self, from: portableData)
     }
 
-    nonisolated static func decryptPortableStatic(_ item: UploadConfigData, masterPassword: String) throws -> PortableServerConfig {
-        guard let encrypted = Data(base64Encoded: item.encrypted_blob_base64) else {
-            throw NetworkService.NetworkError.decodeFailed
-        }
-        let plainData = try decryptBlob(password: masterPassword, encrypted: encrypted)
-        guard let plainText = String(data: plainData, encoding: .utf8),
-              let portableData = plainText.data(using: .utf8) else {
-            throw NetworkService.NetworkError.decodeFailed
-        }
-        return try JSONDecoder().decode(PortableServerConfig.self, from: portableData)
-    }
-
-    func decryptPortableBackground(_ item: UploadConfigData, masterPassword: String) async throws -> PortableServerConfig {
+    func decryptPortableBackground(
+        _ item: UploadConfigData,
+        masterPassword: String,
+        v2RootKey: Data? = nil
+    ) async throws -> PortableServerConfig {
         try await Task.detached(priority: .utility) {
-            try Self.decryptPortableStatic(item, masterPassword: masterPassword)
+            try Self.decryptPortableStatic(item, masterPassword: masterPassword, v2RootKey: v2RootKey)
         }.value
     }
 
-    nonisolated static func decryptBlob(password: String, encrypted: Data) throws -> Data {
+    nonisolated static func decryptBlob(
+        password: String,
+        encrypted: Data,
+        v2RootKey: Data? = nil
+    ) throws -> Data {
+        if OrbitManager.isV2ConfigBlob(encrypted) {
+            guard let v2RootKey, v2RootKey.count == 32 else {
+                throw NetworkService.NetworkError.decodeFailed
+            }
+            let encryptedB64 = encrypted.base64EncodedString()
+            guard let encryptedCString = encryptedB64.cString(using: .utf8) else {
+                throw NetworkService.NetworkError.decodeFailed
+            }
+            let resultPtr = v2RootKey.withUnsafeBytes { keyBuffer in
+                orbit_decrypt_config_v2(
+                    keyBuffer.bindMemory(to: UInt8.self).baseAddress,
+                    v2RootKey.count,
+                    encryptedCString
+                )
+            }
+            guard let resultPtr else {
+                throw NetworkService.NetworkError.decodeFailed
+            }
+            defer { orbit_free_string(resultPtr) }
+            let raw = String(cString: resultPtr)
+            guard raw.hasPrefix("OK:"),
+                  let decoded = Data(base64Encoded: String(raw.dropFirst(3))) else {
+                throw NetworkService.NetworkError.decodeFailed
+            }
+            return decoded
+        }
         guard let passwordCString = password.cString(using: .utf8) else {
             throw NetworkService.NetworkError.decodeFailed
         }

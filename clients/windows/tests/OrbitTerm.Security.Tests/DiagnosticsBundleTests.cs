@@ -50,10 +50,13 @@ public sealed class DiagnosticsBundleTests
         Assert.Contains("\"schema_version\": 1", json);
         Assert.Contains("\"channel\": \"stable\"", json);
         Assert.Contains("\"username\": \"[REDACTED]\"", json);
+        Assert.Contains("\"host\": \"[REDACTED]\"", json);
+        Assert.Contains("\"normalized_host\": \"[REDACTED]\"", json);
         Assert.Contains("\"known_hosts_path\": \"[REDACTED]\"", json);
         Assert.Contains("\"last_remote_path\": \"[REDACTED]\"", json);
         Assert.Contains("\"last_command\": \"[REDACTED]\"", json);
         Assert.DoesNotContain("alice", json);
+        Assert.DoesNotContain("example.com", json);
         Assert.DoesNotContain(@"\.ssh\", json);
         Assert.DoesNotContain("/var/log/auth.log", json);
         Assert.DoesNotContain("cat /var", json);

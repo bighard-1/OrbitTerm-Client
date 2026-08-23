@@ -24,7 +24,7 @@ struct DetachedSessionWindowView: View {
                             Task { await sessionManager.resizeTerminal(session: session, cols: cols, rows: rows) }
                         },
                         onInput: { bytes in
-                            Task { await sessionManager.sendTerminalBytes(session: session, bytes: bytes) }
+                            sessionManager.enqueueTerminalInput(session: session, bytes: bytes)
                         },
                         searchText: "",
                         searchCommand: nil,

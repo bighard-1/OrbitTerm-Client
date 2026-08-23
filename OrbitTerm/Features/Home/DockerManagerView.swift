@@ -197,9 +197,18 @@ struct DockerManagerView: View {
             }
 
             Section("状态") {
-                Text(effectiveService.statusText)
-                    .foregroundStyle(connectionPresentation.themeColor(in: security, fallback: palette).color)
+                if let recovery = effectiveService.recoveryPresentation {
+                    Label(recovery.message, systemImage: recovery.systemImage)
+                        .accessibilityLabel("Docker：\(recovery.title)。\(recovery.message)")
+                } else {
+                    Text(effectiveService.statusText)
+                }
             }
+            .foregroundStyle(
+                effectiveService.recoveryPresentation?.severity == .danger
+                    ? security.danger.color
+                    : connectionPresentation.themeColor(in: security, fallback: palette).color
+            )
         }
         .scrollContentBackground(.hidden)
         .background(palette.surfaceReadable.color)
@@ -222,7 +231,7 @@ struct DockerManagerView: View {
                             logContainer = card
                         }
                         Button("复制容器 ID") {
-                            TerminalPlatformSupport.copyToClipboard(Data(card.id.utf8))
+                            TerminalPlatformSupport.copyToClipboard(Data(card.id.utf8), kind: .ordinaryText)
                         }
                         Divider()
                         ForEach(card.availableActions, id: \.self) { action in
@@ -321,7 +330,7 @@ private struct DockerContainerDetailsView: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                         Button {
-                            TerminalPlatformSupport.copyToClipboard(Data(container.id.utf8))
+                            TerminalPlatformSupport.copyToClipboard(Data(container.id.utf8), kind: .ordinaryText)
                         } label: {
                             Image(systemName: "doc.on.doc")
                         }

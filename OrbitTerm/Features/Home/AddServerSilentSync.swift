@@ -4,6 +4,7 @@ enum AddServerSilentSync {
     static func uploadStatusMessage(
         server: ServerEntry,
         credentials: ServerCredentials,
+        jumpHostCredentials: ServerCredentials?,
         token: String?,
         masterPassword: String?,
         accountID: String,
@@ -15,7 +16,11 @@ enum AddServerSilentSync {
         }
 
         let timestamp = Int(now.timeIntervalSince1970)
-        let portable = server.makePortableConfig(savedAtUnix: timestamp, credentials: credentials)
+        let portable = server.makePortableConfig(
+            savedAtUnix: timestamp,
+            credentials: credentials,
+            jumpHostCredentials: jumpHostCredentials
+        )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
 

@@ -4,6 +4,8 @@ struct TerminalSessionPane: View {
     @ObservedObject var session: WorkspaceSession
     @ObservedObject var sessionManager: SessionManager
     @AppStorage(TerminalThemeManager.storageKey) private var terminalThemeID: String = TerminalThemeManager.defaultThemeID
+    @AppStorage(TerminalThemeManager.followsApplicationThemeStorageKey) private var terminalFollowsApplicationTheme = false
+    @AppStorage(AppThemeManager.themeStorageKey) private var applicationThemeID = AppThemeID.defaultTheme.rawValue
     @State private var showSearchOverlay = false
     @State private var searchText = ""
     @State private var searchCommand: TerminalSearchCommand?
@@ -37,7 +39,7 @@ struct TerminalSessionPane: View {
             .padding(.horizontal, 6)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(
-                TerminalThemeManager.theme(for: terminalThemeID).background.swiftUIColor,
+                TerminalThemeManager.theme(for: resolvedTerminalThemeID).background.swiftUIColor,
                 in: RoundedRectangle(cornerRadius: 14, style: .continuous)
             )
             // The platform terminal view can draw its dirty region beyond a
@@ -61,6 +63,14 @@ struct TerminalSessionPane: View {
                 sessionManager: sessionManager
             )
         }
+    }
+
+    private var resolvedTerminalThemeID: String {
+        TerminalThemeManager.resolvedThemeID(
+            selectedTerminalThemeID: terminalThemeID,
+            followsApplicationTheme: terminalFollowsApplicationTheme,
+            applicationThemeID: applicationThemeID
+        )
     }
 }
 
@@ -112,7 +122,9 @@ private struct TerminalCommandPreinputBar: View {
     }
 
     private var canSend: Bool {
-        session.isConnected && !session.terminalInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // An empty Return is meaningful in shells (accept a prompt, redraw or
+        // submit an empty line), so connectivity—not text content—governs send.
+        session.isConnected
     }
 
     private func send() {

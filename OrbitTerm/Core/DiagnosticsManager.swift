@@ -4,10 +4,10 @@ struct DiagnosticEntry: Identifiable, Codable {
     let id: UUID
     let timestamp: Date
     let method: String
-    let url: String
+    let endpoint: DiagnosticEndpoint
     let statusCode: Int?
     let latencyMs: Int
-    let errorType: String?
+    let failure: DiagnosticFailureKind?
     let attempt: Int
 }
 
@@ -18,8 +18,29 @@ final class DiagnosticsManager: ObservableObject {
 
     @Published private(set) var entries: [DiagnosticEntry] = []
     @Published private(set) var retryInFlightCount: Int = 0
+    private var exportCleanupTasks: [URL: Task<Void, Never>] = [:]
 
-    private init() {}
+    private(set) var activeAccountScope: AccountScope?
+
+    init() {}
+
+    /// Diagnostics are account-scoped presentation data. Switching accounts
+    /// never carries prior request history into the new account's export.
+    func activateAccount(username: String) {
+        let nextScope = AccountScope(username: username)
+        guard activeAccountScope != nextScope else { return }
+        discardAllExports()
+        entries = []
+        retryInFlightCount = 0
+        activeAccountScope = nextScope
+    }
+
+    func deactivateAccount() {
+        discardAllExports()
+        entries = []
+        retryInFlightCount = 0
+        activeAccountScope = nil
+    }
 
     var isRetrying: Bool {
         retryInFlightCount > 0
@@ -41,16 +62,14 @@ final class DiagnosticsManager: ObservableObject {
         errorType: String?,
         attempt: Int
     ) {
-        let cleanURL = sanitizeURL(url)
-        let cleanError = sanitizeError(errorType)
         let item = DiagnosticEntry(
             id: UUID(),
             timestamp: Date(),
             method: method,
-            url: cleanURL,
+            endpoint: DiagnosticEndpoint.classify(url: url),
             statusCode: statusCode,
             latencyMs: latencyMs,
-            errorType: cleanError,
+            failure: DiagnosticFailureKind.classify(errorType),
             attempt: attempt
         )
         entries.append(item)
@@ -62,45 +81,85 @@ final class DiagnosticsManager: ObservableObject {
     func exportText() -> String {
         let iso = ISO8601DateFormatter()
         let lines = entries.map { item -> String in
-            let code = item.statusCode.map(String.init) ?? "-"
-            let err = item.errorType ?? "-"
-            return "[\(iso.string(from: item.timestamp))] \(item.method) \(item.url) status=\(code) latency_ms=\(item.latencyMs) attempt=\(item.attempt) error=\(err)"
+            DiagnosticsPrivacy.exportLine(
+                timestamp: iso.string(from: item.timestamp),
+                method: item.method,
+                endpoint: item.endpoint,
+                statusCode: item.statusCode,
+                latencyMs: item.latencyMs,
+                attempt: item.attempt,
+                failure: item.failure
+            )
         }
         return lines.joined(separator: "\n")
     }
 
     func exportToTempFile() throws -> URL {
+        removeExpiredExports()
+
         let content = exportText()
         let base = FileManager.default.temporaryDirectory
-        let file = base.appendingPathComponent("orbitterm_diagnostics_\(Int(Date().timeIntervalSince1970)).txt")
-        try content.write(to: file, atomically: true, encoding: .utf8)
+        let file = base.appendingPathComponent(DiagnosticExportFilePolicy.filename())
+        guard let data = content.data(using: .utf8) else {
+            throw CocoaError(.fileWriteInapplicableStringEncoding)
+        }
+        try data.write(to: file, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        scheduleExportCleanup(for: file)
         return file
     }
 
-    private func sanitizeURL(_ raw: String) -> String {
-        guard var comp = URLComponents(string: raw) else { return raw }
-        if let items = comp.queryItems, !items.isEmpty {
-            comp.queryItems = items.map { item in
-                let lower = item.name.lowercased()
-                if lower.contains("password") || lower.contains("token") || lower.contains("private") || lower.contains("key") || lower.contains("authorization") {
-                    return URLQueryItem(name: item.name, value: "***")
-                }
-                return item
-            }
-        }
-        return comp.string ?? raw
+    /// Removes only a file created by this manager. This is safe to call when
+    /// the export sheet closes and never touches another app's temporary file.
+    func discardExport(_ file: URL) {
+        guard isManagedExport(file) else { return }
+        exportCleanupTasks.removeValue(forKey: file)?.cancel()
+        try? FileManager.default.removeItem(at: file)
     }
 
-    private func sanitizeError(_ raw: String?) -> String? {
-        guard var text = raw, !text.isEmpty else { return nil }
-        let patterns = ["authorization", "password", "private_key", "privatekey", "token", "bearer"]
-        for p in patterns {
-            if text.lowercased().contains(p) {
-                text = "redacted"
-                break
-            }
+    private func discardAllExports() {
+        let files = Array(exportCleanupTasks.keys)
+        for file in files {
+            discardExport(file)
         }
-        return text
+    }
+
+    private func removeExpiredExports(now: Date = Date()) {
+        let base = FileManager.default.temporaryDirectory
+        let keys: Set<URLResourceKey> = [.contentModificationDateKey, .isRegularFileKey]
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: base,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsHiddenFiles]
+        ) else {
+            return
+        }
+
+        for file in files where isManagedExport(file) {
+            let values = try? file.resourceValues(forKeys: keys)
+            guard values?.isRegularFile == true,
+                  let date = values?.contentModificationDate,
+                  DiagnosticExportFilePolicy.isExpired(modificationDate: date, now: now) else {
+                continue
+            }
+            discardExport(file)
+        }
+    }
+
+    private func isManagedExport(_ file: URL) -> Bool {
+        let base = FileManager.default.temporaryDirectory.standardizedFileURL
+        let parent = file.deletingLastPathComponent().standardizedFileURL
+        return parent == base && DiagnosticExportFilePolicy.isManagedFilename(file.lastPathComponent)
+    }
+
+    private func scheduleExportCleanup(for file: URL) {
+        exportCleanupTasks.removeValue(forKey: file)?.cancel()
+        exportCleanupTasks[file] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(DiagnosticExportFilePolicy.retention * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.discardExport(file)
+        }
     }
 }
 
+extension DiagnosticsManager: AccountScopedPresentationService {}

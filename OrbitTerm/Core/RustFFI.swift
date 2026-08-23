@@ -21,6 +21,18 @@ enum SFTPError: LocalizedError {
 }
 
 enum RustFFI {
+    struct GeneratedEd25519KeyPair: Decodable {
+        let privateKey: String
+        let publicKey: String
+        let format: String
+
+        private enum CodingKeys: String, CodingKey {
+            case privateKey = "private_key"
+            case publicKey = "public_key"
+            case format
+        }
+    }
+
     nonisolated static func clampedPort(_ port: Int) -> Int32 {
         Int32(max(1, min(65_535, port)))
     }
@@ -50,6 +62,22 @@ enum RustFFI {
             normalized = String(normalized.dropFirst("session:".count))
         }
         return UInt64(normalized)
+    }
+
+    nonisolated static func generateEd25519KeyPair(comment: String) throws -> GeneratedEd25519KeyPair {
+        let raw = comment.withCString { orbit_generate_ed25519_key_pair_v1($0) }
+        let payload = try parseOKPayload(call { raw })
+        guard let data = payload.data(using: .utf8) else { throw SFTPError.invalidResponse }
+        return try JSONDecoder().decode(GeneratedEd25519KeyPair.self, from: data)
+    }
+
+    nonisolated static func publicKey(privateKey: String, passphrase: String) throws -> String {
+        let raw = privateKey.withCString { privateKeyPointer in
+            passphrase.withCString { passphrasePointer in
+                orbit_ssh_public_key_from_private_v1(privateKeyPointer, passphrasePointer)
+            }
+        }
+        return try parseOKPayload(call { raw })
     }
 
     nonisolated static func callWithTimeout(

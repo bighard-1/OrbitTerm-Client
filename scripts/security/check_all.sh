@@ -6,6 +6,9 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 section "Static scans"
 "$SECURITY_SCRIPT_DIR/check_static_scans.sh"
 
+section "Desktop stabilization baseline"
+python3 "$ORBIT_ROOT/scripts/performance/verify_desktop_stabilization_gate.py"
+
 if [[ -x "$ORBIT_ROOT/clients/windows/scripts/check_windows_static.sh" ]]; then
   section "Windows client static scans"
   "$ORBIT_ROOT/clients/windows/scripts/check_windows_static.sh"

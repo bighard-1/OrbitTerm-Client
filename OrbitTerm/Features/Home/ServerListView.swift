@@ -6,7 +6,8 @@ struct ServerListView: View {
     @Environment(\.appThemePalette) private var palette
     @Environment(\.securitySemanticPalette) private var security
     @ObservedObject private var sessionManager = SessionManager.shared
-    @StateObject private var syncService = SyncService.shared
+    @EnvironmentObject private var syncService: SyncService
+    @StateObject private var snippetStore = SnippetStore.shared
     @State private var showingAddServer = false
     @State private var expandedGroups: Set<String> = []
     @State private var selectedForDelete: Set<UUID> = []
@@ -18,6 +19,9 @@ struct ServerListView: View {
     @State private var pendingDeleteGroup: String?
     @State private var searchText = ""
     @State private var showingBulkAdd = false
+    @State private var isSynchronizing = false
+    @State private var armedConnectionServerID: UUID?
+    @State private var connectionArmTask: Task<Void, Never>?
     var onConnectRequested: ((ServerEntry) -> Void)?
 
     var body: some View {
@@ -49,7 +53,7 @@ struct ServerListView: View {
                                         if batchMode {
                                             toggleBatchSelection(server.id)
                                         } else {
-                                            connect(server)
+                                            handlePrimaryAssetTap(server)
                                         }
                                     } label: {
                                         VStack(alignment: .leading, spacing: 2) {
@@ -64,10 +68,22 @@ struct ServerListView: View {
                                             Text("\(server.username)@\(server.endpointText)")
                                                 .font(.caption)
                                                 .foregroundStyle(palette.textSecondary.color)
+                                            if armedConnectionServerID == server.id, !isServerConnected(server) {
+                                                Label("再次点击以连接", systemImage: "hand.tap")
+                                                    .font(.caption2.weight(.semibold))
+                                                    .foregroundStyle(palette.accentPrimary.color)
+                                            }
                                         }
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                     }
                                     .buttonStyle(.plain)
+                                    .accessibilityHint(
+                                        batchMode
+                                            ? "切换批量选择状态"
+                                            : armedConnectionServerID == server.id
+                                                ? "再次点击将建立远程连接"
+                                                : "点击一次准备连接，再次点击确认；也可向右轻扫后选择连接"
+                                    )
                                     .contextMenu {
                                         Button("连接") {
                                             connect(server)
@@ -119,6 +135,25 @@ struct ServerListView: View {
                             }
                         } label: {
                             HStack {
+                                if batchMode {
+                                    let groupIDs = Set(section.items.map(\.id))
+                                    let selectedCount = groupIDs.intersection(selectedForDelete).count
+                                    Button {
+                                        if selectedCount == groupIDs.count {
+                                            selectedForDelete.subtract(groupIDs)
+                                        } else {
+                                            selectedForDelete.formUnion(groupIDs)
+                                        }
+                                    } label: {
+                                        Image(systemName: selectedCount == 0
+                                            ? "square"
+                                            : selectedCount == groupIDs.count
+                                                ? "checkmark.square.fill"
+                                                : "minus.square.fill")
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel(selectedCount == groupIDs.count ? "取消选择分组 \(section.group)" : "选择分组 \(section.group)")
+                                }
                                 Text(section.group)
                                 Spacer()
                                 Text("\(section.items.count)")
@@ -176,6 +211,21 @@ struct ServerListView: View {
                 } label: {
                     Label("批量", systemImage: "checklist")
                 }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    startImmediateSynchronization()
+                } label: {
+                    if isSynchronizing {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                    }
+                }
+                .disabled(isSynchronizing || !session.isUnlocked)
+                .accessibilityLabel("立即双向同步")
+                .accessibilityHint("同步资产、分组、标签、命令片段、SSH 密钥与端口映射配置")
             }
 #else
             ToolbarItem(placement: .automatic) {
@@ -251,6 +301,11 @@ struct ServerListView: View {
                 Text("此操作不可撤销。")
             }
         }
+        .onDisappear {
+            connectionArmTask?.cancel()
+            connectionArmTask = nil
+            armedConnectionServerID = nil
+        }
         .alert("确认删除分组", isPresented: Binding(
             get: { pendingDeleteGroup != nil },
             set: { shown in
@@ -272,6 +327,35 @@ struct ServerListView: View {
         }
     }
 
+    private func startImmediateSynchronization() {
+        guard !isSynchronizing else { return }
+        guard let token = session.readToken(),
+              let masterPassword = session.readMasterPassword() else {
+            syncService.setSyncRecoveryPresentation(
+                session.isAuthenticated
+                    ? OperationRecoveryMapper.syncMasterPasswordUnavailable()
+                    : OperationRecoveryMapper.syncTokenUnavailable()
+            )
+            return
+        }
+        isSynchronizing = true
+        Task {
+            defer { isSynchronizing = false }
+            await syncService.reconcileAssetInventory(
+                token: token,
+                masterPassword: masterPassword,
+                store: store,
+                accountID: session.username
+            )
+            await snippetStore.pullFromCloud(
+                token: token,
+                masterPassword: masterPassword,
+                accountID: session.username
+            )
+            await syncService.refreshInventoryDiagnostic(token: token, store: store)
+        }
+    }
+
     private func toggleBatchSelection(_ id: UUID) {
         if selectedForDelete.contains(id) {
             selectedForDelete.remove(id)
@@ -281,10 +365,30 @@ struct ServerListView: View {
     }
 
     private func connect(_ server: ServerEntry) {
+        connectionArmTask?.cancel()
+        connectionArmTask = nil
+        armedConnectionServerID = nil
         store.select(server)
         sessionManager.quickOpenServer = server
         onConnectRequested?(server)
         session.showTransientStatus("已选择 \(server.name)，请在连接页发起连接")
+    }
+
+    private func handlePrimaryAssetTap(_ server: ServerEntry) {
+        if isServerConnected(server) || armedConnectionServerID == server.id {
+            connect(server)
+            return
+        }
+
+        connectionArmTask?.cancel()
+        armedConnectionServerID = server.id
+        session.showTransientStatus("再次点击“\(server.name)”即可连接；也可向右轻扫后选择连接")
+        connectionArmTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled, armedConnectionServerID == server.id else { return }
+            armedConnectionServerID = nil
+            connectionArmTask = nil
+        }
     }
 
     private func deleteSelectedServers() {

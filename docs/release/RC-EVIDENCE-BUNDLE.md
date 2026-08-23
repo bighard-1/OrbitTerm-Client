@@ -39,6 +39,7 @@ release-evidence/
   symbol-check.log
   static-scan.log
   artifact-checksums.txt
+  apple-client-sbom.cdx.json
   signing-verification.txt
   notarization-verification.txt
   release-notes.md
@@ -56,9 +57,12 @@ release-evidence/
    Apple credentials, provisioning profiles, notary profiles, user known_hosts,
    Docker log bodies, or full remote commands.
 5. Record SHA-256 checksums for every distributed artifact.
-6. Record `codesign`, Gatekeeper, archive validation, notarization, and stapling
+6. Generate and retain the CycloneDX SBOM from the exact locked SwiftPM and
+   Cargo dependency inputs. It is provenance evidence, not an authorization to
+   fetch unlocked dependencies.
+7. Record `codesign`, Gatekeeper, archive validation, notarization, and stapling
    results without exporting signing identities or credentials.
-7. Keep evidence outside the app bundle and outside source control. Publish it
+8. Keep evidence outside the app bundle and outside source control. Publish it
    as a restricted CI/release artifact tied to the immutable tag.
 
 ## Retention

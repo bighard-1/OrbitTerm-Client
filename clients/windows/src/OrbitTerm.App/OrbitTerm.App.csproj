@@ -5,6 +5,8 @@
     <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
     <RootNamespace>OrbitTerm.App</RootNamespace>
     <UseWinUI>true</UseWinUI>
+    <SelfContained>true</SelfContained>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <EnableMsixTooling>true</EnableMsixTooling>
     <Platforms>x64</Platforms>
     <AppxManifest>Package.appxmanifest</AppxManifest>
@@ -12,9 +14,34 @@
     <GenerateAppInstallerFile>false</GenerateAppInstallerFile>
     <AppxBundle>Never</AppxBundle>
     <AppxPackageDir>$(BaseOutputPath)AppPackages\</AppxPackageDir>
+    <OrbitCoreNativeLibrary>$(MSBuildProjectDirectory)\..\..\..\..\orbit-core\target\x86_64-pc-windows-msvc\release\orbit_core.dll</OrbitCoreNativeLibrary>
+    <RdpHostPackageRoot Condition="'$(RdpHostPackageRoot)' == ''">$(MSBuildProjectDirectory)\..\OrbitTerm.RdpHost\bin\$(Platform)\$(Configuration)\net9.0-windows10.0.19041.0\$(RuntimeIdentifier)\publish</RdpHostPackageRoot>
   </PropertyGroup>
+  <ItemGroup Condition="Exists('$(OrbitCoreNativeLibrary)')">
+    <Content Include="$(OrbitCoreNativeLibrary)"
+             Link="orbit_core.dll"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Condition="Exists('$(RdpHostPackageRoot)')">
+    <Content Include="$(RdpHostPackageRoot)\**\*"
+             Link="rdp-host\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="ValidateOrbitCoreNativeLibrary" BeforeTargets="Build" Condition="!Exists('$(OrbitCoreNativeLibrary)')">
+    <Error Text="orbit_core.dll is required for the Windows client. Run clients/windows/scripts/build_windows_core.ps1 before building OrbitTerm.App." />
+  </Target>
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" />
+  </ItemGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Assets\*.png"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\OrbitTerm.Application\OrbitTerm.Application.csproj" />

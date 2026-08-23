@@ -8,4 +8,5 @@ public sealed record DockerStatsViewModel(
     string MemoryUsage,
     string NetworkIo,
     string BlockIo,
-    string Pids);
+    string Pids,
+    string Id);

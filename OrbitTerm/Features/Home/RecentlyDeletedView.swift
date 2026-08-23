@@ -2,7 +2,7 @@ import SwiftUI
 
 struct RecentlyDeletedView: View {
     @EnvironmentObject private var session: AppSession
-    @StateObject private var syncService = SyncService.shared
+    @EnvironmentObject private var syncService: SyncService
     @ObservedObject private var store = ServerStore.shared
 
     @State private var items: [RecentlyDeletedAsset] = []

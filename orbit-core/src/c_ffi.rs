@@ -1,5 +1,6 @@
 use std::ffi::CString;
 use std::os::raw::c_char;
+use std::sync::Arc;
 
 use crate::{
     c_ptr_to_string, docker_action, exec_command, fetch_docker_containers, fetch_docker_logs,
@@ -9,6 +10,136 @@ use crate::{
     terminal_close, terminal_resize, terminal_write, test_ssh_connection, to_c_string_ptr,
     OrbitCoreError, CONNECTION_EVENT_CALLBACK, ORBIT_RUNTIME, TERMINAL_DATA_CALLBACK,
 };
+
+/// Validates portable SSH private-key material with the same decoder and
+/// algorithm policy used by real connections. No key material is retained or
+/// included in the returned value.
+#[no_mangle]
+pub extern "C" fn orbit_validate_ssh_private_key_v1(
+    private_key_content: *const c_char,
+    private_key_passphrase: *const c_char,
+) -> *mut c_char {
+    let private_key_content = match c_ptr_to_string(private_key_content) {
+        Ok(value) => value,
+        Err(_) => return to_c_string_ptr("ERR:key_material_invalid".to_string()),
+    };
+    let private_key_passphrase = match c_ptr_to_string(private_key_passphrase) {
+        Ok(value) => value,
+        Err(_) => return to_c_string_ptr("ERR:key_passphrase_invalid".to_string()),
+    };
+    match crate::ssh_session::decode_supported_private_key(
+        &private_key_content,
+        &private_key_passphrase,
+    ) {
+        Ok(key) => to_c_string_ptr(format!("OK:{}", key.algorithm().as_str())),
+        Err(OrbitCoreError::SshFailed(message)) if message.starts_with("不支持的") => {
+            to_c_string_ptr("ERR:key_algorithm_unsupported".to_string())
+        }
+        Err(_) => to_c_string_ptr("ERR:key_parse_failed".to_string()),
+    }
+}
+
+/// Checked, correlated SSH private-key validation envelope for desktop
+/// clients. The response never contains private-key material or passphrases.
+#[no_mangle]
+pub extern "C" fn orbit_validate_ssh_private_key_checked_v2(
+    private_key_content: *const c_char,
+    private_key_passphrase: *const c_char,
+    request_id: *const c_char,
+) -> *mut c_char {
+    let request_id = match c_ptr_to_string(request_id) {
+        Ok(value)
+            if !value.is_empty()
+                && value.len() <= 256
+                && value.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-')
+                }) =>
+        {
+            value
+        }
+        _ => {
+            return to_c_string_ptr(
+                serde_json::json!({
+                    "schema_version": 1,
+                    "request_id": null,
+                    "kind": "error",
+                    "data": null,
+                    "error": {
+                        "code": "invalid_request",
+                        "message_key": "error.request.invalid",
+                        "request_id": null
+                    }
+                })
+                .to_string(),
+            )
+        }
+    };
+    let private_key_content = match c_ptr_to_string(private_key_content) {
+        Ok(value) => value,
+        Err(_) => {
+            return ssh_key_validation_error(
+                &request_id,
+                "ssh_key_material_invalid",
+                "error.ssh_key.material_invalid",
+            )
+        }
+    };
+    let private_key_passphrase = match c_ptr_to_string(private_key_passphrase) {
+        Ok(value) => value,
+        Err(_) => {
+            return ssh_key_validation_error(
+                &request_id,
+                "ssh_key_passphrase_invalid",
+                "error.ssh_key.passphrase_invalid",
+            )
+        }
+    };
+
+    match crate::ssh_session::decode_supported_private_key(
+        &private_key_content,
+        &private_key_passphrase,
+    ) {
+        Ok(key) => to_c_string_ptr(
+            serde_json::json!({
+                "schema_version": 1,
+                "request_id": request_id,
+                "kind": "ssh_private_key_validated",
+                "data": { "algorithm": key.algorithm().as_str() },
+                "error": null
+            })
+            .to_string(),
+        ),
+        Err(OrbitCoreError::SshFailed(message)) if message.starts_with("不支持的") => {
+            ssh_key_validation_error(
+                &request_id,
+                "ssh_key_algorithm_unsupported",
+                "error.ssh_key.algorithm_unsupported",
+            )
+        }
+        Err(_) => ssh_key_validation_error(
+            &request_id,
+            "ssh_key_parse_failed",
+            "error.ssh_key.parse_failed",
+        ),
+    }
+}
+
+fn ssh_key_validation_error(request_id: &str, code: &str, message_key: &str) -> *mut c_char {
+    to_c_string_ptr(
+        serde_json::json!({
+            "schema_version": 1,
+            "request_id": request_id,
+            "kind": "error",
+            "data": null,
+            "error": {
+                "code": code,
+                "message_key": message_key,
+                "request_id": request_id
+            }
+        })
+        .to_string(),
+    )
+}
 
 fn legacy_network_disabled_response() -> Option<*mut c_char> {
     crate::legacy_network::LegacyNetworkGate::require_current()
@@ -188,6 +319,7 @@ fn normalize_port(port: i32) -> Result<u16, OrbitCoreError> {
 
 pub type OrbitTerminalDataCallback = extern "C" fn(u64, *const u8, usize);
 pub type OrbitConnectionEventCallback = extern "C" fn(u64, *const c_char);
+pub type OrbitSftpProgressCallback = extern "C" fn(*const c_char, u64, u64, bool);
 
 #[no_mangle]
 pub extern "C" fn orbit_terminal_set_callback(callback: Option<OrbitTerminalDataCallback>) {
@@ -200,6 +332,28 @@ pub extern "C" fn orbit_terminal_set_callback(callback: Option<OrbitTerminalData
 pub extern "C" fn orbit_connection_set_callback(callback: Option<OrbitConnectionEventCallback>) {
     if let Ok(mut holder) = CONNECTION_EVENT_CALLBACK.lock() {
         *holder = callback;
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn orbit_sftp_set_progress_callback(callback: Option<OrbitSftpProgressCallback>) {
+    match callback {
+        Some(callback) => {
+            crate::security::checked_sftp_ffi::install_sftp_progress_sink(Arc::new(
+                move |request_id, transferred, total| {
+                    let Ok(request_id) = CString::new(request_id) else {
+                        return;
+                    };
+                    callback(
+                        request_id.as_ptr(),
+                        transferred,
+                        total.unwrap_or(0),
+                        total.is_some(),
+                    );
+                },
+            ));
+        }
+        None => crate::security::checked_sftp_ffi::clear_sftp_progress_sink(),
     }
 }
 
@@ -567,6 +721,40 @@ pub extern "C" fn orbit_exec_command(session_id: u64, command: *const c_char) ->
 }
 
 #[no_mangle]
+pub extern "C" fn orbit_generate_ed25519_key_pair_v1(comment: *const c_char) -> *mut c_char {
+    let comment = match c_ptr_to_string(comment) {
+        Ok(value) => value,
+        Err(error) => return to_c_string_ptr(format!("ERR:{error}")),
+    };
+    match crate::key_generation::generate_ed25519_key_pair(&comment).and_then(|pair| {
+        serde_json::to_string(&pair)
+            .map_err(|_| OrbitCoreError::Internal("key_pair_serialization_failed".to_string()))
+    }) {
+        Ok(payload) => to_c_string_ptr(format!("OK:{payload}")),
+        Err(error) => to_c_string_ptr(format!("ERR:{error}")),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn orbit_ssh_public_key_from_private_v1(
+    private_key: *const c_char,
+    passphrase: *const c_char,
+) -> *mut c_char {
+    let private_key = match c_ptr_to_string(private_key) {
+        Ok(value) => value,
+        Err(error) => return to_c_string_ptr(format!("ERR:{error}")),
+    };
+    let passphrase = match c_ptr_to_string(passphrase) {
+        Ok(value) => value,
+        Err(error) => return to_c_string_ptr(format!("ERR:{error}")),
+    };
+    match crate::key_generation::derive_public_key(&private_key, &passphrase) {
+        Ok(public_key) => to_c_string_ptr(format!("OK:{public_key}")),
+        Err(error) => to_c_string_ptr(format!("ERR:{error}")),
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn orbit_free_string(s: *mut c_char) {
     if s.is_null() {
         return;
@@ -596,6 +784,31 @@ mod tests {
         assert!(normalize_port(0).is_err());
         assert!(normalize_port(65_536).is_err());
         assert!(normalize_port(-1).is_err());
+    }
+
+    #[test]
+    fn checked_private_key_validation_returns_correlated_json_without_key_material() {
+        let private_key = CString::new("not-private-key").expect("private key fixture");
+        let passphrase = CString::new("secret-passphrase").expect("passphrase fixture");
+        let request_id = CString::new("request-123").expect("request fixture");
+        let pointer = orbit_validate_ssh_private_key_checked_v2(
+            private_key.as_ptr(),
+            passphrase.as_ptr(),
+            request_id.as_ptr(),
+        );
+        assert!(!pointer.is_null());
+        let response = unsafe { CStr::from_ptr(pointer) }
+            .to_str()
+            .expect("checked validation must be UTF-8")
+            .to_string();
+        orbit_free_string(pointer);
+        let json: serde_json::Value = serde_json::from_str(&response).expect("checked JSON");
+        assert_eq!(json["schema_version"], 1);
+        assert_eq!(json["request_id"], "request-123");
+        assert_eq!(json["kind"], "error");
+        assert_eq!(json["error"]["code"], "ssh_key_parse_failed");
+        assert!(!response.contains("not-private-key"));
+        assert!(!response.contains("secret-passphrase"));
     }
 
     #[cfg(not(feature = "legacy-network-internal"))]

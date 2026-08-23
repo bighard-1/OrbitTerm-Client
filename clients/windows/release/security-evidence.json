@@ -2,7 +2,7 @@
   "schema_version": 1,
   "product": "OrbitTerm",
   "package_identity": "OrbitTerm.Client",
-  "version": "0.3.0.0",
+  "version": "0.3.0.32",
   "evidence_documents": [
     "docs/PHASE-0A-EVIDENCE.md",
     "docs/PHASE-0B-EVIDENCE.md",

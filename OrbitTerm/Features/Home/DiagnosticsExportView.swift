@@ -2,7 +2,7 @@ import SwiftUI
 
 struct DiagnosticsExportView: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var diagnostics = DiagnosticsManager.shared
+    @EnvironmentObject private var diagnostics: DiagnosticsManager
     @State private var exportURL: URL?
     @State private var errorMessage: String = ""
 
@@ -35,10 +35,10 @@ struct DiagnosticsExportView: View {
 
                 List(diagnostics.entries.suffix(10).reversed()) { item in
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("\(item.method) \(item.url)")
+                        Text("\(item.method) · \(item.endpoint.rawValue)")
                             .font(.caption)
                             .lineLimit(2)
-                        Text("status=\(item.statusCode.map(String.init) ?? "-") latency=\(item.latencyMs)ms attempt=\(item.attempt) error=\(item.errorType ?? "-")")
+                        Text("status=\(item.statusCode.map(String.init) ?? "-") latency=\(item.latencyMs)ms attempt=\(item.attempt) failure=\(item.failure?.rawValue ?? "-")")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -54,6 +54,11 @@ struct DiagnosticsExportView: View {
             .task {
                 buildExport()
             }
+            .onDisappear {
+                if let exportURL {
+                    diagnostics.discardExport(exportURL)
+                }
+            }
         }
     }
 
@@ -63,8 +68,9 @@ struct DiagnosticsExportView: View {
             errorMessage = ""
         } catch {
             exportURL = nil
-            errorMessage = "导出失败: \(error.localizedDescription)"
+            // File-system messages can contain local paths. Keep the visible
+            // recovery prompt useful without turning it into an export path.
+            errorMessage = "无法生成诊断文件，请稍后重试。"
         }
     }
 }
-

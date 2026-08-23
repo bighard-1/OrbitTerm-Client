@@ -1,0 +1,10 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Exists only in the debug-signed .smoke applicationId. It contains
+             no account store, credential, network client, or production entry. -->
+        <activity
+            android:name="com.orbitterm.android.smoke.SmokeFixtureActivity"
+            android:exported="true"
+            android:label="OrbitTerm Smoke Fixture" />
+    </application>
+</manifest>

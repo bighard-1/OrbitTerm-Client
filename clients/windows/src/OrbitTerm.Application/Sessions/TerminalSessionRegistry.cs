@@ -55,6 +55,23 @@ public sealed class TerminalSessionRegistry
                 lease));
     }
 
+    public IReadOnlyList<TerminalSessionLease> RemoveAll(Guid workspaceId, Guid serverId)
+    {
+        var removed = new List<TerminalSessionLease>();
+        foreach (var pair in leases.ToArray())
+        {
+            if (pair.Key.WorkspaceId != workspaceId || pair.Key.ServerId != serverId)
+            {
+                continue;
+            }
+            if (leases.TryRemove(pair))
+            {
+                removed.Add(pair.Value);
+            }
+        }
+        return removed;
+    }
+
     private static void Validate(TerminalSessionLease lease)
     {
         lease.Size.Validate();

@@ -10,6 +10,14 @@ public sealed record ServerAsset(
     string Username,
     ServerAuthMethod AuthMethod,
     ServerTransport Transport,
+    bool AllowPasswordFallback,
+    JumpHostConfiguration? JumpHost = null);
+
+public sealed record JumpHostConfiguration(
+    Guid CredentialId,
+    string Host,
+    int Port,
+    string Username,
     bool AllowPasswordFallback);
 
 public enum ServerAuthMethod
@@ -22,4 +30,5 @@ public enum ServerTransport
 {
     Ssh,
     Telnet,
+    RemoteDesktop,
 }

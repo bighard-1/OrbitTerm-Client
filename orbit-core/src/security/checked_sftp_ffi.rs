@@ -1,8 +1,15 @@
+use std::collections::HashMap;
 use std::ffi::CStr;
 use std::future::Future;
 use std::os::raw::c_char;
 use std::path::Path;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
+use std::time::{Duration, Instant};
 
+use once_cell::sync::Lazy;
 use serde::Deserialize;
 
 use super::host_key_ffi_api::{ffi_response, success_envelope};
@@ -22,6 +29,75 @@ const MAX_REQUEST_ID_BYTES: usize = 256;
 const MAX_SFTP_PATH_BYTES: usize = 512;
 const MAX_LOCAL_DOWNLOAD_PATH_BYTES: usize = 4096;
 const MAX_SFTP_TEXT_EDIT_BYTES: usize = 2 * 1024 * 1024;
+const SFTP_PROGRESS_MIN_INTERVAL: Duration = Duration::from_millis(100);
+
+static ACTIVE_SFTP_TRANSFERS: Lazy<Mutex<HashMap<String, Arc<AtomicBool>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+type SftpProgressSink = Arc<dyn Fn(&str, u64, Option<u64>) + Send + Sync>;
+static SFTP_PROGRESS_SINK: Lazy<Mutex<Option<SftpProgressSink>>> = Lazy::new(|| Mutex::new(None));
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub(crate) fn install_sftp_progress_sink(sink: SftpProgressSink) {
+    *SFTP_PROGRESS_SINK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(sink);
+}
+
+pub(crate) fn clear_sftp_progress_sink() {
+    *SFTP_PROGRESS_SINK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+}
+
+fn emit_sftp_progress(request_id: &str, transferred: u64, total: Option<u64>) {
+    let sink = SFTP_PROGRESS_SINK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .as_ref()
+        .cloned();
+    if let Some(sink) = sink {
+        sink(request_id, transferred, total);
+    }
+}
+
+struct SftpTransferRegistration {
+    request_id: String,
+    cancelled: Arc<AtomicBool>,
+}
+
+impl SftpTransferRegistration {
+    fn register(request_id: &str) -> Result<Self, ()> {
+        let mut active = ACTIVE_SFTP_TRANSFERS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Unit tests intentionally exercise identical fixture request ids in
+        // parallel. Production rejects duplicates so one cancellation request
+        // can never target an unrelated transfer.
+        if active.contains_key(request_id) && !cfg!(test) {
+            return Err(());
+        }
+        let cancelled = Arc::new(AtomicBool::new(false));
+        active.insert(request_id.to_string(), Arc::clone(&cancelled));
+        Ok(Self {
+            request_id: request_id.to_string(),
+            cancelled,
+        })
+    }
+}
+
+impl Drop for SftpTransferRegistration {
+    fn drop(&mut self) {
+        let mut active = ACTIVE_SFTP_TRANSFERS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if active
+            .get(&self.request_id)
+            .is_some_and(|current| Arc::ptr_eq(current, &self.cancelled))
+        {
+            active.remove(&self.request_id);
+        }
+    }
+}
 
 #[no_mangle]
 pub extern "C" fn orbit_sftp_open_checked_v1(
@@ -71,7 +147,16 @@ pub extern "C" fn orbit_sftp_download_checked_v1(
         remote_path,
         local_path,
         request_id,
-        crate::sftp_download_file_create_new,
+        |session_id, remote_path, local_path, cancelled, progress| async move {
+            crate::sftp_download_file_create_new_cancellable(
+                session_id,
+                remote_path,
+                local_path,
+                &cancelled,
+                &*progress,
+            )
+            .await
+        },
     )
 }
 
@@ -87,8 +172,36 @@ pub extern "C" fn orbit_sftp_upload_checked_v1(
         local_path,
         remote_path,
         request_id,
-        crate::sftp_upload_file_create_new,
+        |session_id, local_path, remote_path, cancelled, progress| async move {
+            crate::sftp_upload_file_create_new_cancellable(
+                session_id,
+                local_path,
+                remote_path,
+                &cancelled,
+                &*progress,
+            )
+            .await
+        },
     )
+}
+
+/// Requests cancellation of an active checked SFTP transfer. The request id is
+/// the id supplied to upload/download, not a new RPC id. A true result means
+/// the transfer will stop at its next I/O boundary; a just-completed transfer
+/// deliberately returns false rather than reporting a stale cancellation.
+#[no_mangle]
+pub extern "C" fn orbit_sftp_cancel_checked_v1(request_id: *const c_char) -> bool {
+    let Ok(request_id) = parse_request_id(request_id) else {
+        return false;
+    };
+    let active = ACTIVE_SFTP_TRANSFERS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let Some(cancelled) = active.get(&request_id) else {
+        return false;
+    };
+    cancelled.store(true, Ordering::Release);
+    true
 }
 
 #[no_mangle]
@@ -235,9 +348,18 @@ where
             .map_err(|error| {
                 HostKeyFfiErrorPayload::from_checked_channel_error(error, Some(request_id.clone()))
             })?;
+        let home_path = ORBIT_RUNTIME
+            .block_on(crate::sftp_canonical_home_path_checked(
+                sftp_session_id.get(),
+            ))
+            .unwrap_or_else(|_| "/".to_string());
         let envelope = (|| {
-            let payload = SftpChannelOpenedPayload::new(base_session_id, sftp_session_id.get())
-                .map_err(|error| error.to_error_payload(Some(request_id.clone())))?;
+            let payload = SftpChannelOpenedPayload::new_with_home(
+                base_session_id,
+                sftp_session_id.get(),
+                home_path,
+            )
+            .map_err(|error| error.to_error_payload(Some(request_id.clone())))?;
             let envelope = success_envelope(
                 Some(request_id),
                 HostKeyFfiResult::SftpChannelOpened(payload),
@@ -326,7 +448,13 @@ fn sftp_download_checked_response<F, Fut>(
     downloader: F,
 ) -> *mut c_char
 where
-    F: FnOnce(u64, String, String) -> Fut,
+    F: FnOnce(
+        u64,
+        String,
+        String,
+        Arc<AtomicBool>,
+        Arc<dyn Fn(u64, Option<u64>) + Send + Sync>,
+    ) -> Fut,
     Fut: Future<Output = Result<String, OrbitCoreError>>,
 {
     ffi_response(|| {
@@ -336,8 +464,34 @@ where
         }
         let remote_path = parse_remote_path(remote_path, Some(request_id.clone()))?;
         let local_path = parse_local_download_path(local_path, Some(request_id.clone()))?;
+        let registration = SftpTransferRegistration::register(&request_id).map_err(|_| {
+            invalid_request("duplicate_sftp_transfer_request", Some(request_id.clone()))
+        })?;
+        let progress_request_id = request_id.clone();
+        let progress_last_emitted =
+            Arc::new(Mutex::new(Instant::now() - SFTP_PROGRESS_MIN_INTERVAL));
+        let progress = Arc::new(move |transferred: u64, total: Option<u64>| {
+            let mut last_emitted = progress_last_emitted
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let is_complete = total.is_some_and(|total| transferred >= total);
+            if transferred != 0
+                && !is_complete
+                && last_emitted.elapsed() < SFTP_PROGRESS_MIN_INTERVAL
+            {
+                return;
+            }
+            *last_emitted = Instant::now();
+            emit_sftp_progress(&progress_request_id, transferred, total)
+        });
         let transfer_json = ORBIT_RUNTIME
-            .block_on(downloader(sftp_session_id, remote_path.clone(), local_path))
+            .block_on(downloader(
+                sftp_session_id,
+                remote_path.clone(),
+                local_path,
+                Arc::clone(&registration.cancelled),
+                progress,
+            ))
             .map_err(|error| sftp_download_error_payload(error, Some(request_id.clone())))?;
         let transfer: SftpTransferResult = serde_json::from_str(&transfer_json).map_err(|_| {
             HostKeyFfiErrorPayload::new(
@@ -364,7 +518,13 @@ fn sftp_upload_checked_response<F, Fut>(
     uploader: F,
 ) -> *mut c_char
 where
-    F: FnOnce(u64, String, String) -> Fut,
+    F: FnOnce(
+        u64,
+        String,
+        String,
+        Arc<AtomicBool>,
+        Arc<dyn Fn(u64, Option<u64>) + Send + Sync>,
+    ) -> Fut,
     Fut: Future<Output = Result<String, OrbitCoreError>>,
 {
     ffi_response(|| {
@@ -374,8 +534,34 @@ where
         }
         let local_path = parse_local_upload_path(local_path, Some(request_id.clone()))?;
         let remote_path = parse_remote_path(remote_path, Some(request_id.clone()))?;
+        let registration = SftpTransferRegistration::register(&request_id).map_err(|_| {
+            invalid_request("duplicate_sftp_transfer_request", Some(request_id.clone()))
+        })?;
+        let progress_request_id = request_id.clone();
+        let progress_last_emitted =
+            Arc::new(Mutex::new(Instant::now() - SFTP_PROGRESS_MIN_INTERVAL));
+        let progress = Arc::new(move |transferred: u64, total: Option<u64>| {
+            let mut last_emitted = progress_last_emitted
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let is_complete = total.is_some_and(|total| transferred >= total);
+            if transferred != 0
+                && !is_complete
+                && last_emitted.elapsed() < SFTP_PROGRESS_MIN_INTERVAL
+            {
+                return;
+            }
+            *last_emitted = Instant::now();
+            emit_sftp_progress(&progress_request_id, transferred, total)
+        });
         let transfer_json = ORBIT_RUNTIME
-            .block_on(uploader(sftp_session_id, local_path, remote_path.clone()))
+            .block_on(uploader(
+                sftp_session_id,
+                local_path,
+                remote_path.clone(),
+                Arc::clone(&registration.cancelled),
+                progress,
+            ))
             .map_err(|error| sftp_upload_error_payload(error, Some(request_id.clone())))?;
         let transfer: SftpTransferResult = serde_json::from_str(&transfer_json).map_err(|_| {
             HostKeyFfiErrorPayload::new(
@@ -827,6 +1013,12 @@ fn sftp_list_error_payload(
             request_id,
             None,
         ),
+        OrbitCoreError::SftpTransferCancelled => HostKeyFfiErrorPayload::new(
+            HostKeyFfiErrorCode::SftpListFailed,
+            Some("sftp_operation_cancelled"),
+            request_id,
+            None,
+        ),
         OrbitCoreError::SftpFailed(_) => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SftpListFailed,
             Some("sftp_list_failed"),
@@ -859,6 +1051,12 @@ fn sftp_read_error_payload(
         OrbitCoreError::SshFailed(_) => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SecurityGenerationMismatch,
             Some("sftp_generation_mismatch"),
+            request_id,
+            None,
+        ),
+        OrbitCoreError::SftpTransferCancelled => HostKeyFfiErrorPayload::new(
+            HostKeyFfiErrorCode::SftpReadFailed,
+            Some("sftp_operation_cancelled"),
             request_id,
             None,
         ),
@@ -899,6 +1097,12 @@ fn sftp_download_error_payload(
             request_id,
             None,
         ),
+        OrbitCoreError::SftpTransferCancelled => HostKeyFfiErrorPayload::new(
+            HostKeyFfiErrorCode::SftpDownloadFailed,
+            Some("sftp_transfer_cancelled"),
+            request_id,
+            None,
+        ),
         OrbitCoreError::SftpFailed(_) => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SftpDownloadFailed,
             Some("sftp_download_failed"),
@@ -934,6 +1138,12 @@ fn sftp_upload_error_payload(
             request_id,
             None,
         ),
+        OrbitCoreError::SftpTransferCancelled => HostKeyFfiErrorPayload::new(
+            HostKeyFfiErrorCode::SftpUploadFailed,
+            Some("sftp_transfer_cancelled"),
+            request_id,
+            None,
+        ),
         OrbitCoreError::SftpFailed(_) => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SftpUploadFailed,
             Some("sftp_upload_failed"),
@@ -962,6 +1172,12 @@ fn sftp_mutation_error_payload(
         SftpMutationError::SessionUnavailable => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SessionNotFound,
             Some("sftp_session_unavailable"),
+            request_id,
+            None,
+        ),
+        SftpMutationError::PermissionDenied => HostKeyFfiErrorPayload::new(
+            HostKeyFfiErrorCode::SftpPermissionDenied,
+            Some("permission_denied"),
             request_id,
             None,
         ),
@@ -1080,7 +1296,7 @@ where
         remote_path,
         local_path,
         request_id,
-        downloader,
+        |session_id, remote_path, local_path, _, _| downloader(session_id, remote_path, local_path),
     )
 }
 
@@ -1101,7 +1317,7 @@ where
         local_path,
         remote_path,
         request_id,
-        uploader,
+        |session_id, local_path, remote_path, _, _| uploader(session_id, local_path, remote_path),
     )
 }
 

@@ -51,4 +51,10 @@ struct SFTPBrowserBatchState {
         clearSelection()
         showResult(message)
     }
+
+    mutating func cancelBatch() {
+        isRunning = false
+        progress = nil
+        clearSelection()
+    }
 }

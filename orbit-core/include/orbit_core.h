@@ -2,6 +2,7 @@
 #define ORBIT_CORE_H
 
 #include <stddef.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -10,11 +11,47 @@ extern "C" {
 
 char *orbit_encrypt_config(const char *master_password, const unsigned char *plaintext_ptr, size_t plaintext_len);
 char *orbit_decrypt_config(const char *master_password, const char *encrypted_base64);
+/* V2 derives an account-scoped root once, then encrypts each record with an
+ * independent derived key. Root-key bytes are transient caller-owned memory. */
+char *orbit_derive_config_root_key_v2(const char *master_password, const char *account_scope);
+char *orbit_encrypt_config_v2(
+    const uint8_t *root_key_ptr,
+    size_t root_key_len,
+    const uint8_t *plaintext_ptr,
+    size_t plaintext_len
+);
+char *orbit_decrypt_config_v2(
+    const uint8_t *root_key_ptr,
+    size_t root_key_len,
+    const char *encrypted_base64
+);
 char *orbit_argon2id_derive(const char *password, const uint8_t *salt_ptr, size_t salt_len);
 char *orbit_portable_validate(const char *portable_json);
 char *orbit_portable_changed_fields(const char *base_json, const char *newer_json);
 char *orbit_portable_merge(const char *remote_json, const char *local_json, const char *local_changed_fields_json);
 char *orbit_vector_clock_bump(const char *vector_clock_json, const char *actor);
+/* Parses a portable private key with the same policy used by live SSH
+ * authentication. Returns OK:<ssh-algorithm> without exposing key material.
+ * DSA and hardware-backed FIDO keys are intentionally unsupported. */
+char *orbit_validate_ssh_private_key_v1(
+    const char *private_key_content,
+    const char *private_key_passphrase
+);
+/* Checked, request-correlated JSON validation response. No key material or
+ * passphrase is returned in either success or failure envelopes. */
+char *orbit_validate_ssh_private_key_checked_v2(
+    const char *private_key_content,
+    const char *private_key_passphrase,
+    const char *request_id
+);
+/* Generates an unencrypted OpenSSH Ed25519 key pair as an OK:<json> payload.
+ * Callers must immediately store private_key inside their platform vault and
+ * release the returned Rust-owned string with orbit_free_string. */
+char *orbit_generate_ed25519_key_pair_v1(const char *comment);
+char *orbit_ssh_public_key_from_private_v1(
+    const char *private_key_content,
+    const char *private_key_passphrase
+);
 char *orbit_test_ssh_connection(
     const char *ip,
     int32_t port,
@@ -60,6 +97,30 @@ char *orbit_ssh_connect_checked_v1(
     const char *private_key,
     const char *private_key_passphrase,
     int32_t allow_password_fallback,
+    const char *known_hosts_path,
+    const char *request_id
+);
+/* Checked reusable connection with an optional single SSH jump host. The
+ * destination and jump-host keys are verified separately. `jump_enabled` is
+ * 0 for a direct connection and 1 for a jump connection. Returned strings
+ * must be released with orbit_free_string.
+ */
+char *orbit_ssh_connect_checked_v2(
+    const char *host,
+    int32_t port,
+    const char *username,
+    const char *password,
+    const char *private_key,
+    const char *private_key_passphrase,
+    int32_t allow_password_fallback,
+    int32_t jump_enabled,
+    const char *jump_host,
+    int32_t jump_port,
+    const char *jump_username,
+    const char *jump_password,
+    const char *jump_private_key,
+    const char *jump_private_key_passphrase,
+    int32_t jump_allow_password_fallback,
     const char *known_hosts_path,
     const char *request_id
 );
@@ -119,6 +180,11 @@ char *orbit_sftp_upload_checked_v1(
     const char *remote_path,
     const char *request_id
 );
+/* Requests cancellation of an active checked SFTP upload or download by its
+ * existing request id. A true result means cancellation was accepted at the
+ * next I/O boundary; completed or unknown transfers return false.
+ */
+bool orbit_sftp_cancel_checked_v1(const char *request_id);
 /* Creates one directory without recursively creating parents and refuses an
  * existing target. Root mutation is forbidden.
  */
@@ -268,8 +334,10 @@ char *orbit_hostkey_protocol_version_v1(void);
 
 typedef void (*orbit_terminal_data_callback_t)(uint64_t terminal_channel_id, const uint8_t *data, size_t len);
 typedef void (*orbit_connection_event_callback_t)(uint64_t base_session_id, const char *message);
+typedef void (*orbit_sftp_progress_callback_t)(const char *request_id, uint64_t transferred, uint64_t total, bool has_total);
 void orbit_terminal_set_callback(orbit_terminal_data_callback_t callback);
 void orbit_connection_set_callback(orbit_connection_event_callback_t callback);
+void orbit_sftp_set_progress_callback(orbit_sftp_progress_callback_t callback);
 char *orbit_request_channel(uint64_t session_or_channel_id, const char *channel_type);
 /* Opens a PTY shell only on an existing Active HostKeyVerified base session.
  * IDs are decimal strings inside the JSON envelope. Returned strings must be
@@ -279,6 +347,20 @@ char *orbit_terminal_open_checked_v1(
     uint64_t base_session_id,
     uint32_t cols,
     uint32_t rows,
+    const char *request_id
+);
+
+char *orbit_local_tunnel_start_checked_v1(
+    uint64_t base_session_id,
+    const char *bind_host,
+    uint16_t bind_port,
+    const char *destination_host,
+    uint16_t destination_port,
+    const char *request_id
+);
+
+char *orbit_local_tunnel_stop_checked_v1(
+    uint64_t tunnel_id,
     const char *request_id
 );
 char *orbit_terminal_write(uint64_t terminal_channel_id, const uint8_t *data_ptr, size_t data_len);

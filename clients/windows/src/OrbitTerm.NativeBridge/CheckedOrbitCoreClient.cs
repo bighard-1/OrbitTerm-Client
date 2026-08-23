@@ -16,11 +16,22 @@ public sealed class CheckedOrbitCoreClient : ICheckedOrbitCoreClient
         remove => TerminalOutputRouter.DataReceived -= value;
     }
 
+    public event EventHandler<SftpTransferProgressEventArgs>? SftpTransferProgress
+    {
+        add
+        {
+            SftpProgressRouter.EnsureRegistered();
+            SftpProgressRouter.ProgressChanged += value;
+        }
+        remove => SftpProgressRouter.ProgressChanged -= value;
+    }
+
     public CheckedConnectOutcome Connect(CheckedConnectionRequest request, HostKeyRequestId requestId)
     {
         ValidateConnectRequest(request);
 
-        using var result = NativeMethods.orbit_ssh_connect_checked_v1(
+        var jump = request.JumpHost;
+        using var result = NativeMethods.orbit_ssh_connect_checked_v2(
             request.Host.Trim(),
             request.Port,
             request.Username.Trim(),
@@ -28,6 +39,14 @@ public sealed class CheckedOrbitCoreClient : ICheckedOrbitCoreClient
             request.PrivateKey,
             request.PrivateKeyPassphrase,
             request.AllowPasswordFallback ? 1 : 0,
+            jump is null ? 0 : 1,
+            jump?.Host.Trim() ?? string.Empty,
+            jump?.Port ?? 22,
+            jump?.Username.Trim() ?? string.Empty,
+            jump?.Password ?? string.Empty,
+            jump?.PrivateKey ?? string.Empty,
+            jump?.PrivateKeyPassphrase ?? string.Empty,
+            jump?.AllowPasswordFallback == true ? 1 : 0,
             request.KnownHostsPath,
             requestId.Value);
 
@@ -105,6 +124,37 @@ public sealed class CheckedOrbitCoreClient : ICheckedOrbitCoreClient
         return TerminalControlResult.Decode(result.ToOwnedString());
     }
 
+    public CheckedEnvelope StartLocalTunnel(
+        ulong baseSessionId,
+        string bindHost,
+        int bindPort,
+        string destinationHost,
+        int destinationPort,
+        HostKeyRequestId requestId)
+    {
+        EnsureBaseSession(baseSessionId);
+        if (bindPort is < 0 or > 65535 || destinationPort is < 1 or > 65535)
+            throw new ArgumentOutOfRangeException(nameof(bindPort));
+        if (!string.Equals(bindHost, "127.0.0.1", StringComparison.Ordinal) &&
+            !string.Equals(bindHost, "::1", StringComparison.Ordinal) &&
+            !string.Equals(bindHost, "localhost", StringComparison.Ordinal))
+            throw new ArgumentException("Local tunnel listeners must remain on loopback.", nameof(bindHost));
+        if (string.IsNullOrWhiteSpace(destinationHost) || destinationHost.Any(char.IsWhiteSpace) || destinationHost.Any(char.IsControl))
+            throw new ArgumentException("Tunnel destination host is invalid.", nameof(destinationHost));
+
+        using var result = NativeMethods.orbit_local_tunnel_start_checked_v1(
+            baseSessionId, bindHost, checked((ushort)bindPort), destinationHost,
+            checked((ushort)destinationPort), requestId.Value);
+        return CheckedEnvelopeDecoder.Decode(result.ToOwnedString(), requestId);
+    }
+
+    public CheckedEnvelope StopLocalTunnel(ulong tunnelId, HostKeyRequestId requestId)
+    {
+        if (tunnelId == 0) throw new ArgumentOutOfRangeException(nameof(tunnelId));
+        using var result = NativeMethods.orbit_local_tunnel_stop_checked_v1(tunnelId, requestId.Value);
+        return CheckedEnvelopeDecoder.Decode(result.ToOwnedString(), requestId);
+    }
+
     public CheckedEnvelope OpenSftp(ulong baseSessionId, HostKeyRequestId requestId)
     {
         EnsureBaseSession(baseSessionId);
@@ -148,6 +198,11 @@ public sealed class CheckedOrbitCoreClient : ICheckedOrbitCoreClient
             localPath,
             requestId.Value);
         return CheckedEnvelopeDecoder.Decode(result.ToOwnedString(), requestId);
+    }
+
+    public bool CancelSftpTransfer(HostKeyRequestId requestId)
+    {
+        return NativeMethods.orbit_sftp_cancel_checked_v1(requestId.Value);
     }
 
     public CheckedEnvelope UploadSftpFile(ulong sftpSessionId, string localPath, string remotePath, HostKeyRequestId requestId)
@@ -385,6 +440,14 @@ public sealed class CheckedOrbitCoreClient : ICheckedOrbitCoreClient
         {
             throw new ArgumentException("Checked connection requires either a password or a private key.", nameof(request));
         }
+
+        if (request.JumpHost is { } jump &&
+            (string.IsNullOrWhiteSpace(jump.Host) || string.IsNullOrWhiteSpace(jump.Username) ||
+             jump.Port is < 1 or > 65535 ||
+             (string.IsNullOrEmpty(jump.Password) && string.IsNullOrEmpty(jump.PrivateKey))))
+        {
+            throw new ArgumentException("Jump host request is incomplete or has no usable credential.", nameof(request));
+        }
     }
 
     private static void EnsureBaseSession(ulong baseSessionId)
@@ -407,11 +470,18 @@ public sealed class CheckedOrbitCoreClient : ICheckedOrbitCoreClient
 
     private static void EnsureDockerAction(string action)
     {
-        if (!string.Equals(action, "start", StringComparison.Ordinal) &&
-            !string.Equals(action, "stop", StringComparison.Ordinal) &&
-            !string.Equals(action, "restart", StringComparison.Ordinal))
+        if (action is not (
+            "start" or
+            "stop" or
+            "restart" or
+            "kill" or
+            "pause" or
+            "unpause" or
+            "remove"))
         {
-            throw new ArgumentException("Docker action must be start, stop, or restart.", nameof(action));
+            throw new ArgumentException(
+                "Docker action must be start, stop, restart, kill, pause, unpause, or remove.",
+                nameof(action));
         }
     }
 

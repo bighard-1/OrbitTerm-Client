@@ -1,6 +1,8 @@
 using OrbitTerm.Application.Security;
 using OrbitTerm.NativeBridge;
 using OrbitTerm.Terminal;
+using System.Collections.Concurrent;
+using System.Net.Sockets;
 
 namespace OrbitTerm.Application.Sessions;
 
@@ -13,6 +15,9 @@ public sealed class SessionOrchestrator
     private readonly TerminalSessionRegistry terminalRegistry;
     private readonly object terminalBacklogGate = new();
     private readonly Dictionary<ulong, TerminalBacklog> terminalBacklogs = [];
+    private readonly Dictionary<ulong, TerminalScreen> terminalScreens = [];
+    private readonly ConcurrentDictionary<ulong, TelnetConnectionSession> telnetSessions = new();
+    private long telnetChannelSeed = long.MaxValue;
 
     public SessionOrchestrator(
         ICheckedOrbitCoreClient coreClient,
@@ -31,6 +36,75 @@ public sealed class SessionOrchestrator
 
     public event EventHandler<TerminalOutputReceivedEventArgs>? TerminalOutputReceived;
 
+    public async ValueTask<TerminalOpenResult> ConnectTelnetAsync(
+        Guid workspaceId,
+        ServerAsset asset,
+        TerminalSize size,
+        CancellationToken cancellationToken)
+    {
+        if (asset.Transport != ServerTransport.Telnet)
+        {
+            throw new ArgumentException("A Telnet asset is required.", nameof(asset));
+        }
+        if (asset.JumpHost is not null)
+        {
+            return new TerminalOpenResult.Failed("telnet_jump_host_unsupported", "Telnet 不支持跳板机连接。");
+        }
+
+        var credential = await credentialVault.ReadAsync(asset.CredentialId, cancellationToken).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(credential.Password))
+        {
+            return new TerminalOpenResult.Failed("telnet_password_required", "Telnet 自动登录需要密码凭据。");
+        }
+
+        var channelId = unchecked((ulong)Interlocked.Decrement(ref telnetChannelSeed));
+        var lease = new TerminalSessionLease(
+            workspaceId,
+            asset.Id,
+            channelId,
+            channelId,
+            size,
+            asset.Host,
+            asset.Port,
+            "telnet-insecure",
+            "unverified");
+        var session = new TelnetConnectionSession(lease, asset.Username, credential.Password);
+        session.DataReceived += data => PublishTerminalData(session.Lease, data.Span);
+        terminalRegistry.Register(lease);
+        lock (terminalBacklogGate)
+        {
+            terminalBacklogs[channelId] = new TerminalBacklog();
+            terminalScreens[channelId] = new TerminalScreen(size);
+        }
+        try
+        {
+            await session.ConnectAsync(cancellationToken).ConfigureAwait(false);
+            telnetSessions[channelId] = session;
+            return new TerminalOpenResult.Opened(lease);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await session.DisposeAsync().ConfigureAwait(false);
+            RemoveTelnetPresentationState(lease);
+            throw;
+        }
+        catch (Exception exception) when (exception is SocketException or IOException or OperationCanceledException)
+        {
+            await session.DisposeAsync().ConfigureAwait(false);
+            RemoveTelnetPresentationState(lease);
+            return new TerminalOpenResult.Failed("telnet_connect_failed", "无法建立 Telnet 连接，请检查地址、端口和网络。");
+        }
+    }
+
+    public async ValueTask CloseAllTelnetSessionsAsync(CancellationToken cancellationToken)
+    {
+        foreach (var lease in telnetSessions.Values.Select(session => session.Lease).ToArray())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await CloseTelnetTerminalAsync(lease, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     public async ValueTask<ConnectResult> ConnectAsync(
         Guid workspaceId,
         ServerAsset asset,
@@ -42,9 +116,54 @@ public sealed class SessionOrchestrator
         }
 
         var credential = await credentialVault.ReadAsync(asset.CredentialId, cancellationToken).ConfigureAwait(false);
+        credential = CredentialMaterialPolicy.NormalizeSshCredential(credential);
         if (credential.IsEmpty)
         {
             throw new InvalidOperationException("The selected asset has no usable credential.");
+        }
+
+        return await ConnectWithCredentialAsync(
+            workspaceId,
+            asset,
+            credential,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Establishes a checked SSH session with foreground-only credential material.
+    /// This is reserved for security workflows such as verifying a newly deployed
+    /// public key before replacing the asset's persisted credential.
+    /// </summary>
+    public async ValueTask<ConnectResult> ConnectWithCredentialAsync(
+        Guid workspaceId,
+        ServerAsset asset,
+        CredentialMaterial credential,
+        CancellationToken cancellationToken)
+    {
+        if (asset.Transport != ServerTransport.Ssh)
+        {
+            throw new NotSupportedException("Only SSH can enter the checked session flow.");
+        }
+        ArgumentNullException.ThrowIfNull(credential);
+        credential = CredentialMaterialPolicy.NormalizeSshCredential(credential);
+        if (credential.IsEmpty)
+        {
+            throw new InvalidOperationException("The selected asset has no usable credential.");
+        }
+
+        CheckedJumpHostRequest? jumpRequest = null;
+        if (asset.JumpHost is { } jump)
+        {
+            var jumpCredential = await credentialVault.ReadAsync(jump.CredentialId, cancellationToken).ConfigureAwait(false);
+            jumpCredential = CredentialMaterialPolicy.NormalizeSshCredential(jumpCredential);
+            if (jumpCredential.IsEmpty)
+            {
+                throw new InvalidOperationException("The configured jump host has no usable credential.");
+            }
+            jumpRequest = new CheckedJumpHostRequest(
+                jump.Host, jump.Port, jump.Username, jumpCredential.Password,
+                jumpCredential.PrivateKey, jumpCredential.PrivateKeyPassphrase,
+                jump.AllowPasswordFallback);
         }
 
         var requestId = HostKeyRequestId.Create();
@@ -56,7 +175,8 @@ public sealed class SessionOrchestrator
             credential.PrivateKey,
             credential.PrivateKeyPassphrase,
             asset.AllowPasswordFallback,
-            knownHostsPathProvider.GetKnownHostsPath());
+            knownHostsPathProvider.GetKnownHostsPath(),
+            jumpRequest);
 
         var outcome = coreClient.Connect(request, requestId);
         var result = ConnectResult.FromNative(workspaceId, asset.Id, outcome);
@@ -95,6 +215,7 @@ public sealed class SessionOrchestrator
             lock (terminalBacklogGate)
             {
                 terminalBacklogs[opened.Lease.TerminalChannelId] = new TerminalBacklog();
+                terminalScreens[opened.Lease.TerminalChannelId] = new TerminalScreen(opened.Lease.Size);
             }
         }
 
@@ -114,6 +235,42 @@ public sealed class SessionOrchestrator
 
         var envelope = coreClient.OpenSftp(lease.BaseSessionId, HostKeyRequestId.Create());
         return ValueTask.FromResult(SftpOpenResult.FromEnvelope(lease, envelope));
+    }
+
+    public ValueTask<LocalTunnelLease> StartLocalTunnelAsync(
+        Guid workspaceId,
+        Guid serverId,
+        string destinationHost,
+        int destinationPort,
+        int preferredLocalPort,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!sessionRegistry.TryGet(workspaceId, serverId, out var lease))
+            throw new InvalidOperationException("端口映射需要当前资产的已验证 SSH 会话。");
+        var requestId = HostKeyRequestId.Create();
+        var envelope = coreClient.StartLocalTunnel(
+            lease.BaseSessionId, "127.0.0.1", preferredLocalPort,
+            destinationHost, destinationPort, requestId);
+        var payload = CheckedEnvelopeDecoder.DecodePayload<LocalTunnelStartedPayload>(
+            envelope, "local_tunnel_started");
+        if (payload.ParsedBaseSessionId != lease.BaseSessionId || payload.ParsedTunnelId == 0)
+            throw new OrbitNativeException("Local tunnel response did not match the verified session.");
+        return ValueTask.FromResult(new LocalTunnelLease(
+            workspaceId, serverId, lease.BaseSessionId, payload.ParsedTunnelId,
+            payload.BindHost, payload.BindPort, destinationHost, destinationPort));
+    }
+
+    public ValueTask StopLocalTunnelAsync(LocalTunnelLease lease, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var requestId = HostKeyRequestId.Create();
+        var envelope = coreClient.StopLocalTunnel(lease.TunnelId, requestId);
+        var payload = CheckedEnvelopeDecoder.DecodePayload<LocalTunnelStoppedPayload>(
+            envelope, "local_tunnel_stopped");
+        if (payload.ParsedTunnelId != lease.TunnelId)
+            throw new OrbitNativeException("Stopped tunnel response did not match the request.");
+        return ValueTask.CompletedTask;
     }
 
     public ValueTask<MonitorSnapshotResult> CaptureMonitorSnapshotAsync(
@@ -211,6 +368,47 @@ public sealed class SessionOrchestrator
         return ValueTask.FromResult(BatchExecResult.FromEnvelope(lease, envelope));
     }
 
+    public ValueTask<RemoteProcessActionResult> RunRemoteProcessActionAsync(
+        Guid workspaceId,
+        Guid serverId,
+        uint processId,
+        long startIdentity,
+        RemoteProcessAction action,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!sessionRegistry.TryGet(workspaceId, serverId, out var lease))
+        {
+            throw new InvalidOperationException("A verified SSH session is required before managing a process.");
+        }
+        if (processId <= 1)
+        {
+            return ValueTask.FromResult<RemoteProcessActionResult>(
+                new RemoteProcessActionResult.Protected(processId));
+        }
+
+        string command;
+        try
+        {
+            command = RemoteProcessActionPolicy.BuildCommand(processId, startIdentity, action);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return ValueTask.FromResult<RemoteProcessActionResult>(
+                new RemoteProcessActionResult.Failed(
+                    "process_action_invalid_request",
+                    "error.process.action.invalid_request"));
+        }
+
+        var envelope = coreClient.Exec(lease.BaseSessionId, command, HostKeyRequestId.Create());
+        var batchResult = BatchExecResult.FromEnvelope(lease, envelope);
+        return ValueTask.FromResult(RemoteProcessActionPolicy.Parse(
+            lease,
+            processId,
+            action,
+            batchResult));
+    }
+
     public ValueTask<SftpDirectoryListResult> ListSftpDirectoryAsync(
         SftpSessionLease lease,
         string remotePath,
@@ -251,7 +449,9 @@ public sealed class SessionOrchestrator
         SftpSessionLease lease,
         string remotePath,
         string localPath,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<SftpTransferProgress>? progress = null,
+        SftpTransferControl? control = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (lease.SftpSessionId == 0)
@@ -259,19 +459,60 @@ public sealed class SessionOrchestrator
             throw new InvalidOperationException("An active checked SFTP channel is required before downloading.");
         }
 
-        var envelope = coreClient.DownloadSftpFile(
-            lease.SftpSessionId,
-            remotePath,
-            localPath,
-            HostKeyRequestId.Create());
-        return ValueTask.FromResult(SftpDownloadResult.FromEnvelope(lease, remotePath, envelope));
+        var requestId = HostKeyRequestId.Create();
+        var progressThrottle = new SftpTransferProgressThrottle();
+        using var cancellationRegistration = cancellationToken.Register(
+            static state =>
+            {
+                var cancellation = (SftpCancellationRequest)state!;
+                cancellation.CoreClient.CancelSftpTransfer(cancellation.RequestId);
+            },
+            new SftpCancellationRequest(coreClient, requestId));
+        EventHandler<SftpTransferProgressEventArgs>? progressHandler = progress is null && control is null
+            ? null
+            : (_, args) =>
+            {
+                if (string.Equals(args.RequestId, requestId.Value, StringComparison.Ordinal))
+                {
+                    if (control?.WaitWhilePaused(cancellationToken) == false)
+                    {
+                        return;
+                    }
+                    if (progress is not null && progressThrottle.ShouldReport(args.TransferredBytes, args.TotalBytes))
+                    {
+                        progress.Report(new SftpTransferProgress(args.TransferredBytes, args.TotalBytes));
+                    }
+                }
+            };
+        if (progressHandler is not null)
+        {
+            coreClient.SftpTransferProgress += progressHandler;
+        }
+        try
+        {
+            var envelope = coreClient.DownloadSftpFile(
+                lease.SftpSessionId,
+                remotePath,
+                localPath,
+                requestId);
+            return ValueTask.FromResult(SftpDownloadResult.FromEnvelope(lease, remotePath, envelope));
+        }
+        finally
+        {
+            if (progressHandler is not null)
+            {
+                coreClient.SftpTransferProgress -= progressHandler;
+            }
+        }
     }
 
     public ValueTask<SftpUploadResult> UploadSftpFileAsync(
         SftpSessionLease lease,
         string localPath,
         string remotePath,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<SftpTransferProgress>? progress = null,
+        SftpTransferControl? control = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (lease.SftpSessionId == 0)
@@ -279,12 +520,51 @@ public sealed class SessionOrchestrator
             throw new InvalidOperationException("An active checked SFTP channel is required before uploading.");
         }
 
-        var envelope = coreClient.UploadSftpFile(
-            lease.SftpSessionId,
-            localPath,
-            remotePath,
-            HostKeyRequestId.Create());
-        return ValueTask.FromResult(SftpUploadResult.FromEnvelope(lease, remotePath, envelope));
+        var requestId = HostKeyRequestId.Create();
+        var progressThrottle = new SftpTransferProgressThrottle();
+        using var cancellationRegistration = cancellationToken.Register(
+            static state =>
+            {
+                var cancellation = (SftpCancellationRequest)state!;
+                cancellation.CoreClient.CancelSftpTransfer(cancellation.RequestId);
+            },
+            new SftpCancellationRequest(coreClient, requestId));
+        EventHandler<SftpTransferProgressEventArgs>? progressHandler = progress is null && control is null
+            ? null
+            : (_, args) =>
+            {
+                if (string.Equals(args.RequestId, requestId.Value, StringComparison.Ordinal))
+                {
+                    if (control?.WaitWhilePaused(cancellationToken) == false)
+                    {
+                        return;
+                    }
+                    if (progress is not null && progressThrottle.ShouldReport(args.TransferredBytes, args.TotalBytes))
+                    {
+                        progress.Report(new SftpTransferProgress(args.TransferredBytes, args.TotalBytes));
+                    }
+                }
+            };
+        if (progressHandler is not null)
+        {
+            coreClient.SftpTransferProgress += progressHandler;
+        }
+        try
+        {
+            var envelope = coreClient.UploadSftpFile(
+                lease.SftpSessionId,
+                localPath,
+                remotePath,
+                requestId);
+            return ValueTask.FromResult(SftpUploadResult.FromEnvelope(lease, remotePath, envelope));
+        }
+        finally
+        {
+            if (progressHandler is not null)
+            {
+                coreClient.SftpTransferProgress -= progressHandler;
+            }
+        }
     }
 
     public ValueTask<SftpMutationResult> CreateSftpDirectoryAsync(
@@ -458,6 +738,12 @@ public sealed class SessionOrchestrator
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        var telnet = telnetSessions.Values.FirstOrDefault(candidate =>
+            candidate.Lease.WorkspaceId == workspaceId && candidate.Lease.ServerId == serverId);
+        if (telnet is not null)
+        {
+            return CloseTelnetSessionAsync(telnet.Lease, cancellationToken);
+        }
         if (!sessionRegistry.TryGet(workspaceId, serverId, out var lease))
         {
             return ValueTask.FromResult(SessionEndResult.NoActiveSession);
@@ -469,12 +755,42 @@ public sealed class SessionOrchestrator
                 : SessionEndResult.NoActiveSession);
     }
 
+    /// <summary>
+    /// Drops local leases after the transport has already disappeared. This is
+    /// intentionally not a graceful disconnect and performs no remote action.
+    /// It prevents stale connected badges and monitor data after host reboot.
+    /// </summary>
+    public void AbandonSession(Guid workspaceId, Guid serverId)
+    {
+        foreach (var terminal in terminalRegistry.RemoveAll(workspaceId, serverId))
+        {
+            lock (terminalBacklogGate)
+            {
+                terminalBacklogs.Remove(terminal.TerminalChannelId);
+                terminalScreens.Remove(terminal.TerminalChannelId);
+            }
+            if (telnetSessions.TryRemove(terminal.TerminalChannelId, out var telnet))
+            {
+                _ = telnet.DisposeAsync();
+            }
+        }
+
+        if (sessionRegistry.TryGet(workspaceId, serverId, out var session))
+        {
+            sessionRegistry.Remove(session);
+        }
+    }
+
     public ValueTask<TerminalControlOutcome> WriteTerminalAsync(
         TerminalSessionLease lease,
         ReadOnlyMemory<byte> data,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (telnetSessions.TryGetValue(lease.TerminalChannelId, out var telnet))
+        {
+            return WriteTelnetAsync(telnet, data, cancellationToken);
+        }
         var current = RequireTerminalLease(lease);
         var result = coreClient.WriteTerminal(current.TerminalChannelId, data);
         return ValueTask.FromResult(MapTerminalControlResult(result));
@@ -488,14 +804,52 @@ public sealed class SessionOrchestrator
         cancellationToken.ThrowIfCancellationRequested();
         size.Validate();
 
+        if (telnetSessions.TryGetValue(lease.TerminalChannelId, out var telnet))
+        {
+            return ResizeTelnetAsync(telnet, size, cancellationToken);
+        }
+
         var current = RequireTerminalLease(lease);
         var result = coreClient.ResizeTerminal(current.TerminalChannelId, size.Columns, size.Rows);
         if (result is TerminalControlResult.Succeeded)
         {
             terminalRegistry.UpdateSize(current, size);
+            lock (terminalBacklogGate)
+            {
+                RebuildTerminalScreenForSize(current.TerminalChannelId, size);
+            }
         }
 
         return ValueTask.FromResult(MapTerminalControlResult(result));
+    }
+
+    public TerminalScreenSnapshot ClearTerminalPresentation(TerminalSessionLease lease)
+    {
+        var current = RequireTerminalLease(lease);
+        lock (terminalBacklogGate)
+        {
+            if (!terminalScreens.TryGetValue(current.TerminalChannelId, out var screen))
+            {
+                throw new InvalidOperationException("The terminal screen is not active.");
+            }
+
+            terminalBacklogs.GetValueOrDefault(current.TerminalChannelId)?.Clear();
+            return screen.ClearPresentation();
+        }
+    }
+
+    public TerminalScreenSnapshot GetTerminalScreenSnapshot(TerminalSessionLease lease)
+    {
+        var current = RequireTerminalLease(lease);
+        lock (terminalBacklogGate)
+        {
+            if (!terminalScreens.TryGetValue(current.TerminalChannelId, out var screen))
+            {
+                throw new InvalidOperationException("The terminal screen is not active.");
+            }
+
+            return screen.Snapshot();
+        }
     }
 
     public ValueTask<TerminalControlOutcome> CloseTerminalAsync(
@@ -503,6 +857,10 @@ public sealed class SessionOrchestrator
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (telnetSessions.TryGetValue(lease.TerminalChannelId, out _))
+        {
+            return CloseTelnetTerminalAsync(lease, cancellationToken);
+        }
         var current = RequireTerminalLease(lease);
         var result = coreClient.CloseTerminal(current.TerminalChannelId);
         if (result is TerminalControlResult.Succeeded)
@@ -511,6 +869,7 @@ public sealed class SessionOrchestrator
             lock (terminalBacklogGate)
             {
                 terminalBacklogs.Remove(current.TerminalChannelId);
+                terminalScreens.Remove(current.TerminalChannelId);
             }
         }
 
@@ -539,23 +898,132 @@ public sealed class SessionOrchestrator
             return;
         }
 
+        PublishTerminalData(lease, e.Data);
+    }
+
+    private void PublishTerminalData(TerminalSessionLease lease, ReadOnlySpan<byte> data)
+    {
+        string text;
         string snapshot;
+        TerminalScreenSnapshot screenSnapshot;
         lock (terminalBacklogGate)
         {
-            if (!terminalBacklogs.TryGetValue(e.TerminalChannelId, out var backlog))
+            if (!terminalBacklogs.TryGetValue(lease.TerminalChannelId, out var backlog))
             {
                 backlog = new TerminalBacklog();
-                terminalBacklogs[e.TerminalChannelId] = backlog;
+                terminalBacklogs[lease.TerminalChannelId] = backlog;
             }
 
-            backlog.Append(e.Data);
+            text = backlog.Append(data);
             snapshot = backlog.Snapshot();
+            if (!terminalScreens.TryGetValue(lease.TerminalChannelId, out var screen))
+            {
+                screen = new TerminalScreen(lease.Size);
+                terminalScreens[lease.TerminalChannelId] = screen;
+            }
+
+            screen.Write(text);
+            screenSnapshot = screen.Snapshot();
         }
 
-        var text = System.Text.Encoding.UTF8.GetString(e.Data);
+        // An incomplete multi-byte UTF-8 character is retained by TerminalBacklog
+        // until the following callback. Do not publish a replacement character.
+        if (text.Length == 0)
+        {
+            return;
+        }
+
         TerminalOutputReceived?.Invoke(
             this,
-            new TerminalOutputReceivedEventArgs(lease, text, snapshot));
+            new TerminalOutputReceivedEventArgs(lease, text, snapshot, screenSnapshot));
+    }
+
+    private static async ValueTask<TerminalControlOutcome> WriteTelnetAsync(
+        TelnetConnectionSession session,
+        ReadOnlyMemory<byte> data,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await session.WriteAsync(data, cancellationToken).ConfigureAwait(false);
+            return new TerminalControlOutcome.Succeeded();
+        }
+        catch (Exception exception) when (exception is IOException or SocketException or InvalidOperationException)
+        {
+            return new TerminalControlOutcome.Failed("telnet_write_failed", "Telnet 数据未发送，请检查连接状态。");
+        }
+    }
+
+    private async ValueTask<TerminalControlOutcome> ResizeTelnetAsync(
+        TelnetConnectionSession session,
+        TerminalSize size,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await session.ResizeAsync(size, cancellationToken).ConfigureAwait(false);
+            terminalRegistry.UpdateSize(session.Lease, size);
+            lock (terminalBacklogGate)
+            {
+                RebuildTerminalScreenForSize(session.Lease.TerminalChannelId, size);
+            }
+            return new TerminalControlOutcome.Succeeded();
+        }
+        catch (Exception exception) when (exception is IOException or SocketException or InvalidOperationException)
+        {
+            return new TerminalControlOutcome.Failed("telnet_resize_failed", "Telnet 终端尺寸未同步。");
+        }
+    }
+
+    private async ValueTask<TerminalControlOutcome> CloseTelnetTerminalAsync(
+        TerminalSessionLease lease,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!telnetSessions.TryRemove(lease.TerminalChannelId, out var session))
+        {
+            return new TerminalControlOutcome.Failed("telnet_session_missing", "Telnet 会话已关闭。");
+        }
+        await session.DisposeAsync().ConfigureAwait(false);
+        RemoveTelnetPresentationState(lease);
+        return new TerminalControlOutcome.Succeeded();
+    }
+
+    private void RemoveTelnetPresentationState(TerminalSessionLease lease)
+    {
+        terminalRegistry.Remove(lease);
+        lock (terminalBacklogGate)
+        {
+            terminalBacklogs.Remove(lease.TerminalChannelId);
+            terminalScreens.Remove(lease.TerminalChannelId);
+        }
+    }
+
+    private void RebuildTerminalScreenForSize(ulong terminalChannelId, TerminalSize size)
+    {
+        if (terminalBacklogs.TryGetValue(terminalChannelId, out var backlog))
+        {
+            // Replaying the bounded ANSI backlog at the new PTY width gives the
+            // terminal a real reflow. Existing output no longer gets cropped by
+            // a narrower inspector and expanding it again restores the same data.
+            var rebuilt = new TerminalScreen(size);
+            rebuilt.Write(backlog.Snapshot());
+            terminalScreens[terminalChannelId] = rebuilt;
+            return;
+        }
+
+        if (terminalScreens.TryGetValue(terminalChannelId, out var screen))
+        {
+            screen.Resize(size);
+        }
+    }
+
+    private async ValueTask<SessionEndResult> CloseTelnetSessionAsync(
+        TerminalSessionLease lease,
+        CancellationToken cancellationToken)
+    {
+        var result = await CloseTelnetTerminalAsync(lease, cancellationToken).ConfigureAwait(false);
+        return result is TerminalControlOutcome.Succeeded ? SessionEndResult.Ended : SessionEndResult.NoActiveSession;
     }
 
     private static HostKeyTrustResult MapHostKeyTrustResult(
@@ -606,4 +1074,8 @@ public sealed class SessionOrchestrator
             _ => throw new InvalidOperationException("Unknown terminal control result."),
         };
     }
+
+    private sealed record SftpCancellationRequest(
+        ICheckedOrbitCoreClient CoreClient,
+        HostKeyRequestId RequestId);
 }

@@ -16,15 +16,17 @@ struct SFTPConnectPanel: View {
                 SecureField("密码", text: $draft.password)
             }
 
-            Section("模式") {
+            #if !ORBITTERM_PUBLIC_RELEASE
+            Section("开发测试") {
                 Toggle("优先使用模拟数据", isOn: $draft.preferMockMode)
-                Text("若未配置 SSH，系统会自动进入 Mock 文件列表。")
+                Text("仅开发与 UI 测试构建可使用模拟目录；Release 不会提供该入口。")
                     .font(.caption)
                     .foregroundStyle(palette.textSecondary.color)
             }
+            #endif
 
             Section("操作") {
-                Button(draft.preferMockMode ? "进入模拟浏览" : "连接 SFTP") {
+                Button(sftpConnectButtonTitle) {
                     Task {
                         await manager.connect(
                             host: draft.host,
@@ -45,6 +47,17 @@ struct SFTPConnectPanel: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .orbitTermClearTransientSensitiveInput)) { _ in
+            draft.password = ""
+        }
+    }
+
+    private var sftpConnectButtonTitle: String {
+        #if !ORBITTERM_PUBLIC_RELEASE
+        draft.preferMockMode ? "进入模拟浏览" : "连接 SFTP"
+        #else
+        "连接 SFTP"
+        #endif
     }
 }
 
@@ -52,8 +65,10 @@ struct SFTPVerifiedSessionPanel: View {
     let hasVerifiedSession: Bool
     let isLoading: Bool
     let statusText: String
+    let recovery: OperationRecoveryPresentation?
     let onOpen: () -> Void
     @Environment(\.appThemePalette) private var palette
+    @Environment(\.securitySemanticPalette) private var security
 
     var body: some View {
         ContentUnavailableView {
@@ -75,6 +90,11 @@ struct SFTPVerifiedSessionPanel: View {
             }
             if isLoading {
                 ProgressView()
+            } else if let recovery {
+                Label(recovery.message, systemImage: recovery.systemImage)
+                    .font(.caption)
+                    .foregroundStyle(recovery.severity == .danger ? security.danger.color : security.warning.color)
+                    .accessibilityLabel("SFTP：\(recovery.title)。\(recovery.message)")
             } else if !statusText.isEmpty, statusText != "未连接" {
                 Text(statusText)
                     .font(.caption)
@@ -92,51 +112,70 @@ struct SFTPFileListView: View {
     let onDownload: (FileItem) async -> Void
     let onDelete: (FileItem) async -> Void
     let onEnterDirectory: (FileItem) async -> Void
+    let onOpen: (FileItem) async -> Void
     let onUpload: (URL) async -> Void
     @Environment(\.appThemePalette) private var palette
 
     var body: some View {
-        List(manager.items) { item in
-            SFTPFileRow(
-                item: item,
-                isSelected: batchState.contains(item),
-                onToggleSelection: { toggleSelection(item) }
-            )
-            .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
-            .listRowBackground(palette.surfaceReadable.color)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                if batchState.hasSelection {
-                    toggleSelection(item)
-                } else if item.isDirectory {
-                    Task { await onEnterDirectory(item) }
+        ScrollViewReader { proxy in
+            List(manager.items) { item in
+                SFTPFileRow(
+                    item: item,
+                    isSelected: batchState.contains(item),
+                    isPathTarget: manager.highlightedItemID == item.id,
+                    onToggleSelection: { toggleSelection(item) }
+                )
+                .id(item.id)
+                .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                .listRowBackground(palette.surfaceReadable.color)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if batchState.hasSelection {
+                        toggleSelection(item)
+                    } else if item.isDirectory {
+                        Task { await onEnterDirectory(item) }
+                    } else {
+                        Task { await onOpen(item) }
+                    }
+                }
+                .contextMenu {
+                    if !item.isDirectory {
+                        Button("在应用内打开") {
+                            Task { await onOpen(item) }
+                        }
+                    }
+
+                    Button("下载") {
+                        Task { await onDownload(item) }
+                    }
+
+                    Button("删除", role: .destructive) {
+                        Task { await onDelete(item) }
+                    }
+
+                    Button("重命名") {
+                        editState.beginRename(item)
+                    }
+
+                    Button("修改权限") {
+                        editState.beginChmod(item)
+                    }
+
+                    Button(batchState.contains(item) ? "取消选择" : "选择") {
+                        toggleSelection(item)
+                    }
                 }
             }
-            .contextMenu {
-                Button("下载") {
-                    Task { await onDownload(item) }
-                }
-
-                Button("删除", role: .destructive) {
-                    Task { await onDelete(item) }
-                }
-
-                Button("重命名") {
-                    editState.beginRename(item)
-                }
-
-                Button("修改权限") {
-                    editState.beginChmod(item)
-                }
-
-                Button(batchState.contains(item) ? "取消选择" : "选择") {
-                    toggleSelection(item)
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(palette.surfaceReadable.color)
+            .onChange(of: manager.highlightedItemID) { _, itemID in
+                guard let itemID else { return }
+                withAnimation(.easeOut(duration: 0.16)) {
+                    proxy.scrollTo(itemID, anchor: .center)
                 }
             }
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(palette.surfaceReadable.color)
         .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
             SFTPDropUploadHandler.handle(providers: providers) { localURL in
                 await onUpload(localURL)

@@ -2,6 +2,9 @@ using OrbitTerm.Application.Security;
 using OrbitTerm.Application.Sessions;
 using OrbitTerm.NativeBridge;
 using OrbitTerm.Terminal;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
 using Xunit;
 
 namespace OrbitTerm.Security.Tests;
@@ -35,6 +38,56 @@ public sealed class SessionOrchestratorTests
         var opened = Assert.IsType<TerminalOpenResult.Opened>(terminal);
         Assert.Equal(88UL, opened.Lease.TerminalChannelId);
         Assert.Equal(1, core.OpenTerminalCalls);
+    }
+
+    [Fact]
+    public async Task ConnectPassesJumpHostThroughCheckedV2Request()
+    {
+        var core = new FakeCheckedCoreClient();
+        var orchestrator = new SessionOrchestrator(
+            core,
+            new FakeCredentialVault(new CredentialMaterial("secret", string.Empty, string.Empty)),
+            new FakeKnownHostsPathProvider(),
+            new VerifiedSessionRegistry());
+        var asset = CreateAsset(Guid.NewGuid(), Guid.NewGuid()) with
+        {
+            JumpHost = new JumpHostConfiguration(Guid.NewGuid(), "jump.example.com", 2222, "bastion", true),
+        };
+
+        await orchestrator.ConnectAsync(Guid.NewGuid(), asset, CancellationToken.None);
+
+        var jump = Assert.IsType<CheckedJumpHostRequest>(core.LastConnectRequest?.JumpHost);
+        Assert.Equal("jump.example.com", jump.Host);
+        Assert.Equal(2222, jump.Port);
+        Assert.Equal("bastion", jump.Username);
+        Assert.Equal("secret", jump.Password);
+        Assert.True(jump.AllowPasswordFallback);
+    }
+
+    [Fact]
+    public async Task ConnectCanonicalizesUploadedWindowsPrivateKeyBeforeNativeCore()
+    {
+        var core = new FakeCheckedCoreClient();
+        var uploaded = new CredentialMaterial(
+            string.Empty,
+            "\uFEFF-----BEGIN OPENSSH PRIVATE KEY-----\r\nwindows-upload\r\n-----END OPENSSH PRIVATE KEY-----\r\n",
+            "passphrase");
+        var orchestrator = new SessionOrchestrator(
+            core,
+            new FakeCredentialVault(uploaded),
+            new FakeKnownHostsPathProvider(),
+            new VerifiedSessionRegistry());
+
+        var result = await orchestrator.ConnectAsync(
+            Guid.NewGuid(),
+            CreateAsset(Guid.NewGuid(), Guid.NewGuid()),
+            CancellationToken.None);
+
+        Assert.IsType<ConnectResult.Connected>(result);
+        Assert.Equal(
+            "-----BEGIN OPENSSH PRIVATE KEY-----\nwindows-upload\n-----END OPENSSH PRIVATE KEY-----\n",
+            core.LastConnectRequest!.PrivateKey);
+        Assert.Equal("passphrase", core.LastConnectRequest.PrivateKeyPassphrase);
     }
 
     [Fact]
@@ -112,6 +165,85 @@ public sealed class SessionOrchestratorTests
     }
 
     [Fact]
+    public async Task RemoteProcessActionUsesVerifiedSessionAndClosedSignalPolicy()
+    {
+        var workspaceId = Guid.NewGuid();
+        var serverId = Guid.NewGuid();
+        var orchestrator = CreateConnectedOrchestrator(out var core);
+        core.ExecStdout = "__ORBIT_PROCESS_ACTION__:completed\n";
+
+        await orchestrator.ConnectAsync(
+            workspaceId,
+            CreateAsset(serverId, Guid.NewGuid()),
+            CancellationToken.None);
+
+        var result = await orchestrator.RunRemoteProcessActionAsync(
+            workspaceId,
+            serverId,
+            4242,
+            1786424400,
+            RemoteProcessAction.Terminate,
+            CancellationToken.None);
+
+        var completed = Assert.IsType<RemoteProcessActionResult.Completed>(result);
+        Assert.Equal(4242U, completed.ProcessId);
+        Assert.Equal(RemoteProcessAction.Terminate, completed.Action);
+        Assert.Equal(1, core.ExecCalls);
+        Assert.Contains("pid=4242", core.LastExecCommand, StringComparison.Ordinal);
+        Assert.Contains("expected=1786424400", core.LastExecCommand, StringComparison.Ordinal);
+        Assert.Contains("kill -TERM", core.LastExecCommand, StringComparison.Ordinal);
+        Assert.DoesNotContain("nginx", core.LastExecCommand, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task RemoteProcessActionBlocksPidOneBeforeRemoteExecution()
+    {
+        var workspaceId = Guid.NewGuid();
+        var serverId = Guid.NewGuid();
+        var orchestrator = CreateConnectedOrchestrator(out var core);
+        await orchestrator.ConnectAsync(
+            workspaceId,
+            CreateAsset(serverId, Guid.NewGuid()),
+            CancellationToken.None);
+
+        var result = await orchestrator.RunRemoteProcessActionAsync(
+            workspaceId,
+            serverId,
+            1,
+            1786424400,
+            RemoteProcessAction.ForceKill,
+            CancellationToken.None);
+
+        Assert.IsType<RemoteProcessActionResult.Protected>(result);
+        Assert.Equal(0, core.ExecCalls);
+    }
+
+    [Fact]
+    public async Task RemoteProcessForceKillRejectsReusedPidFromStableRemoteMarker()
+    {
+        var workspaceId = Guid.NewGuid();
+        var serverId = Guid.NewGuid();
+        var orchestrator = CreateConnectedOrchestrator(out var core);
+        core.ExecStdout = "__ORBIT_PROCESS_ACTION__:identity_changed\n";
+        await orchestrator.ConnectAsync(
+            workspaceId,
+            CreateAsset(serverId, Guid.NewGuid()),
+            CancellationToken.None);
+
+        var result = await orchestrator.RunRemoteProcessActionAsync(
+            workspaceId,
+            serverId,
+            4242,
+            1786424400,
+            RemoteProcessAction.ForceKill,
+            CancellationToken.None);
+
+        Assert.IsType<RemoteProcessActionResult.IdentityChanged>(result);
+        Assert.Contains("kill -KILL", core.LastExecCommand, StringComparison.Ordinal);
+        Assert.Contains("delta", core.LastExecCommand, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task SftpListUsesCheckedSftpLeaseAndMapsEntries()
     {
         var workspaceId = Guid.NewGuid();
@@ -164,11 +296,13 @@ public sealed class SessionOrchestratorTests
         Assert.Equal(55UL, core.LastSftpDownloadSessionId);
         Assert.Equal("/var/log/syslog", core.LastSftpDownloadPath);
 
+        var progressSamples = new List<SftpTransferProgress>();
         var upload = await orchestrator.UploadSftpFileAsync(
             lease,
             @"C:\Uploads\report.txt",
             "/var/log/report.txt",
-            CancellationToken.None);
+            CancellationToken.None,
+            new InlineProgress<SftpTransferProgress>(progressSamples.Add));
 
         var uploaded = Assert.IsType<SftpUploadResult.Uploaded>(upload);
         Assert.Equal("/var/log/report.txt", uploaded.Path);
@@ -177,6 +311,18 @@ public sealed class SessionOrchestratorTests
         Assert.Equal(55UL, core.LastSftpUploadSessionId);
         Assert.Equal(@"C:\Uploads\report.txt", core.LastSftpUploadLocalPath);
         Assert.Equal("/var/log/report.txt", core.LastSftpUploadRemotePath);
+        Assert.Collection(
+            progressSamples,
+            sample =>
+            {
+                Assert.Equal(21UL, sample.TransferredBytes);
+                Assert.Equal(42UL, sample.TotalBytes);
+            },
+            sample =>
+            {
+                Assert.Equal(42UL, sample.TransferredBytes);
+                Assert.Equal(42UL, sample.TotalBytes);
+            });
 
         var snapshot = new SftpMutationSnapshot(42, 0x81A4U, 1_700_000_000, false);
         var created = await orchestrator.CreateSftpDirectoryAsync(
@@ -251,6 +397,9 @@ public sealed class SessionOrchestratorTests
         Assert.Equal(lease.TerminalChannelId, received.Lease.TerminalChannelId);
         Assert.Equal("hello\n", received.Text);
         Assert.Contains("hello", received.Snapshot, StringComparison.Ordinal);
+        Assert.Equal("hello", received.Screen.Rows[0].Text);
+        Assert.Equal(5, received.Screen.CursorColumn);
+        Assert.Equal(1, received.Screen.CursorRow);
     }
 
     [Fact]
@@ -297,6 +446,52 @@ public sealed class SessionOrchestratorTests
     }
 
     [Fact]
+    public async Task TelnetConnectionIsIsolatedAndAutoAnswersLoginPrompts()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var endpoint = Assert.IsType<IPEndPoint>(listener.LocalEndpoint);
+        var workspaceId = Guid.NewGuid();
+        var serverId = Guid.NewGuid();
+        var orchestrator = new SessionOrchestrator(
+            new FakeCheckedCoreClient(),
+            new FakeCredentialVault(new CredentialMaterial("secret", string.Empty, string.Empty)),
+            new FakeKnownHostsPathProvider(),
+            new VerifiedSessionRegistry(),
+            new TerminalSessionRegistry());
+        var output = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        orchestrator.TerminalOutputReceived += (_, args) => output.TrySetResult(args.Text);
+        var asset = CreateAsset(serverId, Guid.NewGuid()) with
+        {
+            Host = IPAddress.Loopback.ToString(),
+            Port = endpoint.Port,
+            Transport = ServerTransport.Telnet,
+        };
+
+        var openTask = orchestrator.ConnectTelnetAsync(
+            workspaceId,
+            asset,
+            new TerminalSize(100, 30),
+            CancellationToken.None).AsTask();
+        using var server = await listener.AcceptTcpClientAsync();
+        var opened = Assert.IsType<TerminalOpenResult.Opened>(await openTask);
+        Assert.Equal("telnet-insecure", opened.Lease.HostKeyAlgorithm);
+
+        var stream = server.GetStream();
+        await stream.WriteAsync("login: "u8.ToArray());
+        await stream.FlushAsync();
+        Assert.Contains("login:", await output.Task.WaitAsync(TimeSpan.FromSeconds(3)), StringComparison.Ordinal);
+        Assert.Contains("alice\r\n", await ReadUntilAsync(stream, "alice\r\n"), StringComparison.Ordinal);
+
+        await stream.WriteAsync("Password: "u8.ToArray());
+        await stream.FlushAsync();
+        Assert.Contains("secret\r\n", await ReadUntilAsync(stream, "secret\r\n"), StringComparison.Ordinal);
+
+        Assert.IsType<TerminalControlOutcome.Succeeded>(
+            await orchestrator.CloseTerminalAsync(opened.Lease, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task OpenSftpRequiresRegisteredVerifiedSession()
     {
         var workspaceId = Guid.NewGuid();
@@ -317,6 +512,28 @@ public sealed class SessionOrchestratorTests
         Assert.Equal(55UL, opened.Lease.SftpSessionId);
         Assert.Equal("example.com", opened.Lease.Host);
         Assert.Equal(1, core.OpenSftpCalls);
+    }
+
+    [Fact]
+    public async Task LocalTunnelRequiresVerifiedSessionAndRoundTripsBoundEndpoint()
+    {
+        var orchestrator = CreateConnectedOrchestrator(out _);
+        var workspaceId = Guid.NewGuid();
+        var serverId = Guid.NewGuid();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await orchestrator.StartLocalTunnelAsync(
+                workspaceId, serverId, "127.0.0.1", 3389, 0, CancellationToken.None));
+
+        _ = await orchestrator.ConnectAsync(
+            workspaceId, CreateAsset(serverId, Guid.NewGuid()), CancellationToken.None);
+        var tunnel = await orchestrator.StartLocalTunnelAsync(
+            workspaceId, serverId, "127.0.0.1", 3389, 0, CancellationToken.None);
+
+        Assert.Equal("127.0.0.1", tunnel.BindHost);
+        Assert.Equal(15432, tunnel.BindPort);
+        Assert.Equal(3389, tunnel.DestinationPort);
+        await orchestrator.StopLocalTunnelAsync(tunnel, CancellationToken.None);
     }
 
     [Fact]
@@ -377,6 +594,23 @@ public sealed class SessionOrchestratorTests
             new TerminalSessionRegistry());
     }
 
+    private static async Task<string> ReadUntilAsync(NetworkStream stream, string expected)
+    {
+        var received = new List<byte>();
+        var buffer = new byte[256];
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        while (!Encoding.UTF8.GetString(received.ToArray()).Contains(expected, StringComparison.Ordinal))
+        {
+            var count = await stream.ReadAsync(buffer, timeout.Token);
+            if (count == 0)
+            {
+                break;
+            }
+            received.AddRange(buffer.AsSpan(0, count).ToArray());
+        }
+        return Encoding.UTF8.GetString(received.ToArray());
+    }
+
     private static ServerAsset CreateAsset(Guid serverId, Guid credentialId)
     {
         return new ServerAsset(
@@ -411,6 +645,8 @@ public sealed class SessionOrchestratorTests
     {
         public event EventHandler<TerminalDataReceivedEventArgs>? TerminalDataReceived;
 
+        public event EventHandler<SftpTransferProgressEventArgs>? SftpTransferProgress;
+
         public int OpenTerminalCalls { get; private set; }
         public int OpenSftpCalls { get; private set; }
         public int WriteTerminalCalls { get; private set; }
@@ -441,11 +677,16 @@ public sealed class SessionOrchestratorTests
         public bool MismatchHostKeyTrust { get; set; }
         public string? LastKnownHostsPath { get; private set; }
         public string? LastTrustComment { get; private set; }
+        public CheckedConnectionRequest? LastConnectRequest { get; private set; }
+        public string ExecStdout { get; set; } = "__ORBIT_PROCESS_ACTION__:completed\n";
+        public int ExecCalls { get; private set; }
+        public string LastExecCommand { get; private set; } = string.Empty;
 
         public CheckedConnectOutcome Connect(CheckedConnectionRequest request, HostKeyRequestId requestId)
         {
+            LastConnectRequest = request;
             return new CheckedConnectOutcome.Connected(new ConnectedPayload(
-                "9",
+                9UL,
                 request.Host,
                 request.Host,
                 checked((ushort)request.Port),
@@ -577,12 +818,17 @@ public sealed class SessionOrchestratorTests
                 """);
         }
 
+        public bool CancelSftpTransfer(HostKeyRequestId requestId) => true;
+
         public CheckedEnvelope UploadSftpFile(ulong sftpSessionId, string localPath, string remotePath, HostKeyRequestId requestId)
         {
             UploadSftpFileCalls++;
             LastSftpUploadSessionId = sftpSessionId;
             LastSftpUploadLocalPath = localPath;
             LastSftpUploadRemotePath = remotePath;
+            SftpTransferProgress?.Invoke(this, new SftpTransferProgressEventArgs(requestId.Value, 21, 42));
+            SftpTransferProgress?.Invoke(this, new SftpTransferProgressEventArgs(requestId.Value, 22, 42));
+            SftpTransferProgress?.Invoke(this, new SftpTransferProgressEventArgs(requestId.Value, 42, 42));
             return CreateEnvelope(
                 CheckedFfiKind.SftpUploadCompleted,
                 requestId.Value,
@@ -735,8 +981,30 @@ public sealed class SessionOrchestratorTests
 
         public CheckedEnvelope Exec(ulong baseSessionId, string command, HostKeyRequestId requestId)
         {
-            throw new NotSupportedException();
+            ExecCalls++;
+            LastExecCommand = command;
+            return CreateEnvelope(
+                CheckedFfiKind.ExecResult,
+                requestId.Value,
+                $$"""
+                {
+                  "base_session_id": "{{baseSessionId}}",
+                  "security_generation": "host_key_verified",
+                  "exit_status": 0,
+                  "stdout": {{System.Text.Json.JsonSerializer.Serialize(ExecStdout)}},
+                  "stderr": "",
+                  "timed_out": false,
+                  "stdout_truncated": false,
+                  "stderr_truncated": false
+                }
+                """);
         }
+
+        public CheckedEnvelope StartLocalTunnel(ulong baseSessionId, string bindHost, int bindPort, string destinationHost, int destinationPort, HostKeyRequestId requestId) =>
+            CreateEnvelope("local_tunnel_started", requestId.Value, $$"""{"base_session_id":"{{baseSessionId}}","tunnel_id":"1407374883553281","security_generation":"host_key_verified","bind_host":"127.0.0.1","bind_port":15432}""");
+
+        public CheckedEnvelope StopLocalTunnel(ulong tunnelId, HostKeyRequestId requestId) =>
+            CreateEnvelope("local_tunnel_stopped", requestId.Value, $$"""{"tunnel_id":"{{tunnelId}}"}""");
 
         public void RaiseTerminalData(ulong terminalChannelId, byte[] data)
         {
@@ -774,5 +1042,10 @@ public sealed class SessionOrchestratorTests
         {
             return "/tmp/orbitterm-known-hosts";
         }
+    }
+
+    private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
     }
 }

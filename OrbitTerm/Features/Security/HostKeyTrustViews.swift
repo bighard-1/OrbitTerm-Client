@@ -10,7 +10,11 @@ struct HostKeyTrustView: View {
 
     init(
         coordinator: HostKeyTrustCoordinator,
-        copyText: @escaping (String) -> Void = { _ in },
+        copyText: @escaping (String) -> Void = { text in
+            Task { @MainActor in
+                _ = SecureClipboard.copy(text, kind: .hostKeyFingerprint)
+            }
+        },
         onCancel: (() -> Void)? = nil,
         onTrust: (() -> Void)? = nil,
         onRetrySave: (() -> Void)? = nil,

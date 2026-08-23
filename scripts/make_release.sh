@@ -37,16 +37,19 @@ SOURCE_COMMIT="$(git rev-parse HEAD)"
 rm -rf "$TMP_DIR"
 mkdir -p "$MAC_OUT" "$IOS_OUT" "$TMP_DIR"
 
-echo "[1/8] 生成全套 AppIcon..."
+echo "[1/9] 生成全套 AppIcon..."
 ./scripts/generate_app_icons.swift
 
-echo "[2/8] 验证不可变 Xcode 工程..."
+echo "[2/9] 验证不可变 Xcode 工程..."
 echo "[提示] 使用 commit 中的 project.yml 和 OrbitTerm.xcodeproj，打包期间不重新生成工程。"
 
-echo "[3/8] 构建 Rust 核心库..."
+echo "[3/9] 构建 Rust 核心库..."
 ./scripts/build_apple_core.sh
 
-echo "[4/8] 归档 macOS..."
+echo "[4/9] 收集可追溯构建证据..."
+"$ROOT_DIR/scripts/security/collect_apple_build_evidence.sh" "$RELEASE_ROOT/evidence" >/dev/null
+
+echo "[5/9] 归档 macOS..."
 xcodebuild \
   -project "$PROJECT" \
   -scheme "$SCHEME_MAC" \
@@ -65,12 +68,12 @@ MAC_APP_DST="$MAC_OUT/OrbitTerm.app"
 rm -rf "$MAC_APP_DST"
 cp -R "$MAC_APP_SRC" "$MAC_APP_DST"
 
-echo "[5/8] 封装标准拖拽式 DMG..."
+echo "[6/9] 封装标准拖拽式 DMG..."
 FINAL_DMG="$MAC_OUT/OrbitTerm-v${MARKETING_VERSION}-build${BUILD_VERSION}-unsigned.dmg"
 rm -f "$FINAL_DMG"
 "$ROOT_DIR/scripts/create_macos_drag_dmg.sh" "$MAC_APP_DST" "$FINAL_DMG" "OrbitTerm" >/dev/null
 
-echo "[6/8] 归档 iOS 并导出 IPA..."
+echo "[7/9] 归档 iOS 并导出 IPA..."
 xcodebuild \
   -project "$PROJECT" \
   -scheme "$SCHEME_IOS" \
@@ -95,14 +98,14 @@ cp -R "$IOS_APP" "$TMP_DIR/Payload/"
   zip -qry "$IPA_PATH" Payload
 )
 
-echo "[7/8] 生成 Release Note..."
+echo "[8/9] 生成 Release Note..."
 test -f "$ROOT_DIR/release_note.txt" || {
   echo "[错误] 缺少 release_note.txt" >&2
   exit 1
 }
 cp "$ROOT_DIR/release_note.txt" "$RELEASE_ROOT/release_note.txt"
 
-echo "[8/8] 无签名打包完成"
+echo "[9/9] 无签名打包完成"
 ls -lah "$MAC_OUT" "$IOS_OUT" "$RELEASE_ROOT/release_note.txt"
 echo "DMG: $FINAL_DMG"
 echo "IPA: $IPA_PATH"

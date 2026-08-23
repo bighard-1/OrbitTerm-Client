@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-08-20",
+  "new_feature_freeze": true,
+  "allowed_change_kinds": [
+    "security",
+    "data-consistency",
+    "performance",
+    "stability",
+    "accessibility",
+    "compatibility",
+    "tests",
+    "release-evidence"
+  ],
+  "required_domains": [
+    "terminal",
+    "multi-session",
+    "split-pane",
+    "sftp",
+    "docker",
+    "monitoring",
+    "snippets",
+    "batch-command",
+    "account-unlock",
+    "encrypted-sync",
+    "themes",
+    "shortcuts"
+  ],
+  "p0_blockers": [
+    {
+      "id": "cross-platform-asset-tombstones",
+      "status": "in-progress",
+      "owner_scope": "apple-windows-android-sync",
+      "exit_criteria": "One delete removes the asset from every active inventory, keeps one trash record, removes local credentials, and never resurrects after repeated sync."
+    },
+    {
+      "id": "large-transfer-interactive-concurrency",
+      "status": "in-progress",
+      "owner_scope": "desktop-sftp-terminal-monitoring",
+      "exit_criteria": "The three-asset six-pane 3-GiB transfer scenario passes three consecutive runs on Windows 10, Windows 11, and macOS without UI stalls, blank panes, stale monitoring, or unbounded memory growth."
+    }
+  ],
+  "external_release_blockers": [
+    "windows-production-signing-and-https-update-endpoints",
+    "windows-arm64-validation",
+    "macos-signing-notarization-evidence"
+  ]
+}
+

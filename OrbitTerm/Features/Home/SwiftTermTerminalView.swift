@@ -12,14 +12,26 @@ struct TerminalSearchCommand: Equatable {
     let action: TerminalSearchAction
 }
 
+struct TerminalViewportCommand: Equatable {
+    let id = UUID()
+    let position: Double
+
+    static func latest() -> TerminalViewportCommand {
+        TerminalViewportCommand(position: 1.0)
+    }
+}
+
 struct SwiftTermTerminalView: View {
     let channelID: UInt64?
     let onResize: (Int, Int) -> Void
     let onInput: ([UInt8]) -> Void
     let searchText: String
     let searchCommand: TerminalSearchCommand?
+    let viewportCommand: TerminalViewportCommand?
     let onSearchFeedback: (Bool, TerminalSearchAction) -> Void
     @AppStorage(TerminalThemeManager.storageKey) private var terminalThemeID: String = TerminalThemeManager.defaultThemeID
+    @AppStorage(TerminalThemeManager.followsApplicationThemeStorageKey) private var terminalFollowsApplicationTheme = false
+    @AppStorage(AppThemeManager.themeStorageKey) private var applicationThemeID = AppThemeID.defaultTheme.rawValue
     @AppStorage("orbitterm.terminal.font.size") private var terminalFontSize: Double = 13
 
     init(
@@ -28,6 +40,7 @@ struct SwiftTermTerminalView: View {
         onInput: @escaping ([UInt8]) -> Void,
         searchText: String,
         searchCommand: TerminalSearchCommand?,
+        viewportCommand: TerminalViewportCommand? = nil,
         onSearchFeedback: @escaping (Bool, TerminalSearchAction) -> Void
     ) {
         self.channelID = channelID
@@ -35,11 +48,16 @@ struct SwiftTermTerminalView: View {
         self.onInput = onInput
         self.searchText = searchText
         self.searchCommand = searchCommand
+        self.viewportCommand = viewportCommand
         self.onSearchFeedback = onSearchFeedback
     }
 
     var body: some View {
-        let theme = TerminalThemeManager.theme(for: terminalThemeID)
+        let theme = TerminalThemeManager.theme(for: TerminalThemeManager.resolvedThemeID(
+            selectedTerminalThemeID: terminalThemeID,
+            followsApplicationTheme: terminalFollowsApplicationTheme,
+            applicationThemeID: applicationThemeID
+        ))
         Group {
             if let channelID {
                 TerminalRepresentable(
@@ -50,6 +68,7 @@ struct SwiftTermTerminalView: View {
                     onInput: onInput,
                     searchText: searchText,
                     searchCommand: searchCommand,
+                    viewportCommand: viewportCommand,
                     onSearchFeedback: onSearchFeedback
                 )
             } else {
@@ -79,6 +98,7 @@ private struct TerminalRepresentable: PlatformRepresentable {
     let onInput: ([UInt8]) -> Void
     let searchText: String
     let searchCommand: TerminalSearchCommand?
+    let viewportCommand: TerminalViewportCommand?
     let onSearchFeedback: (Bool, TerminalSearchAction) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -93,13 +113,19 @@ private struct TerminalRepresentable: PlatformRepresentable {
     }
 
     func updateNSView(_ nsView: TerminalView, context: Context) {
+        context.coordinator.updateCallbacks(
+            onResize: onResize,
+            onInput: onInput,
+            onSearchFeedback: onSearchFeedback
+        )
         context.coordinator.update(
             channelID: channelID,
             view: nsView,
             theme: theme,
             fontSize: fontSize,
             searchText: searchText,
-            searchCommand: searchCommand
+            searchCommand: searchCommand,
+            viewportCommand: viewportCommand
         )
     }
 #else
@@ -114,13 +140,19 @@ private struct TerminalRepresentable: PlatformRepresentable {
     }
 
     func updateUIView(_ uiView: TerminalView, context: Context) {
+        context.coordinator.updateCallbacks(
+            onResize: onResize,
+            onInput: onInput,
+            onSearchFeedback: onSearchFeedback
+        )
         context.coordinator.update(
             channelID: channelID,
             view: uiView,
             theme: theme,
             fontSize: fontSize,
             searchText: searchText,
-            searchCommand: searchCommand
+            searchCommand: searchCommand,
+            viewportCommand: viewportCommand
         )
     }
 #endif
@@ -139,14 +171,19 @@ private struct TerminalRepresentable: PlatformRepresentable {
     }
 
     final class Coordinator: NSObject, TerminalViewDelegate {
-        private let onResize: (Int, Int) -> Void
-        private let onInput: ([UInt8]) -> Void
-        private let onSearchFeedback: (Bool, TerminalSearchAction) -> Void
+        // UIView/NSView representables can keep their coordinator when SwiftUI
+        // changes the surrounding workspace session. These callbacks therefore
+        // represent the *currently rendered* session, not the one that first
+        // created this coordinator.
+        private var onResize: (Int, Int) -> Void
+        private var onInput: ([UInt8]) -> Void
+        private var onSearchFeedback: (Bool, TerminalSearchAction) -> Void
         private weak var terminalView: TerminalView?
         private var boundChannelID: UInt64?
         private var byteSubscriberID: UUID?
         private var appliedThemeID: String?
         private var lastSearchCommandID: UUID?
+        private var lastViewportCommandID: UUID?
         private var renderEscapeFilter = TerminalRenderEscapeFilter()
 
         init(
@@ -161,6 +198,16 @@ private struct TerminalRepresentable: PlatformRepresentable {
 
         func emitInput(_ bytes: [UInt8]) {
             onInput(bytes)
+        }
+
+        func updateCallbacks(
+            onResize: @escaping (Int, Int) -> Void,
+            onInput: @escaping ([UInt8]) -> Void,
+            onSearchFeedback: @escaping (Bool, TerminalSearchAction) -> Void
+        ) {
+            self.onResize = onResize
+            self.onInput = onInput
+            self.onSearchFeedback = onSearchFeedback
         }
 
         deinit {
@@ -179,7 +226,8 @@ private struct TerminalRepresentable: PlatformRepresentable {
                 theme: theme,
                 fontSize: fontSize,
                 searchText: "",
-                searchCommand: nil
+                searchCommand: nil,
+                viewportCommand: nil
             )
         }
 
@@ -189,7 +237,8 @@ private struct TerminalRepresentable: PlatformRepresentable {
             theme: TerminalTheme,
             fontSize: Double,
             searchText: String,
-            searchCommand: TerminalSearchCommand?
+            searchCommand: TerminalSearchCommand?,
+            viewportCommand: TerminalViewportCommand?
         ) {
             terminalView = view
             applyThemeIfNeeded(theme, to: view)
@@ -213,6 +262,7 @@ private struct TerminalRepresentable: PlatformRepresentable {
                         let renderedBytes = self.renderEscapeFilter.filter(Array(data))
                         guard !renderedBytes.isEmpty else { return }
                         view.feed(byteArray: renderedBytes[...])
+                        TerminalService.shared.markFirstFrameRendered(channelID: channelID)
                         self.terminalView = view
                     }
                     self?.byteSubscriberID = subscriberID
@@ -220,6 +270,13 @@ private struct TerminalRepresentable: PlatformRepresentable {
             }
 
             applySearchCommandIfNeeded(searchText: searchText, searchCommand: searchCommand, view: view)
+            applyViewportCommandIfNeeded(viewportCommand, view: view)
+        }
+
+        private func applyViewportCommandIfNeeded(_ command: TerminalViewportCommand?, view: TerminalView) {
+            guard let command, lastViewportCommandID != command.id else { return }
+            lastViewportCommandID = command.id
+            view.scroll(toPosition: min(1, max(0, command.position)))
         }
 
         private func applyFontIfNeeded(fontSize: Double, to view: TerminalView) {

@@ -61,6 +61,34 @@ fn pool_index_reuses_only_an_exact_security_generation() {
 }
 
 #[test]
+fn checked_route_identity_keeps_direct_and_jump_sessions_separate() {
+    let generation = verified_generation("target.example.com", b"target-key", b"store");
+    let direct = BaseSessionKey::checked("root", generation.clone()).unwrap();
+    let jump_a = BaseSessionKey::checked_with_route(
+        "root",
+        generation.clone(),
+        Some("ops@bastion-a.example.com:22|ssh-ed25519|fingerprint-a|store-a".to_string()),
+    )
+    .unwrap();
+    let jump_b = BaseSessionKey::checked_with_route(
+        "root",
+        generation,
+        Some("ops@bastion-b.example.com:22|ssh-ed25519|fingerprint-b|store-b".to_string()),
+    )
+    .unwrap();
+    let mut index = SessionPoolSecurityIndex::default();
+
+    index.insert(direct.clone(), 1);
+    index.insert(jump_a.clone(), 2);
+
+    assert_eq!(index.get(&direct), Some(1));
+    assert_eq!(index.get(&jump_a), Some(2));
+    assert_eq!(index.get(&jump_b), None);
+    assert_ne!(direct, jump_a);
+    assert_ne!(jump_a, jump_b);
+}
+
+#[test]
 fn checked_lookup_rejects_legacy_before_consulting_global_pool() {
     assert!(matches!(
         lookup_base_session_checked("root", SessionSecurityGeneration::LegacyUnverified),

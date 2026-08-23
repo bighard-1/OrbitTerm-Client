@@ -29,6 +29,7 @@ struct AddServerSectionCard<Content: View>: View {
 
 struct AddServerFormRow<Field: View>: View {
     @Environment(\.appThemePalette) private var palette
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let icon: String
     let title: String
     @ViewBuilder var field: Field
@@ -40,22 +41,40 @@ struct AddServerFormRow<Field: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .foregroundStyle(palette.accentPrimary.color)
-                    .frame(width: 16)
-                Text(title)
-                    .foregroundStyle(palette.textSecondary.color)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.9)
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 8) {
+                    label
+                    field
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                HStack(alignment: .center, spacing: 12) {
+                    label
+                        .frame(width: 132, alignment: .leading)
+                    field
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
-            .frame(width: 132, alignment: .leading)
-
-            field
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var label: some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .foregroundStyle(palette.accentPrimary.color)
+                // Form icons remain a fixed visual affordance. Letting their
+                // glyph metrics scale with Dynamic Type makes them escape the
+                // label column and collide with field borders.
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 24, height: 24, alignment: .center)
+                .clipped()
+                .accessibilityHidden(true)
+            Text(title)
+                .foregroundStyle(palette.textSecondary.color)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 

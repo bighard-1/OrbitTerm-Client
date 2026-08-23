@@ -57,6 +57,25 @@ public sealed class TerminalSessionRegistryTests
         Assert.Throws<ArgumentException>(() => registry.Register(lease));
     }
 
+    [Fact]
+    public void RemoveAllDropsOnlyTheDisconnectedAssetPanes()
+    {
+        var registry = new TerminalSessionRegistry();
+        var primary = CreateLease(5);
+        var split = primary with { TerminalChannelId = 6 };
+        var other = CreateLease(7);
+        registry.Register(primary);
+        registry.Register(split);
+        registry.Register(other);
+
+        var removed = registry.RemoveAll(primary.WorkspaceId, primary.ServerId);
+
+        Assert.Equal(2, removed.Count);
+        Assert.False(registry.TryGet(primary.WorkspaceId, primary.ServerId, 5, out _));
+        Assert.False(registry.TryGet(primary.WorkspaceId, primary.ServerId, 6, out _));
+        Assert.True(registry.TryGet(other.WorkspaceId, other.ServerId, 7, out _));
+    }
+
     private static TerminalSessionLease CreateLease(ulong terminalChannelId)
     {
         return new TerminalSessionLease(

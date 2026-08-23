@@ -32,6 +32,7 @@ pub(crate) struct OrbitBaseSession {
     pub(crate) metadata: BaseSessionMetadata,
     pub(crate) ssh: tokio::sync::Mutex<OrbitSshHandle>,
     pub(crate) net_snapshot: tokio::sync::Mutex<Option<NetSnapshot>>,
+    pub(crate) monitor_sample_generation: AtomicU64,
     pub(crate) channel_ref_count: AtomicU64,
     pub(crate) keepalive_watch_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
@@ -40,6 +41,10 @@ pub(crate) enum OrbitSshHandle {
     #[cfg(feature = "legacy-network-internal")]
     Legacy(client::Handle<InsecureLegacyAcceptAllHostKeyHandler>),
     Checked(client::Handle<CheckedHostKeyHandler>),
+    CheckedViaJump {
+        target: client::Handle<CheckedHostKeyHandler>,
+        jump: client::Handle<CheckedHostKeyHandler>,
+    },
     #[cfg(test)]
     Synthetic,
 }
@@ -50,6 +55,7 @@ impl OrbitSshHandle {
             #[cfg(feature = "legacy-network-internal")]
             Self::Legacy(handle) => handle.is_closed(),
             Self::Checked(handle) => handle.is_closed(),
+            Self::CheckedViaJump { target, jump } => target.is_closed() || jump.is_closed(),
             #[cfg(test)]
             Self::Synthetic => false,
         }
@@ -60,6 +66,51 @@ impl OrbitSshHandle {
             #[cfg(feature = "legacy-network-internal")]
             Self::Legacy(handle) => handle.channel_open_session().await,
             Self::Checked(handle) => handle.channel_open_session().await,
+            Self::CheckedViaJump { target, .. } => target.channel_open_session().await,
+            #[cfg(test)]
+            Self::Synthetic => panic!("synthetic session cannot open a real SSH channel"),
+        }
+    }
+
+    pub(crate) async fn channel_open_direct_tcpip(
+        &self,
+        host_to_connect: String,
+        port_to_connect: u32,
+        originator_address: String,
+        originator_port: u32,
+    ) -> Result<Channel<client::Msg>, russh::Error> {
+        match self {
+            #[cfg(feature = "legacy-network-internal")]
+            Self::Legacy(handle) => {
+                handle
+                    .channel_open_direct_tcpip(
+                        host_to_connect,
+                        port_to_connect,
+                        originator_address,
+                        originator_port,
+                    )
+                    .await
+            }
+            Self::Checked(handle) => {
+                handle
+                    .channel_open_direct_tcpip(
+                        host_to_connect,
+                        port_to_connect,
+                        originator_address,
+                        originator_port,
+                    )
+                    .await
+            }
+            Self::CheckedViaJump { target, .. } => {
+                target
+                    .channel_open_direct_tcpip(
+                        host_to_connect,
+                        port_to_connect,
+                        originator_address,
+                        originator_port,
+                    )
+                    .await
+            }
             #[cfg(test)]
             Self::Synthetic => panic!("synthetic session cannot open a real SSH channel"),
         }
@@ -75,6 +126,13 @@ impl OrbitSshHandle {
             #[cfg(feature = "legacy-network-internal")]
             Self::Legacy(handle) => handle.disconnect(reason, description, language_tag).await,
             Self::Checked(handle) => handle.disconnect(reason, description, language_tag).await,
+            Self::CheckedViaJump { target, jump } => {
+                let target_result = target.disconnect(reason, description, language_tag).await;
+                let jump_result = jump
+                    .disconnect(Disconnect::ByApplication, description, language_tag)
+                    .await;
+                target_result.and(jump_result)
+            }
             #[cfg(test)]
             Self::Synthetic => Ok(()),
         }
@@ -86,6 +144,7 @@ pub(crate) struct BaseSessionKey {
     endpoint: String,
     username: String,
     security_generation: SessionSecurityGeneration,
+    route_identity: Option<String>,
 }
 
 impl BaseSessionKey {
@@ -95,12 +154,21 @@ impl BaseSessionKey {
             endpoint: ssh_session::normalize_host_port(ip, port),
             username: username.trim().to_string(),
             security_generation: SessionSecurityGeneration::LegacyUnverified,
+            route_identity: None,
         }
     }
 
     pub(crate) fn checked(
         username: &str,
         security_generation: SessionSecurityGeneration,
+    ) -> Result<Self, SessionSecurityError> {
+        Self::checked_with_route(username, security_generation, None)
+    }
+
+    pub(crate) fn checked_with_route(
+        username: &str,
+        security_generation: SessionSecurityGeneration,
+        route_identity: Option<String>,
     ) -> Result<Self, SessionSecurityError> {
         validate_checked_generation(&security_generation)?;
         let username = username.trim();
@@ -118,6 +186,7 @@ impl BaseSessionKey {
             ),
             username: username.to_string(),
             security_generation,
+            route_identity,
         })
     }
 
@@ -436,6 +505,7 @@ pub(crate) async fn get_or_create_base_session(
             metadata: BaseSessionMetadata::new_legacy(),
             ssh: tokio::sync::Mutex::new(OrbitSshHandle::Legacy(ssh)),
             net_snapshot: tokio::sync::Mutex::new(None),
+            monitor_sample_generation: AtomicU64::new(0),
             channel_ref_count: AtomicU64::new(1),
             keepalive_watch_task: Mutex::new(None),
         });
@@ -491,6 +561,17 @@ pub(crate) async fn try_reuse_checked_base_session(
     try_reuse_base_session(&key).await
 }
 
+pub(crate) async fn try_reuse_checked_base_session_with_route(
+    username: &str,
+    security_generation: SessionSecurityGeneration,
+    route_identity: String,
+) -> Result<Option<Arc<OrbitBaseSession>>, OrbitCoreError> {
+    let key =
+        BaseSessionKey::checked_with_route(username, security_generation, Some(route_identity))
+            .map_err(session_security_core_error)?;
+    try_reuse_base_session(&key).await
+}
+
 pub(crate) async fn lookup_verified_session_for_store(
     host_identity: &crate::security::HostIdentity,
     username: &str,
@@ -538,8 +619,23 @@ pub(crate) fn insert_verified_base_session(
     username: &str,
     security_generation: SessionSecurityGeneration,
 ) -> Result<Arc<OrbitBaseSession>, OrbitCoreError> {
-    let key = BaseSessionKey::checked(username, security_generation.clone())
-        .map_err(session_security_core_error)?;
+    insert_verified_base_session_with_route(
+        OrbitSshHandle::Checked(ssh),
+        username,
+        security_generation,
+        None,
+    )
+}
+
+pub(crate) fn insert_verified_base_session_with_route(
+    ssh: OrbitSshHandle,
+    username: &str,
+    security_generation: SessionSecurityGeneration,
+    route_identity: Option<String>,
+) -> Result<Arc<OrbitBaseSession>, OrbitCoreError> {
+    let key =
+        BaseSessionKey::checked_with_route(username, security_generation.clone(), route_identity)
+            .map_err(session_security_core_error)?;
     let SessionSecurityGeneration::HostKeyVerified { host_identity, .. } = &security_generation
     else {
         return Err(session_security_core_error(
@@ -556,8 +652,9 @@ pub(crate) fn insert_verified_base_session(
         username: username.to_string(),
         key: key.clone(),
         metadata,
-        ssh: tokio::sync::Mutex::new(OrbitSshHandle::Checked(ssh)),
+        ssh: tokio::sync::Mutex::new(ssh),
         net_snapshot: tokio::sync::Mutex::new(None),
+        monitor_sample_generation: AtomicU64::new(0),
         channel_ref_count: AtomicU64::new(1),
         keepalive_watch_task: Mutex::new(None),
     });
@@ -699,6 +796,7 @@ pub(crate) fn insert_synthetic_base_session_for_tests(
         metadata,
         ssh: tokio::sync::Mutex::new(OrbitSshHandle::Synthetic),
         net_snapshot: tokio::sync::Mutex::new(None),
+        monitor_sample_generation: AtomicU64::new(0),
         channel_ref_count: AtomicU64::new(1),
         keepalive_watch_task: Mutex::new(None),
     });

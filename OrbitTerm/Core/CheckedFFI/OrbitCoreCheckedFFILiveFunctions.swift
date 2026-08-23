@@ -16,17 +16,36 @@ extension OrbitCoreCheckedFFIFunctions {
                             call.credentials.privateKeyPassphrase.withCString { passphrase in
                                 call.knownHostsPath.withCString { knownHostsPath in
                                     call.requestID.withCString { requestID in
-                                        orbit_ssh_connect_checked_v1(
-                                            host,
-                                            call.port,
-                                            username,
-                                            password,
-                                            privateKey,
-                                            passphrase,
-                                            call.credentials.allowPasswordFallback ? 1 : 0,
-                                            knownHostsPath,
-                                            requestID
-                                        )
+                                        let jump = call.jumpHost
+                                        return (jump?.host ?? "").withCString { jumpHost in
+                                            (jump?.username ?? "").withCString { jumpUsername in
+                                                (jump?.credentials.password ?? "").withCString { jumpPassword in
+                                                    (jump?.credentials.privateKey ?? "").withCString { jumpPrivateKey in
+                                                        (jump?.credentials.privateKeyPassphrase ?? "").withCString { jumpPassphrase in
+                                                            orbit_ssh_connect_checked_v2(
+                                                                host,
+                                                                call.port,
+                                                                username,
+                                                                password,
+                                                                privateKey,
+                                                                passphrase,
+                                                                call.credentials.allowPasswordFallback ? 1 : 0,
+                                                                jump == nil ? 0 : 1,
+                                                                jumpHost,
+                                                                jump?.port ?? 0,
+                                                                jumpUsername,
+                                                                jumpPassword,
+                                                                jumpPrivateKey,
+                                                                jumpPassphrase,
+                                                                jump?.credentials.allowPasswordFallback == true ? 1 : 0,
+                                                                knownHostsPath,
+                                                                requestID
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }

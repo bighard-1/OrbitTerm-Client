@@ -1,5 +1,65 @@
 import Foundation
+import Network
 import os
+
+private enum AppleTCPLatencyProbe {
+    private final class Completion: @unchecked Sendable {
+        private let lock = NSLock()
+        private var finished = false
+        private let continuation: CheckedContinuation<Double?, Never>
+
+        init(_ continuation: CheckedContinuation<Double?, Never>) {
+            self.continuation = continuation
+        }
+
+        func finish(_ value: Double?) {
+            lock.lock()
+            guard !finished else {
+                lock.unlock()
+                return
+            }
+            finished = true
+            lock.unlock()
+            continuation.resume(returning: value)
+        }
+    }
+
+    /// Measures the client-to-server TCP handshake for the actual SSH endpoint.
+    /// It sends no protocol bytes and never touches credentials.
+    static func measure(host: String, port: Int, timeout: TimeInterval = 2) async -> Double? {
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedHost.isEmpty,
+              (1...65_535).contains(port),
+              let nwPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
+            return nil
+        }
+
+        return await withCheckedContinuation { continuation in
+            let completion = Completion(continuation)
+            let queue = DispatchQueue(label: "com.orbitterm.tcp-latency", qos: .utility)
+            let connection = NWConnection(host: NWEndpoint.Host(normalizedHost), port: nwPort, using: .tcp)
+            let startedAt = DispatchTime.now().uptimeNanoseconds
+
+            connection.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    let elapsed = DispatchTime.now().uptimeNanoseconds - startedAt
+                    connection.cancel()
+                    completion.finish(Double(elapsed) / 1_000_000)
+                case .failed, .cancelled:
+                    completion.finish(nil)
+                default:
+                    break
+                }
+            }
+            connection.start(queue: queue)
+            queue.asyncAfter(deadline: .now() + max(0.2, timeout)) {
+                connection.cancel()
+                completion.finish(nil)
+            }
+        }
+    }
+}
 
 struct MonitorTargetConfig: Identifiable, Codable, Hashable {
     let id: UUID
@@ -98,43 +158,25 @@ struct MonitorPanelState: Identifiable {
     var points: [MonitorPoint]
 }
 
-struct CircularBuffer<Element> {
-    private var storage: [Element] = []
-    private var cursor = 0
-    let capacity: Int
-
-    init(capacity: Int) {
-        self.capacity = max(1, capacity)
-    }
-
-    mutating func append(_ element: Element) {
-        if storage.count < capacity {
-            storage.append(element)
-            return
-        }
-
-        storage[cursor] = element
-        cursor = (cursor + 1) % capacity
-    }
-
-    var elementsInOrder: [Element] {
-        guard storage.count == capacity else { return storage }
-        return Array(storage[cursor...]) + Array(storage[..<cursor])
-    }
-}
-
 @MainActor
 final class MonitorService: ObservableObject {
     @Published private(set) var panels: [MonitorPanelState] = []
     @Published private(set) var checkedErrors: [UUID: CheckedMonitorServiceError] = [:]
 
+    func recoveryPresentation(for targetID: UUID?) -> OperationRecoveryPresentation? {
+        guard let targetID, let error = checkedErrors[targetID] else { return nil }
+        return OperationRecoveryMapper.monitor(error)
+    }
+
     private let logger = Logger(subsystem: "com.orbitterm.app", category: "monitor")
     private let connectionMode: ConnectionSecurityPolicy
     private let checkedSnapshotService: (any CheckedMonitorSnapshotFetching)?
-    private var buffers: [UUID: CircularBuffer<MonitorPoint>] = [:]
+    private var buffers: [UUID: BoundedCircularBuffer<MonitorPoint>] = [:]
     private var sessions: [UUID: UInt64] = [:]
     private var checkedBindings: [UUID: CheckedMonitorBinding] = [:]
+    private var checkedEndpoints: [UUID: (host: String, port: Int)] = [:]
     private var checkedPollers: [UUID: CheckedMonitorPollingLoop] = [:]
+    private var checkedDeliveryOwners: [UUID: OperationOwner] = [:]
     private var consecutiveFailures: [UUID: Int] = [:]
     private var reconnectTasks: [UUID: Task<Void, Never>] = [:]
     private var pollTasks: [UUID: Task<Void, Never>] = [:]
@@ -167,7 +209,7 @@ final class MonitorService: ObservableObject {
         let target = MonitorTargetConfig(name: name, host: host, port: port, username: username)
         try? vault.save(credentials, for: target.credentialID)
         panels.append(MonitorPanelState(id: target.id, target: target, isRunning: false, status: "未连接", points: []))
-        buffers[target.id] = CircularBuffer(capacity: 600)
+        buffers[target.id] = BoundedCircularBuffer(capacity: OperationResourceBudget.monitorPointsPerPanel)
         persistTargets()
     }
 
@@ -186,7 +228,7 @@ final class MonitorService: ObservableObject {
         let target = MonitorTargetConfig(name: name, host: host, port: port, username: username)
         try? vault.save(credentials, for: target.credentialID)
         panels.append(MonitorPanelState(id: target.id, target: target, isRunning: false, status: "未连接", points: []))
-        buffers[target.id] = CircularBuffer(capacity: 600)
+        buffers[target.id] = BoundedCircularBuffer(capacity: OperationResourceBudget.monitorPointsPerPanel)
         persistTargets()
         return target.id
     }
@@ -226,6 +268,7 @@ final class MonitorService: ObservableObject {
         reconnectTasks.removeValue(forKey: targetID)
         stopPolling(targetID)
         if isChecked {
+            invalidateCheckedDelivery(for: targetID)
             let poller = checkedPollers[targetID]
             Task { await poller?.stop() }
         } else {
@@ -236,6 +279,7 @@ final class MonitorService: ObservableObject {
         sessions.removeValue(forKey: targetID)
         checkedBindings.removeValue(forKey: targetID)
         checkedPollers.removeValue(forKey: targetID)
+        checkedDeliveryOwners.removeValue(forKey: targetID)
         checkedErrors.removeValue(forKey: targetID)
         consecutiveFailures.removeValue(forKey: targetID)
         allowPasswordFallbackByTarget.removeValue(forKey: targetID)
@@ -283,7 +327,7 @@ final class MonitorService: ObservableObject {
             panels[index].isRunning = true
             panels[index].status = "监控中"
             startPolling(targetID)
-            logger.debug("[MON] connected target=\(target.name, privacy: .public) sid=\(sessionID)")
+            logger.debug("[MON] connected target=\(target.name, privacy: .private(mask: .hash)) sid=\(sessionID, privacy: .private(mask: .hash))")
         } catch {
             panels[index].status = "连接失败: \(error.localizedDescription)"
             panels[index].isRunning = false
@@ -316,7 +360,7 @@ final class MonitorService: ObservableObject {
             panels[index].isRunning = true
             panels[index].status = "监控中"
             startPolling(targetID)
-            logger.debug("[MON] reused base session target=\(self.panels[index].target.name, privacy: .public) sid=\(sessionID)")
+            logger.debug("[MON] reused base session target=\(self.panels[index].target.name, privacy: .private(mask: .hash)) sid=\(sessionID, privacy: .private(mask: .hash))")
         } catch {
             panels[index].status = "连接失败: \(error.localizedDescription)"
             panels[index].isRunning = false
@@ -325,9 +369,12 @@ final class MonitorService: ObservableObject {
 
     func disconnect(_ targetID: UUID) async {
         if checkedBindings[targetID] != nil {
+            invalidateCheckedDelivery(for: targetID)
             await checkedPollers[targetID]?.stop()
             checkedPollers.removeValue(forKey: targetID)
             checkedBindings.removeValue(forKey: targetID)
+            checkedEndpoints.removeValue(forKey: targetID)
+            checkedDeliveryOwners.removeValue(forKey: targetID)
             checkedErrors.removeValue(forKey: targetID)
             if let index = panels.firstIndex(where: { $0.id == targetID }) {
                 panels[index].isRunning = false
@@ -356,6 +403,13 @@ final class MonitorService: ObservableObject {
         pollTasks[targetID] = Task(priority: .utility) { @MainActor [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
+                guard MonitorRefreshPreference.isEnabled() else {
+                    if let index = self.panels.firstIndex(where: { $0.id == targetID }) {
+                        self.panels[index].status = "监控自动刷新已暂停"
+                    }
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    continue
+                }
                 let start = Date()
                 await self.pollTargetOnce(targetID)
 
@@ -392,9 +446,16 @@ final class MonitorService: ObservableObject {
             }
 
             let stats = try JSONDecoder().decode(RustSystemStatsPayload.self, from: Data(payload.utf8))
-            let point = stats.monitorPoint
+            let tcpLatency = await AppleTCPLatencyProbe.measure(
+                host: panels[panelIndex].target.host,
+                port: panels[panelIndex].target.port
+            )
+            let recentLatency = buffers[targetID]?.elementsInOrder.map(\.pingLatencyMs) ?? []
+            let point = stats.monitorPoint.replacingLatency(
+                with: TCPLatencySamplePolicy.stabilized(current: tcpLatency, recent: recentLatency)
+            )
 
-            var buffer = buffers[targetID] ?? CircularBuffer(capacity: 600)
+            var buffer = buffers[targetID] ?? BoundedCircularBuffer(capacity: OperationResourceBudget.monitorPointsPerPanel)
             buffer.append(point)
             buffers[targetID] = buffer
 
@@ -482,7 +543,7 @@ final class MonitorService: ObservableObject {
             consecutiveFailures[targetID] = 0
             panels[index].status = "监控已恢复"
             startPolling(targetID)
-            logger.debug("[MON] healed target=\(target.name, privacy: .public) sid=\(newSID)")
+            logger.debug("[MON] healed target=\(target.name, privacy: .private(mask: .hash)) sid=\(newSID, privacy: .private(mask: .hash))")
             return true
         } catch {
             panels[index].status = "重连中..."
@@ -499,7 +560,7 @@ final class MonitorService: ObservableObject {
             return MonitorPanelState(id: $0.id, target: $0, isRunning: false, status: status, points: [])
         }
         for target in targets {
-            buffers[target.id] = CircularBuffer(capacity: 600)
+            buffers[target.id] = BoundedCircularBuffer(capacity: OperationResourceBudget.monitorPointsPerPanel)
         }
 
         if result.needsRewrite {
@@ -518,7 +579,9 @@ final class MonitorService: ObservableObject {
     func startCheckedMonitoring(
         workspaceID: UUID,
         baseSessionID: BaseSessionID,
-        name: String
+        name: String,
+        host: String,
+        port: Int
     ) async -> Result<UUID, CheckedMonitorServiceError> {
         guard connectionMode.requiresCheckedNetwork else {
             return .failure(.legacyMonitorDisabledInCheckedMode)
@@ -527,9 +590,12 @@ final class MonitorService: ObservableObject {
             return .failure(.internalInvariant)
         }
 
-        let targetID = ensureCheckedPanel(workspaceID: workspaceID, name: name)
-        await checkedPollers[targetID]?.stop()
-
+        let targetID = ensureCheckedPanel(
+            workspaceID: workspaceID,
+            name: name,
+            host: host,
+            port: port
+        )
         let binding = CheckedMonitorBinding(
             workspaceID: workspaceID,
             baseSessionID: baseSessionID
@@ -537,21 +603,120 @@ final class MonitorService: ObservableObject {
         let poller = CheckedMonitorPollingLoop(
             binding: binding,
             fetcher: checkedSnapshotService,
-            intervalNanoseconds: checkedPollingIntervalNanoseconds
+            intervalNanoseconds: checkedPollingIntervalNanoseconds,
+            isEnabled: checkedPollingEnabled
         )
         checkedBindings[targetID] = binding
-        checkedPollers[targetID] = poller
+        checkedEndpoints[targetID] = (host, port)
         checkedErrors.removeValue(forKey: targetID)
-
-        if let index = panels.firstIndex(where: { $0.id == targetID }) {
-            panels[index].isRunning = true
-            panels[index].status = "安全监控启动中"
-        }
-
-        await poller.start { [weak self] result in
-            await self?.applyCheckedSnapshotResult(result, targetID: targetID)
+        await startCheckedPolling(targetID: targetID, binding: binding, poller: poller)
+        if !MonitorRefreshPreference.isEnabled() {
+            await suspendMonitoring(targetID)
         }
         return .success(targetID)
+    }
+
+    /// Applies the user's global monitoring preference to every live panel.
+    /// Existing verified SSH sessions are retained; only snapshot polling is
+    /// suspended or resumed, so changing this setting cannot create a second
+    /// connection or disturb terminal/SFTP work.
+    func applyAutoRefreshPreference(_ enabled: Bool) async {
+        let targetIDs = panels.map(\.id)
+        for targetID in targetIDs {
+            if enabled {
+                await resumeMonitoring(targetID)
+            } else {
+                await suspendMonitoring(targetID)
+            }
+        }
+    }
+
+    /// Stops polling work without closing the verified session. It is safe to
+    /// call for an inactive tab or application and rejects any delayed result.
+    func suspendMonitoring(_ targetID: UUID) async {
+        invalidateCheckedDelivery(for: targetID)
+        reconnectTasks[targetID]?.cancel()
+        reconnectTasks.removeValue(forKey: targetID)
+        stopPolling(targetID)
+
+        let poller = checkedPollers[targetID]
+        checkedPollers.removeValue(forKey: targetID)
+        await poller?.stop()
+
+        if let index = panels.firstIndex(where: { $0.id == targetID }) {
+            panels[index].isRunning = false
+            panels[index].status = checkedBindings[targetID] == nil
+                ? "监控已暂停"
+                : "安全监控已暂停"
+        }
+    }
+
+    /// Reuses the existing checked binding, so resuming monitoring never
+    /// creates another SSH or SFTP channel.
+    func resumeMonitoring(_ targetID: UUID) async {
+        if let binding = checkedBindings[targetID] {
+            guard let checkedSnapshotService else { return }
+            let poller = CheckedMonitorPollingLoop(
+                binding: binding,
+                fetcher: checkedSnapshotService,
+                intervalNanoseconds: checkedPollingIntervalNanoseconds,
+                isEnabled: checkedPollingEnabled
+            )
+            await startCheckedPolling(targetID: targetID, binding: binding, poller: poller)
+            return
+        }
+
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
+        guard sessions[targetID] != nil else { return }
+        if let index = panels.firstIndex(where: { $0.id == targetID }) {
+            panels[index].isRunning = true
+            panels[index].status = "监控恢复中"
+        }
+        startPolling(targetID)
+        #endif
+    }
+
+    /// Restarts only the existing monitor polling loop so the next snapshot is
+    /// fetched immediately. The checked binding is reused verbatim: this does
+    /// not create a new SSH connection or an auxiliary SFTP channel.
+    func refreshMonitoring(_ targetID: UUID) async {
+        if let binding = checkedBindings[targetID] {
+            guard let checkedSnapshotService else { return }
+            if !MonitorRefreshPreference.isEnabled() {
+                let lease = beginCheckedDelivery(for: targetID)
+                let result: Result<MonitorSnapshotPayload, CheckedMonitorServiceError>
+                do {
+                    result = .success(try await checkedSnapshotService.snapshot(binding: binding))
+                } catch let error as CheckedMonitorServiceError {
+                    result = .failure(error)
+                } catch {
+                    result = .failure(.unknownCheckedFFIError)
+                }
+                await applyCheckedSnapshotResult(
+                    result,
+                    targetID: targetID,
+                    binding: binding,
+                    lease: lease
+                )
+                if let index = panels.firstIndex(where: { $0.id == targetID }) {
+                    panels[index].isRunning = false
+                    panels[index].status = "已手动刷新，自动刷新仍暂停"
+                }
+                return
+            }
+            let poller = CheckedMonitorPollingLoop(
+                binding: binding,
+                fetcher: checkedSnapshotService,
+                intervalNanoseconds: checkedPollingIntervalNanoseconds,
+                isEnabled: checkedPollingEnabled
+            )
+            await startCheckedPolling(targetID: targetID, binding: binding, poller: poller)
+            return
+        }
+
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
+        await pollTargetOnce(targetID)
+        #endif
     }
 
     func rejectCheckedStandalone(_ error: CheckedMonitorServiceError = .requiresVerifiedSession) {
@@ -567,15 +732,25 @@ final class MonitorService: ObservableObject {
         checkedBindings[targetID]
     }
 
-    private func ensureCheckedPanel(workspaceID: UUID, name: String) -> UUID {
-        if let existing = panels.first(where: { $0.id == workspaceID }) {
-            return existing.id
+    private func ensureCheckedPanel(
+        workspaceID: UUID,
+        name: String,
+        host: String = "",
+        port: Int = 22
+    ) -> UUID {
+        if let index = panels.firstIndex(where: { $0.id == workspaceID }) {
+            if !host.isEmpty {
+                panels[index].target.host = host
+                panels[index].target.port = port
+                panels[index].target.name = name
+            }
+            return panels[index].id
         }
         let target = MonitorTargetConfig(
             id: workspaceID,
             name: name,
-            host: "",
-            port: 22,
+            host: host,
+            port: port,
             username: "",
             credentialID: workspaceID
         )
@@ -588,7 +763,7 @@ final class MonitorService: ObservableObject {
                 points: []
             )
         )
-        buffers[workspaceID] = CircularBuffer(capacity: 600)
+        buffers[workspaceID] = BoundedCircularBuffer(capacity: OperationResourceBudget.monitorPointsPerPanel)
         return workspaceID
     }
 
@@ -603,23 +778,44 @@ final class MonitorService: ObservableObject {
 
     private func applyCheckedSnapshotResult(
         _ result: Result<MonitorSnapshotPayload, CheckedMonitorServiceError>,
-        targetID: UUID
-    ) {
-        guard checkedBindings[targetID] != nil,
+        targetID: UUID,
+        binding: CheckedMonitorBinding,
+        lease: OperationLease
+    ) async {
+        guard acceptsCheckedDelivery(lease, for: targetID),
+              checkedBindings[targetID] == binding,
               let panelIndex = panels.firstIndex(where: { $0.id == targetID }) else {
             return
         }
 
         switch result {
         case let .success(payload):
+            let endpoint = checkedEndpoints[targetID]
+            let tcpLatency: Double?
+            if let endpoint {
+                tcpLatency = await AppleTCPLatencyProbe.measure(host: endpoint.host, port: endpoint.port)
+            } else {
+                tcpLatency = nil
+            }
+            // The TCP handshake can outlive a tab switch or disconnect. Never
+            // publish that delayed sample into a replacement workspace.
+            guard acceptsCheckedDelivery(lease, for: targetID),
+                  checkedBindings[targetID] == binding,
+                  let currentPanelIndex = panels.firstIndex(where: { $0.id == targetID }) else {
+                return
+            }
             checkedErrors.removeValue(forKey: targetID)
-            var buffer = buffers[targetID] ?? CircularBuffer(capacity: 600)
-            buffer.append(payload.stats.monitorPoint)
+            var buffer = buffers[targetID] ?? BoundedCircularBuffer(capacity: OperationResourceBudget.monitorPointsPerPanel)
+            let stableLatency = TCPLatencySamplePolicy.stabilized(
+                current: tcpLatency,
+                recent: buffer.elementsInOrder.map(\.pingLatencyMs)
+            )
+            buffer.append(payload.stats.monitorPoint.replacingLatency(with: stableLatency))
             buffers[targetID] = buffer
-            panels[panelIndex].points = buffer.elementsInOrder
-            panels[panelIndex].isRunning = true
-            panels[panelIndex].status = payload.diagnostics.contains(.pingUnavailable)
-                ? "安全监控中（延迟不可用）"
+            panels[currentPanelIndex].points = buffer.elementsInOrder
+            panels[currentPanelIndex].isRunning = true
+            panels[currentPanelIndex].status = tcpLatency == nil
+                ? "安全监控中（SSH 端口 TCP 延迟不可用）"
                 : "安全监控中"
         case let .failure(error):
             checkedErrors[targetID] = error
@@ -639,16 +835,66 @@ final class MonitorService: ObservableObject {
         return UInt64(max(0.1, seconds) * 1_000_000_000)
     }
 
+    private var checkedPollingEnabled: @Sendable () -> Bool {
+        { MonitorRefreshPreference.isEnabled() }
+    }
+
+    private func startCheckedPolling(
+        targetID: UUID,
+        binding: CheckedMonitorBinding,
+        poller: CheckedMonitorPollingLoop
+    ) async {
+        let priorPoller = checkedPollers[targetID]
+        checkedPollers[targetID] = nil
+        await priorPoller?.stop()
+
+        let lease = beginCheckedDelivery(for: targetID)
+        checkedBindings[targetID] = binding
+        checkedPollers[targetID] = poller
+        if let index = panels.firstIndex(where: { $0.id == targetID }) {
+            panels[index].isRunning = true
+            panels[index].status = "安全监控启动中"
+        }
+
+        await poller.start { [weak self] result in
+            await self?.applyCheckedSnapshotResult(
+                result,
+                targetID: targetID,
+                binding: binding,
+                lease: lease
+            )
+        }
+    }
+
+    private func beginCheckedDelivery(for targetID: UUID) -> OperationLease {
+        var owner = checkedDeliveryOwners[targetID] ?? OperationOwner()
+        let lease = owner.begin(scope: .workspace(targetID))
+        checkedDeliveryOwners[targetID] = owner
+        return lease
+    }
+
+    private func invalidateCheckedDelivery(for targetID: UUID) {
+        guard var owner = checkedDeliveryOwners[targetID] else { return }
+        owner.invalidate()
+        checkedDeliveryOwners[targetID] = owner
+    }
+
+    private func acceptsCheckedDelivery(_ lease: OperationLease, for targetID: UUID) -> Bool {
+        checkedDeliveryOwners[targetID]?.owns(lease, scope: .workspace(targetID)) == true
+    }
+
     private func callRustWithTimeout(
         seconds: TimeInterval,
         label: String,
         _ call: @escaping @Sendable () -> UnsafeMutablePointer<CChar>?
     ) async throws -> String {
         let payload = try await RustFFI.callWithTimeout(seconds: seconds, call)
-        logger.debug("[MON] rust_call=\(label, privacy: .public) bytes=\(payload.utf8.count)")
+        logger.debug("[MON] rust_call=\(label, privacy: .private(mask: .hash)) bytes=\(payload.utf8.count)")
         return payload
     }
 }
+
+extension MonitorService: WorkspaceMonitoring {}
 
 private extension MonitorSnapshotStatsPayload {
     var monitorPoint: MonitorPoint {
@@ -660,6 +906,21 @@ private extension MonitorSnapshotStatsPayload {
             pingLatencyMs: pingLatencyMS,
             rxRateKBps: rxRateKBPS,
             txRateKBps: txRateKBPS,
+            systemInfo: systemInfo
+        )
+    }
+}
+
+private extension MonitorPoint {
+    func replacingLatency(with tcpLatencyMS: Double?) -> MonitorPoint {
+        MonitorPoint(
+            time: time,
+            cpuUsage: cpuUsage,
+            memUsedPercent: memUsedPercent,
+            diskUsedPercent: diskUsedPercent,
+            pingLatencyMs: tcpLatencyMS,
+            rxRateKBps: rxRateKBps,
+            txRateKBps: txRateKBps,
             systemInfo: systemInfo
         )
     }

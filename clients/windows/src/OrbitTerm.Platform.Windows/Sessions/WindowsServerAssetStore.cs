@@ -8,6 +8,9 @@ public sealed class WindowsServerAssetStore : IServerAssetStore
 {
     private const int MaximumAssets = 512;
     private const long MaximumAssetFileBytes = 1024 * 1024;
+    private const int MaximumTagsPerAsset = 16;
+    private const int MaximumGroupLength = 64;
+    private const int MaximumTagLength = 32;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -126,11 +129,90 @@ public sealed class WindowsServerAssetStore : IServerAssetStore
                 Name = name,
                 Host = asset.Host.Trim(),
                 Username = asset.Username.Trim(),
+                Group = NormalizeGroup(asset.Group),
+                Tags = NormalizeTags(asset.Tags),
                 Transport = asset.Transport,
+                JumpHost = NormalizeJumpHost(asset.JumpHost),
+                StorageScope = Enum.IsDefined(asset.StorageScope)
+                    ? asset.StorageScope
+                    : AssetStorageScope.AccountSynced,
+                OwnerAccountScope = NormalizeAccountScope(asset.OwnerAccountScope),
             });
         }
 
         return normalized;
+    }
+
+    private static JumpHostRecord? NormalizeJumpHost(JumpHostRecord? jump)
+    {
+        if (jump is null)
+        {
+            return null;
+        }
+        var host = NormalizeText(jump.Host, 255);
+        var username = NormalizeText(jump.Username, 120);
+        if (jump.CredentialId == Guid.Empty || string.IsNullOrWhiteSpace(host) ||
+            string.IsNullOrWhiteSpace(username) || jump.Port is < 1 or > 65535)
+        {
+            return null;
+        }
+        return jump with { Host = host, Username = username };
+    }
+
+    private static string NormalizeGroup(string? group)
+    {
+        var normalized = NormalizeText(group, MaximumGroupLength);
+        return string.IsNullOrWhiteSpace(normalized) ? "未分组" : normalized;
+    }
+
+    private static IReadOnlyList<string> NormalizeTags(IReadOnlyList<string>? tags)
+    {
+        if (tags is null)
+        {
+            return [];
+        }
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var normalized = new List<string>(Math.Min(tags.Count, MaximumTagsPerAsset));
+        foreach (var tag in tags)
+        {
+            var value = NormalizeText(tag, MaximumTagLength);
+            if (!string.IsNullOrWhiteSpace(value) && seen.Add(value))
+            {
+                normalized.Add(value);
+            }
+
+            if (normalized.Count == MaximumTagsPerAsset)
+            {
+                break;
+            }
+        }
+
+        return normalized;
+    }
+
+    private static string? NormalizeAccountScope(string? accountScope)
+    {
+        if (string.IsNullOrWhiteSpace(accountScope))
+        {
+            return null;
+        }
+
+        var normalized = accountScope.Trim().ToLowerInvariant();
+        return normalized.Length == 64 && normalized.All(Uri.IsHexDigit)
+            ? normalized
+            : null;
+    }
+
+    private static string NormalizeText(string? value, int maximumLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var cleaned = new string(value.Trim().Where(character => !char.IsControl(character)).ToArray());
+        return cleaned.Length <= maximumLength ? cleaned : cleaned[..maximumLength];
     }
 
     private sealed record ServerAssetDocument(int Version, IReadOnlyList<ServerAssetRecord> Assets);

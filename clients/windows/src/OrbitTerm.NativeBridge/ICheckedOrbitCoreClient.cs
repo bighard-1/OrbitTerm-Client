@@ -4,6 +4,8 @@ public interface ICheckedOrbitCoreClient
 {
     event EventHandler<TerminalDataReceivedEventArgs>? TerminalDataReceived;
 
+    event EventHandler<SftpTransferProgressEventArgs>? SftpTransferProgress;
+
     CheckedConnectOutcome Connect(CheckedConnectionRequest request, HostKeyRequestId requestId);
 
     CheckedHostKeyTrustOutcome AcceptAndPersistHostKey(
@@ -31,6 +33,8 @@ public interface ICheckedOrbitCoreClient
     CheckedEnvelope ReadSftpTextFile(ulong sftpSessionId, string remotePath, HostKeyRequestId requestId);
 
     CheckedEnvelope DownloadSftpFile(ulong sftpSessionId, string remotePath, string localPath, HostKeyRequestId requestId);
+
+    bool CancelSftpTransfer(HostKeyRequestId requestId);
 
     CheckedEnvelope UploadSftpFile(ulong sftpSessionId, string localPath, string remotePath, HostKeyRequestId requestId);
 
@@ -76,4 +80,14 @@ public interface ICheckedOrbitCoreClient
     CheckedEnvelope DockerAction(ulong baseSessionId, string containerId, string action, HostKeyRequestId requestId);
 
     CheckedEnvelope Exec(ulong baseSessionId, string command, HostKeyRequestId requestId);
+
+    CheckedEnvelope StartLocalTunnel(
+        ulong baseSessionId,
+        string bindHost,
+        int bindPort,
+        string destinationHost,
+        int destinationPort,
+        HostKeyRequestId requestId);
+
+    CheckedEnvelope StopLocalTunnel(ulong tunnelId, HostKeyRequestId requestId);
 }

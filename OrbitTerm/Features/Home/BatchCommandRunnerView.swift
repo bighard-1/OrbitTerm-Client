@@ -18,15 +18,19 @@ private struct BatchCommandTarget {
 
 struct BatchCommandRunnerView: View {
     @ObservedObject var store: ServerStore
+    let allowedServerIDs: Set<UUID>?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.securitySemanticPalette) private var securityPalette
+    @EnvironmentObject private var session: AppSession
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var selectedServerIDs: Set<UUID> = []
-    @State private var selectedGroups: Set<String> = []
     @State private var commandText = ""
     @State private var isRunning = false
     @State private var receipts: [BatchCommandReceipt] = []
     @State private var summaryText = "请选择资产或分组，然后输入命令执行。"
+    @State private var runTask: Task<Void, Never>?
+    @State private var runOwner = PageOperationOwner()
 
     #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
     private let vault = CredentialVault.shared
@@ -38,8 +42,28 @@ struct BatchCommandRunnerView: View {
         )
     )
 
+    init(
+        store: ServerStore,
+        initialCommand: String = "",
+        allowedServerIDs: Set<UUID>? = nil
+    ) {
+        self.store = store
+        self.allowedServerIDs = allowedServerIDs
+        _commandText = State(initialValue: initialCommand)
+    }
+
     var body: some View {
         NavigationStack {
+            Group {
+#if os(iOS)
+            VStack(spacing: 0) {
+                selectionPane
+                    .frame(maxWidth: .infinity, maxHeight: 300)
+                Divider()
+                commandPane
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+#else
             HStack(spacing: 0) {
                 selectionPane
                     .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
@@ -47,18 +71,42 @@ struct BatchCommandRunnerView: View {
                 commandPane
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+#endif
+            }
             .navigationTitle("多资产命令执行")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
+                    Button("关闭") {
+                        cancelBatchRun()
+                        dismiss()
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("执行命令") {
-                        Task { await runBatchCommand() }
+                    Button(isRunning ? "取消执行" : "执行命令") {
+                        if isRunning {
+                            cancelBatchRun()
+                        } else {
+                            startBatchRun()
+                        }
                     }
-                    .disabled(!canExecute)
+                    .disabled(isRunning ? false : !canExecute)
                 }
             }
+        }
+        .onDisappear {
+            cancelBatchRun()
+        }
+        .onChange(of: scenePhase) { _, _ in
+            cancelBatchRunIfOwnershipWasLost()
+        }
+        .onChange(of: session.isAuthenticated) { _, _ in
+            cancelBatchRunIfOwnershipWasLost()
+        }
+        .onChange(of: session.isUnlocked) { _, _ in
+            cancelBatchRunIfOwnershipWasLost()
+        }
+        .onChange(of: session.username) { _, _ in
+            cancelBatchRun(.accountChanged)
         }
     }
 
@@ -69,7 +117,7 @@ struct BatchCommandRunnerView: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
 
-            if store.groupedServers.isEmpty {
+            if batchSelectionSections.isEmpty {
                 Text("暂无分组")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -77,22 +125,29 @@ struct BatchCommandRunnerView: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
-                        ForEach(store.groupedServers, id: \.group) { section in
-                            let isOn = selectedGroups.contains(section.group)
-                            Button {
-                                if isOn {
-                                    selectedGroups.remove(section.group)
-                                } else {
-                                    selectedGroups.insert(section.group)
+                        ForEach(batchSelectionSections, id: \.group) { section in
+                            let sshItems = section.items
+                            if !sshItems.isEmpty {
+                                let groupIDs = Set(sshItems.map(\.id))
+                                let selectedCount = groupIDs.intersection(selectedServerIDs).count
+                                let isOn = selectedCount == groupIDs.count
+                                Button {
+                                    if isOn {
+                                        selectedServerIDs.subtract(groupIDs)
+                                    } else {
+                                        selectedServerIDs.formUnion(groupIDs)
+                                    }
+                                } label: {
+                                    HStack {
+                                        Image(systemName: selectedCount == 0
+                                            ? "square"
+                                            : isOn ? "checkmark.square.fill" : "minus.square.fill")
+                                        Text("\(section.group) (\(sshItems.count))")
+                                        Spacer()
+                                    }
                                 }
-                            } label: {
-                                HStack {
-                                    Image(systemName: isOn ? "checkmark.square.fill" : "square")
-                                    Text("\(section.group) (\(section.items.count))")
-                                    Spacer()
-                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, 12)
@@ -107,7 +162,7 @@ struct BatchCommandRunnerView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(store.servers) { server in
+                    ForEach(availableSSHServers) { server in
                         let isOn = selectedServerIDs.contains(server.id)
                         Button {
                             if isOn {
@@ -144,7 +199,7 @@ struct BatchCommandRunnerView: View {
 
             if !targetsWithoutVerifiedSession.isEmpty {
                 Label(
-                    "\(targetsWithoutVerifiedSession.count) 台目标尚未建立已验证的 SSH 会话。请先从资产列表打开并完成主机身份确认。",
+                    "\(targetsWithoutVerifiedSession.count) 台目标将在执行时使用已保存凭据安全连接；未知或变化的主机密钥会仅使对应资产失败。",
                     systemImage: "shield.lefthalf.filled"
                 )
                 .font(.caption)
@@ -221,9 +276,19 @@ struct BatchCommandRunnerView: View {
     }
 
     private var effectiveTargets: [ServerEntry] {
-        store.servers.filter {
-            selectedServerIDs.contains($0.id) || selectedGroups.contains($0.displayGroup)
+        availableSSHServers.filter { selectedServerIDs.contains($0.id) }
+    }
+
+    private var availableSSHServers: [ServerEntry] {
+        store.servers.filter { server in
+            server.transport == .ssh && (allowedServerIDs == nil || allowedServerIDs?.contains(server.id) == true)
         }
+    }
+
+    private var batchSelectionSections: [(group: String, items: [ServerEntry])] {
+        Dictionary(grouping: availableSSHServers, by: \.displayGroup)
+            .map { (group: $0.key, items: $0.value) }
+            .sorted { $0.group.localizedStandardCompare($1.group) == .orderedAscending }
     }
 
     private var targetsWithoutVerifiedSession: [ServerEntry] {
@@ -236,26 +301,75 @@ struct BatchCommandRunnerView: View {
     }
 
     private var canExecute: Bool {
-        !isRunning
+        canOwnBatchOperation
+            && !isRunning
             && !commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !effectiveTargets.isEmpty
-            && targetsWithoutVerifiedSession.isEmpty
     }
 
-    private func runBatchCommand() async {
+    private var canOwnBatchOperation: Bool {
+        session.isAuthenticated && session.isUnlocked && scenePhase == .active
+    }
+
+    private func startBatchRun() {
+        guard runTask == nil, canExecute else { return }
+        let scope = accountOperationScope
+        let lease = runOwner.begin(scope: scope, timeout: PageOperationTimeout.batchCommand)
+        runTask = Task {
+            await runBatchCommand(lease: lease, scope: scope)
+            if runOwner.timeoutReached(lease) {
+                runOwner.cancel(.timedOut)
+                isRunning = false
+                summaryText = "批量命令超时；不会发布迟到结果。"
+                runTask = nil
+                return
+            }
+            guard runOwner.accepts(lease, scope: scope) else { return }
+            runTask = nil
+        }
+    }
+
+    private func cancelBatchRunIfOwnershipWasLost() {
+        guard !session.isAuthenticated else {
+            if !session.isUnlocked {
+                cancelBatchRun(.accountLocked)
+            } else if scenePhase != .active {
+                cancelBatchRun(.sceneInactive)
+            }
+            return
+        }
+        cancelBatchRun(.accountSignedOut)
+    }
+
+    private var accountOperationScope: OperationScope {
+        guard let account = AccountScope(username: session.username) else { return .anonymous }
+        return .account(account.storageIdentifier)
+    }
+
+    private func cancelBatchRun(_ reason: PageOperationCancellationReason = .userCancelled) {
+        runOwner.cancel(reason)
+        runTask?.cancel()
+        runTask = nil
+        guard isRunning else { return }
+        isRunning = false
+        summaryText = "执行已取消；不会发布迟到结果。"
+        Task { await checkedBatchService.cancel() }
+    }
+
+    private func accepts(_ lease: PageOperationLease, scope: OperationScope) -> Bool {
+        !Task.isCancelled && runOwner.accepts(lease, scope: scope) && canOwnBatchOperation
+    }
+
+    private func runBatchCommand(lease: PageOperationLease, scope: OperationScope) async {
+        guard accepts(lease, scope: scope) else { return }
         let command = commandText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else { return }
         let targets = effectiveTargets
         guard !targets.isEmpty else { return }
-        guard targetsWithoutVerifiedSession.isEmpty else {
-            summaryText = "请先为全部目标建立已验证的 SSH 会话；批量命令不会自动连接或跳过主机身份确认。"
-            return
-        }
-
         isRunning = true
         receipts = []
         if SessionManager.shared.connectionSecurityPolicy.requiresCheckedNetwork {
-            await runCheckedBatchCommand(command: command, targets: targets)
+            await runCheckedBatchCommand(command: command, targets: targets, lease: lease, scope: scope)
             return
         }
 
@@ -310,22 +424,43 @@ struct BatchCommandRunnerView: View {
             }
 
             for await receipt in group {
+                guard accepts(lease, scope: scope) else {
+                    group.cancelAll()
+                    break
+                }
                 receipts.append(receipt)
                 receipts.sort { $0.serverName.localizedCaseInsensitiveCompare($1.serverName) == .orderedAscending }
             }
         }
 
+        guard accepts(lease, scope: scope) else { return }
         let okCount = receipts.filter(\.success).count
         summaryText = "执行完成：成功 \(okCount) / \(receipts.count)"
         isRunning = false
         #else
+        guard accepts(lease, scope: scope) else { return }
         summaryText = "当前构建要求使用已验证会话"
         isRunning = false
         #endif
     }
 
-    private func runCheckedBatchCommand(command: String, targets: [ServerEntry]) async {
-        summaryText = "checked mode：仅对已验证会话执行 Batch 命令..."
+    private func runCheckedBatchCommand(
+        command: String,
+        targets: [ServerEntry],
+        lease: PageOperationLease,
+        scope: OperationScope
+    ) async {
+        guard accepts(lease, scope: scope) else { return }
+        summaryText = "正在使用已保存凭据准备目标会话…"
+        var preparationFailures: [String: String] = [:]
+        for target in targets where SessionManager.shared.verifiedSessionLease(for: target.id) == nil {
+            guard accepts(lease, scope: scope) else { return }
+            if let reason = await SessionManager.shared.prepareVerifiedSessionForBatch(server: target) {
+                preparationFailures[target.endpointText] = reason
+            }
+        }
+
+        guard accepts(lease, scope: scope) else { return }
         let checkedTargets = targets.map { server in
             let lease = SessionManager.shared.verifiedSessionLease(for: server.id)
             return CheckedBatchTarget(
@@ -336,23 +471,39 @@ struct BatchCommandRunnerView: View {
             )
         }
 
-        let results = await checkedBatchService.execute(
-            command: command,
-            targets: checkedTargets,
-            options: .defaults
-        )
+        let results: [CheckedBatchTargetResult]
+        do {
+            results = try await PageOperationTimeout.perform(timeout: PageOperationTimeout.batchCommand) {
+                await checkedBatchService.execute(
+                    command: command,
+                    targets: checkedTargets,
+                    options: .defaults
+                )
+            }
+        } catch {
+            if runOwner.timeoutReached(lease) {
+                runOwner.cancel(.timedOut)
+            }
+            guard accepts(lease, scope: scope) else { return }
+            summaryText = "批量命令未完成，请检查会话后重试。"
+            isRunning = false
+            return
+        }
+        guard accepts(lease, scope: scope) else { return }
         receipts = results.map { result in
-            BatchCommandReceipt(
+            let preparationFailure = preparationFailures[result.endpoint]
+            return BatchCommandReceipt(
                 serverName: result.displayName,
                 endpoint: result.endpoint,
                 durationMs: result.durationMS,
-                success: result.succeeded,
-                output: result.displayOutput
+                success: preparationFailure == nil && result.succeeded,
+                output: preparationFailure.map { "连接失败：\($0)" } ?? result.displayOutput
             )
         }
         .sorted {
             $0.serverName.localizedCaseInsensitiveCompare($1.serverName) == .orderedAscending
         }
+        guard accepts(lease, scope: scope) else { return }
         let okCount = receipts.filter(\.success).count
         summaryText = "checked 执行完成：成功 \(okCount) / \(receipts.count)"
         isRunning = false

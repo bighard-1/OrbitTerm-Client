@@ -20,10 +20,10 @@ pub(crate) mod insecure_legacy_host_key_handler;
 pub(crate) mod checked_connect_coordinator;
 #[cfg(test)]
 mod checked_connect_coordinator_tests;
-mod checked_docker_ffi;
+pub(crate) mod checked_docker_ffi;
 #[cfg(test)]
 mod checked_docker_ffi_tests;
-mod checked_exec_ffi;
+pub(crate) mod checked_exec_ffi;
 #[cfg(test)]
 mod checked_exec_ffi_tests;
 #[allow(
@@ -33,17 +33,18 @@ mod checked_exec_ffi_tests;
 pub(crate) mod checked_host_key_handler;
 #[cfg(test)]
 mod checked_host_key_handler_tests;
-mod checked_monitor_ffi;
+pub(crate) mod checked_monitor_ffi;
 #[cfg(test)]
 mod checked_monitor_ffi_tests;
-mod checked_sftp_ffi;
+pub(crate) mod checked_port_forward_ffi;
+pub(crate) mod checked_sftp_ffi;
 #[cfg(test)]
 mod checked_sftp_ffi_tests;
 pub(crate) mod checked_ssh_connect;
-mod checked_ssh_connect_ffi;
+pub(crate) mod checked_ssh_connect_ffi;
 #[cfg(test)]
 mod checked_ssh_connect_tests;
-mod checked_terminal_ffi;
+pub(crate) mod checked_terminal_ffi;
 #[cfg(test)]
 mod checked_terminal_ffi_tests;
 #[allow(
@@ -68,7 +69,7 @@ mod host_key_challenge_registry_tests;
     reason = "A2.3a registration is consumed only by the production-unwired checked handler"
 )]
 pub(crate) mod host_key_challenge_service;
-mod host_key_ffi_api;
+pub(crate) mod host_key_ffi_api;
 #[cfg(test)]
 mod host_key_ffi_api_tests;
 mod host_key_ffi_error;
@@ -142,11 +143,11 @@ pub use host_key_ffi_protocol::{
     HostKeyFfiChallengeReasonCode, HostKeyFfiEnvelope, HostKeyFfiKnownState, HostKeyFfiResult,
     HostKeyFfiResultKind, HostKeyFfiSecurityGeneration, HostKeyRejectedPayload,
     HostKeyRejectionStatus, HostKeyTrustPersistedPayload, HostKeyTrustStatus,
-    MonitorSnapshotDiagnostic, MonitorSnapshotPayload, MonitorSnapshotStatsPayload,
-    MonitorSystemInfoPayload, SftpChannelOpenedPayload, SftpDirectoryEntryPayload,
-    SftpDirectoryListPayload, SftpDownloadPayload, SftpMutationOperation, SftpMutationPayload,
-    SftpTextFilePayload, SftpUploadPayload, TerminalChannelOpenedPayload,
-    HOST_KEY_FFI_SCHEMA_VERSION,
+    LocalTunnelStartedPayload, LocalTunnelStoppedPayload, MonitorSnapshotDiagnostic,
+    MonitorSnapshotPayload, MonitorSnapshotStatsPayload, MonitorSystemInfoPayload,
+    SftpChannelOpenedPayload, SftpDirectoryEntryPayload, SftpDirectoryListPayload,
+    SftpDownloadPayload, SftpMutationOperation, SftpMutationPayload, SftpTextFilePayload,
+    SftpUploadPayload, TerminalChannelOpenedPayload, HOST_KEY_FFI_SCHEMA_VERSION,
 };
 pub use host_key_trust_persistence::{
     persist_snapshot_to_known_hosts, HostKeyTrustPersistenceError,

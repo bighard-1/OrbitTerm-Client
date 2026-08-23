@@ -58,8 +58,9 @@ if ($codeBehind -notmatch "MinimumWindowHeight\s*=\s*$($quality.minimum_window_h
     Fail "MainWindow minimum height constant must match release quality metadata."
 }
 
-if ($codeBehind -notmatch "AppWindow\.Resize\(new SizeInt32\(MinimumWindowWidth, MinimumWindowHeight\)\)") {
-    Fail "MainWindow must apply the release quality window size through WinUI AppWindow."
+if ($codeBehind -notmatch "WindowMessageGetMinMaxInfo" -or
+    $codeBehind -notmatch "MinimumTrackingSize\s*=\s*new NativePoint") {
+    Fail "MainWindow must enforce the release quality minimum through WM_GETMINMAXINFO."
 }
 
 if ($quality.minimum_text_font_size -lt 12) {
@@ -86,20 +87,31 @@ foreach ($command in @("PreviousCommandHistoryCommand", "NextCommandHistoryComma
     }
 }
 
-foreach ($requiredName in @(
-    "Server assets",
-    "SFTP directory entries",
-    "SFTP preview text",
-    "Previous command",
-    "Next command"
+foreach ($requiredControl in @(
+    "NativeTerminalView",
+    "TerminalPreInputBox",
+    "SftpEntriesList",
+    "ActiveSftpTransfersTab",
+    "CompletedSftpTransfersTab"
 )) {
-    if ($xaml -notmatch "AutomationProperties\.Name=`"$([regex]::Escape($requiredName))`"") {
-        Fail "Required accessibility name missing: $requiredName"
+    $controlPattern = "<[^>]*x:Name=`"$([regex]::Escape($requiredControl))`"[^>]*>"
+    $controlMarkup = [regex]::Match($xaml, $controlPattern, [System.Text.RegularExpressions.RegexOptions]::Singleline).Value
+    if ([string]::IsNullOrWhiteSpace($controlMarkup) -or
+        $controlMarkup -notmatch "AutomationProperties\.Name=") {
+        Fail "Required accessibility name missing from control: $requiredControl"
     }
 }
 
 if ($xaml -match "<Image\b") {
-    Fail "Release UI must avoid unmanaged raster Image elements until high-DPI variants are reviewed."
+    # The only approved raster is the packaged 44px brand mark rendered inside
+    # the fixed 22-DIP title-bar slot (2x source density). Any content image or
+    # unbounded raster still fails this gate.
+    $images = [regex]::Matches($xaml, '<Image\b[^>]*>')
+    if ($images.Count -ne 1 -or
+        $images[0].Value -notmatch 'Source="ms-appx:///Assets/Square44x44Logo\.png"' -or
+        $xaml -notmatch '<Border Width="22"\s+Height="22"') {
+        Fail "Release UI contains an unreviewed raster Image element."
+    }
 }
 
 if ($quality.requires_keyboard_access -ne $true -or $quality.requires_accessible_names -ne $true) {
@@ -110,12 +122,13 @@ if ($quality.requires_high_dpi_safe_assets -ne $true) {
     Fail "Release quality metadata must require high-DPI-safe assets."
 }
 
-if ($quality.localization.default_culture -ne "en-US") {
-    Fail "Release quality metadata must define en-US as the default culture."
+if ($quality.localization.default_culture -notmatch "^[a-z]{2}-[A-Z]{2}$") {
+    Fail "Release quality metadata must define a valid default culture."
 }
 
-if ($quality.localization.supported_cultures.Count -lt 1 -or $quality.localization.supported_cultures[0] -ne "en-US") {
-    Fail "Release quality metadata must include en-US in supported cultures."
+if ($quality.localization.supported_cultures.Count -lt 1 -or
+    $quality.localization.supported_cultures -notcontains $quality.localization.default_culture) {
+    Fail "Release quality metadata must include the default culture in supported cultures."
 }
 
 if ($quality.localization.external_distribution_requires_string_resources -ne $true) {

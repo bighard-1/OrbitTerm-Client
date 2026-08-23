@@ -1,3 +1,4 @@
 # exception_id|path|required_context
 checked_trusted_proceed|orbit-core/src/security/checked_host_key_handler.rs|HostKeyVerificationDecision::Proceed
 internal_legacy_accept_all|orbit-core/src/security/insecure_legacy_host_key_handler.rs|legacy-network-internal
+keyboard_interactive_auth_success|orbit-core/src/ssh_session.rs|KeyboardInteractiveAuthResponse::Success => return Ok(true)

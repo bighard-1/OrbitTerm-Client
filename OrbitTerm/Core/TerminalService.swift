@@ -4,52 +4,6 @@ extension Notification.Name {
     static let orbitConnectionLost = Notification.Name("OrbitTerm.ConnectionLost")
 }
 
-actor TerminalChunkBuffer {
-    private var storage: [UInt64: Data] = [:]
-    private var history: [UInt64: Data] = [:]
-    private let maxHistoryBytesPerChannel = 8_388_608
-
-    func ingest(channelID: UInt64, bytes: Data) {
-        guard !bytes.isEmpty else { return }
-        if var existing = storage[channelID] {
-            existing.append(bytes)
-            storage[channelID] = existing
-        } else {
-            storage[channelID] = bytes
-        }
-
-        if var existingHistory = history[channelID] {
-            existingHistory.append(bytes)
-            if existingHistory.count > maxHistoryBytesPerChannel {
-                let overflow = existingHistory.count - maxHistoryBytesPerChannel
-                existingHistory.removeFirst(overflow)
-            }
-            history[channelID] = existingHistory
-        } else {
-            if bytes.count > maxHistoryBytesPerChannel {
-                history[channelID] = bytes.suffix(maxHistoryBytesPerChannel)
-            } else {
-                history[channelID] = bytes
-            }
-        }
-    }
-
-    func drainAll() -> [UInt64: Data] {
-        let snapshot = storage
-        storage.removeAll(keepingCapacity: true)
-        return snapshot
-    }
-
-    func replay(channelID: UInt64) -> Data {
-        history[channelID] ?? Data()
-    }
-
-    func clear(channelID: UInt64) {
-        storage.removeValue(forKey: channelID)
-        history.removeValue(forKey: channelID)
-    }
-}
-
 @MainActor
 final class TerminalService {
     static let shared = TerminalService()
@@ -61,7 +15,12 @@ final class TerminalService {
     private var nextVirtualChannelID: UInt64 = 9_000_000_000_000_000_000
     private let chunkBuffer = TerminalChunkBuffer()
     private var flushTask: Task<Void, Never>?
-    private let flushIntervalNanos: UInt64 = 33_000_000
+    private var queuedInput: [UInt64: Data] = [:]
+    private var queuedInputFlushTasks: [UInt64: Task<Void, Never>] = [:]
+    private var inputOwners: [UInt64: OperationOwner] = [:]
+    private var inputLeases: [UInt64: OperationLease] = [:]
+    private var firstFrameSpans: [UInt64: PerformanceSignpost.Span] = [:]
+    private let flushIntervalNanos = OperationResourceBudget.terminalFlushIntervalNanoseconds
     private let ffiQueue = DispatchQueue(label: "com.orbitterm.terminal.ffi", qos: .userInitiated)
 
     private init() {
@@ -69,15 +28,23 @@ final class TerminalService {
     }
 
     func bind(channelID: UInt64, onData: @escaping (String) -> Void) {
+        if textHandlers[channelID] == nil, byteHandlers[channelID] == nil {
+            beginInputOwnership(for: channelID)
+        }
         textHandlers[channelID] = onData
+        startFlushLoopIfNeeded()
     }
 
     @discardableResult
     func bindBytes(channelID: UInt64, onData: @escaping (Data) -> Void) -> UUID {
+        if textHandlers[channelID] == nil, byteHandlers[channelID] == nil {
+            beginInputOwnership(for: channelID)
+        }
         let subscriberID = UUID()
         var handlers = byteHandlers[channelID] ?? [:]
         handlers[subscriberID] = onData
         byteHandlers[channelID] = handlers
+        startFlushLoopIfNeeded()
 
         Task { [weak self] in
             guard let self else { return }
@@ -98,11 +65,18 @@ final class TerminalService {
         } else {
             byteHandlers[channelID] = handlers
         }
+        if byteHandlers[channelID] == nil, textHandlers[channelID] == nil {
+            invalidateInputOwnership(for: channelID)
+        }
+        stopFlushLoopIfIdle()
     }
 
     func unbind(channelID: UInt64) {
+        invalidateInputOwnership(for: channelID)
+        firstFrameSpans.removeValue(forKey: channelID)?.cancel()
         textHandlers.removeValue(forKey: channelID)
         byteHandlers.removeValue(forKey: channelID)
+        stopFlushLoopIfIdle()
     }
 
     func openPTY(sessionOrChannelID: UInt64, cols: UInt32, rows: UInt32) async -> UInt64? {
@@ -187,6 +161,34 @@ final class TerminalService {
         return parseOK("write", rawPtr: ptr)
     }
 
+    /// Keyboard delegates can be invoked once per character. Keep that hot
+    /// path on the main actor and coalesce only ordinary text for one short
+    /// scheduling window; control sequences always flush immediately.
+    func enqueueInput(channelID: UInt64, bytes: [UInt8]) {
+        guard !bytes.isEmpty else { return }
+        let lease = currentInputLease(for: channelID)
+        queuedInput[channelID, default: Data()].append(contentsOf: bytes)
+
+        if TerminalInputDispatchPolicy.sendsImmediately(bytes) ||
+            (queuedInput[channelID]?.count ?? 0) >= TerminalInputDispatchPolicy.maximumCoalescedBytes {
+            flushQueuedInputImmediately(channelID: channelID, lease: lease)
+            return
+        }
+
+        guard queuedInputFlushTasks[channelID] == nil else { return }
+        queuedInputFlushTasks[channelID] = Task { [weak self] in
+            do {
+                try await Task.sleep(
+                    nanoseconds: TerminalInputDispatchPolicy.coalescingDelayNanoseconds
+                )
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await self?.flushQueuedInput(channelID: channelID, lease: lease)
+        }
+    }
+
     func resize(channelID: UInt64, cols: UInt32, rows: UInt32) async {
         let ptr = await performFFI {
             orbit_terminal_resize(channelID, cols, rows)
@@ -195,6 +197,8 @@ final class TerminalService {
     }
 
     func unbindAndClose(channelID: UInt64) async {
+        invalidateInputOwnership(for: channelID)
+        firstFrameSpans.removeValue(forKey: channelID)?.cancel()
         unbind(channelID: channelID)
         await chunkBuffer.clear(channelID: channelID)
         if virtualWriters[channelID] != nil {
@@ -216,7 +220,26 @@ final class TerminalService {
 
     func feedVirtualChannel(channelID: UInt64, data: Data) async {
         guard virtualWriters[channelID] != nil else { return }
-        await chunkBuffer.ingest(channelID: channelID, bytes: data)
+        let hasVisibleSubscriber = textHandlers[channelID] != nil || byteHandlers[channelID] != nil
+        await chunkBuffer.ingest(
+            channelID: channelID,
+            bytes: data,
+            queueForDelivery: hasVisibleSubscriber
+        )
+        if hasVisibleSubscriber {
+            startFlushLoopIfNeeded()
+        }
+    }
+
+    /// Starts at a successfully opened terminal channel and ends only after
+    /// its first bytes have been handed to the platform terminal view.
+    func beginFirstFrameMeasurement(channelID: UInt64) {
+        firstFrameSpans.removeValue(forKey: channelID)?.cancel()
+        firstFrameSpans[channelID] = PerformanceSignpost.begin(.terminalFirstFrame)
+    }
+
+    func markFirstFrameRendered(channelID: UInt64) {
+        firstFrameSpans.removeValue(forKey: channelID)?.finish()
     }
 
     private func installCallbackIfNeeded() {
@@ -224,15 +247,18 @@ final class TerminalService {
         orbit_terminal_set_callback(TerminalService.callbackBridge)
         orbit_connection_set_callback(TerminalService.connectionCallbackBridge)
         isCallbackInstalled = true
-        startFlushLoopIfNeeded()
     }
 
     private func startFlushLoopIfNeeded() {
         guard flushTask == nil else { return }
-        flushTask = Task.detached(priority: .userInitiated) { [weak self] in
+        flushTask = Task(priority: .userInitiated) { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: self?.flushIntervalNanos ?? 33_000_000)
-                guard let self else { continue }
+                do {
+                    try await Task.sleep(nanoseconds: self?.flushIntervalNanos ?? 33_000_000)
+                } catch {
+                    return
+                }
+                guard let self else { return }
                 let batches = await self.chunkBuffer.drainAll()
                 if batches.isEmpty {
                     continue
@@ -254,11 +280,74 @@ final class TerminalService {
         }
     }
 
+    private func stopFlushLoopIfIdle() {
+        guard textHandlers.isEmpty, byteHandlers.isEmpty else { return }
+        flushTask?.cancel()
+        flushTask = nil
+    }
+
+    private func flushQueuedInputImmediately(channelID: UInt64, lease: OperationLease) {
+        queuedInputFlushTasks.removeValue(forKey: channelID)?.cancel()
+        guard let bytes = queuedInput.removeValue(forKey: channelID), !bytes.isEmpty else { return }
+        Task { [weak self] in
+            guard let self, self.ownsInput(lease, channelID: channelID) else { return }
+            _ = await self.writeRaw(channelID: channelID, bytes: Array(bytes))
+        }
+    }
+
+    private func flushQueuedInput(channelID: UInt64, lease: OperationLease) async {
+        queuedInputFlushTasks.removeValue(forKey: channelID)
+        guard let bytes = queuedInput.removeValue(forKey: channelID), !bytes.isEmpty else { return }
+        guard ownsInput(lease, channelID: channelID) else { return }
+        _ = await writeRaw(channelID: channelID, bytes: Array(bytes))
+    }
+
+    private func beginInputOwnership(for channelID: UInt64) {
+        var owner = inputOwners[channelID] ?? OperationOwner()
+        let lease = owner.begin(scope: .terminalChannel(channelID))
+        inputOwners[channelID] = owner
+        inputLeases[channelID] = lease
+    }
+
+    private func currentInputLease(for channelID: UInt64) -> OperationLease {
+        if let lease = inputLeases[channelID], ownsInput(lease, channelID: channelID) {
+            return lease
+        }
+        beginInputOwnership(for: channelID)
+        // `beginInputOwnership` always installs a matching lease.
+        return inputLeases[channelID]!
+    }
+
+    private func invalidateInputOwnership(for channelID: UInt64) {
+        var owner = inputOwners[channelID] ?? OperationOwner()
+        owner.invalidate()
+        inputOwners[channelID] = owner
+        inputLeases.removeValue(forKey: channelID)
+        queuedInputFlushTasks.removeValue(forKey: channelID)?.cancel()
+        queuedInput.removeValue(forKey: channelID)
+    }
+
+    private func ownsInput(_ lease: OperationLease, channelID: UInt64) -> Bool {
+        inputOwners[channelID]?.owns(lease, scope: .terminalChannel(channelID)) == true
+    }
+
+    private func receiveTerminalBytes(channelID: UInt64, data: Data) async {
+        let hasVisibleSubscriber = textHandlers[channelID] != nil || byteHandlers[channelID] != nil
+        await chunkBuffer.ingest(
+            channelID: channelID,
+            bytes: data,
+            queueForDelivery: hasVisibleSubscriber
+        )
+        if hasVisibleSubscriber {
+            startFlushLoopIfNeeded()
+        }
+    }
+
     private static let callbackBridge: @convention(c) (UInt64, UnsafePointer<UInt8>?, Int) -> Void = { channelID, dataPtr, len in
         guard let dataPtr, len > 0 else { return }
         let data = Data(bytes: dataPtr, count: len)
-        Task.detached(priority: .userInitiated) {
-            await TerminalService.shared.chunkBuffer.ingest(channelID: channelID, bytes: data)
+        Task(priority: .userInitiated) {
+            await TerminalService.shared.receiveTerminalBytes(channelID: channelID, data: data)
         }
     }
 

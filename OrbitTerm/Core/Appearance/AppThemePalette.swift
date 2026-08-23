@@ -72,16 +72,26 @@ struct AppThemePalette: Hashable {
             )
         }
 
+#if os(macOS)
+        let darkValues = (0.18, 0.18, 0.22, 0.18, 0.15, 0.34, 0.38, 0.30, 0.28)
+        let lightValues = (0.18, 0.10, 0.15, 0.12, 0.10, 0.32, 0.32, 0.28, 0.24)
+#else
+        // Mobile clients keep their established visual density. The stronger
+        // desktop hierarchy is deliberately scoped to macOS.
+        let darkValues = (0.11, 0.12, 0.15, 0.12, 0.08, 0.28, 0.28, 0.24, 0.20)
+        let lightValues = (0.08, 0.05, 0.08, 0.06, 0.04, 0.26, 0.20, 0.20, 0.16)
+#endif
+
         if isDark {
             return .init(
-                pageBackground: blended(0.045, 0.065, 0.10, with: decorations.0, amount: 0.11),
+                pageBackground: blended(0.045, 0.065, 0.10, with: decorations.0, amount: darkValues.0),
                 backgroundGlowPrimary: decorations.2,
                 backgroundGlowSecondary: decorations.3,
-                surfaceGlass: blended(0.11, 0.14, 0.20, with: decorations.0, amount: 0.12, opacity: 0.84),
-                surfaceGlassStrong: blended(0.13, 0.16, 0.23, with: decorations.0, amount: 0.15, opacity: 0.94),
-                surfaceReadable: blended(0.12, 0.15, 0.21, with: decorations.0, amount: 0.12),
+                surfaceGlass: blended(0.10, 0.13, 0.19, with: decorations.0, amount: darkValues.1),
+                surfaceGlassStrong: blended(0.13, 0.16, 0.23, with: decorations.0, amount: darkValues.2),
+                surfaceReadable: blended(0.12, 0.15, 0.21, with: decorations.0, amount: darkValues.3),
                 surfaceCritical: .init(0.25, 0.09, 0.10),
-                surfaceInput: blended(0.08, 0.11, 0.16, with: decorations.0, amount: 0.08),
+                surfaceInput: blended(0.08, 0.11, 0.16, with: decorations.0, amount: darkValues.4),
                 textPrimary: .init(0.96, 0.97, 0.99),
                 textSecondary: .init(0.79, 0.83, 0.89),
                 textDisabled: .init(0.61, 0.66, 0.74),
@@ -89,19 +99,19 @@ struct AppThemePalette: Hashable {
                 accentPrimary: decorations.0,
                 accentSecondary: decorations.1,
                 focusRing: decorations.1,
-                borderGlass: blended(0.78, 0.84, 0.95, with: decorations.1, amount: 0.28, opacity: 0.28),
-                divider: blended(0.78, 0.84, 0.95, with: decorations.1, amount: 0.24, opacity: 0.20)
+                borderGlass: blended(0.78, 0.84, 0.95, with: decorations.1, amount: darkValues.5, opacity: darkValues.6),
+                divider: blended(0.78, 0.84, 0.95, with: decorations.1, amount: darkValues.7, opacity: darkValues.8)
             )
         }
         return .init(
-            pageBackground: blended(0.94, 0.96, 0.99, with: decorations.0, amount: 0.08),
+            pageBackground: blended(0.94, 0.96, 0.99, with: decorations.0, amount: lightValues.0),
             backgroundGlowPrimary: decorations.2,
             backgroundGlowSecondary: decorations.3,
-            surfaceGlass: blended(1, 1, 1, with: decorations.0, amount: 0.05, opacity: 0.76),
-            surfaceGlassStrong: blended(1, 1, 1, with: decorations.0, amount: 0.08, opacity: 0.92),
-            surfaceReadable: blended(1, 1, 1, with: decorations.0, amount: 0.06),
+            surfaceGlass: blended(1, 1, 1, with: decorations.0, amount: lightValues.1),
+            surfaceGlassStrong: blended(1, 1, 1, with: decorations.0, amount: lightValues.2),
+            surfaceReadable: blended(1, 1, 1, with: decorations.0, amount: lightValues.3),
             surfaceCritical: .init(1, 0.94, 0.94),
-            surfaceInput: blended(0.98, 0.99, 1, with: decorations.0, amount: 0.04),
+            surfaceInput: blended(0.98, 0.99, 1, with: decorations.0, amount: lightValues.4),
             textPrimary: .init(0.07, 0.10, 0.16),
             textSecondary: .init(0.26, 0.31, 0.40),
             textDisabled: .init(0.39, 0.44, 0.53),
@@ -109,8 +119,8 @@ struct AppThemePalette: Hashable {
             accentPrimary: decorations.0,
             accentSecondary: decorations.1,
             focusRing: decorations.1,
-            borderGlass: blended(0.16, 0.22, 0.34, with: decorations.0, amount: 0.26, opacity: 0.20),
-            divider: blended(0.16, 0.22, 0.34, with: decorations.0, amount: 0.20, opacity: 0.16)
+            borderGlass: blended(0.16, 0.22, 0.34, with: decorations.0, amount: lightValues.5, opacity: lightValues.6),
+            divider: blended(0.16, 0.22, 0.34, with: decorations.0, amount: lightValues.7, opacity: lightValues.8)
         )
     }
 

@@ -6,4 +6,8 @@ public sealed record SnippetRecord(
     string Command,
     string Category,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    SnippetAssetScope? AssetScope = null)
+{
+    public SnippetAssetScope EffectiveAssetScope => SnippetAssetScope.Normalize(AssetScope);
+}

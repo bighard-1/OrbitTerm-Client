@@ -6,6 +6,12 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      run_signed_macos_ui_smoke:
+        description: Run the signed macOS UI smoke lane on a provisioned self-hosted Mac
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -29,6 +35,7 @@ jobs:
       - name: Rust tests, release harness, headers, symbols, and static scans
         run: |
           scripts/security/check_static_scans.sh
+          python3 scripts/performance/verify_desktop_stabilization_gate.py
           scripts/security/check_rust_release_gates.sh
           scripts/security/check_symbols.sh
 
@@ -41,7 +48,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Install Apple Rust targets and XcodeGen
         run: |
-          rustup target add aarch64-apple-darwin aarch64-apple-ios-sim
+          rustup target add aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim
           brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
       - name: Fetch locked Rust dependencies
         run: cargo fetch --locked --manifest-path orbit-core/Cargo.toml
@@ -50,6 +57,105 @@ jobs:
           scripts/security/check_static_scans.sh
           scripts/security/check_apple_release_gates.sh
       # External OpenSSH scenarios remain a separate release-candidate gate.
+
+  macos-signed-ui-smoke:
+    name: macOS signed UI smoke (release candidate)
+    if: github.event_name == 'workflow_dispatch' && inputs.run_signed_macos_ui_smoke
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - name: Install XcodeGen
+        run: brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+      - name: Generate and run the signed macOS UI smoke lane
+        env:
+          ORBITTERM_RUN_SIGNED_MACOS_UI_SMOKE: '1'
+        run: scripts/security/run_macos_signed_ui_smoke.sh
+
+  android-release-gates:
+    name: Android release gates
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - name: Install Android SDK and NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865"
+      - name: Android source build, tests and Release artifact gates
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
+        run: scripts/security/check_android_release_gates.sh
+
+  android-instrumentation-gates:
+    name: Android instrumentation and migration gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - name: Install Android SDK and NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865"
+      - name: Run connected tests on Android 15 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          script: scripts/security/check_android_instrumentation_gates.sh
+      - name: Preserve Android instrumentation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-instrumentation-results
+          path: |
+            clients/android/OrbitTermAndroid/app/build/reports/androidTests/connected/**
+            clients/android/OrbitTermAndroid/app/build/outputs/androidTest-results/connected/**
+            clients/android/OrbitTermAndroid/core/build/reports/androidTests/connected/**
+            clients/android/OrbitTermAndroid/core/build/outputs/androidTest-results/connected/**
+          if-no-files-found: warn
+          retention-days: 14
+
+  dependency-security:
+    name: Dependency vulnerability and license scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan locked Gradle and Cargo dependencies
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,license
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          format: table
 
   openssh-release-candidate-smoke:
     name: OpenSSH release-candidate smoke

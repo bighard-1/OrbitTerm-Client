@@ -31,7 +31,7 @@ struct WorkstationRightPanelView: View {
     @ObservedObject var snippetStore: SnippetStore
 
     @Binding var selectedTab: WorkstationRightPanelTab
-    @Binding var showingMonitorDetailPanelID: UUID?
+    @Binding var sftpPathFocusRequest: Int
     @State private var showingSFTPUploadImporter = false
 
     let onCollapse: () -> Void
@@ -50,20 +50,6 @@ struct WorkstationRightPanelView: View {
                     .padding(.vertical, 10)
 
                 ThemedDivider()
-
-                if let panelID = showingMonitorDetailPanelID,
-                   panelID == active.activeMonitorPanelID {
-                    MonitorDetailInlineView(
-                        panelID: panelID,
-                        service: sessionManager.monitorService,
-                        onClose: { showingMonitorDetailPanelID = nil }
-                    )
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .frame(maxHeight: 310)
-
-                    ThemedDivider()
-                }
 
                 featureContent(active)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -171,6 +157,15 @@ struct WorkstationRightPanelView: View {
                         await goToParentDirectory(active)
                     }
                 },
+                onNavigateToPath: { path in
+                    guard await active.sftpManager.navigateToPath(path) else { return false }
+                    await sessionManager.syncTerminalPathFromSFTP(
+                        session: active,
+                        newPath: active.sftpManager.currentPath
+                    )
+                    return true
+                },
+                pathFocusRequest: sftpPathFocusRequest,
                 onEnterDirectory: { item in
                     Task {
                         await active.sftpManager.enterDirectory(item)

@@ -7,6 +7,8 @@ struct WorkstationSFTPCardView: View {
     let onCreateDirectory: () -> Void
     let onCreateFile: () -> Void
     let onUp: () -> Void
+    let onNavigateToPath: (String) async -> Bool
+    let pathFocusRequest: Int
     let onEnterDirectory: (FileItem) -> Void
     let onOpenFile: (FileItem) -> Void
     let onDownload: (FileItem) -> Void
@@ -16,10 +18,26 @@ struct WorkstationSFTPCardView: View {
     let onDelete: (FileItem) -> Void
     @Environment(\.appThemePalette) private var palette
     @State private var hoveredItemID: FileItem.ID?
+    @State private var pathInput = ""
+    @State private var isTransferQueueExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
+
+            SFTPPathNavigator(
+                path: $pathInput,
+                isEnabled: sftpManager.isConnected && !sftpManager.isLoading,
+                focusRequest: pathFocusRequest,
+                onNavigate: {
+                    let requestedPath = pathInput
+                    Task {
+                        if await onNavigateToPath(requestedPath) {
+                            pathInput = sftpManager.currentPath
+                        }
+                    }
+                }
+            )
 
             Text(sftpManager.statusText)
                 .font(.caption)
@@ -35,22 +53,47 @@ struct WorkstationSFTPCardView: View {
 
             // The command bar and summary belong to the card chrome.  Only the
             // directory listing scrolls so file navigation never hides actions.
-            ScrollView(.vertical, showsIndicators: true) {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    if sftpManager.items.isEmpty {
-                        Text("连接后自动展示远程文件")
-                            .font(.caption)
-                            .foregroundStyle(palette.textSecondary.color)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 6)
-                    } else {
-                        ForEach(sftpManager.items) { item in
-                            fileRow(item)
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: true) {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        if sftpManager.items.isEmpty {
+                            Text("连接后自动展示远程文件")
+                                .font(.caption)
+                                .foregroundStyle(palette.textSecondary.color)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 6)
+                        } else {
+                            ForEach(sftpManager.items) { item in
+                                fileRow(item)
+                                    .id(item.id)
+                            }
                         }
+                    }
+                }
+                .onChange(of: sftpManager.highlightedItemID) { _, itemID in
+                    guard let itemID else { return }
+                    withAnimation(.easeOut(duration: 0.16)) {
+                        proxy.scrollTo(itemID, anchor: .center)
                     }
                 }
             }
             .frame(maxHeight: .infinity)
+
+            DisclosureGroup(isExpanded: $isTransferQueueExpanded) {
+                SFTPTransferBoard(manager: sftpManager)
+                    .padding(.top, 6)
+            } label: {
+                HStack(spacing: 6) {
+                    Text("传输任务")
+                        .font(.caption.weight(.semibold))
+                    if !sftpManager.transfers.isEmpty {
+                        Text("\(sftpManager.transfers.filter { !$0.isDone }.count) 进行中 · \(sftpManager.transfers.filter { $0.isDone }.count) 完成")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(palette.textSecondary.color)
+                    }
+                }
+            }
+            .accessibilityLabel("SFTP 传输任务队列")
         }
         .padding(10)
         .foregroundStyle(palette.textPrimary.color)
@@ -80,9 +123,11 @@ struct WorkstationSFTPCardView: View {
             Text(item.name)
                 .lineLimit(1)
             Spacer()
-            Text(item.formattedSize)
-                .font(.caption2)
-                .foregroundStyle(palette.textSecondary.color)
+            if !item.isDirectory {
+                Text(item.formattedSize)
+                    .font(.caption2)
+                    .foregroundStyle(palette.textSecondary.color)
+            }
         }
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
@@ -95,9 +140,18 @@ struct WorkstationSFTPCardView: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 4)
         .background(
-            hoveredItemID == item.id ? palette.surfaceInput.color : Color.clear,
+            hoveredItemID == item.id || sftpManager.highlightedItemID == item.id
+                ? palette.surfaceInput.color
+                : Color.clear,
             in: RoundedRectangle(cornerRadius: 7, style: .continuous)
         )
+        .overlay {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .stroke(
+                    sftpManager.highlightedItemID == item.id ? palette.focusRing.color.opacity(0.8) : Color.clear,
+                    lineWidth: 1
+                )
+        }
         .scaleEffect(hoveredItemID == item.id ? 1.012 : 1)
         .animation(.easeOut(duration: 0.14), value: hoveredItemID == item.id)
 #if os(macOS)

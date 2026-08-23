@@ -237,6 +237,8 @@ final class SyncQueue {
     private var isNetworkReachable = true
     private var processingTask: Task<Void, Never>?
     private var wakeTask: Task<Void, Never>?
+    private var wakeGeneration: UUID?
+    private var processingOwner = OperationOwner()
     private var authContextProvider: (() -> SyncQueueAuthContext?)?
 
     private let store: SyncQueueStore
@@ -253,6 +255,24 @@ final class SyncQueue {
             authContextProvider = provider
         }
         triggerProcessing(reason: "token_provider_updated")
+    }
+
+    /// Stops queue delivery without removing persisted work. A later unlock or
+    /// foreground activation may resume it with the same account-scoped queue.
+    /// Any in-flight response is ignored after this point.
+    func suspendProcessing() {
+        stateQueue.sync {
+            processingOwner.invalidate()
+            processingTask?.cancel()
+            processingTask = nil
+            wakeTask?.cancel()
+            wakeTask = nil
+            wakeGeneration = nil
+        }
+    }
+
+    func resumeProcessing() {
+        triggerProcessing(reason: "operation_lifecycle_resumed")
     }
 
     func enqueueUpload(payload: UploadConfigRequest, accountID: String, reason: String?) async {
@@ -283,7 +303,7 @@ final class SyncQueue {
             lastError: reason
         )
         await store.append(item)
-        logger.debug("[SYNCQ] enqueue id=\(item.id.uuidString, privacy: .public)")
+        logger.debug("[SYNCQ] enqueue id=\(item.id.uuidString, privacy: .private(mask: .hash))")
         triggerProcessing(reason: "enqueue")
     }
 
@@ -303,41 +323,78 @@ final class SyncQueue {
 
     private func triggerProcessing(reason: String) {
         stateQueue.sync {
-            let canStart = isNetworkReachable && processingTask == nil
+            // A direct trigger supersedes any scheduled retry wake. The current
+            // queue head is checked again by processLoop, so no retry is lost.
+            wakeTask?.cancel()
+            wakeTask = nil
+            wakeGeneration = nil
+
+            let activeDeliveries = processingTask == nil ? 0 : 1
+            let canStart = isNetworkReachable &&
+                OperationResourceBudget.permitsSyncDelivery(activeDeliveries: activeDeliveries)
             guard canStart else { return }
+            guard let auth = authContextProvider?(), !auth.token.isEmpty else { return }
+            let accountIdentifier = auth.accountIdentifier
+            let lease = processingOwner.begin(scope: .account(accountIdentifier))
             processingTask = Task(priority: .utility) { [weak self] in
                 guard let self else { return }
-                await self.processLoop(reason: reason)
+                await self.processLoop(
+                    reason: reason,
+                    accountIdentifier: accountIdentifier,
+                    lease: lease
+                )
                 self.stateQueue.sync {
+                    guard self.ownsProcessingLease(lease, accountIdentifier: accountIdentifier) else { return }
                     self.processingTask = nil
                 }
             }
         }
     }
 
-    private func processLoop(reason: String) async {
-        logger.debug("[SYNCQ] process start reason=\(reason, privacy: .public)")
+    private func processLoop(
+        reason: String,
+        accountIdentifier: String,
+        lease: OperationLease
+    ) async {
+        logger.debug("[SYNCQ] process start reason=\(reason, privacy: .private(mask: .hash))")
         while !Task.isCancelled {
+            guard ownsProcessingLease(lease, accountIdentifier: accountIdentifier) else { return }
             guard isNetworkUp else { return }
-            guard let auth = currentAuthContext(), !auth.token.isEmpty else {
+            guard let auth = currentAuthContext(),
+                  !auth.token.isEmpty,
+                  auth.accountIdentifier == accountIdentifier else {
                 logger.debug("[SYNCQ] process paused: token unavailable")
                 return
             }
-            guard let head = await store.firstItem(accountIdentifier: auth.accountIdentifier) else {
+            guard let head = await store.firstItem(accountIdentifier: accountIdentifier) else {
                 logger.debug("[SYNCQ] queue empty")
                 return
             }
 
             if head.nextRetryAt > Date() {
-                scheduleWake(at: head.nextRetryAt)
+                scheduleWake(
+                    at: head.nextRetryAt,
+                    processingLease: lease,
+                    accountIdentifier: accountIdentifier
+                )
                 return
             }
 
             do {
                 try await send(head.operation, token: auth.token)
+                guard !Task.isCancelled,
+                      ownsProcessingLease(lease, accountIdentifier: accountIdentifier),
+                      currentAuthContext()?.accountIdentifier == accountIdentifier else {
+                    return
+                }
                 await store.remove(id: head.id)
-                logger.debug("[SYNCQ] sent id=\(head.id.uuidString, privacy: .public)")
+                logger.debug("[SYNCQ] sent id=\(head.id.uuidString, privacy: .private(mask: .hash))")
             } catch {
+                guard !Task.isCancelled,
+                      ownsProcessingLease(lease, accountIdentifier: accountIdentifier),
+                      currentAuthContext()?.accountIdentifier == accountIdentifier else {
+                    return
+                }
                 if let net = error as? NetworkService.NetworkError,
                    case .unauthorized = net {
                     logger.debug("[SYNCQ] paused: auth expired")
@@ -346,11 +403,15 @@ final class SyncQueue {
                 var failed = head
                 failed.attemptCount += 1
                 failed.updatedAt = Date()
-                failed.lastError = error.localizedDescription
+                failed.lastError = OperationRecoveryMapper.sync(error).diagnosticCode
                 failed.nextRetryAt = Date().addingTimeInterval(Self.backoffSeconds(for: failed.attemptCount))
                 await store.update(failed)
-                logger.debug("[SYNCQ] retry id=\(failed.id.uuidString, privacy: .public) attempt=\(failed.attemptCount)")
-                scheduleWake(at: failed.nextRetryAt)
+                logger.debug("[SYNCQ] retry id=\(failed.id.uuidString, privacy: .private(mask: .hash)) attempt=\(failed.attemptCount)")
+                scheduleWake(
+                    at: failed.nextRetryAt,
+                    processingLease: lease,
+                    accountIdentifier: accountIdentifier
+                )
                 return
             }
         }
@@ -369,23 +430,75 @@ final class SyncQueue {
         }
     }
 
-    private func scheduleWake(at date: Date) {
+    private func scheduleWake(
+        at date: Date,
+        processingLease: OperationLease,
+        accountIdentifier: String
+    ) {
+        let generation = UUID()
+        stateQueue.sync {
+            guard ownsProcessingLease(processingLease, accountIdentifier: accountIdentifier) else { return }
+            wakeTask?.cancel()
+            wakeTask = nil
+            wakeGeneration = generation
+        }
+
         let task = Task(priority: .utility) { [weak self] in
             guard let self else { return }
             let sleepNanos = max(0, date.timeIntervalSinceNow) * 1_000_000_000
             if sleepNanos > 0 {
-                try? await Task.sleep(nanoseconds: UInt64(sleepNanos))
+                do {
+                    try await Task.sleep(nanoseconds: UInt64(sleepNanos))
+                } catch {
+                    return
+                }
             }
+
+            guard self.consumeWake(
+                generation: generation,
+                processingLease: processingLease,
+                accountIdentifier: accountIdentifier
+            ) else { return }
             self.triggerProcessing(reason: "backoff_elapsed")
         }
         stateQueue.sync {
-            wakeTask?.cancel()
+            // The task can run immediately for an already-due retry. In that
+            // case it has already consumed this generation and must not be
+            // reinstalled as a stale wake.
+            guard wakeGeneration == generation,
+                  ownsProcessingLease(processingLease, accountIdentifier: accountIdentifier) else {
+                task.cancel()
+                return
+            }
             wakeTask = task
+        }
+    }
+
+    /// Atomically consumes the one retry wake that is still current. A
+    /// cancelled or superseded wake can never start a later queue run.
+    private func consumeWake(
+        generation: UUID,
+        processingLease: OperationLease,
+        accountIdentifier: String
+    ) -> Bool {
+        stateQueue.sync {
+            guard wakeGeneration == generation,
+                  ownsProcessingLease(processingLease, accountIdentifier: accountIdentifier) else { return false }
+            wakeGeneration = nil
+            wakeTask = nil
+            return true
         }
     }
 
     private var isNetworkUp: Bool {
         stateQueue.sync { isNetworkReachable }
+    }
+
+    private func ownsProcessingLease(
+        _ lease: OperationLease,
+        accountIdentifier: String
+    ) -> Bool {
+        processingOwner.owns(lease, scope: .account(accountIdentifier))
     }
 
     private func currentAuthContext() -> SyncQueueAuthContext? {

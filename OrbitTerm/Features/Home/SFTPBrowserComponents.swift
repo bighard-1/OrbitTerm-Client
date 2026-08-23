@@ -40,6 +40,49 @@ struct SFTPBreadcrumbBar: View {
     }
 }
 
+/// Shared path control for the workstation and full SFTP browser. It accepts
+/// a remote path only; the SFTP manager performs validation and navigation.
+struct SFTPPathNavigator: View {
+    @Binding var path: String
+    let isEnabled: Bool
+    var focusRequest: Int = 0
+    let onNavigate: () -> Void
+    @Environment(\.appThemePalette) private var palette
+    @FocusState private var isPathFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "arrow.right.circle")
+                .foregroundStyle(palette.textSecondary.color)
+                .accessibilityHidden(true)
+            TextField("路径直达：/var/log 或 /var/log/syslog", text: $path)
+                .textFieldStyle(.plain)
+                .font(.caption)
+                .focused($isPathFocused)
+                .onSubmit(onNavigate)
+                .accessibilityLabel("远程路径直达")
+                .accessibilityHint("输入目录或文件的远程路径后跳转")
+            Button(action: onNavigate) {
+                Image(systemName: "arrow.right")
+            }
+            .buttonStyle(.borderless)
+            .disabled(!isEnabled || path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .accessibilityLabel("跳转到远程路径")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(palette.surfaceInput.color, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(palette.borderGlass.color, lineWidth: 1)
+        }
+        .task(id: focusRequest) {
+            guard focusRequest > 0 else { return }
+            isPathFocused = true
+        }
+    }
+}
+
 struct SFTPSummaryBar: View {
     let itemCount: Int
     let directoryCount: Int
@@ -73,37 +116,44 @@ struct SFTPSummaryBar: View {
 struct SFTPFileRow: View {
     let item: FileItem
     let isSelected: Bool
+    let isPathTarget: Bool
     let onToggleSelection: () -> Void
     @Environment(\.appThemePalette) private var palette
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .top, spacing: 12) {
             Button(action: onToggleSelection) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(isSelected ? palette.accentPrimary.color : palette.textSecondary.color)
-                    .font(.body)
+                    .font(.system(size: 18, weight: .medium))
+                    .frame(width: 28, height: 28)
+                    .clipped()
             }
             .buttonStyle(.plain)
-            .frame(width: 28, height: 32)
+            .frame(width: 28, height: 44, alignment: .top)
+            .clipped()
             .accessibilityLabel(isSelected ? "取消选择 \(item.name)" : "选择 \(item.name)")
 
             Image(systemName: item.iconName)
                 .foregroundStyle(item.isDirectory ? palette.accentPrimary.color : palette.textSecondary.color)
-                .frame(width: 18)
+                .font(.system(size: 18, weight: .medium))
+                .frame(width: 24, height: 28, alignment: .center)
+                .clipped()
+                .padding(.top, dynamicTypeSize.isAccessibilitySize ? 3 : 0)
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                    .truncationMode(dynamicTypeSize.isAccessibilitySize ? .tail : .middle)
+                    .fixedSize(horizontal: false, vertical: true)
                     .foregroundStyle(palette.textPrimary.color)
                 Text("\(item.permissions)  ·  \(item.formattedDate)")
                     .font(.caption)
                     .foregroundStyle(palette.textSecondary.color)
             }
             .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-
-            Spacer(minLength: 0)
 
             if !item.isDirectory {
                 Text(item.formattedSize)
@@ -115,12 +165,12 @@ struct SFTPFileRow: View {
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 6)
-        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        .background(isSelected ? palette.accentPrimary.color.opacity(0.14) : Color.clear)
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(isSelected ? palette.focusRing.color.opacity(0.7) : Color.clear, lineWidth: 1))
+        .frame(maxWidth: .infinity, minHeight: dynamicTypeSize.isAccessibilitySize ? 64 : 44, alignment: .leading)
+        .background((isSelected || isPathTarget) ? palette.accentPrimary.color.opacity(0.14) : Color.clear)
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke((isSelected || isPathTarget) ? palette.focusRing.color.opacity(0.7) : Color.clear, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(item.name)，\(item.isDirectory ? "目录" : "文件")，\(item.formattedSize)")
+        .accessibilityLabel("\(item.name)，\(item.isDirectory ? "目录" : "文件，\(item.formattedSize)")\(isPathTarget ? "，路径直达结果" : "")")
     }
 }
 
@@ -131,7 +181,7 @@ struct SFTPEmptyFolderView: View {
             Image(systemName: "folder.badge.questionmark")
                 .font(.system(size: 48, weight: .semibold))
                 .foregroundStyle(palette.accentPrimary.color)
-            Text("Empty Folder")
+            Text("当前目录为空")
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(palette.textPrimary.color)
             Text("当前目录没有任何文件。可以尝试上传，或者切换到其他路径。")
@@ -200,38 +250,57 @@ struct SFTPBatchToolbar: View {
 }
 
 struct SFTPTransferBoard: View {
-    let transfers: [TransferTaskItem]
+    private enum QueueSection: String, CaseIterable, Identifiable {
+        case active = "进行中"
+        case completed = "已完成"
+        var id: String { rawValue }
+    }
+
+    @ObservedObject var manager: SFTPManager
+    @State private var section: QueueSection = .active
     @Environment(\.appThemePalette) private var palette
     @Environment(\.securitySemanticPalette) private var security
 
     var body: some View {
-        if !transfers.isEmpty {
+        if !manager.transfers.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                Text("传输任务")
-                    .font(.headline)
-                    .foregroundStyle(palette.textPrimary.color)
-
-                ForEach(transfers.prefix(3)) { task in
-                    VStack(alignment: .leading, spacing: 4) {
-                        let role = transferRole(for: task)
-                        let presentation = security.presentation(for: role.securityKind ?? .information)
-                        HStack(spacing: 6) {
-                            Image(systemName: presentation.symbol)
-                                .foregroundStyle(role.themeColor(in: security, fallback: palette).color)
-                            Text("\(task.direction.rawValue): \(task.fileName)")
-                                .font(.subheadline)
-                                .lineLimit(1)
-                                .foregroundStyle(palette.textPrimary.color)
+                HStack(spacing: 6) {
+                    ForEach(QueueSection.allCases) { item in
+                        if item == section {
+                            queueButton(item)
+                                .buttonStyle(ThemedPrimaryButtonStyle())
+                        } else {
+                            queueButton(item)
+                                .buttonStyle(ThemedSecondaryButtonStyle())
                         }
-                        ProgressView(value: task.progress)
-                            .tint(role.themeColor(in: security, fallback: palette).color)
-                        Text(task.statusText)
-                            .font(.caption)
-                            .foregroundStyle(role.themeColor(in: security, fallback: palette).color)
-                            .accessibilityLabel("\(presentation.label)：\(task.statusText)")
                     }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("\(task.fileName)，\(security.presentation(for: transferRole(for: task).securityKind ?? .information).label)，进度 \(Int(task.progress * 100))%")
+                }
+
+                if visibleTransfers.isEmpty {
+                    Text(section == .active ? "暂无进行中的传输" : "暂无已完成的传输")
+                        .font(.caption)
+                        .foregroundStyle(palette.textSecondary.color)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 10)
+                } else {
+                    ScrollView(.vertical, showsIndicators: true) {
+                        LazyVStack(alignment: .leading, spacing: 7) {
+                            ForEach(visibleTransfers) { task in
+                                transferRow(task)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 230)
+                }
+
+                if section == .completed {
+                    HStack {
+                        Spacer()
+                        Button("清理已完成") { manager.clearCompletedTransfers() }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .disabled(visibleTransfers.isEmpty)
+                    }
                 }
             }
             .padding(12)
@@ -241,6 +310,63 @@ struct SFTPTransferBoard: View {
                     .stroke(palette.borderGlass.color, lineWidth: 1)
             )
         }
+    }
+
+    private var visibleTransfers: [TransferTaskItem] {
+        switch section {
+        case .active:
+            manager.transfers.filter { !$0.isDone }
+        case .completed:
+            manager.transfers.filter(\.isDone)
+        }
+    }
+
+    private func count(for section: QueueSection) -> Int {
+        switch section {
+        case .active: manager.transfers.filter { !$0.isDone }.count
+        case .completed: manager.transfers.filter(\.isDone).count
+        }
+    }
+
+    private func queueButton(_ item: QueueSection) -> some View {
+        Button {
+            section = item
+        } label: {
+            Text("\(item.rawValue) \(count(for: item))")
+                .font(.caption.weight(.semibold))
+                .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func transferRow(_ task: TransferTaskItem) -> some View {
+        let role = transferRole(for: task)
+        let presentation = security.presentation(for: role.securityKind ?? .information)
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Image(systemName: presentation.symbol)
+                    .foregroundStyle(role.themeColor(in: security, fallback: palette).color)
+                Text("\(task.direction.rawValue): \(task.fileName)")
+                    .font(.subheadline)
+                    .lineLimit(1)
+                    .foregroundStyle(palette.textPrimary.color)
+                Spacer(minLength: 4)
+                if task.hasFailed {
+                    Button("重试") { manager.retryTransfer(task.id) }
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                }
+            }
+            ProgressView(value: task.progress)
+                .tint(role.themeColor(in: security, fallback: palette).color)
+            Text(task.statusText)
+                .font(.caption)
+                .foregroundStyle(role.themeColor(in: security, fallback: palette).color)
+                .accessibilityLabel("\(presentation.label)：\(task.statusText)")
+        }
+        .padding(8)
+        .background(palette.surfaceInput.color, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(task.fileName)，\(presentation.label)，进度 \(Int(task.progress * 100))%")
     }
 
     private func transferRole(for task: TransferTaskItem) -> SFTPTransferSemanticRole {

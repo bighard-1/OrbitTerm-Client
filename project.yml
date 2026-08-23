@@ -27,6 +27,8 @@ targets:
     platform: [iOS, macOS]
     sources:
       - path: OrbitTerm
+    resources:
+      - path: OrbitTerm/App/PrivacyInfo.xcprivacy
     dependencies:
       - package: SwiftTerm
     settings:
@@ -45,6 +47,8 @@ targets:
         ONLY_ACTIVE_ARCH[sdk=macosx*]: YES
         ARCHS[sdk=iphonesimulator*]: arm64
         ONLY_ACTIVE_ARCH[sdk=iphonesimulator*]: YES
+        ARCHS[sdk=iphoneos*]: arm64
+        ONLY_ACTIVE_ARCH[sdk=iphoneos*]: YES
       configs:
         Debug:
           OTHER_LDFLAGS[sdk=macosx*]:
@@ -84,12 +88,31 @@ targets:
           - Core/TelnetAccessPolicy.swift
           - Core/DeepLinkManager.swift
           - Core/SyncPullRecoveryPolicy.swift
+          - Core/SyncConfigCipherMigrationPolicy.swift
+          - Core/OfficialServiceTLSPinningPolicy.swift
+          - Core/OperationOwner.swift
+          - Core/WorkspacePresentationCoordinator.swift
+          - Core/WorkspaceToolCoordinator.swift
+          - Core/OperationResourceBudget.swift
+          - Core/DevicePerformanceSLO.swift
+          - Core/PerformanceSignpost.swift
+          - Core/TerminalChunkBuffer.swift
+          - Core/BoundedCircularBuffer.swift
+          - Core/DockerLogPresentationBuffer.swift
+          - Core/ApplicationOperationLifecyclePolicy.swift
+          - Core/DiagnosticsPrivacy.swift
+          - Core/SecureClipboard.swift
+          - Core/ServerCredentials.swift
+          - Core/ServerModels.swift
+          - Core/JumpHostConfiguration.swift
           - Core/AccountIdentity.swift
           - Core/AccountScope.swift
+          - Core/AccountScopedServiceLifecycle.swift
           - Core/SnippetAssetScope.swift
           - Core/MonitorSystemInfo.swift
           - Core/Appearance/*.swift
           - Core/TerminalAppearance/*.swift
+          - Core/TerminalInputDispatchPolicy.swift
           - Core/ShellPathResolver.swift
           - Features/Home/SnippetVariableResolver.swift
         excludes:
@@ -97,9 +120,55 @@ targets:
           - Core/CheckedFFI/OrbitCoreCheckedFFILiveFunctions.swift
     settings:
       base:
+        ARCHS[sdk=macosx*]: arm64
         CODE_SIGNING_ALLOWED: NO
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.orbitterm.checkedffi.tests
+        PRODUCT_NAME: OrbitTermCheckedFFITests
+        PRODUCT_MODULE_NAME: OrbitTermCheckedFFITests
+        SWIFT_VERSION: 5.0
+        OTHER_LDFLAGS[sdk=macosx*]:
+          - $(inherited)
+          - $(SRCROOT)/orbit-core/target/aarch64-apple-darwin/debug/liborbit_core.a
+
+  OrbitTermiOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: OrbitTermiOSUITests
+    dependencies:
+      - target: OrbitTerm_iOS
+    settings:
+      base:
+        # Physical iPhone UI tests need the runner and its XCTest frameworks
+        # signed with the active development identity. Simulator builds remain
+        # unaffected by this automatic-signing setting.
+        CODE_SIGNING_ALLOWED: YES
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.orbitterm.ios.ui-tests
+        PRODUCT_NAME: OrbitTermiOSUITests
+        SDKROOT: iphoneos
+        SUPPORTED_PLATFORMS: "iphonesimulator iphoneos"
+        TEST_TARGET_NAME: OrbitTerm_iOS
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: 5.0
+
+  OrbitTermmacOSUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: OrbitTermmacOSUITests
+    dependencies:
+      - target: OrbitTerm_macOS
+    settings:
+      base:
+        CODE_SIGNING_ALLOWED: NO
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.orbitterm.macos.ui-tests
+        PRODUCT_NAME: OrbitTermmacOSUITests
+        SDKROOT: macosx
+        SUPPORTED_PLATFORMS: macosx
+        TEST_TARGET_NAME: OrbitTerm_macOS
         SWIFT_VERSION: 5.0
 
 schemes:
@@ -110,3 +179,19 @@ schemes:
     test:
       targets:
         - OrbitTermCheckedFFITests
+
+  OrbitTermiOSUITests:
+    build:
+      targets:
+        OrbitTermiOSUITests: [test]
+    test:
+      targets:
+        - OrbitTermiOSUITests
+
+  OrbitTermmacOSUITests:
+    build:
+      targets:
+        OrbitTermmacOSUITests: [test]
+    test:
+      targets:
+        - OrbitTermmacOSUITests

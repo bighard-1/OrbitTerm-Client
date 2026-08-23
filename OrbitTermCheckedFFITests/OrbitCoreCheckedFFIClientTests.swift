@@ -1,6 +1,30 @@
 import Foundation
 import XCTest
 
+@_silgen_name("orbit_derive_config_root_key_v2")
+private func orbit_derive_config_root_key_v2_test(
+    _ masterPassword: UnsafePointer<CChar>,
+    _ accountScope: UnsafePointer<CChar>
+) -> UnsafeMutablePointer<CChar>?
+
+@_silgen_name("orbit_encrypt_config_v2")
+private func orbit_encrypt_config_v2_test(
+    _ rootKey: UnsafePointer<UInt8>?,
+    _ rootKeyLength: Int,
+    _ plaintext: UnsafePointer<UInt8>?,
+    _ plaintextLength: Int
+) -> UnsafeMutablePointer<CChar>?
+
+@_silgen_name("orbit_decrypt_config_v2")
+private func orbit_decrypt_config_v2_test(
+    _ rootKey: UnsafePointer<UInt8>?,
+    _ rootKeyLength: Int,
+    _ encryptedBase64: UnsafePointer<CChar>
+) -> UnsafeMutablePointer<CChar>?
+
+@_silgen_name("orbit_free_string")
+private func orbit_free_string_test(_ pointer: UnsafeMutablePointer<CChar>?)
+
 final class OrbitCoreCheckedFFIClientTests: XCTestCase {
     private let requestID = try! HostKeyRequestID(CheckedFFIFixtures.requestID)
     private let persistRequestID = try! HostKeyRequestID("99999999-8888-7777-6666-555555555555")
@@ -555,6 +579,79 @@ final class OrbitCoreCheckedFFIClientTests: XCTestCase {
         XCTAssertEqual(counter.count, 1)
     }
 
+    func testConnectLoadsAndForwardsSeparateJumpHostCredentials() async throws {
+        let targetCredentialID = UUID()
+        let jumpCredentialID = UUID()
+        let capturedCall = ConnectCallCapture()
+        let counter = FreeCounter()
+        let functions = OrbitCoreCheckedFFIFunctions(
+            connect: { call in
+                capturedCall.store(call)
+                return allocatedCString(CheckedFFIFixtures.connected)
+            },
+            persist: { _ in allocatedCString(CheckedFFIFixtures.connected) },
+            openTerminal: { _ in allocatedCString(CheckedFFIFixtures.connected) },
+            openSFTP: { _ in allocatedCString(CheckedFFIFixtures.connected) },
+            monitorSnapshot: { _ in allocatedCString(CheckedFFIFixtures.connected) },
+            dockerList: { _ in allocatedCString(CheckedFFIFixtures.connected) },
+            dockerStats: { _ in allocatedCString(CheckedFFIFixtures.connected) },
+            dockerLogs: { _ in allocatedCString(CheckedFFIFixtures.connected) },
+            dockerAction: { _ in allocatedCString(CheckedFFIFixtures.connected) },
+            execChecked: { _ in allocatedCString(CheckedFFIFixtures.connected) }
+        )
+        let client = OrbitCoreCheckedFFIClient(
+            credentialProvider: RoutingFixtureCredentialProvider(values: [
+                targetCredentialID: CheckedCredentials(
+                    password: "target-secret",
+                    privateKey: "",
+                    privateKeyPassphrase: "",
+                    allowPasswordFallback: true
+                ),
+                jumpCredentialID: CheckedCredentials(
+                    password: "jump-secret",
+                    privateKey: "jump-private-key",
+                    privateKeyPassphrase: "jump-passphrase",
+                    allowPasswordFallback: false
+                )
+            ]),
+            knownHostsPathProvider: FixtureKnownHostsPathProvider(),
+            functions: functions,
+            resultReader: reader(counter: counter)
+        )
+
+        _ = try await client.connectChecked(
+            requestID: requestID,
+            input: CheckedConnectInput(
+                host: "target.internal",
+                port: 22,
+                username: "target-user",
+                credentialReference: CredentialAccessReference(id: targetCredentialID),
+                jumpHost: CheckedJumpHostInput(
+                    host: "bastion.example.net",
+                    port: 2222,
+                    username: "jump-user",
+                    credentialReference: CredentialAccessReference(
+                        id: jumpCredentialID,
+                        allowPasswordFallback: false
+                    )
+                )
+            )
+        )
+
+        let call = try XCTUnwrap(capturedCall.value)
+        XCTAssertEqual(call.host, "target.internal")
+        XCTAssertEqual(call.jumpHost?.host, "bastion.example.net")
+        XCTAssertEqual(call.jumpHost?.port, 2222)
+        XCTAssertEqual(call.jumpHost?.username, "jump-user")
+        XCTAssertFalse(call.jumpHost?.credentials.allowPasswordFallback ?? true)
+        let description = String(reflecting: call)
+        XCTAssertFalse(description.contains("target-secret"))
+        XCTAssertFalse(description.contains("jump-secret"))
+        XCTAssertFalse(description.contains("jump-private-key"))
+        XCTAssertFalse(description.contains("jump-passphrase"))
+        XCTAssertEqual(counter.count, 1)
+    }
+
     func testApplicationSupportProviderUsesOrbitTermSecurityStore() throws {
         let path = try ApplicationSupportKnownHostsPathProvider().knownHostsPath()
         XCTAssertTrue(path.hasSuffix("/OrbitTerm/Security/known_hosts"))
@@ -629,6 +726,34 @@ private struct FixtureCredentialProvider: CheckedCredentialProvider {
     }
 }
 
+private struct RoutingFixtureCredentialProvider: CheckedCredentialProvider {
+    let values: [UUID: CheckedCredentials]
+
+    func credentials(for reference: CredentialAccessReference) async throws -> CheckedCredentials {
+        guard let value = values[reference.id] else {
+            throw CheckedFFIClientError.invalidInput
+        }
+        return value
+    }
+}
+
+private final class ConnectCallCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedValue: OrbitCoreCheckedConnectCall?
+
+    var value: OrbitCoreCheckedConnectCall? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedValue
+    }
+
+    func store(_ call: OrbitCoreCheckedConnectCall) {
+        lock.lock()
+        storedValue = call
+        lock.unlock()
+    }
+}
+
 private struct FixtureKnownHostsPathProvider: KnownHostsPathProvider {
     func knownHostsPath() throws -> String {
         "/fixture/Application Support/OrbitTerm/Security/known_hosts"
@@ -660,4 +785,85 @@ private func allocatedCString(_ value: String) -> UnsafeMutablePointer<CChar> {
     }
     pointer[bytes.count] = 0
     return pointer
+}
+
+final class ConfigCryptoV2FFITests: XCTestCase {
+    func testV2RoundTripUsesAccountScopedRootAndRandomRecordMaterial() throws {
+        let root = try configV2Root(password: "test-master-password", scope: "account-scope-a")
+        let first = try configV2Encrypt(root: root, plaintext: "portable configuration")
+        let second = try configV2Encrypt(root: root, plaintext: "portable configuration")
+
+        XCTAssertEqual(
+            Data(base64Encoded: first)?.prefix(4),
+            Data([0x4f, 0x54, 0x43, 0x32]),
+            "V2 ciphertext must carry the explicit OTC2 header"
+        )
+        XCTAssertNotEqual(first, second, "Each V2 record must use independent random material")
+        XCTAssertEqual(try configV2Decrypt(root: root, encrypted: first), "portable configuration")
+        XCTAssertEqual(try configV2Decrypt(root: root, encrypted: second), "portable configuration")
+    }
+
+    func testV2RejectsDifferentAccountScope() throws {
+        let ciphertext = try configV2Encrypt(
+            root: configV2Root(password: "test-master-password", scope: "account-scope-a"),
+            plaintext: "portable configuration"
+        )
+        let otherRoot = try configV2Root(password: "test-master-password", scope: "account-scope-b")
+
+        XCTAssertThrowsError(try configV2Decrypt(root: otherRoot, encrypted: ciphertext))
+    }
+}
+
+private enum ConfigV2TestError: Error { case invalidInput, invalidResult }
+
+private func configV2Root(password: String, scope: String) throws -> Data {
+    guard let passwordCString = password.cString(using: .utf8),
+          let scopeCString = scope.cString(using: .utf8),
+          let pointer = orbit_derive_config_root_key_v2_test(passwordCString, scopeCString) else {
+        throw ConfigV2TestError.invalidInput
+    }
+    defer { orbit_free_string_test(pointer) }
+    let result = String(cString: pointer)
+    guard result.hasPrefix("OK:"),
+          let data = Data(base64Encoded: String(result.dropFirst(3))), data.count == 32 else {
+        throw ConfigV2TestError.invalidResult
+    }
+    return data
+}
+
+private func configV2Encrypt(root: Data, plaintext: String) throws -> String {
+    let data = Data(plaintext.utf8)
+    let pointer = root.withUnsafeBytes { rootBuffer in
+        data.withUnsafeBytes { plainBuffer in
+            orbit_encrypt_config_v2_test(
+                rootBuffer.bindMemory(to: UInt8.self).baseAddress, root.count,
+                plainBuffer.bindMemory(to: UInt8.self).baseAddress, data.count
+            )
+        }
+    }
+    guard let pointer else { throw ConfigV2TestError.invalidResult }
+    defer { orbit_free_string_test(pointer) }
+    let result = String(cString: pointer)
+    guard result.hasPrefix("OK:") else { throw ConfigV2TestError.invalidResult }
+    return String(result.dropFirst(3))
+}
+
+private func configV2Decrypt(root: Data, encrypted: String) throws -> String {
+    guard let encryptedCString = encrypted.cString(using: .utf8) else {
+        throw ConfigV2TestError.invalidInput
+    }
+    let pointer = root.withUnsafeBytes { rootBuffer in
+        orbit_decrypt_config_v2_test(
+            rootBuffer.bindMemory(to: UInt8.self).baseAddress, root.count, encryptedCString
+        )
+    }
+    guard let pointer else { throw ConfigV2TestError.invalidResult }
+    defer { orbit_free_string_test(pointer) }
+    let result = String(cString: pointer)
+    guard result.hasPrefix("OK:"),
+          let data = Data(base64Encoded: String(result.dropFirst(3))),
+          let plaintext = String(data: data, encoding: .utf8) else {
+        throw ConfigV2TestError.invalidResult
+    }
+    return plaintext
 }

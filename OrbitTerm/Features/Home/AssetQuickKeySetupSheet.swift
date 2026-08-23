@@ -17,7 +17,7 @@ struct QuickKeySetupSheet: View {
     let onFinish: (QuickKeySetupResult) -> Void
 
     @StateObject private var orbitManager = OrbitManager()
-    @StateObject private var syncService = SyncService.shared
+    @EnvironmentObject private var syncService: SyncService
 
     @State private var keyInputMode: KeyInputMode = .paste
     @State private var privateKeyContent = ""
@@ -31,6 +31,8 @@ struct QuickKeySetupSheet: View {
     @State private var closePasswordLogin = false
     @State private var statusText = "尚未测试密钥连通性"
     @State private var statusKind: SecurityStatusKind? = nil
+    @State private var keyOperationTask: Task<Void, Never>?
+    @State private var keyOperationOwner = PageOperationOwner()
 
     private let vault = CredentialVault.shared
 
@@ -103,7 +105,7 @@ struct QuickKeySetupSheet: View {
                     Spacer()
 #if os(macOS)
                     Button("生成并部署密钥") {
-                        Task { await generateAndDeployKey() }
+                        startKeyDeployment()
                     }
                     .buttonStyle(ThemedSecondaryButtonStyle())
                     .disabled(
@@ -112,7 +114,7 @@ struct QuickKeySetupSheet: View {
                     )
 #endif
                     Button("测试密钥") {
-                        Task { await testKeyConnection() }
+                        startKeyTest()
                     }
                     .buttonStyle(ThemedSecondaryButtonStyle())
                     .disabled(
@@ -121,7 +123,7 @@ struct QuickKeySetupSheet: View {
                     )
 
                     Button("保存") {
-                        Task { await save() }
+                        startSave()
                     }
                     .buttonStyle(ThemedPrimaryButtonStyle())
                     .disabled(isTesting || saving || !hasValidKey || (closePasswordLogin && !keyVerified))
@@ -153,10 +155,25 @@ struct QuickKeySetupSheet: View {
                 guard let url = urls.first else { return }
                 selectedKeyFileName = url.lastPathComponent
                 loadPrivateKeyFile(url)
-            case let .failure(error):
-                statusText = "私钥文件读取失败: \(error.localizedDescription)"
+            case .failure:
+                statusText = "无法读取私钥文件，请确认文件可访问且格式正确。"
                 statusKind = .danger
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .orbitTermClearTransientSensitiveInput)) { _ in
+            cancelKeyOperation(.accountLocked)
+            privateKeyContent = ""
+            privateKeyPassphrase = ""
+            selectedKeyFileName = ""
+            keyVerified = false
+        }
+        .onDisappear { cancelKeyOperation(.pageDisappeared) }
+        .onChange(of: session.username) { _, _ in cancelKeyOperation(.accountChanged) }
+        .onChange(of: session.isAuthenticated) { _, authenticated in
+            if !authenticated { cancelKeyOperation(.accountSignedOut) }
+        }
+        .onChange(of: session.isUnlocked) { _, unlocked in
+            if !unlocked { cancelKeyOperation(.accountLocked) }
         }
 #if os(macOS)
         .frame(minWidth: 520, minHeight: 520)
@@ -167,7 +184,69 @@ struct QuickKeySetupSheet: View {
         PrivateKeyValidator.isValid(privateKeyContent)
     }
 
-    private func testKeyConnection() async {
+    private var accountOperationScope: OperationScope {
+        guard let account = AccountScope(username: session.username) else { return .anonymous }
+        return .account(account.storageIdentifier)
+    }
+
+    private func startKeyTest() {
+        startKeyOperation { lease, scope in
+            await testKeyConnection(lease: lease, scope: scope)
+        }
+    }
+
+#if os(macOS)
+    private func startKeyDeployment() {
+        startKeyOperation { lease, scope in
+            await generateAndDeployKey(lease: lease, scope: scope)
+        }
+    }
+#endif
+
+    private func startSave() {
+        startKeyOperation { lease, scope in
+            await save(lease: lease, scope: scope)
+        }
+    }
+
+    private func startKeyOperation(
+        _ operation: @escaping (PageOperationLease, OperationScope) async -> Void
+    ) {
+        guard keyOperationTask == nil else { return }
+        let scope = accountOperationScope
+        let lease = keyOperationOwner.begin(scope: scope, timeout: PageOperationTimeout.assetMutation)
+        keyOperationTask = Task {
+            await operation(lease, scope)
+            if keyOperationOwner.timeoutReached(lease) {
+                keyOperationOwner.cancel(.timedOut)
+                isTesting = false
+                isDeploying = false
+                saving = false
+                statusText = "操作超时，请检查网络后重试。"
+                statusKind = .warning
+                keyOperationTask = nil
+                return
+            }
+            guard accepts(lease, scope: scope) else { return }
+            keyOperationTask = nil
+        }
+    }
+
+    private func cancelKeyOperation(_ reason: PageOperationCancellationReason) {
+        keyOperationOwner.cancel(reason)
+        keyOperationTask?.cancel()
+        keyOperationTask = nil
+        isTesting = false
+        isDeploying = false
+        saving = false
+    }
+
+    private func accepts(_ lease: PageOperationLease, scope: OperationScope) -> Bool {
+        !Task.isCancelled && keyOperationOwner.accepts(lease, scope: scope)
+    }
+
+    private func testKeyConnection(lease: PageOperationLease, scope: OperationScope) async {
+        guard accepts(lease, scope: scope) else { return }
         guard hasValidKey else { return }
         guard ConnectionSecurityPolicy.allowsLegacyConnectionTest else {
             statusText = "请先通过已验证连接流程确认服务器身份"
@@ -176,7 +255,7 @@ struct QuickKeySetupSheet: View {
         }
         #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         isTesting = true
-        defer { isTesting = false }
+        defer { if accepts(lease, scope: scope) { isTesting = false } }
         let result = await orbitManager.testConnectionAsync(
             ip: server.host,
             port: server.port,
@@ -186,6 +265,7 @@ struct QuickKeySetupSheet: View {
             privateKeyPassphrase: privateKeyPassphrase,
             allowPasswordFallback: false
         )
+        guard accepts(lease, scope: scope) else { return }
         if result.hasPrefix("成功") {
             keyVerified = true
             statusText = "密钥测试成功"
@@ -200,7 +280,8 @@ struct QuickKeySetupSheet: View {
 
 #if os(macOS)
     @MainActor
-    private func generateAndDeployKey() async {
+    private func generateAndDeployKey(lease: PageOperationLease, scope: OperationScope) async {
+        guard accepts(lease, scope: scope) else { return }
         guard !isDeploying else { return }
         guard ConnectionSecurityPolicy.allowsLegacyQuickKeyDeployment else {
             statusText = "安全密钥部署流程尚未启用"
@@ -219,10 +300,11 @@ struct QuickKeySetupSheet: View {
         keyVerified = false
         statusText = "正在生成本地 Ed25519 密钥..."
         statusKind = nil
-        defer { isDeploying = false }
+        defer { if accepts(lease, scope: scope) { isDeploying = false } }
 
         do {
             let pair = try await generateEd25519KeyPair(passphrase: privateKeyPassphrase)
+            guard accepts(lease, scope: scope) else { return }
             privateKeyContent = pair.privateKey
             statusText = "正在部署公钥到远端 authorized_keys..."
 
@@ -237,6 +319,7 @@ struct QuickKeySetupSheet: View {
                 allowPasswordFallback: true,
                 command: deployCommand
             )
+            guard accepts(lease, scope: scope) else { return }
 
             let result = await orbitManager.testConnectionAsync(
                 ip: server.host,
@@ -247,6 +330,7 @@ struct QuickKeySetupSheet: View {
                 privateKeyPassphrase: privateKeyPassphrase,
                 allowPasswordFallback: false
             )
+            guard accepts(lease, scope: scope) else { return }
 
             guard result.hasPrefix("成功") else {
                 statusText = "公钥已写入，但密钥测试失败：\(result)"
@@ -258,7 +342,7 @@ struct QuickKeySetupSheet: View {
             statusText = "密钥已生成、部署并测试成功，可选择关闭密码登录"
             statusKind = .success
         } catch {
-            statusText = "生成部署失败：\(error.localizedDescription)"
+            statusText = "密钥生成或部署失败，请检查连接后重试。"
             statusKind = .danger
         }
         #endif
@@ -269,6 +353,7 @@ struct QuickKeySetupSheet: View {
             let dir = FileManager.default.temporaryDirectory
                 .appendingPathComponent("orbitterm-key-\(UUID().uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
             defer { try? FileManager.default.removeItem(at: dir) }
 
             let keyURL = dir.appendingPathComponent("id_ed25519")
@@ -286,8 +371,10 @@ struct QuickKeySetupSheet: View {
             try process.run()
             process.waitUntilExit()
             guard process.terminationStatus == 0 else {
-                let err = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "ssh-keygen 执行失败"
-                throw OrbitManagerError.rustError(err.trimmingCharacters(in: .whitespacesAndNewlines))
+                // ssh-keygen diagnostics can include the temporary key path.
+                // Preserve only a typed failure boundary for the caller.
+                _ = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                throw OrbitManagerError.rustError("ssh-keygen 执行失败")
             }
 
             let privateKey = try String(contentsOf: keyURL, encoding: .utf8)
@@ -309,7 +396,8 @@ struct QuickKeySetupSheet: View {
     }
 #endif
 
-    private func save() async {
+    private func save(lease: PageOperationLease, scope: OperationScope) async {
+        guard accepts(lease, scope: scope) else { return }
         guard hasValidKey else { return }
         if closePasswordLogin && !keyVerified {
             statusText = "请先通过密钥测试，再关闭密码登录"
@@ -318,7 +406,7 @@ struct QuickKeySetupSheet: View {
         }
 
         saving = true
-        defer { saving = false }
+        defer { if accepts(lease, scope: scope) { saving = false } }
 
         do {
             let old = try vault.read(for: server.credentialID) ?? ServerCredentials()
@@ -328,18 +416,36 @@ struct QuickKeySetupSheet: View {
                 privateKeyPassphrase: privateKeyPassphrase
             )
             try vault.save(updatedCreds, for: server.credentialID)
+            if session.isAuthenticated && session.isUnlocked {
+                try? SshKeySyncStore.shared.upsertPrivateKey(
+                    name: "\(server.name) SSH 密钥",
+                    privateKey: updatedCreds.privateKeyContent,
+                    passphrase: updatedCreds.privateKeyPassphrase,
+                    assetIDs: [server.id]
+                )
+            }
 
             var updatedServer = server
+            updatedServer.authMethod = .key
             if closePasswordLogin {
                 updatedServer.allowPasswordFallback = false
             }
             store.addOrUpdate(updatedServer)
             await syncServerUpdate(updatedServer, credentials: updatedCreds)
+            if let token = session.readToken(), let masterPassword = session.readMasterPassword() {
+                _ = await syncService.synchronizeSshKeyLibrary(
+                    token: token,
+                    masterPassword: masterPassword,
+                    accountID: session.username,
+                    store: store
+                )
+            }
+            guard accepts(lease, scope: scope) else { return }
 
             onFinish(.saved(closePasswordLogin ? "密钥已保存并切换为仅密钥登录" : "密钥已保存"))
             dismiss()
         } catch {
-            statusText = "保存失败: \(error.localizedDescription)"
+            statusText = "无法保存密钥设置，请稍后重试。"
             statusKind = .danger
             onFinish(.failed(statusText))
         }
@@ -348,15 +454,22 @@ struct QuickKeySetupSheet: View {
     private func syncServerUpdate(_ server: ServerEntry, credentials: ServerCredentials) async {
         guard let token = session.readToken(),
               let masterPassword = session.readMasterPassword() else { return }
-        let portable = server.makePortableConfig(savedAtUnix: Int(Date().timeIntervalSince1970), credentials: credentials)
+        let jumpHostCredentials = server.jumpHost.flatMap { try? vault.read(for: $0.credentialID) }
+        guard server.jumpHost == nil || jumpHostCredentials?.isEmpty == false else { return }
+        let portable = server.makePortableConfig(
+            savedAtUnix: Int(Date().timeIntervalSince1970),
+            credentials: credentials,
+            jumpHostCredentials: jumpHostCredentials
+        )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(portable),
               let plain = String(data: data, encoding: .utf8) else { return }
+        let accountID = session.username
         _ = await syncService.uploadEncryptedConfig(
             token: token,
             masterPassword: masterPassword,
-            accountID: session.username,
+            accountID: accountID,
             plaintextConfig: plain,
             vectorClock: ["client": Int(Date().timeIntervalSince1970)],
             allowQueueOnNetworkFailure: true
@@ -382,7 +495,7 @@ struct QuickKeySetupSheet: View {
             statusText = "私钥已载入，请先测试"
             statusKind = nil
         } catch {
-            statusText = "私钥文件读取失败: \(error.localizedDescription)"
+            statusText = "无法读取私钥文件，请确认文件可访问且格式正确。"
             statusKind = .danger
         }
     }

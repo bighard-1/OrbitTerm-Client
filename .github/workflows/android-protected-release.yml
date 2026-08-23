@@ -1,0 +1,176 @@
+name: Android Protected Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Immutable reviewed commit SHA or signed tag to release
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: android-production-signing
+  cancel-in-progress: false
+
+jobs:
+  sign-and-collect-evidence:
+    name: Sign Android Release and collect evidence
+    runs-on: macos-15
+    timeout-minutes: 50
+    # This environment must be created in GitHub with required reviewers and
+    # the signing secrets below. Never place those values in repository files.
+    environment:
+      name: android-production-signing
+    env:
+      ORBITTERM_REQUIRE_PRODUCTION_SIGNING: 'true'
+      ORBITTERM_RELEASE_KEYSTORE_FILE: ${{ runner.temp }}/orbitterm-release.keystore
+      ORBITTERM_RELEASE_KEYSTORE_BASE64: ${{ secrets.ORBITTERM_RELEASE_KEYSTORE_BASE64 }}
+      ORBITTERM_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ORBITTERM_RELEASE_KEYSTORE_PASSWORD }}
+      ORBITTERM_RELEASE_KEY_ALIAS: ${{ secrets.ORBITTERM_RELEASE_KEY_ALIAS }}
+      ORBITTERM_RELEASE_KEY_PASSWORD: ${{ secrets.ORBITTERM_RELEASE_KEY_PASSWORD }}
+      ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
+      RELEASE_REF: ${{ inputs.release_ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+          fetch-depth: 0
+
+      - name: Verify immutable release reference
+        shell: bash
+        run: |
+          test -z "$(git status --porcelain)"
+          checked_out_sha="$(git rev-parse --verify HEAD^{commit})"
+          if [[ "$RELEASE_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            requested_sha="$(printf '%s' "$RELEASE_REF" | tr '[:upper:]' '[:lower:]')"
+            [[ "$requested_sha" == "$checked_out_sha" ]] \
+              || { echo "checked out commit differs from requested SHA" >&2; exit 1; }
+          else
+            git show-ref --verify --quiet "refs/tags/$RELEASE_REF" \
+              || { echo "release_ref must be a full commit SHA or a tag" >&2; exit 1; }
+            git verify-tag "$RELEASE_REF"
+            [[ "$(git rev-parse "$RELEASE_REF^{commit}")" == "$checked_out_sha" ]] \
+              || { echo "checked out commit differs from signed tag" >&2; exit 1; }
+          fi
+
+      - name: Verify successful CI gates for release commit
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          sha = os.popen("git rev-parse HEAD").read().strip()
+          url = (
+              f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}"
+              f"/actions/workflows/security-gates.yml/runs?head_sha={sha}&status=completed&per_page=20"
+          )
+          request = urllib.request.Request(
+              url,
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request) as response:
+              runs = json.load(response).get("workflow_runs", [])
+          if not any(run.get("conclusion") == "success" for run in runs):
+              raise SystemExit("no successful Security Gates workflow exists for this release commit")
+          PY
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+
+      - name: Install Android SDK and NDK
+        shell: bash
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865"
+
+      - name: Materialize protected signing key
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64
+          import binascii
+          import os
+          from pathlib import Path
+
+          required = (
+              "ORBITTERM_RELEASE_KEYSTORE_BASE64",
+              "ORBITTERM_RELEASE_KEYSTORE_PASSWORD",
+              "ORBITTERM_RELEASE_KEY_ALIAS",
+              "ORBITTERM_RELEASE_KEY_PASSWORD",
+          )
+          missing = [name for name in required if not os.environ.get(name)]
+          if missing:
+              raise SystemExit("protected signing configuration is incomplete")
+
+          try:
+              key_data = base64.b64decode(
+                  os.environ["ORBITTERM_RELEASE_KEYSTORE_BASE64"],
+                  validate=True,
+              )
+          except (ValueError, binascii.Error) as error:
+              raise SystemExit("protected keystore is not valid Base64") from error
+          if not key_data:
+              raise SystemExit("protected keystore is empty")
+
+          key_path = Path(os.environ["ORBITTERM_RELEASE_KEYSTORE_FILE"])
+          key_path.write_bytes(key_data)
+          key_path.chmod(0o600)
+          PY
+
+      - name: Build, verify and sign Release artifacts
+        shell: bash
+        run: scripts/security/check_android_release_gates.sh
+
+      - name: Collect restricted release evidence
+        shell: bash
+        run: |
+          scripts/security/collect_android_release_evidence.sh \
+            clients/android/OrbitTermAndroid/app/build/outputs/apk/release \
+            "$RUNNER_TEMP/android-release-evidence"
+
+      - name: Upload signed Android artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-${{ github.run_id }}
+          path: clients/android/OrbitTermAndroid/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/android-release-evidence/**
+          if-no-files-found: warn
+          retention-days: 365
+
+      - name: Remove protected signing key
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ["ORBITTERM_RELEASE_KEYSTORE_FILE"])
+          if path.exists():
+              path.unlink()
+          PY

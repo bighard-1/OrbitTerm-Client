@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use russh_sftp::client::SftpSession;
+use russh_sftp::client::{Config as SftpClientConfig, SftpSession};
 
 use crate::security::CheckedChannelAccessError;
 use crate::session_pool::{
@@ -35,6 +35,14 @@ pub(crate) trait CheckedSftpBackend {
 
 struct RusshCheckedSftpBackend;
 
+pub(crate) fn checked_sftp_client_config(max_concurrent_writes: usize) -> SftpClientConfig {
+    SftpClientConfig {
+        max_packet_len: 256 * 1024,
+        max_concurrent_writes,
+        request_timeout_secs: 30,
+    }
+}
+
 impl CheckedSftpBackend for RusshCheckedSftpBackend {
     type Session = SftpSession;
 
@@ -55,9 +63,16 @@ impl CheckedSftpBackend for RusshCheckedSftpBackend {
                 .request_subsystem(true, "sftp")
                 .await
                 .map_err(|_| CheckedChannelAccessError::SubsystemRequestFailed)?;
-            SftpSession::new(channel.into_stream())
-                .await
-                .map_err(|_| CheckedChannelAccessError::SubsystemRequestFailed)
+            SftpSession::new_with_config(
+                channel.into_stream(),
+                // Sixteen server-sized requests provide roughly a 512 KiB
+                // in-flight window on common OpenSSH servers. This is large
+                // enough for high-latency links while remaining bounded so
+                // terminal and monitor channels retain scheduling headroom.
+                checked_sftp_client_config(16),
+            )
+            .await
+            .map_err(|_| CheckedChannelAccessError::SubsystemRequestFailed)
         })
     }
 

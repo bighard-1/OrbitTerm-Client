@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "minimum_window_width": 960,
-  "minimum_window_height": 640,
+  "minimum_window_width": 980,
+  "minimum_window_height": 700,
   "minimum_text_font_size": 12,
   "requires_keyboard_access": true,
   "requires_accessible_names": true,
   "requires_high_dpi_safe_assets": true,
   "localization": {
-    "default_culture": "en-US",
+    "default_culture": "zh-CN",
     "supported_cultures": [
-      "en-US"
+      "zh-CN"
     ],
     "external_distribution_requires_string_resources": true
   }

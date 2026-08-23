@@ -66,6 +66,9 @@ final class AppThemeTests: XCTestCase {
             XCTAssertTrue(palettes.allSatisfy {
                 $0.textPrimary.contrastRatio(with: $0.surfaceReadable) >= 4.5
             })
+            XCTAssertTrue(palettes.allSatisfy {
+                $0.surfaceGlass.opacity == 1 && $0.surfaceGlassStrong.opacity == 1
+            })
         }
 
         XCTAssertEqual(security.connectionBlocked, security.danger)
@@ -79,6 +82,29 @@ final class AppThemeTests: XCTestCase {
         XCTAssertEqual(AppThemeManager.themeStorageKey, "orbitterm.appearance.theme.id")
         XCTAssertEqual(terminalStorageKey, "orbitterm.terminal.theme.id")
     }
+
+#if os(macOS)
+    func testWorkstationShortcutPreferencesPersistAndRejectUnsafeConflicts() {
+        let shortcutDefaults = UserDefaults(suiteName: "WorkstationShortcutPreferencesTests.\(UUID().uuidString)")!
+        defer { shortcutDefaults.removePersistentDomain(forName: shortcutDefaults.volatileDomainNames.first ?? "") }
+        let preferences = WorkstationShortcutPreferences(defaults: shortcutDefaults)
+
+        XCTAssertEqual(
+            WorkstationShortcutAction.allCases.map(preferences.shortcut(for:)).count,
+            WorkstationShortcutAction.allCases.count
+        )
+        XCTAssertEqual(preferences.assign(.command("g", shift: true), to: .focusServerSearch), .accepted)
+        XCTAssertEqual(preferences.shortcut(for: .focusServerSearch), .command("g", shift: true))
+        XCTAssertEqual(
+            WorkstationShortcutPreferences(defaults: shortcutDefaults).shortcut(for: .focusServerSearch),
+            .command("g", shift: true)
+        )
+        XCTAssertEqual(preferences.assign(.command("n"), to: .newTab), .duplicate(.addServer))
+        XCTAssertEqual(preferences.assign(.command("q"), to: .newTab), .reserved)
+        preferences.reset(.focusServerSearch)
+        XCTAssertEqual(preferences.shortcut(for: .focusServerSearch), .command("k"))
+    }
+#endif
 
     func testSFTPTransferSemanticsRemainIndependentFromAppTheme() {
         XCTAssertEqual(SFTPTransferSemanticRole.inProgress.securityKind, .information)

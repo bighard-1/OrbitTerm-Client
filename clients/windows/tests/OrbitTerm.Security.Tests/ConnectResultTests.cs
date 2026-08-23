@@ -10,7 +10,7 @@ public sealed class ConnectResultTests
     public void NativeConnectedOutcomeMapsToVerifiedLease()
     {
         var outcome = new CheckedConnectOutcome.Connected(new ConnectedPayload(
-            "9",
+            9UL,
             "Example.COM",
             "example.com",
             22,

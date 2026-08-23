@@ -4,6 +4,9 @@ import UIKit
 #endif
 
 extension SFTPManager {
+    #if !ORBITTERM_PUBLIC_RELEASE
+    /// Development and UI-test fixture only.  It is not compiled into a
+    /// Release product, where absent SSH configuration must remain absent.
     static func mockItems(path: String) -> [FileItem] {
         let now = UInt64(Date().timeIntervalSince1970)
         switch path {
@@ -27,6 +30,7 @@ extension SFTPManager {
             return []
         }
     }
+    #endif
 
     func successHaptic() {
         #if os(iOS)

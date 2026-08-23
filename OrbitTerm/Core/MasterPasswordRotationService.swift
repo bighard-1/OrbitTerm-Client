@@ -47,8 +47,29 @@ final class MasterPasswordRotationService {
         }
 
         let snapshot = try await fetchCompleteSnapshot()
+        let v2RootKey: Data?
+        if snapshot.contains(where: { item in
+            Data(base64Encoded: item.encrypted_blob_base64).map(OrbitManager.isV2ConfigBlob) ?? false
+        }) {
+            guard let accountScope = AccountScope(username: session.username) else {
+                throw NetworkService.NetworkError.decodeFailed
+            }
+            try orbitManager.prepareConfigRootKeyV2(
+                masterPassword: currentMasterPassword,
+                accountScope: accountScope
+            )
+            v2RootKey = try orbitManager.configRootKeyV2ForBackground(scope: accountScope)
+        } else {
+            v2RootKey = nil
+        }
+        defer { orbitManager.clearConfigRootKeyV2() }
         let replacements = try snapshot.map {
-            try reencrypt($0, from: currentMasterPassword, to: newMasterPassword)
+            try reencrypt(
+                $0,
+                from: currentMasterPassword,
+                to: newMasterPassword,
+                v2RootKey: v2RootKey
+            )
         }
 
         try session.stageMasterPasswordRotation(newMasterPassword)
@@ -59,6 +80,7 @@ final class MasterPasswordRotationService {
                 items: replacements
             )
             serverAcceptedRotation = true
+            try session.markStagedMasterPasswordRotationAccepted()
             guard !login.accessTokenValue.isEmpty else {
                 throw NetworkService.NetworkError.decodeFailed
             }
@@ -83,7 +105,7 @@ final class MasterPasswordRotationService {
     }
 
     func finishPendingLocalCommit(session: AppSession) throws {
-        guard session.hasStagedMasterPasswordRotation else { return }
+        guard session.hasAcceptedStagedMasterPasswordRotation else { return }
         try session.commitStagedMasterPasswordRotation()
     }
 
@@ -107,12 +129,39 @@ final class MasterPasswordRotationService {
     private func reencrypt(
         _ item: UploadConfigData,
         from currentMasterPassword: String,
-        to newMasterPassword: String
+        to newMasterPassword: String,
+        v2RootKey: Data?
     ) throws -> MasterKeyRotationItemRequest {
         guard let encrypted = Data(base64Encoded: item.encrypted_blob_base64) else {
             throw NetworkService.NetworkError.decodeFailed
         }
-        let plaintext = try orbitManager.decrypt(password: currentMasterPassword, encrypted: encrypted)
+        let plaintext: Data
+        if OrbitManager.isV2ConfigBlob(encrypted) {
+            guard let v2RootKey, v2RootKey.count == 32 else {
+                throw NetworkService.NetworkError.decodeFailed
+            }
+            let encoded = encrypted.base64EncodedString()
+            guard let encodedCString = encoded.cString(using: .utf8) else {
+                throw NetworkService.NetworkError.decodeFailed
+            }
+            let result = v2RootKey.withUnsafeBytes { keyBuffer in
+                orbit_decrypt_config_v2(
+                    keyBuffer.bindMemory(to: UInt8.self).baseAddress,
+                    v2RootKey.count,
+                    encodedCString
+                )
+            }
+            guard let result else { throw NetworkService.NetworkError.decodeFailed }
+            defer { orbit_free_string(result) }
+            let raw = String(cString: result)
+            guard raw.hasPrefix("OK:"),
+                  let decoded = Data(base64Encoded: String(raw.dropFirst(3))) else {
+                throw NetworkService.NetworkError.decodeFailed
+            }
+            plaintext = decoded
+        } else {
+            plaintext = try orbitManager.decrypt(password: currentMasterPassword, encrypted: encrypted)
+        }
         guard let text = String(data: plaintext, encoding: .utf8) else {
             throw NetworkService.NetworkError.decodeFailed
         }

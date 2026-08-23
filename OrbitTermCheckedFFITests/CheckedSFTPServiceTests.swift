@@ -90,7 +90,8 @@ final class CheckedSFTPServiceTests: XCTestCase {
         let connection = CheckedSFTPConnection(
             workspaceID: UUID(),
             baseSessionID: try BaseSessionID("72057594037927936"),
-            sftpSessionID: try SFTPSessionID("72057594037927937")
+            sftpSessionID: try SFTPSessionID("72057594037927937"),
+            homePath: "/home/test"
         )
 
         XCTAssertEqual(connection.baseSessionID.ffiValue, 72_057_594_037_927_936)

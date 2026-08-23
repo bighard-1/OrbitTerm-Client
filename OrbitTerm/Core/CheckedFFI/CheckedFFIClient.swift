@@ -20,9 +20,52 @@ struct CheckedConnectInput: Hashable, Sendable, CustomStringConvertible,
     let port: UInt16
     let username: String
     let credentialReference: CredentialAccessReference
+    let jumpHost: CheckedJumpHostInput?
+
+    init(
+        host: String,
+        port: UInt16,
+        username: String,
+        credentialReference: CredentialAccessReference,
+        jumpHost: CheckedJumpHostInput? = nil
+    ) {
+        self.host = host
+        self.port = port
+        self.username = username
+        self.credentialReference = credentialReference
+        self.jumpHost = jumpHost
+    }
 
     var description: String {
-        "CheckedConnectInput(host: \(host), port: \(port), credential: [REDACTED])"
+        "CheckedConnectInput(host: \(host), port: \(port), credential: [REDACTED], jump: \(jumpHost == nil ? "none" : "configured"))"
+    }
+
+    var debugDescription: String { description }
+}
+
+/// Value-only hop descriptor for one checked SSH ProxyJump route. The matching
+/// secret remains in the credential provider and is never exposed to SwiftUI.
+struct CheckedJumpHostInput: Hashable, Sendable, CustomStringConvertible,
+    CustomDebugStringConvertible {
+    let host: String
+    let port: UInt16
+    let username: String
+    let credentialReference: CredentialAccessReference
+
+    init(
+        host: String,
+        port: UInt16,
+        username: String,
+        credentialReference: CredentialAccessReference
+    ) {
+        self.host = host
+        self.port = port
+        self.username = username
+        self.credentialReference = credentialReference
+    }
+
+    var description: String {
+        "CheckedJumpHostInput(host: \(host), port: \(port), credential: [REDACTED])"
     }
 
     var debugDescription: String { description }

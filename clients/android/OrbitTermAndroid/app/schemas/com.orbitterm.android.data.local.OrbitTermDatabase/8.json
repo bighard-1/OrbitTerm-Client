@@ -1,0 +1,217 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 8,
+    "identityHash": "bc86f5a5e92729f899f297ef33d77b64",
+    "entities": [
+      {
+        "tableName": "server_assets",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountScope` TEXT NOT NULL, `id` TEXT NOT NULL, `credentialID` TEXT NOT NULL, `name` TEXT NOT NULL, `groupName` TEXT NOT NULL, `tagsJson` TEXT NOT NULL, `host` TEXT NOT NULL, `port` INTEGER NOT NULL, `username` TEXT NOT NULL, `authMethod` TEXT NOT NULL, `transport` TEXT NOT NULL, `networkDeviceProfile` TEXT NOT NULL, `allowPasswordFallback` INTEGER NOT NULL, `jumpHostJson` TEXT, `createdAtUnix` INTEGER NOT NULL, PRIMARY KEY(`accountScope`, `id`))",
+        "fields": [
+          {
+            "fieldPath": "accountScope",
+            "columnName": "accountScope",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "credentialID",
+            "columnName": "credentialID",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "groupName",
+            "columnName": "groupName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tagsJson",
+            "columnName": "tagsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "host",
+            "columnName": "host",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "port",
+            "columnName": "port",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "username",
+            "columnName": "username",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authMethod",
+            "columnName": "authMethod",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "transport",
+            "columnName": "transport",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "networkDeviceProfile",
+            "columnName": "networkDeviceProfile",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "allowPasswordFallback",
+            "columnName": "allowPasswordFallback",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "jumpHostJson",
+            "columnName": "jumpHostJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAtUnix",
+            "columnName": "createdAtUnix",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountScope",
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "asset_sync_metadata",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountScope` TEXT NOT NULL, `assetId` TEXT NOT NULL, `remoteConfigId` INTEGER, `vectorClock` TEXT NOT NULL, `serverRevision` INTEGER, `remoteState` TEXT NOT NULL, `syncedSafeShadow` TEXT NOT NULL, `syncedPayloadDigest` TEXT NOT NULL, `syncedAtUnix` INTEGER NOT NULL, PRIMARY KEY(`accountScope`, `assetId`))",
+        "fields": [
+          {
+            "fieldPath": "accountScope",
+            "columnName": "accountScope",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "assetId",
+            "columnName": "assetId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remoteConfigId",
+            "columnName": "remoteConfigId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "vectorClock",
+            "columnName": "vectorClock",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverRevision",
+            "columnName": "serverRevision",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "remoteState",
+            "columnName": "remoteState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncedSafeShadow",
+            "columnName": "syncedSafeShadow",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncedPayloadDigest",
+            "columnName": "syncedPayloadDigest",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncedAtUnix",
+            "columnName": "syncedAtUnix",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountScope",
+            "assetId"
+          ]
+        }
+      },
+      {
+        "tableName": "asset_sync_outbox",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountScope` TEXT NOT NULL, `assetId` TEXT NOT NULL, `operation` TEXT NOT NULL, `enqueuedAtUnix` INTEGER NOT NULL, PRIMARY KEY(`accountScope`, `assetId`))",
+        "fields": [
+          {
+            "fieldPath": "accountScope",
+            "columnName": "accountScope",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "assetId",
+            "columnName": "assetId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "operation",
+            "columnName": "operation",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "enqueuedAtUnix",
+            "columnName": "enqueuedAtUnix",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountScope",
+            "assetId"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'bc86f5a5e92729f899f297ef33d77b64')"
+    ]
+  }
+}

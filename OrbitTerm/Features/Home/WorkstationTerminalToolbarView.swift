@@ -6,6 +6,8 @@ struct WorkstationSessionContextBar: View {
     @Environment(\.appThemePalette) private var palette
     @ObservedObject var session: WorkspaceSession
     @ObservedObject var sessionManager: SessionManager
+    let isTerminalFullscreen: Bool
+    let onToggleTerminalFullscreen: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
@@ -18,6 +20,16 @@ struct WorkstationSessionContextBar: View {
             if session.isConnected, !session.isTelnetSession {
                 splitMenu
             }
+            Button(action: onToggleTerminalFullscreen) {
+                Label(
+                    isTerminalFullscreen ? "退出全屏" : "终端全屏",
+                    systemImage: isTerminalFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"
+                )
+                .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.borderless)
+            .help(isTerminalFullscreen ? "退出终端全屏" : "终端全屏")
+            .accessibilityLabel(isTerminalFullscreen ? "退出终端全屏" : "终端全屏")
 #endif
         }
         .padding(.horizontal, 12)

@@ -9,9 +9,14 @@ struct SFTPBrowserView: View {
     @Environment(\.appThemePalette) private var palette
 
     @State private var connectionDraft = SFTPBrowserConnectionDraft()
+    @State private var pathInput = ""
     @State private var isDropTargeted: Bool = false
     @State private var editState = SFTPBrowserEditState()
     @State private var batchState = SFTPBrowserBatchState()
+    @State private var batchDownloadTask: Task<Void, Never>?
+    @State private var batchDownloadGeneration = UUID()
+    @State private var documentOperationGeneration = UUID()
+    @State private var showDocumentDiscardConfirmation = false
 
 #if os(iOS)
     @State private var shareURLs: [URL] = []
@@ -35,6 +40,7 @@ struct SFTPBrowserView: View {
                             hasVerifiedSession: sessionManager.activeSession?.verifiedSessionLease != nil,
                             isLoading: effectiveManager.isLoading,
                             statusText: effectiveManager.statusText,
+                            recovery: effectiveManager.recoveryPresentation,
                             onOpen: {
                                 Task { await autoBindActiveSessionIfNeeded() }
                             }
@@ -54,6 +60,7 @@ struct SFTPBrowserView: View {
 #endif
         .task {
             manager.configureConnectionMode(sessionManager.connectionSecurityPolicy)
+            #if !ORBITTERM_PUBLIC_RELEASE
             if sessionManager.connectionSecurityPolicy.allowsLegacyNetwork {
                 effectiveManager.activateMockIfNeeded(
                     host: connectionDraft.host,
@@ -61,7 +68,18 @@ struct SFTPBrowserView: View {
                     password: connectionDraft.password
                 )
             }
+            #endif
             await autoBindActiveSessionIfNeeded()
+        }
+        .onDisappear {
+            cancelBatchDownload()
+            cancelDocumentOperation()
+        }
+        .onChange(of: sessionManager.activeTabID) { _, _ in
+            // A transfer belongs to the session that started it. Do not let a
+            // hidden/previous tab keep publishing progress into this shared UI.
+            cancelBatchDownload()
+            cancelDocumentOperation()
         }
         .alert("重命名", isPresented: Binding(
             get: { editState.isRenaming },
@@ -130,15 +148,46 @@ struct SFTPBrowserView: View {
             SFTPActivityShareSheet(activityItems: shareURLs)
         }
 #endif
+        .sheet(isPresented: Binding(
+            get: { editState.document != nil },
+            set: { if !$0 { editState.closeDocument() } }
+        )) {
+            documentSheet
+        }
     }
 
     private var browserPanel: some View {
         ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
+                SFTPPathNavigator(
+                    path: $pathInput,
+                    isEnabled: effectiveManager.activeSessionID != nil,
+                    onNavigate: navigateToPath
+                )
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
                 breadcrumbBar
                 summaryBar
+                if shouldShowOperationStatus {
+                    Label(
+                        effectiveManager.statusText,
+                        systemImage: operationStatusIsFailure ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(operationStatusIsFailure ? Color.red : palette.accentPrimary.color)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        (operationStatusIsFailure ? Color.red : palette.accentPrimary.color).opacity(0.10),
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    )
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 6)
+                    .accessibilityLabel("SFTP 操作结果：\(effectiveManager.statusText)")
+                }
 
-                if effectiveManager.isLoading {
+                if effectiveManager.isLoading && effectiveManager.items.isEmpty {
                     ProgressView("加载中...")
                         .tint(palette.accentPrimary.color)
                         .foregroundStyle(palette.textPrimary.color)
@@ -152,6 +201,14 @@ struct SFTPBrowserView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
             VStack(spacing: 8) {
+                if effectiveManager.isLoading && !effectiveManager.items.isEmpty {
+                    ProgressView("正在更新目录…")
+                        .font(.caption)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(.regularMaterial, in: Capsule())
+                        .accessibilityLabel("正在更新 SFTP 目录，现有列表仍可查看")
+                }
 #if os(macOS)
                 if let revealURL = revealInFinderURL {
                     SFTPRevealInFinderToast(revealURL: revealURL) {
@@ -166,14 +223,14 @@ struct SFTPBrowserView: View {
                         selectedCount: batchState.selectedIDs.count,
                         progress: batchState.progress,
                         isRunning: batchState.isRunning,
-                        onCancel: { batchState.clearSelection() },
-                        onDownload: { Task { await performBatchDownload() } },
+                        onCancel: { cancelBatchDownload() },
+                        onDownload: { startBatchDownload() },
                         onDelete: { batchState.requestDeleteConfirmation() }
                     )
                         .padding(.horizontal, 12)
                 }
 
-                SFTPTransferBoard(transfers: effectiveManager.transfers)
+                SFTPTransferBoard(manager: effectiveManager)
                     .padding(.horizontal, 12)
                     .padding(.bottom, 10)
             }
@@ -220,6 +277,7 @@ struct SFTPBrowserView: View {
                     Image(systemName: "arrow.up.left")
                 }
             }
+            #if !ORBITTERM_PUBLIC_RELEASE
             if effectiveManager.isUsingMockData {
                 ToolbarItem(placement: .automatic) {
                     Text("模拟模式")
@@ -230,6 +288,7 @@ struct SFTPBrowserView: View {
                         .background(palette.surfaceInput.color, in: Capsule())
                 }
             }
+            #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .safeAreaInset(edge: .bottom) {
@@ -252,6 +311,9 @@ struct SFTPBrowserView: View {
             },
             onEnterDirectory: { item in
                 await effectiveManager.enterDirectory(item)
+            },
+            onOpen: { item in
+                await openDocument(item)
             },
             onUpload: { localURL in
                 await effectiveManager.upload(localURL: localURL)
@@ -281,6 +343,26 @@ struct SFTPBrowserView: View {
         SFTPBrowserPathHelper.breadcrumbs(for: effectiveManager.currentPath)
     }
 
+    private var operationStatusIsFailure: Bool {
+        let text = effectiveManager.statusText
+        return text.contains("失败") || text.contains("不可写") || text.contains("权限")
+    }
+
+    private var shouldShowOperationStatus: Bool {
+        let text = effectiveManager.statusText
+        return text.contains("已创建") || text.contains("新建") || text.contains("同名") || operationStatusIsFailure
+    }
+
+    private func navigateToPath() {
+        let requestedPath = pathInput
+        Task {
+            if await effectiveManager.navigateToPath(requestedPath) {
+                pathInput = effectiveManager.currentPath
+                batchState.clearSelection()
+            }
+        }
+    }
+
     private var emptyFolderView: some View {
         SFTPEmptyFolderView()
     }
@@ -303,7 +385,177 @@ struct SFTPBrowserView: View {
         batchState.showResult(SFTPBatchOperationFormatter.deleteResultMessage(for: summary))
     }
 
-    private func performBatchDownload() async {
+    private func startBatchDownload() {
+        guard batchDownloadTask == nil else { return }
+        let generation = UUID()
+        let transferManager = effectiveManager
+        batchDownloadGeneration = generation
+        batchDownloadTask = Task {
+            await performBatchDownload(
+                generation: generation,
+                manager: transferManager
+            )
+            guard batchDownloadGeneration == generation else { return }
+            batchDownloadTask = nil
+        }
+    }
+
+    private func cancelBatchDownload() {
+        batchDownloadGeneration = UUID()
+        batchDownloadTask?.cancel()
+        batchDownloadTask = nil
+        if batchState.isRunning {
+            batchState.cancelBatch()
+        } else {
+            batchState.clearSelection()
+        }
+    }
+
+    private func openDocument(_ item: FileItem) async {
+        guard !item.isDirectory else { return }
+        let generation = UUID()
+        let documentManager = effectiveManager
+        let sessionID = documentManager.activeSessionID
+        let path = documentManager.currentPath
+        documentOperationGeneration = generation
+        documentManager.statusText = "正在应用内打开 (item.name)…"
+        do {
+            let content = try await documentManager.readTextFile(item: item)
+            guard documentOperationGeneration == generation,
+                  effectiveManager === documentManager,
+                  documentManager.activeSessionID == sessionID,
+                  documentManager.currentPath == path else { return }
+            editState.presentDocument(item: item, content: content)
+            documentManager.statusText = "已在应用内打开 (item.name)"
+        } catch {
+            guard documentOperationGeneration == generation,
+                  effectiveManager === documentManager else { return }
+            documentManager.statusText = "应用内打开失败：(error.localizedDescription)"
+        }
+    }
+
+    private func saveDocument() {
+        guard let document = editState.document, !document.isSaving else { return }
+        let generation = documentOperationGeneration
+        let documentManager = effectiveManager
+        editState.setDocumentSaving(true)
+        Task {
+            do {
+                try await documentManager.writeTextFile(
+                    item: document.item,
+                    content: document.textFormat.serialize(document.draftContent)
+                )
+                guard documentOperationGeneration == generation,
+                      effectiveManager === documentManager else { return }
+                editState.closeDocument()
+            } catch {
+                guard documentOperationGeneration == generation,
+                      effectiveManager === documentManager else { return }
+                editState.setDocumentError(error.localizedDescription)
+            }
+        }
+    }
+
+    private func cancelDocumentOperation() {
+        documentOperationGeneration = UUID()
+        editState.closeDocument()
+    }
+
+    @ViewBuilder
+    private var documentSheet: some View {
+        NavigationStack {
+            ZStack {
+                AppChromeBackground()
+                if let document = editState.document {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Label(
+                                document.mode == .editing ? "编辑模式" : "只读预览",
+                                systemImage: document.mode == .editing ? "pencil" : "eye"
+                            )
+                            .font(.caption.weight(.semibold))
+                            Spacer()
+                            Text("\(document.textFormat.displayLabel) · 最大 2 MB")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if let errorMessage = document.errorMessage {
+                            Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                                .accessibilityLabel("保存失败。\(errorMessage)")
+                        }
+
+                        if document.mode == .editing {
+                            Text("自动折行仅改变屏幕显示；只有手动换行会写入远端文件。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            TextEditor(text: Binding(
+                                get: { editState.document?.draftContent ?? "" },
+                                set: { editState.updateDocumentDraft($0) }
+                            ))
+                            .font(.system(.body, design: .monospaced))
+                            .scrollContentBackground(.hidden)
+                            .padding(8)
+                            .themedInputSurface(focused: true)
+                            .disabled(document.isSaving)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            ScrollView {
+                                Text(document.draftContent.isEmpty ? "（空文件）" : document.draftContent)
+                                    .font(.system(.body, design: .monospaced))
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                                    .padding(12)
+                            }
+                            .themedReadableSurface()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    }
+                    .padding(16)
+                }
+            }
+            .navigationTitle(editState.document?.item.name ?? "文件")
+#if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+#endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") {
+                        if editState.document?.hasUnsavedChanges == true {
+                            showDocumentDiscardConfirmation = true
+                        } else {
+                            editState.closeDocument()
+                        }
+                    }
+                    .disabled(editState.document?.isSaving == true)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if editState.document?.mode == .editing {
+                        Button(editState.document?.isSaving == true ? "保存中…" : "保存") {
+                            saveDocument()
+                        }
+                        .disabled(editState.document?.isSaving == true)
+                    } else {
+                        Button("编辑") { editState.beginDocumentEditing() }
+                    }
+                }
+            }
+            .alert("放弃未保存的编辑？", isPresented: $showDocumentDiscardConfirmation) {
+                Button("继续编辑", role: .cancel) {}
+                Button("放弃", role: .destructive) { editState.closeDocument() }
+            } message: {
+                Text("远端文件不会被修改。")
+            }
+        }
+    }
+
+    private func performBatchDownload(
+        generation: UUID,
+        manager: SFTPManager
+    ) async {
         let targets = SFTPBatchOperationFormatter.downloadableItems(from: selectedItems)
         guard !targets.isEmpty else {
             batchState.showResult(SFTPBatchOperationFormatter.noDownloadableFilesMessage)
@@ -314,14 +566,19 @@ struct SFTPBrowserView: View {
 
         let base = SFTPBrowserPathHelper.batchDownloadDirectory()
 
-        let result = await effectiveManager.batchDownload(
+        let result = await manager.batchDownload(
             items: targets,
             destinationDirectory: base,
-            maxConcurrent: 3
+            maxConcurrent: OperationResourceBudget.sftpMaximumConcurrentTransfers
         ) { progress in
             Task { @MainActor in
+                guard self.batchDownloadGeneration == generation else { return }
                 self.batchState.updateProgress(progress)
             }
+        }
+
+        guard !Task.isCancelled, batchDownloadGeneration == generation else {
+            return
         }
 
         batchState.finishBatch(message: SFTPBatchOperationFormatter.downloadResultMessage(for: result.summary))

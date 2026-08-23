@@ -2,17 +2,48 @@ import Foundation
 import Combine
 import Network
 
+struct RemoteProcessSnapshot: Identifiable, Hashable, Sendable {
+    let pid: Int
+    let parentPID: Int
+    let user: String
+    let cpuPercent: Double
+    let memoryPercent: Double
+    let elapsedSeconds: Int
+    let state: String
+    let command: String
+
+    var id: Int { pid }
+}
+
+enum RemoteProcessMonitorError: Error, LocalizedError {
+    case requiresVerifiedSession
+    case commandFailed(String)
+    case invalidProcess
+    case protectedProcess
+    case identityChanged
+
+    var errorDescription: String? {
+        switch self {
+        case .requiresVerifiedSession: "需要已验证的 SSH 会话"
+        case let .commandFailed(message): message
+        case .invalidProcess: "进程信息无效，操作已取消"
+        case .protectedProcess: "系统关键进程不允许在此处终止"
+        case .identityChanged: "进程身份已经变化，请刷新后重试"
+        }
+    }
+}
+
 @MainActor
 final class SessionManager: ObservableObject {
     static let shared = SessionManager()
 
-    @Published private(set) var tabs: [WorkspaceSession] = []
-    @Published var activeTabID: UUID?
     @Published var quickOpenServer: ServerEntry?
     @Published private(set) var checkedHostKeyRoute: CheckedHostKeyPresentationRoute?
     @Published private(set) var telnetRiskRoute: TelnetRiskPresentationRoute?
 
     let monitorService: MonitorService
+    private let workspacePresentation = WorkspacePresentationCoordinator<WorkspaceSession>()
+    private var workspacePresentationObserver: AnyCancellable?
     #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
     private let orbitManager = OrbitManager()
     #endif
@@ -22,11 +53,15 @@ final class SessionManager: ObservableObject {
     private let checkedClient: any CheckedFFIClient
     private let checkedSFTPService: any CheckedSFTPConnectionOpening
     private let checkedDockerService: any CheckedDockerOperating
+    private let workspaceToolCoordinator: WorkspaceToolCoordinator
     private let telnetAccessPolicy: TelnetAccessPolicy
     private var monitorObserver: AnyCancellable?
     private var connectionLostObserver: NSObjectProtocol?
     private var sessionByBaseID: [UInt64: UUID] = [:]
     private var telnetClients: [UUID: TelnetClient] = [:]
+    private var auxiliaryRefreshTask: Task<Void, Never>?
+    private var auxiliaryRefreshOwner = OperationOwner()
+    private var auxiliaryRefreshesAreActive = true
 
     private init(
         connectionSecurityPolicy: ConnectionSecurityPolicy = .applicationDefault,
@@ -45,8 +80,19 @@ final class SessionManager: ObservableObject {
             connectionMode: connectionSecurityPolicy,
             checkedSnapshotService: CheckedMonitorSnapshotService(client: resolvedCheckedClient)
         )
-        // 将监控服务的状态变化上抛到 SessionManager，保证主界面实时刷新。
+        workspaceToolCoordinator = WorkspaceToolCoordinator(
+            policy: connectionSecurityPolicy,
+            sftpOpener: checkedSFTPService,
+            dockerOperator: checkedDockerService,
+            monitoring: monitorService
+        )
+        // 将监控服务与 workspace presentation 的状态变化上抛到
+        // SessionManager，保持既有 View 的观察入口稳定。
         monitorObserver = monitorService.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+        workspacePresentationObserver = workspacePresentation.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
             }
@@ -63,10 +109,11 @@ final class SessionManager: ObservableObject {
         }
     }
 
-    var activeSession: WorkspaceSession? {
-        guard let activeTabID else { return tabs.first }
-        return tabs.first(where: { $0.id == activeTabID })
-    }
+    var tabs: [WorkspaceSession] { workspacePresentation.tabs }
+
+    var activeTabID: UUID? { workspacePresentation.activeTabID }
+
+    var activeSession: WorkspaceSession? { workspacePresentation.activeSession }
 
 
     var requiresCheckedConnection: Bool {
@@ -78,17 +125,120 @@ final class SessionManager: ObservableObject {
     }
 
     func session(for id: UUID?) -> WorkspaceSession? {
-        guard let id else { return nil }
-        return tabs.first(where: { $0.id == id })
+        workspacePresentation.session(for: id)
     }
 
     func verifiedSessionLease(for serverID: UUID) -> VerifiedWorkspaceSession? {
-        tabs.first(where: { $0.server.id == serverID })?.verifiedSessionLease
+        workspacePresentation.session(forServerID: serverID)?.verifiedSessionLease
+    }
+
+    /// Batch execution may establish a previously trusted asset with its saved
+    /// credential, but it must never turn an unknown/changed host key into an
+    /// implicit trust decision. A per-target reason lets the batch continue
+    /// without presenting a blocking confirmation dialog for every asset.
+    func prepareVerifiedSessionForBatch(server: ServerEntry) async -> String? {
+        if verifiedSessionLease(for: server.id) != nil { return nil }
+        let previousActiveID = activeTabID
+        openTab(for: server, autoConnect: false)
+        guard let workspace = workspacePresentation.session(forServerID: server.id) else {
+            return "无法创建资产会话"
+        }
+        await connect(session: workspace)
+        if checkedHostKeyRoute?.workspaceID == workspace.id {
+            let reason = workspace.terminalStatus == "等待服务器身份确认"
+                ? "需要先单独连接并确认服务器身份"
+                : workspace.terminalStatus
+            cancelCheckedHostKeyFlow()
+            if let previousActiveID { activateTab(previousActiveID) }
+            return reason
+        }
+        if let previousActiveID { activateTab(previousActiveID) }
+        guard workspace.verifiedSessionLease != nil else {
+            return workspace.terminalStatus.isEmpty ? "凭据无效或网络连接失败" : workspace.terminalStatus
+        }
+        return nil
+    }
+
+    func fetchRemoteProcesses(session: WorkspaceSession) async throws -> [RemoteProcessSnapshot] {
+        guard session.isConnected, let lease = session.verifiedSessionLease else {
+            throw RemoteProcessMonitorError.requiresVerifiedSession
+        }
+        let service = CheckedBatchCommandService(client: checkedClient)
+        let target = CheckedBatchTarget(
+            workspaceID: session.id,
+            displayName: session.server.name,
+            endpoint: "\(session.server.host):\(session.server.port)",
+            baseSessionID: lease.baseSessionID
+        )
+        let command = "LC_ALL=C ps -eo pid=,ppid=,user=,pcpu=,pmem=,etimes=,stat=,comm= --sort=-pcpu | head -n 257"
+        guard let result = await service.execute(command: command, targets: [target]).first else {
+            throw RemoteProcessMonitorError.commandFailed("无法读取远端进程")
+        }
+        guard result.succeeded else {
+            throw RemoteProcessMonitorError.commandFailed(result.error?.userMessage ?? "无法读取远端进程")
+        }
+        return result.stdout.split(whereSeparator: \.isNewline).compactMap { line in
+            let columns = line.split(maxSplits: 7, omittingEmptySubsequences: true, whereSeparator: \.isWhitespace)
+            guard columns.count == 8,
+                  let pid = Int(columns[0]),
+                  let parentPID = Int(columns[1]),
+                  let cpu = Double(columns[3]),
+                  let memory = Double(columns[4]),
+                  let elapsed = Int(columns[5]) else {
+                return nil
+            }
+            return RemoteProcessSnapshot(
+                pid: pid,
+                parentPID: parentPID,
+                user: String(columns[2]),
+                cpuPercent: cpu,
+                memoryPercent: memory,
+                elapsedSeconds: elapsed,
+                state: String(columns[6]),
+                command: String(columns[7])
+            )
+        }
+    }
+
+    func terminateRemoteProcess(
+        _ process: RemoteProcessSnapshot,
+        session: WorkspaceSession,
+        force: Bool = false
+    ) async throws {
+        guard session.isConnected, let lease = session.verifiedSessionLease else {
+            throw RemoteProcessMonitorError.requiresVerifiedSession
+        }
+        guard process.pid > 1,
+              process.command.range(of: #"^[A-Za-z0-9._:+-]+$"#, options: .regularExpression) != nil else {
+            throw RemoteProcessMonitorError.invalidProcess
+        }
+        let protectedNames: Set<String> = ["init", "systemd", "sshd", "kernel_task", "launchd"]
+        guard !protectedNames.contains(process.command.lowercased()) else {
+            throw RemoteProcessMonitorError.protectedProcess
+        }
+        let signal = force ? "KILL" : "TERM"
+        let command = "actual=$(LC_ALL=C ps -p \(process.pid) -o comm= | tr -d '[:space:]'); [ \"$actual\" = '\(process.command)' ] || exit 73; kill -\(signal) \(process.pid)"
+        let service = CheckedBatchCommandService(client: checkedClient)
+        let target = CheckedBatchTarget(
+            workspaceID: session.id,
+            displayName: session.server.name,
+            endpoint: "\(session.server.host):\(session.server.port)",
+            baseSessionID: lease.baseSessionID
+        )
+        guard let result = await service.execute(command: command, targets: [target]).first else {
+            throw RemoteProcessMonitorError.commandFailed("终止进程失败")
+        }
+        if result.exitStatus == 73 {
+            throw RemoteProcessMonitorError.identityChanged
+        }
+        guard result.succeeded else {
+            throw RemoteProcessMonitorError.commandFailed(result.error?.userMessage ?? "终止进程失败")
+        }
     }
 
     func openTab(for server: ServerEntry, autoConnect: Bool = false) {
-        if let existing = tabs.first(where: { $0.server.id == server.id }) {
-            activeTabID = existing.id
+        if let existing = workspacePresentation.session(forServerID: server.id) {
+            activateTab(existing.id)
             // Selecting an already open session must not rebuild a healthy
             // connection. A repeated sidebar click while its checked route is
             // awaiting a decision must likewise leave that single route intact.
@@ -101,12 +251,12 @@ final class SessionManager: ObservableObject {
         }
 
         let session = WorkspaceSession(server: server)
-        session.dockerService.configureConnectionMode(
-            checkedConnectionDispatcher.policy,
-            checkedOperator: checkedDockerService
+        workspaceToolCoordinator.configure(session)
+        let previousSession = workspacePresentation.appendAndActivate(session)
+        scheduleAuxiliaryRefreshTransition(
+            suspending: previousSession,
+            resuming: auxiliaryRefreshesAreActive ? session : nil
         )
-        tabs.append(session)
-        activeTabID = session.id
 
         if autoConnect {
             Task { await connect(session: session) }
@@ -119,12 +269,32 @@ final class SessionManager: ObservableObject {
     }
 
     func activateTab(_ id: UUID) {
-        activeTabID = id
+        guard let previousSession = workspacePresentation.activate(id) else { return }
+        scheduleAuxiliaryRefreshTransition(
+            suspending: previousSession,
+            resuming: auxiliaryRefreshesAreActive ? activeSession : nil
+        )
     }
 
     func activateIndex(_ index: Int) {
         guard index >= 0, index < tabs.count else { return }
-        activeTabID = tabs[index].id
+        activateTab(tabs[index].id)
+    }
+
+    /// Keeps background polling tied to the visible, unlocked workspace while
+    /// preserving existing SSH, terminal, and SFTP connection lifecycles.
+    func setAuxiliaryRefreshesActive(_ isActive: Bool) {
+        guard auxiliaryRefreshesAreActive != isActive else { return }
+        auxiliaryRefreshesAreActive = isActive
+        if isActive {
+            let activeID = activeSession?.id
+            scheduleAuxiliaryRefreshTransition(
+                suspending: tabs.filter { $0.id != activeID },
+                resuming: activeSession
+            )
+        } else {
+            scheduleAuxiliaryRefreshTransition(suspending: tabs, resuming: nil)
+        }
     }
 
     func closeActiveTab() {
@@ -155,14 +325,59 @@ final class SessionManager: ObservableObject {
             await disconnect(session: tab)
         }
 
-        tabs.removeAll { $0.id == tab.id }
+        let removedWasActive = workspacePresentation.remove(tab.id)
         if let baseID = tab.baseSessionID {
             sessionByBaseID.removeValue(forKey: baseID)
         }
         telnetClients.removeValue(forKey: tab.id)
-        if self.activeTabID == tab.id {
-            self.activeTabID = tabs.first?.id
+        if removedWasActive {
+            scheduleAuxiliaryRefreshTransition(
+                suspending: nil,
+                resuming: auxiliaryRefreshesAreActive ? activeSession : nil
+            )
         }
+    }
+
+    private func scheduleAuxiliaryRefreshTransition(
+        suspending session: WorkspaceSession?,
+        resuming nextSession: WorkspaceSession?
+    ) {
+        scheduleAuxiliaryRefreshTransition(
+            suspending: session.map { [$0] } ?? [],
+            resuming: nextSession
+        )
+    }
+
+    private func scheduleAuxiliaryRefreshTransition(
+        suspending sessions: [WorkspaceSession],
+        resuming nextSession: WorkspaceSession?
+    ) {
+        auxiliaryRefreshTask?.cancel()
+        let lease = auxiliaryRefreshOwner.begin()
+        auxiliaryRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            for session in sessions {
+                await self.suspendAuxiliaryRefreshes(for: session)
+                guard !Task.isCancelled, self.auxiliaryRefreshOwner.owns(lease) else { return }
+            }
+            guard let nextSession,
+                  self.auxiliaryRefreshesAreActive,
+                  !Task.isCancelled,
+                  self.auxiliaryRefreshOwner.owns(lease) else {
+                return
+            }
+            await self.resumeAuxiliaryRefreshes(for: nextSession)
+            guard !Task.isCancelled, self.auxiliaryRefreshOwner.owns(lease) else { return }
+            self.auxiliaryRefreshTask = nil
+        }
+    }
+
+    private func suspendAuxiliaryRefreshes(for session: WorkspaceSession) async {
+        await workspaceToolCoordinator.suspendAuxiliaryRefreshes(for: session)
+    }
+
+    private func resumeAuxiliaryRefreshes(for session: WorkspaceSession) async {
+        await workspaceToolCoordinator.resumeAuxiliaryRefreshes(for: session)
     }
 
     func testConnection(session: WorkspaceSession) async {
@@ -221,59 +436,26 @@ final class SessionManager: ObservableObject {
     }
 
     private func openSFTPIfNeeded(for session: WorkspaceSession) async {
-        session.sftpManager.configureConnectionMode(checkedConnectionDispatcher.policy)
-        guard session.server.transport == .ssh else {
-            if requiresCheckedConnection {
-                session.sftpManager.rejectCheckedStandalone(.requiresVerifiedSession)
-            }
+        if await workspaceToolCoordinator.openSFTPIfHandled(for: session) { return }
+        #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
+        guard session.isConnected,
+              let credentials = try? credentialVault.read(for: session.server.credentialID),
+              !credentials.isEmpty else {
             return
         }
-        if session.sftpManager.isConnected { return }
-
-        switch SFTPConnectionPolicy(mode: checkedConnectionDispatcher.policy).plan(
-            verifiedSession: session.verifiedSessionLease
-        ) {
-        case let .checked(lease):
-            guard session.isConnected,
-                  session.verifiedSessionLease?.baseSessionID == lease.baseSessionID else {
-                return
-            }
-            let result = await session.sftpManager.connectChecked(
-                workspaceID: session.id,
-                baseSessionID: lease.baseSessionID,
-                opener: checkedSFTPService
-            )
-            guard case .success = result,
-                  session.isConnected,
-                  session.verifiedSessionLease?.baseSessionID == lease.baseSessionID else {
-                if case .success = result {
-                    await session.sftpManager.disconnect()
-                }
-                return
-            }
-        case let .rejected(error):
-            session.sftpManager.rejectCheckedStandalone(error)
-        case .legacy:
-            #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
-            guard session.isConnected,
-                  let credentials = try? credentialVault.read(for: session.server.credentialID),
-                  !credentials.isEmpty else {
-                return
-            }
-            await session.sftpManager.connect(
-                host: session.server.host,
-                port: session.server.port,
-                username: session.server.username,
-                password: credentials.password,
-                privateKeyContent: credentials.privateKeyContent,
-                privateKeyPassphrase: credentials.privateKeyPassphrase,
-                allowPasswordFallback: session.server.allowPasswordFallback,
-                preferMock: false
-            )
-            #else
-            session.sftpManager.rejectCheckedStandalone(.legacySFTPDisabledInCheckedMode)
-            #endif
-        }
+        await session.sftpManager.connect(
+            host: session.server.host,
+            port: session.server.port,
+            username: session.server.username,
+            password: credentials.password,
+            privateKeyContent: credentials.privateKeyContent,
+            privateKeyPassphrase: credentials.privateKeyPassphrase,
+            allowPasswordFallback: session.server.allowPasswordFallback,
+            preferMock: false
+        )
+        #else
+        session.sftpManager.rejectCheckedStandalone(.legacySFTPDisabledInCheckedMode)
+        #endif
     }
 
     func startMonitorForActiveSessionIfNeeded() async {
@@ -282,29 +464,7 @@ final class SessionManager: ObservableObject {
     }
 
     private func startMonitorIfNeeded(for session: WorkspaceSession) async {
-        guard session.activeMonitorPanelID == nil else { return }
-        switch MonitorConnectionPolicy(mode: checkedConnectionDispatcher.policy).plan(
-            verifiedSession: session.verifiedSessionLease
-        ) {
-        case let .checked(lease):
-            let result = await monitorService.startCheckedMonitoring(
-                workspaceID: session.id,
-                baseSessionID: lease.baseSessionID,
-                name: session.server.name
-            )
-            if case let .success(panelID) = result,
-               session.isConnected,
-               session.verifiedSessionLease?.baseSessionID == lease.baseSessionID {
-                session.activeMonitorPanelID = panelID
-            } else if case let .success(panelID) = result {
-                await monitorService.disconnect(panelID)
-            }
-        case let .rejected(error):
-            monitorService.rejectCheckedStandalone(error)
-        case .legacy:
-            // Legacy sessions already start their existing monitor during connect.
-            break
-        }
+        _ = await workspaceToolCoordinator.startMonitorIfHandled(for: session, name: session.server.name)
     }
 
     func startDockerForActiveSessionIfNeeded() async {
@@ -313,37 +473,7 @@ final class SessionManager: ObservableObject {
     }
 
     private func startDockerIfNeeded(for session: WorkspaceSession) async {
-        session.dockerService.configureConnectionMode(
-            checkedConnectionDispatcher.policy,
-            checkedOperator: checkedDockerService
-        )
-
-        switch DockerConnectionPolicy(mode: checkedConnectionDispatcher.policy).plan(
-            verifiedSession: session.verifiedSessionLease
-        ) {
-        case let .checked(lease):
-            guard session.isConnected,
-                  session.verifiedSessionLease?.baseSessionID == lease.baseSessionID else {
-                return
-            }
-            let result = await session.dockerService.startCheckedDocker(
-                workspaceID: session.id,
-                baseSessionID: lease.baseSessionID
-            )
-            guard case .success = result,
-                  session.isConnected,
-                  session.verifiedSessionLease?.baseSessionID == lease.baseSessionID else {
-                if case .success = result {
-                    await session.dockerService.disconnect()
-                }
-                return
-            }
-        case let .rejected(error):
-            session.dockerService.rejectCheckedStandalone(error)
-        case .legacy:
-            // Legacy sessions retain their existing connect-time Docker initialization.
-            break
-        }
+        _ = await workspaceToolCoordinator.startDockerIfHandled(for: session)
     }
 
     func connect(session: WorkspaceSession) async {
@@ -364,11 +494,7 @@ final class SessionManager: ObservableObject {
             return
         }
 
-        session.sftpManager.configureConnectionMode(checkedConnectionDispatcher.policy)
-        session.dockerService.configureConnectionMode(
-            checkedConnectionDispatcher.policy,
-            checkedOperator: checkedDockerService
-        )
+        workspaceToolCoordinator.configure(session)
 
         #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
         if checkedConnectionDispatcher.policy.allowsLegacyNetwork {
@@ -468,6 +594,28 @@ final class SessionManager: ObservableObject {
             session.appendTerminal("[checked] 连接参数无效")
             return
         }
+        let jumpHostInput: CheckedJumpHostInput?
+        if let jumpHost = session.server.jumpHost {
+            guard session.server.hasDistinctCredentialIDs,
+                  jumpHost.isValid,
+                  let jumpPort = UInt16(exactly: jumpHost.port) else {
+                session.terminalStatus = "跳板机配置无效"
+                session.isConnected = false
+                session.appendTerminal("[checked] 跳板机主机、端口或用户名无效，未尝试直连")
+                return
+            }
+            jumpHostInput = CheckedJumpHostInput(
+                host: jumpHost.host,
+                port: jumpPort,
+                username: jumpHost.username,
+                credentialReference: CredentialAccessReference(
+                    id: jumpHost.credentialID,
+                    allowPasswordFallback: jumpHost.allowPasswordFallback
+                )
+            )
+        } else {
+            jumpHostInput = nil
+        }
 
         if session.baseSessionID != nil || session.terminalChannelID != nil ||
             !session.terminalChannelIDs.isEmpty || session.verifiedSessionLease != nil ||
@@ -498,7 +646,8 @@ final class SessionManager: ObservableObject {
                 credentialReference: CredentialAccessReference(
                     id: session.server.credentialID,
                     allowPasswordFallback: session.server.allowPasswordFallback
-                )
+                ),
+                jumpHost: jumpHostInput
             )
         )
         applyCheckedOutcome(outcome, route: route)
@@ -541,23 +690,27 @@ final class SessionManager: ObservableObject {
         case let .connected(lease):
             installCheckedLease(lease, on: session, terminalConnected: true)
             checkedHostKeyRoute = nil
-        case let .terminalOpenFailed(lease, error):
+        case let .terminalOpenFailed(lease, _):
             installCheckedLease(lease, on: session, terminalConnected: false)
-            session.terminalStatus = "终端通道建立失败"
-            session.appendTerminal("[checked] 终端建立失败：\(error.description)")
+            let recovery = OperationRecoveryMapper.connection(outcome)
+            session.terminalStatus = recovery?.title ?? "终端未能打开"
+            session.appendTerminal("[checked] \(recovery?.message ?? "终端未能打开")")
             checkedHostKeyRoute = nil
         case .blocked:
-            session.terminalStatus = "服务器身份已阻断"
+            let recovery = OperationRecoveryMapper.connection(outcome)
+            session.terminalStatus = recovery?.title ?? "服务器身份已阻断"
             session.isConnected = false
-            session.appendTerminal("[checked] 服务器身份校验已阻断连接")
+            session.appendTerminal("[checked] \(recovery?.message ?? "服务器身份校验已阻断连接")")
         case let .failed(failure):
-            session.terminalStatus = checkedFailureStatus(failure)
+            let recovery = OperationRecoveryMapper.connection(failure)
+            session.terminalStatus = recovery.title
             session.isConnected = false
-            session.appendTerminal("[checked] 连接在认证前安全停止")
+            session.appendTerminal("[checked] \(recovery.message)")
         case .cancelled:
-            session.terminalStatus = "已取消连接"
+            let recovery = OperationRecoveryMapper.connection(outcome)
+            session.terminalStatus = recovery?.title ?? "操作已取消"
             session.isConnected = false
-            session.appendTerminal("[checked] 用户已取消服务器身份确认")
+            session.appendTerminal("[checked] \(recovery?.message ?? "操作已取消")")
             checkedHostKeyRoute = nil
         }
     }
@@ -580,6 +733,9 @@ final class SessionManager: ObservableObject {
         session.isConnected = terminalConnected
         if terminalConnected {
             session.terminalStatus = "终端在线（已验证）"
+            if let terminalChannelID = lease.terminalChannelID?.ffiValue {
+                terminalService.beginFirstFrameMeasurement(channelID: terminalChannelID)
+            }
             session.appendTerminal("[ok] 已验证 SSH 与终端通道建立成功")
             session.appendTerminal("[checked] 正在从已验证会话启动 SFTP、监控与 Docker；Batch 仍禁用")
             Task { [weak self, weak session] in
@@ -590,24 +746,29 @@ final class SessionManager: ObservableObject {
     }
 
     private func startCheckedCompanionServices(for session: WorkspaceSession) async {
-        guard session.server.transport == .ssh,
-              session.isConnected,
-              session.verifiedSessionLease != nil else {
+        guard let baseSessionID = session.verifiedSessionLease?.baseSessionID,
+              ownsCheckedCompanionServices(for: session, baseSessionID: baseSessionID) else {
             return
         }
         await openSFTPIfNeeded(for: session)
+        guard ownsCheckedCompanionServices(for: session, baseSessionID: baseSessionID) else { return }
         await startMonitorIfNeeded(for: session)
+        guard ownsCheckedCompanionServices(for: session, baseSessionID: baseSessionID) else { return }
         await startDockerIfNeeded(for: session)
     }
 
-    private func checkedFailureStatus(_ failure: HostKeyTrustFailure) -> String {
-        switch failure {
-        case .authentication: "认证失败"
-        case .network: "网络连接失败"
-        case .timeout: "连接超时"
-        case .store, .storeSave: "信任存储失败"
-        case .operation, .client, .protocolViolation: "安全连接失败"
-        }
+    /// A companion start is deliberately sequenced after terminal setup. Each
+    /// await boundary revalidates the exact workspace object and verified base
+    /// session so a late SFTP/Monitor/Docker completion cannot revive work for
+    /// a closed tab or a newly connected generation of that tab.
+    private func ownsCheckedCompanionServices(
+        for session: WorkspaceSession,
+        baseSessionID: BaseSessionID
+    ) -> Bool {
+        tabs.first(where: { $0.id == session.id }) === session &&
+            session.server.transport == .ssh &&
+            session.isConnected &&
+            session.verifiedSessionLease?.baseSessionID == baseSessionID
     }
 
     private func rejectDisabledTelnet(session: WorkspaceSession) {
@@ -785,6 +946,17 @@ final class SessionManager: ObservableObject {
         _ = await terminalService.writeRaw(channelID: targetChannelID, bytes: bytes)
         if !submitted.isEmpty {
             await syncSFTPPathIfNeeded(session: session, submittedCommands: submitted)
+        }
+    }
+
+    /// Non-blocking route for live keyboard input. The session and channel are
+    /// resolved before queueing, so a later tab change cannot redirect bytes.
+    func enqueueTerminalInput(session: WorkspaceSession, bytes: [UInt8], channelID: UInt64? = nil) {
+        guard let targetChannelID = resolveChannelID(session: session, preferred: channelID) else { return }
+        let submitted = session.captureTypedBytes(bytes)
+        terminalService.enqueueInput(channelID: targetChannelID, bytes: bytes)
+        if !submitted.isEmpty {
+            Task { await syncSFTPPathIfNeeded(session: session, submittedCommands: submitted) }
         }
     }
 
@@ -996,11 +1168,7 @@ final class SessionManager: ObservableObject {
         for id in ids {
             await terminalService.unbindAndClose(channelID: id)
         }
-        await session.sftpManager.disconnect()
-        await session.dockerService.disconnect()
-        if let panelID = session.activeMonitorPanelID {
-            await monitorService.disconnect(panelID)
-        }
+        await workspaceToolCoordinator.disconnectCompanionTools(for: session)
         if let baseID = session.baseSessionID {
             await terminalService.closeSSHSession(baseSessionID: baseID)
             sessionByBaseID.removeValue(forKey: baseID)

@@ -1,6 +1,7 @@
 import SwiftUI
 
 #if os(iOS)
+import UIKit
 struct MobileSessionView: View {
     let onBackToAssets: () -> Void
     @Binding var selectedTab: MobileShellTab
@@ -8,23 +9,19 @@ struct MobileSessionView: View {
     @ObservedObject private var manager = SessionManager.shared
     @StateObject private var snippetStore = SnippetStore.shared
     @State private var selectedModule: MobileSessionModule = .terminal
-    @AppStorage("orbitterm.mobile.quickcommands") private var quickCommandsData: String = ""
-    @State private var customQuickCommands: [MobileQuickCommand] = []
-    @State private var showAddQuickCommand = false
-    @State private var newQuickTitle = ""
-    @State private var newQuickCommand = ""
-    @State private var hasLoadedRemoteSnippets = false
+    @State private var terminalViewportCommand: TerminalViewportCommand?
+    @AppStorage("orbitterm.mobile.terminal-key-usage.v1") private var terminalKeyUsageData: String = ""
 
-    private let builtInQuickCommands: [MobileQuickCommand] = [
-        MobileQuickCommand(title: "更新源", command: "sudo apt update"),
-        MobileQuickCommand(title: "系统升级", command: "sudo apt upgrade -y"),
-        MobileQuickCommand(title: "查看负载", command: "uptime"),
-        MobileQuickCommand(title: "查看磁盘", command: "df -h"),
-        MobileQuickCommand(title: "查看内存", command: "free -m"),
-        MobileQuickCommand(title: "查看端口", command: "ss -tulpen"),
-        MobileQuickCommand(title: "重载 Nginx", command: "sudo systemctl reload nginx"),
-        MobileQuickCommand(title: "查看 Docker", command: "docker ps -a")
+    private let terminalKeys: [MobileTerminalKey] = [
+        .init(label: "Enter", bytes: [13]), .init(label: "Ctrl+C", bytes: [3]),
+        .init(label: "Ctrl+D", bytes: [4]), .init(label: "Ctrl+L", bytes: [12]),
+        .init(label: "Ctrl+U", bytes: [21]), .init(label: "Esc", bytes: [27]),
+        .init(label: "Tab", bytes: [9]), .init(label: "↑", bytes: [27, 91, 65]),
+        .init(label: "↓", bytes: [27, 91, 66]), .init(label: "←", bytes: [27, 91, 68]),
+        .init(label: "→", bytes: [27, 91, 67])
     ]
+
+    private let terminalSymbols = ["+", "-", "*", "/", "_", "(", ")", "[", "]", "{", "}", "<", ">", "~", "#"]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -78,12 +75,13 @@ struct MobileSessionView: View {
                 }
             }
             ToolbarItem(placement: .topBarLeading) {
-                if let active = manager.activeSession {
+                if manager.activeSession != nil {
                     Button {
-                        manager.closeTab(active)
+                        onBackToAssets()
                     } label: {
-                        Image(systemName: "xmark.circle")
+                        Image(systemName: "chevron.left")
                     }
+                    .accessibilityLabel("返回服务器")
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -107,84 +105,56 @@ struct MobileSessionView: View {
                             .accessibilityLabel("切换终端会话")
                         }
                         Button {
-                            onBackToAssets()
-                        } label: {
-                            Image(systemName: "list.bullet.rectangle")
-                        }
-                        Button {
                             Task { await manager.connect(session: active) }
                         } label: {
                             Image(systemName: "arrow.clockwise")
                         }
+                        .accessibilityLabel("重新连接")
+                        if selectedModule == .terminal {
+                            Button {
+                                terminalViewportCommand = .latest()
+                            } label: {
+                                Image(systemName: "arrow.down.to.line")
+                            }
+                            .accessibilityLabel("返回最新输出")
+                        }
+                        Button {
+                            manager.closeTab(active)
+                        } label: {
+                            Image(systemName: "xmark.circle")
+                        }
+                        .accessibilityLabel("关闭当前会话")
                     }
                 }
             }
-        }
-        .onAppear {
-            loadQuickCommands()
         }
         .onChange(of: manager.tabs.count) { _, count in
             guard count == 0, selectedTab == .session else { return }
             selectedTab = .servers
         }
-        .alert("新增快捷指令", isPresented: $showAddQuickCommand) {
-            TextField("标题", text: $newQuickTitle)
-            TextField("命令", text: $newQuickCommand)
-            Button("取消", role: .cancel) {}
-            Button("保存") {
-                addQuickCommand()
-            }
-            .disabled(newQuickTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newQuickCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        } message: {
-            Text("新增后可一键发送到当前终端")
-        }
     }
 
     private func mobileQuickCommandsPanel(for session: WorkspaceSession) -> some View {
         List {
+            Section {
+                Text("快捷操作只发送终端控制键和常用符号；需要保存、分类、同步或限定资产的命令，请使用 Snippets。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Section("快捷键 / 组合键（点击即触发）") {
-                quickActionRow("Ctrl+C", bytes: [3], session: session)
-                quickActionRow("Ctrl+D", bytes: [4], session: session)
-                quickActionRow("Ctrl+L", bytes: [12], session: session)
-                quickActionRow("Ctrl+U", bytes: [21], session: session)
-                quickActionRow("Esc", bytes: [27], session: session)
-                quickActionRow("Tab", bytes: [9], session: session)
-            }
-            Section("常用运维") {
-                ForEach(builtInQuickCommands) { item in
-                    quickCommandRow(item, session: session, allowDelete: false)
+                ForEach(orderedTerminalKeys(terminalKeys)) { key in
+                    quickActionRow(key.label, bytes: key.bytes, session: session)
                 }
             }
-            Section("自定义") {
-                if customQuickCommands.isEmpty {
-                    Text("暂无自定义指令")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(customQuickCommands) { item in
-                        quickCommandRow(item, session: session, allowDelete: true)
-                    }
-                    .onDelete(perform: deleteQuickCommands)
-                }
-                Button {
-                    showAddQuickCommand = true
-                } label: {
-                    HStack {
-                        Image(systemName: "plus.circle.fill")
-                        Text("添加快捷指令")
-                    }
+            Section("常用符号（按使用频率排序）") {
+                ForEach(orderedTerminalKeys(terminalSymbols.map {
+                    MobileTerminalKey(label: $0, bytes: Array($0.utf8))
+                })) { key in
+                    quickActionRow(key.label, bytes: key.bytes, session: session)
                 }
             }
         }
         .listStyle(.insetGrouped)
-        .task {
-            guard !hasLoadedRemoteSnippets else { return }
-            hasLoadedRemoteSnippets = true
-            await snippetStore.pullFromCloud(
-                token: appSession.readToken(),
-                masterPassword: appSession.readMasterPassword(),
-                accountID: appSession.username
-            )
-        }
     }
 
     private var modulePicker: some View {
@@ -206,12 +176,17 @@ struct MobileSessionView: View {
                     Task { await manager.resizeTerminal(session: session, cols: cols, rows: rows) }
                 },
                 onInput: { bytes in
-                    Task { await manager.sendTerminalBytes(session: session, bytes: bytes) }
+                    manager.enqueueTerminalInput(session: session, bytes: bytes)
                 },
                 searchText: "",
                 searchCommand: nil,
+                viewportCommand: terminalViewportCommand,
                 onSearchFeedback: { _, _ in }
             )
+            // A UIKit terminal view owns keyboard responder and byte-stream
+            // subscriptions. Make that ownership explicit per workspace so a
+            // switch can never keep an earlier session's input callback alive.
+            .id(session.id)
             .background(.ultraThinMaterial)
             .opacity(selectedModule == .terminal ? 1 : 0)
             .allowsHitTesting(selectedModule == .terminal)
@@ -231,6 +206,9 @@ struct MobileSessionView: View {
                 snippetStore: snippetStore,
                 session: session,
                 onInsertCommand: { command, executeImmediately in
+                    if executeImmediately {
+                        selectedModule = .terminal
+                    }
                     Task {
                         await manager.dispatchSnippetCommand(
                             session: session,
@@ -246,35 +224,6 @@ struct MobileSessionView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    private func quickCommandRow(_ item: MobileQuickCommand, session: WorkspaceSession, allowDelete: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(item.title)
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                if allowDelete {
-                    Image(systemName: "trash")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            Text(item.command)
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            Task {
-                await manager.dispatchSnippetCommand(
-                    session: session,
-                    command: item.command,
-                    executeImmediately: false
-                )
-            }
-        }
-    }
-
     private func quickActionRow(_ title: String, bytes: [UInt8], session: WorkspaceSession) -> some View {
         HStack {
             Text(title)
@@ -283,117 +232,175 @@ struct MobileSessionView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture {
+            recordTerminalKeyUse(title)
             Task {
                 await manager.sendTerminalBytes(session: session, bytes: bytes)
             }
         }
     }
 
-    private func loadQuickCommands() {
-        guard let data = quickCommandsData.data(using: .utf8),
-              let decoded = try? JSONDecoder().decode([MobileQuickCommand].self, from: data) else {
-            customQuickCommands = []
-            return
-        }
-        customQuickCommands = decoded
+    private var terminalKeyUsage: [String: Int] {
+        guard let data = terminalKeyUsageData.data(using: .utf8),
+              let values = try? JSONDecoder().decode([String: Int].self, from: data) else { return [:] }
+        return values
     }
 
-    private func persistQuickCommands() {
-        guard let encoded = try? JSONEncoder().encode(customQuickCommands),
+    private func orderedTerminalKeys(_ keys: [MobileTerminalKey]) -> [MobileTerminalKey] {
+        let usage = terminalKeyUsage
+        return keys.enumerated().sorted {
+            let left = usage[$0.element.label, default: 0]
+            let right = usage[$1.element.label, default: 0]
+            return left == right ? $0.offset < $1.offset : left > right
+        }.map(\.element)
+    }
+
+    private func recordTerminalKeyUse(_ label: String) {
+        var usage = terminalKeyUsage
+        usage[label] = min(usage[label, default: 0] + 1, 1_000_000)
+        guard let encoded = try? JSONEncoder().encode(usage),
               let text = String(data: encoded, encoding: .utf8) else { return }
-        quickCommandsData = text
+        terminalKeyUsageData = text
     }
 
-    private func addQuickCommand() {
-        let title = newQuickTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let command = newQuickCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty, !command.isEmpty else { return }
-        customQuickCommands.append(MobileQuickCommand(title: title, command: command))
-        persistQuickCommands()
-        newQuickTitle = ""
-        newQuickCommand = ""
-    }
+}
 
-    private func deleteQuickCommands(at offsets: IndexSet) {
-        customQuickCommands.remove(atOffsets: offsets)
-        persistQuickCommands()
-    }
-
+private struct MobileTerminalKey: Identifiable {
+    let label: String
+    let bytes: [UInt8]
+    var id: String { label }
 }
 
 struct MobileMoreView: View {
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var serverStore: ServerStore
+    @EnvironmentObject private var syncService: SyncService
     @Environment(\.appThemePalette) private var palette
+    @Environment(\.openURL) private var openURL
     @State private var showSettings = false
     @State private var showAccountCenter = false
     @State private var showSwitchAccountConfirmation = false
+    @State private var showKeyManagement = false
+    @State private var showPortForwarding = false
+    @State private var showBatchCommands = false
 
     var body: some View {
-        List {
-            Section {
-                VStack(spacing: 8) {
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.system(size: 72))
-                        .foregroundStyle(palette.accentPrimary.color)
-                        .accessibilityHidden(true)
-                    Text(session.username)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text("当前登录账户")
-                        .font(.caption)
-                        .foregroundStyle(palette.textSecondary.color)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("个人中心，当前账户 \(session.username)")
-            }
-            .listRowBackground(Color.clear)
+        ZStack {
+            AppChromeBackground()
+            ScrollView {
+                LazyVStack(spacing: 14) {
+                    MobilePersonalCenterHeader(
+                        accountName: displayableAccountName,
+                        accessibilityAccountName: session.username,
+                        syncMessage: syncService.lastSyncMessage
+                    )
 
-            Section("账户") {
-                Button {
-                    showAccountCenter = true
-                } label: {
-                    Label("个人信息管理", systemImage: "person.text.rectangle")
-                }
-                Button {
-                    showSettings = true
-                } label: {
-                    Label("设置", systemImage: "gearshape")
-                }
-            }
+                    MobilePersonalCenterCard(
+                        title: "账户与安全",
+                        subtitle: "登录、解锁与本机凭据保护",
+                        systemImage: "person.badge.shield.checkmark"
+                    ) {
+                        MobilePersonalCenterActionRow(
+                            title: "个人信息与安全",
+                            detail: "管理登录密码、主密码与账户安全状态",
+                            systemImage: "person.text.rectangle"
+                        ) { showAccountCenter = true }
+                    }
 
-            Section("信息") {
-                NavigationLink {
-                    MobileAboutView()
-                } label: {
-                    Label("关于 OrbitTerm", systemImage: "info.circle")
-                }
-                NavigationLink {
-                    MobileTermsView()
-                } label: {
-                    Label("条款", systemImage: "doc.text")
-                }
-            }
+                    MobilePersonalCenterCard(
+                        title: "设置与偏好",
+                        subtitle: "界面、终端、连接、同步与诊断",
+                        systemImage: "gearshape"
+                    ) {
+                        MobilePersonalCenterActionRow(
+                            title: "设置与偏好",
+                            detail: "界面、终端、同步、诊断与应用信息",
+                            systemImage: "gearshape"
+                        ) { showSettings = true }
+                    }
 
-            Section {
-                Button {
-                    showSwitchAccountConfirmation = true
-                } label: {
-                    Label("切换账户", systemImage: "person.crop.circle.badge.arrow.counterclockwise")
+                    MobilePersonalCenterCard(
+                        title: "运维工具",
+                        subtitle: "安全能力集中管理，避免入口散落",
+                        systemImage: "wrench.and.screwdriver"
+                    ) {
+                        MobilePersonalCenterActionRow(
+                            title: "SSH 密钥管理",
+                            detail: "Keychain 本机保护与端到端加密同步",
+                            systemImage: "key.horizontal"
+                        ) { showKeyManagement = true }
+                        MobilePersonalCenterActionRow(
+                            title: "端口映射",
+                            detail: "通过已验证 SSH 会话管理转发配置",
+                            systemImage: "point.3.connected.trianglepath.dotted"
+                        ) { showPortForwarding = true }
+                        MobilePersonalCenterActionRow(
+                            title: "批量命令",
+                            detail: "选择多项资产并查看隔离执行回执",
+                            systemImage: "terminal.fill"
+                        ) { showBatchCommands = true }
+                    }
+
+                    MobilePersonalCenterCard(
+                        title: "帮助与信息",
+                        subtitle: "诊断、条款和版本信息",
+                        systemImage: "questionmark.circle"
+                    ) {
+                        MobilePersonalCenterActionRow(
+                            title: "帮助与反馈",
+                            detail: "联系支持并反馈问题",
+                            systemImage: "envelope"
+                        ) {
+                            if let url = URL(string: "mailto:orbitterm@163.com?subject=OrbitTerm%20iOS%20反馈") {
+                                openURL(url)
+                            }
+                        }
+                        NavigationLink {
+                            MobileAboutView()
+                        } label: {
+                            MobilePersonalCenterNavigationLabel(
+                                title: "关于 OrbitTerm",
+                                detail: "查看版本和产品信息",
+                                systemImage: "info.circle"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        NavigationLink {
+                            MobileTermsView()
+                        } label: {
+                            MobilePersonalCenterNavigationLabel(
+                                title: "使用条款与隐私",
+                                detail: "查看授权边界、免责声明与隐私说明",
+                                systemImage: "doc.text"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    MobilePersonalCenterCard(
+                        title: "当前会话",
+                        subtitle: "本机数据始终按账户隔离",
+                        systemImage: "lock.shield"
+                    ) {
+                        MobilePersonalCenterActionRow(
+                            title: "切换账户",
+                            detail: "断开当前会话并返回登录页",
+                            systemImage: "person.crop.circle.badge.arrow.counterclockwise"
+                        ) { showSwitchAccountConfirmation = true }
+                        MobilePersonalCenterActionRow(
+                            title: "退出登录",
+                            detail: "清除当前登录会话，不删除本机加密数据",
+                            systemImage: "rectangle.portrait.and.arrow.right",
+                            role: .destructive
+                        ) {
+                            AccountSessionActions.leaveCurrentAccount(session: session, serverStore: serverStore)
+                        }
+                    }
                 }
-                Button(role: .destructive) {
-                    AccountSessionActions.leaveCurrentAccount(session: session, serverStore: serverStore)
-                } label: {
-                    Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
-                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .padding(.bottom, 20)
             }
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(AppChromeBackground())
         .navigationTitle("个人中心")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showSettings) {
@@ -406,6 +413,20 @@ struct MobileMoreView: View {
                 AccountSecurityView()
             }
         }
+        .sheet(isPresented: $showKeyManagement) {
+            MobileSSHKeyManagementView(store: serverStore)
+                .environmentObject(session)
+                .environmentObject(syncService)
+        }
+        .sheet(isPresented: $showPortForwarding) {
+            MobilePortForwardingView(store: serverStore)
+                .environmentObject(session)
+                .environmentObject(syncService)
+        }
+        .sheet(isPresented: $showBatchCommands) {
+            BatchCommandRunnerView(store: serverStore)
+                .environmentObject(session)
+        }
         .alert("切换账户？", isPresented: $showSwitchAccountConfirmation) {
             Button("切换账户", role: .destructive) {
                 AccountSessionActions.leaveCurrentAccount(session: session, serverStore: serverStore)
@@ -413,6 +434,576 @@ struct MobileMoreView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("将断开当前所有会话并返回登录页。本机资产、片段和待同步操作会继续按原账号隔离保存。")
+        }
+    }
+
+    /// Lets exceptionally long email addresses wrap at their natural separators
+    /// without changing the account identifier exposed to accessibility APIs.
+    private var displayableAccountName: String {
+        session.username
+            .replacingOccurrences(of: "@", with: "@\u{200B}")
+            .replacingOccurrences(of: ".", with: ".\u{200B}")
+    }
+}
+
+private struct MobilePersonalCenterHeader: View {
+    let accountName: String
+    let accessibilityAccountName: String
+    let syncMessage: String
+    @Environment(\.appThemePalette) private var palette
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "person.fill")
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(palette.textOnAccent.color)
+                .frame(width: 58, height: 58)
+                .background(
+                    LinearGradient(
+                        colors: [palette.accentPrimary.color, palette.accentSecondary.color],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                )
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(accountName)
+                    .font(.headline)
+                    .foregroundStyle(palette.textPrimary.color)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Label(syncMessage, systemImage: "checkmark.icloud")
+                    .font(.caption)
+                    .foregroundStyle(palette.textSecondary.color)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(18)
+        .modifier(ThemedGlassSurface())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("个人中心，当前账户 \(accessibilityAccountName)。同步状态：\(syncMessage)")
+    }
+}
+
+private struct MobilePersonalCenterCard<Content: View>: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    @ViewBuilder let content: Content
+    @Environment(\.appThemePalette) private var palette
+
+    init(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.systemImage = systemImage
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 11) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(palette.accentPrimary.color)
+                    .frame(width: 34, height: 34)
+                    .background(palette.accentPrimary.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 11))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(palette.textPrimary.color)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(palette.textSecondary.color)
+                }
+            }
+            .padding(16)
+
+            Divider().overlay(palette.divider.color)
+            VStack(spacing: 0) { content }
+        }
+        .modifier(ThemedReadableSurface())
+    }
+}
+
+private struct MobilePersonalCenterActionRow: View {
+    let title: String
+    let detail: String
+    let systemImage: String
+    var role: ButtonRole?
+    let action: () -> Void
+
+    init(
+        title: String,
+        detail: String,
+        systemImage: String,
+        role: ButtonRole? = nil,
+        action: @escaping () -> Void
+    ) {
+        self.title = title
+        self.detail = detail
+        self.systemImage = systemImage
+        self.role = role
+        self.action = action
+    }
+
+    var body: some View {
+        Button(role: role, action: action) {
+            MobilePersonalCenterNavigationLabel(
+                title: title,
+                detail: detail,
+                systemImage: systemImage,
+                isDestructive: role == .destructive
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct MobilePersonalCenterNavigationLabel: View {
+    let title: String
+    let detail: String
+    let systemImage: String
+    var isDestructive = false
+    @Environment(\.appThemePalette) private var palette
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(isDestructive ? Color.red : palette.textSecondary.color)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(isDestructive ? Color.red : palette.textPrimary.color)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(palette.textSecondary.color)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(palette.textSecondary.color)
+        }
+        .contentShape(Rectangle())
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(palette.divider.color)
+                .frame(height: 0.5)
+                .padding(.leading, 52)
+        }
+    }
+}
+
+private struct MobileSSHKeyManagementView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var session: AppSession
+    @EnvironmentObject private var syncService: SyncService
+    @ObservedObject var store: ServerStore
+    @ObservedObject private var keyStore = SshKeySyncStore.shared
+    @State private var setupServer: ServerEntry?
+    @State private var isSynchronizing = false
+    @State private var showGenerator = false
+    @State private var generatedKeyName = "OrbitTerm 移动端密钥"
+    @State private var renameKey: SshKeySyncWire?
+    @State private var renameValue = ""
+    @State private var status = "私钥仅保存在 Keychain；跨端同步使用端到端加密信封。"
+
+    private var sshServers: [ServerEntry] {
+        store.servers.filter { $0.transport == .ssh }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Text(status)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Section("端到端加密密钥库") {
+                    Button {
+                        showGenerator = true
+                    } label: {
+                        Label("生成 Ed25519 密钥", systemImage: "key.horizontal.fill")
+                    }
+                    if keyStore.keys.isEmpty {
+                        Text("暂无可复用密钥。请从下方选择一项 SSH 资产导入私钥，保存后即可加入密钥库。")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(keyStore.keys, id: \.id) { key in
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(key.name).font(.headline)
+                                Text("\(key.format) · 已分配 \(key.assignedAssetIds.count) 项资产")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Menu("应用到资产") {
+                                    ForEach(sshServers) { server in
+                                        Button(server.name) { apply(key, to: server) }
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                HStack {
+                                    Button("复制公钥") { copyPublicKey(key) }
+                                        .buttonStyle(.bordered)
+                                    Button("备注") {
+                                        renameKey = key
+                                        renameValue = key.name
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
+                            }
+                            .swipeActions {
+                                Button("删除", role: .destructive) {
+                                    do {
+                                        try keyStore.delete(key.id)
+                                        status = "密钥已从同步库删除；删除记录将在下次同步传播。"
+                                        synchronizeLibrary()
+                                    } catch {
+                                        status = "无法删除密钥，请解锁账户后重试。"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Section("SSH 资产") {
+                    ForEach(sshServers) { server in
+                        Button {
+                            setupServer = server
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(server.name)
+                                    Text("\(server.username)@\(server.endpointText)")
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text(server.authMethod == .key ? "已配置" : "配置密钥")
+                                    .font(.caption)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("SSH 密钥管理")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } }
+                ToolbarItem(placement: .primaryAction) {
+                    Button { synchronizeLibrary() } label: {
+                        if isSynchronizing { ProgressView() } else { Image(systemName: "arrow.triangle.2.circlepath") }
+                    }
+                    .disabled(isSynchronizing)
+                    .accessibilityLabel("立即同步密钥库")
+                }
+            }
+        }
+        .sheet(item: $setupServer) { server in
+            QuickKeySetupSheet(server: server, store: store) { result in
+                switch result {
+                case .saved(let message): status = message
+                case .failed(let message): status = message
+                }
+            }
+            .environmentObject(session)
+            .environmentObject(syncService)
+        }
+        .alert("生成 Ed25519 密钥", isPresented: $showGenerator) {
+            TextField("名称 / 备注", text: $generatedKeyName)
+            Button("生成") { generateKey() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("私钥会直接进入 Keychain 与端到端加密密钥库，不会在界面展示。")
+        }
+        .alert("修改密钥备注", isPresented: Binding(
+            get: { renameKey != nil },
+            set: { if !$0 { renameKey = nil } }
+        )) {
+            TextField("名称 / 备注", text: $renameValue)
+            Button("保存") { saveRename() }
+            Button("取消", role: .cancel) { renameKey = nil }
+        }
+    }
+
+    private func generateKey() {
+        do {
+            let pair = try RustFFI.generateEd25519KeyPair(comment: generatedKeyName)
+            _ = try keyStore.upsertPrivateKey(
+                name: generatedKeyName.trimmingCharacters(in: .whitespacesAndNewlines),
+                privateKey: pair.privateKey,
+                passphrase: "",
+                assetIDs: []
+            )
+            UIPasteboard.general.string = pair.publicKey
+            status = "Ed25519 密钥已生成并安全保存，公钥已复制，可部署到目标服务器。"
+            synchronizeLibrary()
+        } catch {
+            status = "密钥生成失败，请重试。"
+        }
+    }
+
+    private func copyPublicKey(_ key: SshKeySyncWire) {
+        do {
+            UIPasteboard.general.string = try RustFFI.publicKey(privateKey: key.privateKey, passphrase: key.passphrase)
+            status = "公钥已复制，可安全部署到目标服务器的 authorized_keys。"
+        } catch {
+            status = "无法从私钥派生公钥，请检查私钥口令。"
+        }
+    }
+
+    private func saveRename() {
+        guard let key = renameKey else { return }
+        do {
+            try keyStore.rename(keyID: key.id, name: renameValue)
+            renameKey = nil
+            status = "密钥名称与备注已更新。"
+            synchronizeLibrary()
+        } catch {
+            status = "备注不能为空或包含无效字符。"
+        }
+    }
+
+    private func apply(_ key: SshKeySyncWire, to server: ServerEntry) {
+        do {
+            var credentials = try CredentialVault.shared.read(for: server.credentialID) ?? .init()
+            credentials.privateKeyContent = key.privateKey
+            credentials.privateKeyPassphrase = key.passphrase
+            var updated = server
+            updated.authMethod = .key
+            guard store.addOrUpdate(updated, credentials: credentials) else {
+                status = "密钥未能应用到资产。"
+                return
+            }
+            try keyStore.recordAssignment(keyID: key.id, assetID: server.id)
+            status = "已将密钥应用到 \(server.name)。"
+            synchronizeLibrary()
+        } catch {
+            status = "无法安全写入资产凭据。"
+        }
+    }
+
+    private func synchronizeLibrary() {
+        guard !isSynchronizing,
+              let token = session.readToken(),
+              let masterPassword = session.readMasterPassword() else { return }
+        isSynchronizing = true
+        Task {
+            let succeeded = await syncService.synchronizeSshKeyLibrary(
+                token: token,
+                masterPassword: masterPassword,
+                accountID: session.username,
+                store: store
+            )
+            status = succeeded ? "SSH 密钥库已完成端到端加密同步。" : "同步暂不可用，本机变更已安全保留。"
+            isSynchronizing = false
+        }
+    }
+}
+
+private struct MobileTunnelStartedPayload: Decodable {
+    let baseSessionID: String
+    let tunnelID: String
+    let securityGeneration: CheckedFFISecurityGeneration
+    let bindHost: String
+    let bindPort: UInt16
+
+    enum CodingKeys: String, CodingKey {
+        case baseSessionID = "base_session_id"
+        case tunnelID = "tunnel_id"
+        case securityGeneration = "security_generation"
+        case bindHost = "bind_host"
+        case bindPort = "bind_port"
+    }
+}
+
+private struct MobileTunnelStoppedPayload: Decodable {
+    let tunnelID: String
+    enum CodingKeys: String, CodingKey { case tunnelID = "tunnel_id" }
+}
+
+private struct MobileLocalTunnel: Identifiable {
+    let id: UInt64
+    let bindHost: String
+    let bindPort: UInt16
+    let destinationHost: String
+    let destinationPort: UInt16
+}
+
+@MainActor
+private final class MobilePortForwardService: ObservableObject {
+    @Published private(set) var tunnels: [MobileLocalTunnel] = []
+    @Published var status = "映射只在应用前台与当前已验证 SSH 会话有效。"
+
+    func start(baseSessionID: UInt64, localPort: UInt16, destinationHost: String, destinationPort: UInt16) {
+        let requestID = HostKeyRequestID()
+        do {
+            let json = try "127.0.0.1".withCString { bindHost in
+                try destinationHost.withCString { destination in
+                    try requestID.rawValue.withCString { request in
+                        try OrbitCStringResultReader.orbitCore.take(
+                            orbit_local_tunnel_start_checked_v1(baseSessionID, bindHost, localPort, destination, destinationPort, request)
+                        )
+                    }
+                }
+            }
+            let envelope = try JSONDecoder().decode(CheckedFFIEnvelope<MobileTunnelStartedPayload>.self, from: Data(json.utf8))
+            try envelope.validateRequestID(requestID)
+            try envelope.validateKind(.localTunnelStarted)
+            guard let payload = envelope.data,
+                  payload.securityGeneration == .hostKeyVerified,
+                  let tunnelID = UInt64(payload.tunnelID) else { throw CheckedFFIClientError.protocolViolation }
+            tunnels.append(.init(id: tunnelID, bindHost: payload.bindHost, bindPort: payload.bindPort,
+                                 destinationHost: destinationHost, destinationPort: destinationPort))
+            status = "已建立 \(payload.bindHost):\(payload.bindPort) → \(destinationHost):\(destinationPort)"
+        } catch {
+            status = "端口映射失败，请确认会话仍在线且端口可用。"
+        }
+    }
+
+    func stop(_ tunnel: MobileLocalTunnel) {
+        let requestID = HostKeyRequestID()
+        do {
+            let json = try requestID.rawValue.withCString { request in
+                try OrbitCStringResultReader.orbitCore.take(orbit_local_tunnel_stop_checked_v1(tunnel.id, request))
+            }
+            let envelope = try JSONDecoder().decode(CheckedFFIEnvelope<MobileTunnelStoppedPayload>.self, from: Data(json.utf8))
+            try envelope.validateRequestID(requestID)
+            try envelope.validateKind(.localTunnelStopped)
+            tunnels.removeAll { $0.id == tunnel.id }
+            status = "映射已停止。"
+        } catch {
+            status = "停止映射失败，会话可能已断开。"
+        }
+    }
+
+    func stopAll() {
+        // Work on a snapshot because stop(_:) removes from the published array.
+        for tunnel in tunnels {
+            stop(tunnel)
+        }
+    }
+}
+
+private struct MobilePortForwardingView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var session: AppSession
+    @EnvironmentObject private var syncService: SyncService
+    @ObservedObject var store: ServerStore
+    @ObservedObject private var sessionManager = SessionManager.shared
+    @ObservedObject private var profileStore = PortForwardProfileStore.shared
+    @StateObject private var tunnelService = MobilePortForwardService()
+    @State private var destinationHost = "127.0.0.1"
+    @State private var destinationPort = "8080"
+    @State private var localPort = "8080"
+    @State private var synchronizeProfile = true
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Text(tunnelService.status).font(.caption).foregroundStyle(.secondary)
+                }
+                if let active = sessionManager.activeSession,
+                   active.isConnected,
+                   let lease = active.verifiedSessionLease {
+                    Section("当前资产：\(active.server.name)") {
+                        TextField("目标主机", text: $destinationHost)
+                        TextField("目标端口", text: $destinationPort).keyboardType(.numberPad)
+                        TextField("本地端口（0 表示自动分配）", text: $localPort).keyboardType(.numberPad)
+                        Toggle("端到端加密同步此配置", isOn: $synchronizeProfile)
+                        Button("建立映射") {
+                            guard let destination = UInt16(destinationPort), destination > 0,
+                                  let local = UInt16(localPort), !destinationHost.isEmpty else { return }
+                            tunnelService.start(baseSessionID: lease.baseSessionID.ffiValue,
+                                localPort: local, destinationHost: destinationHost, destinationPort: destination)
+                        }
+                        Button("保存配置") { saveProfile(for: active.server) }
+                    }
+                } else {
+                    Section {
+                        ContentUnavailableView("需要已验证 SSH 会话", systemImage: "point.3.connected.trianglepath.dotted",
+                                               description: Text("先连接一台 SSH 资产，再启动端口映射；保存的配置仍可管理。"))
+                    }
+                }
+                Section("保存的配置") {
+                    if profileStore.profiles.isEmpty {
+                        Text("暂无端口映射配置").foregroundStyle(.secondary)
+                    }
+                    ForEach(profileStore.profiles) { profile in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(profile.name)
+                            Text("\(profile.bindHost):\(profile.bindPort) → \(profile.destinationHost):\(profile.destinationPort)")
+                                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                            if let active = sessionManager.activeSession,
+                               active.server.id == profile.assetID,
+                               let lease = active.verifiedSessionLease {
+                                Button("启动") {
+                                    tunnelService.start(baseSessionID: lease.baseSessionID.ffiValue,
+                                        localPort: UInt16(profile.bindPort), destinationHost: profile.destinationHost,
+                                        destinationPort: UInt16(profile.destinationPort))
+                                }
+                            }
+                        }
+                        .swipeActions {
+                            Button("删除", role: .destructive) {
+                                try? profileStore.delete(profile.id)
+                                synchronizeProfiles()
+                            }
+                        }
+                    }
+                }
+                if !tunnelService.tunnels.isEmpty {
+                    Section("运行中") {
+                        ForEach(tunnelService.tunnels) { tunnel in
+                            HStack {
+                                Text("\(tunnel.bindHost):\(tunnel.bindPort) → \(tunnel.destinationHost):\(tunnel.destinationPort)")
+                                    .font(.caption.monospacedDigit())
+                                Spacer()
+                                Button("停止", role: .destructive) { tunnelService.stop(tunnel) }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("端口映射")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } } }
+        }
+        .onDisappear { tunnelService.stopAll() }
+    }
+
+    private func saveProfile(for server: ServerEntry) {
+        let host = destinationHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let destination = Int(destinationPort), (1...65_535).contains(destination),
+              let local = Int(localPort), (0...65_535).contains(local), !host.isEmpty else { return }
+        let now = Int64(Date().timeIntervalSince1970)
+        try? profileStore.save(.init(
+            id: UUID(), assetID: server.id, name: "\(host):\(destination)", mode: "local",
+            bindHost: "127.0.0.1", bindPort: local, destinationHost: host,
+            destinationPort: destination, createdAtUnix: now, updatedAtUnix: now,
+            syncScope: synchronizeProfile ? .endToEndEncrypted : .localOnly,
+            ownerAccountScope: nil
+        ))
+        synchronizeProfiles()
+    }
+
+    private func synchronizeProfiles() {
+        guard let token = session.readToken(), let masterPassword = session.readMasterPassword() else { return }
+        Task {
+            _ = await syncService.pullAndApplyConfigs(token: token, masterPassword: masterPassword,
+                store: store, accountID: session.username, incremental: true, silentStart: true)
         }
     }
 }
@@ -432,11 +1023,11 @@ private struct MobileAboutView: View {
 private struct MobileTermsView: View {
     var body: some View {
         ScrollView {
-            Text("使用 OrbitTerm 前，请确认您拥有目标资产的合法访问权限，并妥善保管登录凭据、主密码与密钥材料。")
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
+            Text(OrbitLegalTerms.fullText)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
         }
-        .navigationTitle("条款")
+        .navigationTitle("使用条款")
         .navigationBarTitleDisplayMode(.inline)
     }
 }

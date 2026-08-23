@@ -66,14 +66,19 @@ struct WorkstationToolbarModifier: ViewModifier {
     }
 
     private var syncStatus: some View {
-        HStack(spacing: 6) {
-            Image(systemName: syncService.lastSyncMessage.contains("失败") ? "arrow.triangle.2.circlepath.circle.fill" : "checkmark.icloud.fill")
-            Text(syncService.lastSyncMessage)
+        let recovery = syncService.lastRecoveryPresentation
+        return HStack(spacing: 6) {
+            Image(systemName: recovery?.systemImage ?? "checkmark.icloud.fill")
+            Text(recovery.map { "\($0.title)：\($0.message)" } ?? syncService.lastSyncMessage)
                 .lineLimit(1)
         }
         .font(.caption)
-        .foregroundStyle(syncService.lastSyncMessage.contains("失败") ? SecuritySemanticPalette().warning.color : palette.textSecondary.color)
-        .help(syncService.lastSyncMessage)
+        .foregroundStyle(
+            recovery == nil
+                ? palette.textSecondary.color
+                : (recovery?.severity == .danger ? SecuritySemanticPalette().danger.color : SecuritySemanticPalette().warning.color)
+        )
+        .help(recovery?.diagnosticCode ?? syncService.lastSyncMessage)
     }
 }
 
@@ -111,12 +116,6 @@ struct WorkstationTopBar: View {
 
             Spacer(minLength: 12)
 
-            if let active = sessionManager.activeSession, active.isConnected {
-                RemoteEndpointToolbarLabel(host: active.server.host)
-            }
-
-            Spacer(minLength: 12)
-
             HStack(spacing: 8) {
                 Button("添加服务器") { showingAddServer = true }
                     .buttonStyle(WorkstationTopBarButtonStyle(isPrimary: true))
@@ -128,6 +127,14 @@ struct WorkstationTopBar: View {
                 .disabled(serverStore.selectedServer == nil)
                 Button("资产管理") { showingAssetManager = true }
                     .buttonStyle(WorkstationTopBarButtonStyle(isPrimary: false))
+                Button("密钥管理") {
+                    NotificationCenter.default.post(name: .orbitTermOpenKeyManagement, object: nil)
+                }
+                .buttonStyle(WorkstationTopBarButtonStyle(isPrimary: false))
+                Button("端口映射") {
+                    NotificationCenter.default.post(name: .orbitTermOpenPortForwarding, object: nil)
+                }
+                .buttonStyle(WorkstationTopBarButtonStyle(isPrimary: false))
                 Button("批量命令") { showingBatchCommand = true }
                     .buttonStyle(WorkstationTopBarButtonStyle(isPrimary: false))
                 Button("设置") { showingSettings = true }
@@ -194,13 +201,6 @@ struct WorkstationOverviewBand: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            WorkstationBrandOverview(width: sidebarWidth)
-            // ThemedDivider is a horizontal rule by default. Pin this instance
-            // to one point so it remains the sidebar boundary instead of taking
-            // the flexible width that belongs to the monitor overview.
-            ThemedDivider()
-                .frame(width: 1, height: 60)
-
             if let activeSession {
                 WorkstationMonitorOverviewStrip(
                     active: activeSession,
@@ -210,17 +210,16 @@ struct WorkstationOverviewBand: View {
                     },
                     onStartCheckedMonitoring: onStartCheckedMonitoring
                 )
-                .padding(.leading, 12)
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 Label("连接服务器后显示系统概览", systemImage: "waveform.path.ecg")
                     .font(.caption)
                     .foregroundStyle(palette.textSecondary.color)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 12)
                     .accessibilityLabel("系统概览，连接服务器后可用")
             }
         }
+        .padding(.leading, 12)
         .padding(.trailing, 12)
         .frame(height: 60)
         .background(palette.surfaceGlassStrong.color)
@@ -298,8 +297,7 @@ private struct RemoteEndpointToolbarLabel: View {
                 .fill(palette.borderGlass.color)
                 .frame(width: 1, height: 13)
             Button {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(host, forType: .string)
+                _ = SecureClipboard.copy(host, kind: .ordinaryText)
             } label: {
                 Image(systemName: "doc.on.doc")
                     .font(.caption.weight(.semibold))
@@ -378,15 +376,13 @@ private struct AccountToolbarMenu: View {
                 Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
             }
         } label: {
-            Image(systemName: "person.crop.circle.fill")
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(palette.accentPrimary.color)
-                .font(.title2.weight(.semibold))
-                .frame(width: 34, height: 34)
-                .background(palette.surfaceGlass.color, in: Circle())
-                .overlay {
-                    Circle().stroke(palette.borderGlass.color, lineWidth: 1)
-                }
+            Label("个人中心", systemImage: "person.crop.circle.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(palette.textPrimary.color)
+                .padding(.horizontal, 9)
+                .frame(height: 30)
+                .background(palette.surfaceGlass.color, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay { RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(palette.borderGlass.color) }
         }
         .menuStyle(.borderlessButton)
         .accessibilityLabel(username.isEmpty ? "账户菜单" : "账户菜单，当前账号 \(username)")
@@ -409,3 +405,408 @@ private struct AccountToolbarMenu: View {
         }
     }
 }
+
+extension Notification.Name {
+    static let orbitTermOpenKeyManagement = Notification.Name("orbitTerm.openKeyManagement")
+    static let orbitTermOpenPortForwarding = Notification.Name("orbitTerm.openPortForwarding")
+}
+
+#if os(macOS)
+struct MacManagementSheetsModifier: ViewModifier {
+    @EnvironmentObject private var session: AppSession
+    @EnvironmentObject private var syncService: SyncService
+    @ObservedObject var store: ServerStore
+    @Binding var showingKeyManagement: Bool
+    @Binding var showingPortForwarding: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .orbitTermOpenKeyManagement)) { _ in
+                showingKeyManagement = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .orbitTermOpenPortForwarding)) { _ in
+                showingPortForwarding = true
+            }
+            .sheet(isPresented: $showingKeyManagement) {
+                MacSSHKeyManagementView(store: store)
+                    .environmentObject(session)
+                    .environmentObject(syncService)
+                    .frame(minWidth: 680, minHeight: 520)
+            }
+            .sheet(isPresented: $showingPortForwarding) {
+                MacPortForwardingView()
+                    .frame(minWidth: 680, minHeight: 500)
+            }
+    }
+}
+
+struct MacSSHKeyManagementView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.appThemePalette) private var palette
+    @ObservedObject var store: ServerStore
+    @ObservedObject private var synchronizedKeyStore = SshKeySyncStore.shared
+    @State private var selectedServerID: UUID?
+    @State private var serverForSetup: ServerEntry?
+    @State private var searchText = ""
+    @State private var filter: AssetKeyFilter = .all
+
+    private enum AssetKeyFilter: String, CaseIterable, Identifiable {
+        case all = "全部"
+        case configured = "已配置"
+        case unconfigured = "未配置"
+        var id: String { rawValue }
+    }
+
+    private var sshServers: [ServerEntry] {
+        store.servers.filter { $0.transport == .ssh }
+    }
+
+    private var filteredServers: [ServerEntry] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return sshServers.filter { server in
+            let matchesFilter = switch filter {
+            case .all: true
+            case .configured: server.authMethod == .key
+            case .unconfigured: server.authMethod != .key
+            }
+            let matchesSearch = query.isEmpty ||
+                server.name.localizedCaseInsensitiveContains(query) ||
+                server.host.localizedCaseInsensitiveContains(query) ||
+                server.username.localizedCaseInsensitiveContains(query) ||
+                server.group.localizedCaseInsensitiveContains(query)
+            return matchesFilter && matchesSearch
+        }
+    }
+
+    private var selectedServer: ServerEntry? {
+        guard let selectedServerID else { return nil }
+        return sshServers.first { $0.id == selectedServerID }
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("本机密钥库与资产部署")
+                        .font(.headline)
+                    Text("仅列出 SSH 资产；RDP 与 Telnet 不使用 SSH 密钥。私钥始终保存在系统安全凭据库，同步时仅上传端到端加密信封。")
+                        .font(.caption)
+                        .foregroundStyle(palette.textSecondary.color)
+                }
+
+                HStack(spacing: 10) {
+                    TextField("搜索名称、主机、用户或分组", text: $searchText)
+                        .textFieldStyle(.roundedBorder)
+                    Picker("状态", selection: $filter) {
+                        ForEach(AssetKeyFilter.allCases) { item in
+                            Text(item.rawValue).tag(item)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 210)
+                }
+
+                if sshServers.isEmpty {
+                    ContentUnavailableView("暂无 SSH 资产", systemImage: "key", description: Text("先添加 SSH 资产，再配置密钥。"))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    HSplitView {
+                        List(filteredServers, selection: $selectedServerID) { server in
+                            HStack(spacing: 10) {
+                                Image(systemName: server.authMethod == .key ? "key.horizontal.fill" : "key.horizontal")
+                                    .foregroundStyle(server.authMethod == .key ? palette.accentPrimary.color : palette.textSecondary.color)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(server.name).lineLimit(1)
+                                    Text("\(server.username)@\(server.endpointText)")
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(palette.textSecondary.color)
+                                        .lineLimit(1)
+                                }
+                                Spacer(minLength: 4)
+                                Text(server.authMethod == .key ? "已配置" : "未配置")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(server.authMethod == .key ? palette.accentPrimary.color : palette.textSecondary.color)
+                            }
+                            .tag(server.id)
+                            .contentShape(Rectangle())
+                        }
+                        .listStyle(.inset)
+                        .frame(minWidth: 300, idealWidth: 340)
+
+                        keyDetail
+                            .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+            }
+            .padding(16)
+            .navigationTitle("SSH 密钥管理")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } }
+            }
+        }
+        .sheet(item: $serverForSetup) { server in
+            QuickKeySetupSheet(server: server, store: store) { _ in serverForSetup = nil }
+        }
+        .onAppear { selectFirstVisibleServerIfNeeded() }
+        .onChange(of: searchText) { _, _ in selectFirstVisibleServerIfNeeded() }
+        .onChange(of: filter) { _, _ in selectFirstVisibleServerIfNeeded() }
+    }
+
+    @ViewBuilder
+    private var keyDetail: some View {
+        if let server = selectedServer {
+            VStack(alignment: .leading, spacing: 14) {
+                Image(systemName: "key.viewfinder")
+                    .font(.title)
+                    .foregroundStyle(palette.accentPrimary.color)
+                Text(server.name)
+                    .font(.title3.weight(.semibold))
+                Text("\(server.username)@\(server.endpointText)")
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(palette.textSecondary.color)
+                    .textSelection(.enabled)
+                LabeledContent("认证方式", value: server.authMethod == .key ? "SSH 私钥" : "密码")
+                LabeledContent("同步范围", value: "跟随资产的端到端加密同步")
+                Divider()
+                Text("导入或替换私钥、生成并部署 Ed25519、连接测试与关闭密码回退统一在安全配置流程内完成。")
+                    .font(.caption)
+                    .foregroundStyle(palette.textSecondary.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    serverForSetup = server
+                } label: {
+                    Label(server.authMethod == .key ? "管理或替换密钥" : "配置并部署密钥", systemImage: "key.horizontal")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(ThemedPrimaryButtonStyle())
+                if !synchronizedKeyStore.keys.isEmpty {
+                    Divider()
+                    Text("端到端加密密钥库").font(.headline)
+                    ScrollView {
+                        LazyVStack(spacing: 8) {
+                            ForEach(synchronizedKeyStore.keys, id: \.id) { key in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(key.name).lineLimit(1)
+                                        Text("\(key.format) · 已分配 \(key.assignedAssetIds.count) 项资产")
+                                            .font(.caption).foregroundStyle(palette.textSecondary.color)
+                                    }
+                                    Spacer()
+                                    Button("应用") {
+                                        applySynchronizedKey(key, to: server)
+                                    }
+                                    Button("删除", role: .destructive) {
+                                        try? synchronizedKeyStore.delete(key.id)
+                                    }
+                                }
+                                .padding(8)
+                                .themedReadableSurface()
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 190)
+                }
+                Spacer()
+            }
+            .padding(18)
+            .themedReadableSurface()
+        } else {
+            ContentUnavailableView("选择一项 SSH 资产", systemImage: "key.horizontal", description: Text("随后可导入、生成、部署并测试密钥。"))
+        }
+    }
+
+    private func selectFirstVisibleServerIfNeeded() {
+        if let selectedServerID, filteredServers.contains(where: { $0.id == selectedServerID }) {
+            return
+        }
+        selectedServerID = filteredServers.first?.id
+    }
+
+    private func applySynchronizedKey(_ key: SshKeySyncWire, to server: ServerEntry) {
+        do {
+            let vault = CredentialVault.shared
+            var credentials = try vault.read(for: server.credentialID) ?? .init()
+            credentials.privateKeyContent = key.privateKey
+            credentials.privateKeyPassphrase = key.passphrase
+            var updatedServer = server
+            updatedServer.authMethod = .key
+            guard store.addOrUpdate(updatedServer, credentials: credentials) else { return }
+            try synchronizedKeyStore.recordAssignment(keyID: key.id, assetID: server.id)
+        } catch {
+            // Private material is never echoed into the UI or diagnostics.
+        }
+    }
+}
+
+private struct LocalTunnelStartedPayload: Decodable {
+    let baseSessionID: String
+    let tunnelID: String
+    let securityGeneration: CheckedFFISecurityGeneration
+    let bindHost: String
+    let bindPort: UInt16
+
+    enum CodingKeys: String, CodingKey {
+        case baseSessionID = "base_session_id"
+        case tunnelID = "tunnel_id"
+        case securityGeneration = "security_generation"
+        case bindHost = "bind_host"
+        case bindPort = "bind_port"
+    }
+}
+
+private struct LocalTunnelStoppedPayload: Decodable {
+    let tunnelID: String
+    enum CodingKeys: String, CodingKey { case tunnelID = "tunnel_id" }
+}
+
+private struct MacLocalTunnel: Identifiable {
+    let id: UInt64
+    let bindHost: String
+    let bindPort: UInt16
+    let destinationHost: String
+    let destinationPort: UInt16
+}
+
+@MainActor
+private final class MacPortForwardService: ObservableObject {
+    @Published private(set) var tunnels: [MacLocalTunnel] = []
+    @Published var message = "端口映射仅绑定本机 127.0.0.1，并复用当前已验证 SSH 会话。"
+
+    func start(baseSessionID: UInt64, localPort: UInt16, destinationHost: String, destinationPort: UInt16) {
+        let requestID = HostKeyRequestID()
+        do {
+            let json = try "127.0.0.1".withCString { bindHost in
+                try destinationHost.withCString { destination in
+                    try requestID.rawValue.withCString { request in
+                        try OrbitCStringResultReader.orbitCore.take(
+                            orbit_local_tunnel_start_checked_v1(baseSessionID, bindHost, localPort, destination, destinationPort, request)
+                        )
+                    }
+                }
+            }
+            let envelope = try JSONDecoder().decode(CheckedFFIEnvelope<LocalTunnelStartedPayload>.self, from: Data(json.utf8))
+            try envelope.validateRequestID(requestID)
+            try envelope.validateKind(.localTunnelStarted)
+            guard let payload = envelope.data,
+                  payload.securityGeneration == .hostKeyVerified,
+                  payload.baseSessionID == String(baseSessionID),
+                  let tunnelID = UInt64(payload.tunnelID) else { throw CheckedFFIClientError.protocolViolation }
+            tunnels.append(MacLocalTunnel(id: tunnelID, bindHost: payload.bindHost, bindPort: payload.bindPort, destinationHost: destinationHost, destinationPort: destinationPort))
+            message = "已建立 127.0.0.1:\(payload.bindPort) → \(destinationHost):\(destinationPort)"
+        } catch {
+            message = "端口映射失败：\(error.localizedDescription)"
+        }
+    }
+
+    func stop(_ tunnel: MacLocalTunnel) {
+        let requestID = HostKeyRequestID()
+        do {
+            let json = try requestID.rawValue.withCString { request in
+                try OrbitCStringResultReader.orbitCore.take(orbit_local_tunnel_stop_checked_v1(tunnel.id, request))
+            }
+            let envelope = try JSONDecoder().decode(CheckedFFIEnvelope<LocalTunnelStoppedPayload>.self, from: Data(json.utf8))
+            try envelope.validateRequestID(requestID)
+            try envelope.validateKind(.localTunnelStopped)
+            guard envelope.data?.tunnelID == String(tunnel.id) else { throw CheckedFFIClientError.protocolViolation }
+            tunnels.removeAll { $0.id == tunnel.id }
+            message = "已停止本地端口 \(tunnel.bindPort) 的映射。"
+        } catch {
+            message = "停止映射失败：\(error.localizedDescription)"
+        }
+    }
+
+    func stopAll() {
+        for tunnel in tunnels {
+            stop(tunnel)
+        }
+    }
+}
+
+struct MacPortForwardingView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var sessionManager = SessionManager.shared
+    @StateObject private var service = MacPortForwardService()
+    @ObservedObject private var profileStore = PortForwardProfileStore.shared
+    @State private var destinationHost = "127.0.0.1"
+    @State private var destinationPort = "8080"
+    @State private var localPort = "8080"
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 14) {
+                if let active = sessionManager.activeSession, active.isConnected, let lease = active.verifiedSessionLease {
+                    LabeledContent("当前已验证资产", value: "\(active.server.name) · \(active.server.endpointText)")
+                    HStack {
+                        TextField("目标主机", text: $destinationHost)
+                        TextField("目标端口", text: $destinationPort).frame(width: 110)
+                        TextField("本地端口", text: $localPort).frame(width: 110)
+                        Button("建立映射") {
+                            let host = destinationHost.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard let destination = UInt16(destinationPort), destination > 0,
+                                  let local = UInt16(localPort), local > 0,
+                                  !host.isEmpty else { return }
+                            service.start(baseSessionID: lease.baseSessionID.ffiValue, localPort: local, destinationHost: host, destinationPort: destination)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        Button("保存配置") {
+                            let host = destinationHost.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard let destination = Int(destinationPort), (1...65_535).contains(destination),
+                                  let local = Int(localPort), (0...65_535).contains(local), !host.isEmpty else { return }
+                            let now = Int64(Date().timeIntervalSince1970)
+                            try? profileStore.save(SavedPortForwardProfile(
+                                id: UUID(), assetID: active.server.id,
+                                name: "\(host):\(destination)", mode: "local",
+                                bindHost: "127.0.0.1", bindPort: local,
+                                destinationHost: host, destinationPort: destination,
+                                createdAtUnix: now, updatedAtUnix: now,
+                                syncScope: .endToEndEncrypted,
+                                ownerAccountScope: nil
+                            ))
+                        }
+                    }
+                } else {
+                    ContentUnavailableView("需要已验证 SSH 会话", systemImage: "point.3.connected.trianglepath.dotted", description: Text("先连接一台 SSH 资产，再建立本地端口映射。"))
+                }
+                Text(service.message).font(.caption).foregroundStyle(.secondary)
+                if let active = sessionManager.activeSession {
+                    Section("保存的配置") {
+                        ForEach(profileStore.profiles.filter { $0.assetID == active.server.id }) { profile in
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(profile.name)
+                                    Text("\(profile.bindHost):\(profile.bindPort) → \(profile.destinationHost):\(profile.destinationPort) · \(profile.syncScope == .endToEndEncrypted ? "加密同步" : "仅本机")")
+                                        .font(.caption).foregroundStyle(.secondary).monospaced()
+                                }
+                                Spacer()
+                                if let lease = active.verifiedSessionLease {
+                                    Button("启动") {
+                                        service.start(baseSessionID: lease.baseSessionID.ffiValue,
+                                            localPort: UInt16(profile.bindPort), destinationHost: profile.destinationHost,
+                                            destinationPort: UInt16(profile.destinationPort))
+                                    }
+                                }
+                                Button("删除", role: .destructive) { try? profileStore.delete(profile.id) }
+                            }
+                        }
+                    }
+                }
+                List(service.tunnels) { tunnel in
+                    HStack {
+                        Text("\(tunnel.bindHost):\(tunnel.bindPort)").monospaced()
+                        Image(systemName: "arrow.right")
+                        Text("\(tunnel.destinationHost):\(tunnel.destinationPort)").monospaced()
+                        Spacer()
+                        Button("停止", role: .destructive) { service.stop(tunnel) }
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .navigationTitle("端口映射")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } } }
+        }
+        .onDisappear { service.stopAll() }
+    }
+}
+#endif

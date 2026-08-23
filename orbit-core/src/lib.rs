@@ -6,11 +6,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use once_cell::sync::Lazy;
 use russh::ChannelMsg;
 use russh_sftp::client::SftpSession;
+use std::sync::atomic::AtomicBool;
 use thiserror::Error;
 
 #[cfg(target_os = "android")]
 mod android_ffi;
-mod c_ffi;
+pub(crate) mod c_ffi;
 #[allow(
     dead_code,
     reason = "typed Docker rename/update are intentionally not exposed through C until Swift migration"
@@ -24,6 +25,7 @@ mod checked_exec_tests;
 mod checked_monitor;
 #[cfg(test)]
 mod checked_monitor_tests;
+mod checked_port_forward;
 mod checked_sftp;
 #[cfg(test)]
 mod checked_sftp_tests;
@@ -40,10 +42,12 @@ mod docker;
 mod docker_validator;
 #[cfg(test)]
 mod docker_validator_tests;
+mod key_generation;
 mod legacy_network;
 #[cfg(test)]
 mod legacy_network_tests;
 mod monitor;
+pub mod port_forward_profiles;
 mod portable;
 mod portable_ffi;
 pub mod security;
@@ -53,7 +57,10 @@ mod session_pool_tests;
 mod sftp;
 mod ssh_session;
 mod terminal;
-pub use crypto::{decrypt_config, encrypt_config};
+pub use crypto::{
+    decrypt_config, decrypt_config_v2, derive_config_root_key_v2, encrypt_config,
+    encrypt_config_v2, is_config_v2,
+};
 pub(crate) use session_pool::{OrbitBaseSession, OrbitSftpSession};
 
 uniffi::setup_scaffolding!();
@@ -70,6 +77,8 @@ pub enum OrbitCoreError {
     SshFailed(String),
     #[error("SFTP 错误: {0}")]
     SftpFailed(String),
+    #[error("SFTP 传输已取消")]
+    SftpTransferCancelled,
     #[error("内部错误: {0}")]
     Internal(String),
     #[error("legacy_network_disabled")]
@@ -237,13 +246,23 @@ pub async fn sftp_upload_file(
     sftp::upload_file(session_id, &session, local_path, remote_path).await
 }
 
-pub(crate) async fn sftp_upload_file_create_new(
+pub(crate) async fn sftp_upload_file_create_new_cancellable(
     session_id: u64,
     local_path: String,
     remote_path: String,
+    cancelled: &AtomicBool,
+    progress: &dyn Fn(u64, Option<u64>),
 ) -> Result<String, OrbitCoreError> {
     let session = session_pool::get_sftp_session(session_id)?;
-    sftp::upload_file_create_new(session_id, &session, local_path, remote_path).await
+    sftp::upload_file_create_new_cancellable(
+        session_id,
+        &session,
+        local_path,
+        remote_path,
+        cancelled,
+        progress,
+    )
+    .await
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -257,13 +276,23 @@ pub async fn sftp_download_file(
     sftp::download_file(session_id, &session, remote_path, local_path, resume_offset).await
 }
 
-pub(crate) async fn sftp_download_file_create_new(
+pub(crate) async fn sftp_download_file_create_new_cancellable(
     session_id: u64,
     remote_path: String,
     local_path: String,
+    cancelled: &AtomicBool,
+    progress: &dyn Fn(u64, Option<u64>),
 ) -> Result<String, OrbitCoreError> {
     let session = session_pool::get_sftp_session(session_id)?;
-    sftp::download_file_create_new(session_id, &session, remote_path, local_path).await
+    sftp::download_file_create_new_cancellable(
+        session_id,
+        &session,
+        remote_path,
+        local_path,
+        cancelled,
+        progress,
+    )
+    .await
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -346,6 +375,13 @@ pub(crate) async fn sftp_mkdir_checked_create_new(
     let session = session_pool::get_sftp_session(session_id)
         .map_err(|_| sftp::SftpMutationError::SessionUnavailable)?;
     sftp::mkdir_checked_create_new(&session, remote_path).await
+}
+
+pub(crate) async fn sftp_canonical_home_path_checked(
+    session_id: u64,
+) -> Result<String, OrbitCoreError> {
+    let session = session_pool::get_sftp_session(session_id)?;
+    sftp::canonical_home_path(&session).await
 }
 
 pub(crate) async fn sftp_create_file_checked_create_new(

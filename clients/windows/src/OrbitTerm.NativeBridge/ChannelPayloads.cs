@@ -227,7 +227,8 @@ public sealed record MonitorSnapshotStatsPayload(
     [property: JsonPropertyName("disk_used_percent")] double DiskUsedPercent,
     [property: JsonPropertyName("ping_latency_ms")] double? PingLatencyMilliseconds,
     [property: JsonPropertyName("rx_rate_kbps")] double ReceiveRateKilobitsPerSecond,
-    [property: JsonPropertyName("tx_rate_kbps")] double TransmitRateKilobitsPerSecond)
+    [property: JsonPropertyName("tx_rate_kbps")] double TransmitRateKilobitsPerSecond,
+    [property: JsonPropertyName("system_info")] MonitorSystemInfoPayload? SystemInfo = null)
 {
     public void Validate()
     {
@@ -241,6 +242,8 @@ public sealed record MonitorSnapshotStatsPayload(
         {
             throw new OrbitNativeException("Monitor snapshot stats are invalid.");
         }
+
+        SystemInfo?.Validate();
     }
 
     private static bool IsPercent(double value)
@@ -251,6 +254,26 @@ public sealed record MonitorSnapshotStatsPayload(
     private static bool IsNonNegativeFinite(double value)
     {
         return double.IsFinite(value) && value >= 0;
+    }
+}
+
+public sealed record MonitorSystemInfoPayload(
+    [property: JsonPropertyName("os_name")] string OsName,
+    [property: JsonPropertyName("cpu_core_count")] uint CpuCoreCount,
+    [property: JsonPropertyName("cpu_thread_count")] uint CpuThreadCount,
+    [property: JsonPropertyName("memory_total_mb")] ulong MemoryTotalMegabytes,
+    [property: JsonPropertyName("swap_total_mb")] ulong SwapTotalMegabytes,
+    [property: JsonPropertyName("swap_used_mb")] ulong SwapUsedMegabytes,
+    [property: JsonPropertyName("disk_total_mb")] ulong DiskTotalMegabytes,
+    [property: JsonPropertyName("disk_used_mb")] ulong DiskUsedMegabytes)
+{
+    public void Validate()
+    {
+        if (string.IsNullOrWhiteSpace(OsName) || OsName.Length > 160 ||
+            SwapUsedMegabytes > SwapTotalMegabytes || DiskUsedMegabytes > DiskTotalMegabytes)
+        {
+            throw new OrbitNativeException("Monitor system information is invalid.");
+        }
     }
 }
 
@@ -440,8 +463,13 @@ public sealed record DockerActionResultPayload(
 
     public static bool IsAllowedAction(string action)
     {
-        return string.Equals(action, "start", StringComparison.Ordinal) ||
-            string.Equals(action, "stop", StringComparison.Ordinal) ||
-            string.Equals(action, "restart", StringComparison.Ordinal);
+        return action is
+            "start" or
+            "stop" or
+            "restart" or
+            "kill" or
+            "pause" or
+            "unpause" or
+            "remove";
     }
 }

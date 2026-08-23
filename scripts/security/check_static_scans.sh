@@ -59,6 +59,47 @@ if rg -n 'ORBITTERM_INTERNAL_CHECKED_CONNECTION|debugInternalOnly|case[[:space:]
 fi
 pass "Host Key UX and obsolete policy scans"
 
+section "Swift runtime-log privacy defaults"
+if rg -n --glob '*.swift' 'logger[.](debug|info|notice|error)[(].*privacy:[[:space:]]*[.]public' "$ORBIT_ROOT/OrbitTerm"; then
+  fail "runtime logging exposes interpolated fields as public"
+fi
+if rg -n --glob '*.swift' 'DiagnosticsManager[.]shared[.]record\([^\n]*error[.]localizedDescription' "$ORBIT_ROOT/OrbitTerm"; then
+  fail "diagnostics receive a raw localized error"
+fi
+if rg -n 'localizedDescription' "$ORBIT_ROOT/OrbitTerm/Features/Home/DiagnosticsExportView.swift"; then
+  fail "diagnostic export UI exposes a raw file-system error"
+fi
+rg -q 'DiagnosticExportFilePolicy' "$ORBIT_ROOT/OrbitTerm/Core/DiagnosticsManager.swift" || \
+  fail "diagnostic export lacks the reviewed managed-file policy"
+rg -q 'override func copy' "$ORBIT_ROOT/OrbitTerm/Features/Home/SwiftTermPlatformSupport.swift" || \
+  fail "macOS terminal copy does not route through the central clipboard policy"
+rg -Fq 'SecureClipboard.copy(data, kind: .terminalOutput)' \
+  "$ORBIT_ROOT/OrbitTerm/Features/Home/SwiftTermPlatformSupport.swift" || \
+  fail "macOS terminal context-menu copy bypasses expiry policy"
+if rg -n 'localizedDescription' \
+  "$ORBIT_ROOT/OrbitTerm/Features/Home/AssetQuickKeySetupSheet.swift" \
+  "$ORBIT_ROOT/OrbitTerm/Features/Home/AddServerView.swift"; then
+  fail "private-key UI exposes a raw file-system or process error"
+fi
+pass "runtime logs default to private and diagnostics avoid raw errors"
+
+section "Mock, demo, and UI-test release confinement"
+ui_test_state="$ORBIT_ROOT/OrbitTerm/Core/AppUITestLaunchState.swift"
+sftp_mock="$ORBIT_ROOT/OrbitTerm/Core/SFTPManager+Mock.swift"
+sftp_connection="$ORBIT_ROOT/OrbitTerm/Core/SFTPManager+Connection.swift"
+sftp_panel="$ORBIT_ROOT/OrbitTerm/Features/Home/SFTPBrowserPanels.swift"
+
+rg -q '#if !ORBITTERM_PUBLIC_RELEASE' "$ui_test_state" || fail "UI-test launch state is not non-Release confined"
+rg -q 'contains\("-orbitTermUITest"\)' "$ui_test_state" || fail "UI-test launch state lacks an explicit test-process marker"
+rg -q '#if !ORBITTERM_PUBLIC_RELEASE' "$sftp_mock" || fail "SFTP mock directory fixture is not non-Release confined"
+rg -q '#if !ORBITTERM_PUBLIC_RELEASE' "$sftp_connection" || fail "SFTP mock activation is not non-Release confined"
+rg -q '#if !ORBITTERM_PUBLIC_RELEASE' "$sftp_panel" || fail "SFTP mock UI is not non-Release confined"
+if rg -n '模拟模式|模拟目录|进入模拟浏览|Mock 文件列表' \
+  "$ORBIT_ROOT/OrbitTerm/Features" | rg -v 'SFTPBrowser(Panels|View)[.]swift'; then
+  fail "mock presentation escaped the dedicated development panel"
+fi
+pass "mock data and UI-test launch fixtures are release confined"
+
 section "Swift Host Key protocol parsing"
 if rg -n '"(OK:|ERR:)' \
   "$ORBIT_ROOT/OrbitTerm/Core/CheckedFFI" \
@@ -134,10 +175,13 @@ pass "checked Rust modules avoid mixed resolver, legacy exec, and sensitive logs
 section "Rust host-key handler policy"
 checked_handler="orbit-core/src/security/checked_host_key_handler.rs"
 insecure_handler="orbit-core/src/security/insecure_legacy_host_key_handler.rs"
+keyboard_auth_session="orbit-core/src/ssh_session.rs"
 grep -Fqx "checked_trusted_proceed|$checked_handler|HostKeyVerificationDecision::Proceed" \
   "$STATIC_SCAN_ALLOWLIST" || fail "checked trusted-proceed exception is missing or too broad"
 grep -Fqx "internal_legacy_accept_all|$insecure_handler|legacy-network-internal" \
   "$STATIC_SCAN_ALLOWLIST" || fail "internal legacy handler exception is missing or too broad"
+grep -Fqx "keyboard_interactive_auth_success|$keyboard_auth_session|KeyboardInteractiveAuthResponse::Success => return Ok(true)" \
+  "$STATIC_SCAN_ALLOWLIST" || fail "keyboard-interactive authentication exception is missing or too broad"
 
 [[ "$(rg -n 'Ok\(true\)' "$ORBIT_ROOT/$checked_handler" | wc -l | tr -d ' ')" == "1" ]] || \
   fail "checked handler must contain exactly one trusted Proceed return"
@@ -158,12 +202,17 @@ rg -q '#\[cfg\(feature = "legacy-network-internal"\)\]' \
   "$ORBIT_ROOT/orbit-core/src/security/mod.rs" || \
   fail "internal insecure handler module declaration is not feature-gated"
 
-ok_true_files="$(rg -l 'Ok\(true\)' "$ORBIT_ROOT/orbit-core/src" --glob '*.rs' | sort)"
+[[ "$(rg -n 'KeyboardInteractiveAuthResponse::Success[[:space:]]*=>[[:space:]]*return Ok\(true\)' \
+  "$ORBIT_ROOT/$keyboard_auth_session" | wc -l | tr -d ' ')" == "1" ]] || \
+  fail "keyboard-interactive authentication success must remain a single explicit branch"
+
+ok_true_files="$(rg -l 'Ok\(true\)' "$ORBIT_ROOT/orbit-core/src" --glob '*.rs' | \
+  grep -Fvx "$ORBIT_ROOT/$keyboard_auth_session" | sort)"
 expected_ok_true_files="$(printf '%s\n%s\n' \
   "$ORBIT_ROOT/$checked_handler" "$ORBIT_ROOT/$insecure_handler" | sort)"
 [[ "$ok_true_files" == "$expected_ok_true_files" ]] || {
   printf '%s\n' "$ok_true_files" >&2
-  fail "an unallowlisted Rust Ok(true) return was added"
+  fail "an unallowlisted Rust Host Key Ok(true) return was added"
 }
 
 if rg -n 'insecure_legacy_host_key_handler|InsecureLegacyAcceptAllHostKeyHandler' \

@@ -1,5 +1,54 @@
 import Foundation
 
+private let sftpInAppTextMaximumBytes: UInt64 = 2 * 1024 * 1024
+
+private struct SFTPCheckedEnvelope<Payload: Decodable>: Decodable {
+    let schemaVersion: UInt32
+    let requestID: String?
+    let kind: String
+    let data: Payload?
+    let error: SFTPCheckedErrorPayload?
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case requestID = "request_id"
+        case kind, data, error
+    }
+}
+
+private struct SFTPCheckedErrorPayload: Decodable {
+    let code: String
+}
+
+private struct SFTPCheckedTextPayload: Decodable {
+    let sftpSessionID: String
+    let path: String
+    let securityGeneration: String
+    let byteLength: UInt64
+    let content: String
+
+    private enum CodingKeys: String, CodingKey {
+        case sftpSessionID = "sftp_session_id"
+        case path
+        case securityGeneration = "security_generation"
+        case byteLength = "byte_length"
+        case content
+    }
+}
+
+private struct SFTPCheckedMutationPayload: Decodable {
+    let sftpSessionID: String
+    let operation: String
+    let path: String
+    let securityGeneration: String
+
+    private enum CodingKeys: String, CodingKey {
+        case sftpSessionID = "sftp_session_id"
+        case operation, path
+        case securityGeneration = "security_generation"
+    }
+}
+
 private final class SFTPRecursiveDeleteBudget {
     var remainingEntries: Int
 
@@ -68,6 +117,15 @@ extension SFTPManager {
 
         let path = makeChildPath(name: cleaned)
         do {
+            if isCheckedConnection {
+                try await createCheckedEntry(path: path, operation: "mkdir") { sessionID, pathPointer, requestPointer in
+                    orbit_sftp_mkdir_checked_v1(sessionID, pathPointer, requestPointer)
+                }
+                try await refresh(path: currentPath)
+                statusText = "目录已创建"
+                successHaptic()
+                return
+            }
             _ = try await RustFFI.runWithTimeout(seconds: 10) {
                 try RustFFI.parseOKPayload(
                     RustFFI.call {
@@ -98,6 +156,15 @@ extension SFTPManager {
 
         let path = makeChildPath(name: cleaned)
         do {
+            if isCheckedConnection {
+                try await createCheckedEntry(path: path, operation: "create_file") { sessionID, pathPointer, requestPointer in
+                    orbit_sftp_create_file_checked_v1(sessionID, pathPointer, requestPointer)
+                }
+                try await refresh(path: currentPath)
+                statusText = "文件已创建"
+                successHaptic()
+                return
+            }
             _ = try await RustFFI.runWithTimeout(seconds: 10) {
                 try RustFFI.parseOKPayload(
                     RustFFI.call {
@@ -149,12 +216,40 @@ extension SFTPManager {
 
     func readTextFile(item: FileItem) async throws -> String {
         guard !item.isDirectory else {
-            throw SFTPError.rustError("目录不支持在线编辑")
+            throw SFTPError.rustError("目录不支持应用内打开")
+        }
+        guard item.size <= sftpInAppTextMaximumBytes else {
+            throw SFTPError.rustError("文件超过 2 MB，请下载后处理")
         }
         guard let sid = operationSessionID else {
             throw SFTPError.notConnected
         }
         let path = makeChildPath(name: item.name)
+        if isCheckedConnection {
+            let requestID = UUID().uuidString.lowercased()
+            let raw = try await RustFFI.runWithTimeout(seconds: 12) {
+                RustFFI.call {
+                    path.withCString { pathPointer in
+                        requestID.withCString { requestPointer in
+                            orbit_sftp_read_text_checked_v1(sid, pathPointer, requestPointer)
+                        }
+                    }
+                }
+            }
+            let payload: SFTPCheckedTextPayload = try decodeCheckedSFTPResponse(
+                raw,
+                requestID: requestID,
+                expectedKind: "sftp_text_file"
+            )
+            guard payload.sftpSessionID == String(sid),
+                  payload.path == path,
+                  payload.securityGeneration == "host_key_verified",
+                  payload.byteLength == UInt64(payload.content.utf8.count),
+                  payload.byteLength <= sftpInAppTextMaximumBytes else {
+                throw SFTPError.invalidResponse
+            }
+            return payload.content
+        }
         return try await RustFFI.runWithTimeout(seconds: 12) {
             try RustFFI.parseOKPayload(
                 RustFFI.call {
@@ -173,7 +268,50 @@ extension SFTPManager {
         guard let sid = operationSessionID else {
             throw SFTPError.notConnected
         }
+        let contentBytes = Array(content.utf8)
+        guard UInt64(contentBytes.count) <= sftpInAppTextMaximumBytes else {
+            throw SFTPError.rustError("编辑内容超过 2 MB，未保存")
+        }
         let path = makeChildPath(name: item.name)
+        if isCheckedConnection {
+            let requestID = UUID().uuidString.lowercased()
+            let raw = try await RustFFI.runWithTimeout(seconds: 15) {
+                RustFFI.call {
+                    contentBytes.withUnsafeBytes { contentBuffer in
+                        path.withCString { pathPointer in
+                            requestID.withCString { requestPointer in
+                                orbit_sftp_write_text_checked_v1(
+                                    sid,
+                                    pathPointer,
+                                    contentBuffer.bindMemory(to: UInt8.self).baseAddress,
+                                    contentBuffer.count,
+                                    item.size,
+                                    item.permissionsOctal,
+                                    item.modifiedAtUnix,
+                                    item.isDirectory ? 1 : 0,
+                                    requestPointer
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            let payload: SFTPCheckedMutationPayload = try decodeCheckedSFTPResponse(
+                raw,
+                requestID: requestID,
+                expectedKind: "sftp_mutation_completed"
+            )
+            guard payload.sftpSessionID == String(sid),
+                  payload.operation == "write_text",
+                  payload.path == path,
+                  payload.securityGeneration == "host_key_verified" else {
+                throw SFTPError.invalidResponse
+            }
+            try await refresh(path: currentPath)
+            statusText = "文件已保存"
+            successHaptic()
+            return
+        }
         _ = try await RustFFI.runWithTimeout(seconds: 15) {
             try RustFFI.parseOKPayload(
                 RustFFI.call {
@@ -188,6 +326,79 @@ extension SFTPManager {
         try await refresh(path: currentPath)
         statusText = "文件已保存"
         successHaptic()
+    }
+
+    private func decodeCheckedSFTPResponse<Payload: Decodable>(
+        _ raw: String,
+        requestID: String,
+        expectedKind: String
+    ) throws -> Payload {
+        guard let data = raw.data(using: .utf8) else { throw SFTPError.invalidResponse }
+        let envelope = try JSONDecoder().decode(SFTPCheckedEnvelope<Payload>.self, from: data)
+        guard envelope.schemaVersion == 1, envelope.requestID == requestID else {
+            throw SFTPError.invalidResponse
+        }
+        if envelope.kind == "error" {
+            throw SFTPError.rustError(checkedSFTPDocumentMessage(envelope.error?.code))
+        }
+        guard envelope.kind == expectedKind, envelope.error == nil, let payload = envelope.data else {
+            throw SFTPError.invalidResponse
+        }
+        return payload
+    }
+
+    private func createCheckedEntry(
+        path: String,
+        operation: String,
+        call: @escaping (
+            UInt64,
+            UnsafePointer<CChar>,
+            UnsafePointer<CChar>
+        ) -> UnsafeMutablePointer<CChar>?
+    ) async throws {
+        guard let sid = checkedSessionID?.ffiValue else { throw SFTPError.notConnected }
+        let requestID = UUID().uuidString.lowercased()
+        let raw = try await RustFFI.runWithTimeout(seconds: 10) {
+            RustFFI.call {
+                path.withCString { pathPointer in
+                    requestID.withCString { requestPointer in
+                        call(sid, pathPointer, requestPointer)
+                    }
+                }
+            }
+        }
+        let payload: SFTPCheckedMutationPayload = try decodeCheckedSFTPResponse(
+            raw,
+            requestID: requestID,
+            expectedKind: "sftp_mutation_completed"
+        )
+        guard payload.sftpSessionID == String(sid),
+              payload.operation == operation,
+              payload.path == path,
+              payload.securityGeneration == "host_key_verified" else {
+            throw SFTPError.invalidResponse
+        }
+    }
+
+    private func checkedSFTPDocumentMessage(_ code: String?) -> String {
+        switch code {
+        case "sftp_permission_denied":
+            return "当前目录不可写，请进入用户主目录或选择有写入权限的目录"
+        case "sftp_target_exists":
+            return "同名文件或目录已存在"
+        case "sftp_entry_changed":
+            return "远端文件已被修改，未覆盖保存；当前草稿仍已保留"
+        case "security_generation_mismatch", "legacy_session_not_allowed":
+            return "当前 SFTP 会话的安全状态已变化，请重新连接后重试"
+        case "sftp_read_failed":
+            return "无法作为 UTF-8 文本打开，或当前账户无读取权限"
+        case "sftp_write_failed":
+            return "保存失败，请检查远端文件权限后重试"
+        case "invalid_request":
+            return "文件路径或编辑内容无效"
+        default:
+            return "SFTP 文件操作失败，请重新连接后重试"
+        }
     }
 
     func delete(item: FileItem) async {

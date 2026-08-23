@@ -19,5 +19,8 @@ public static class CheckedFfiKind
     public const string DockerLogs = "docker_logs";
     public const string DockerActionResult = "docker_action_result";
     public const string ExecResult = "exec_result";
+    public const string LocalTunnelStarted = "local_tunnel_started";
+    public const string LocalTunnelStopped = "local_tunnel_stopped";
+    public const string SshPrivateKeyValidated = "ssh_private_key_validated";
     public const string Error = "error";
 }

@@ -2,12 +2,18 @@ import SwiftUI
 
 struct WorkstationAssetSidebarView: View {
     @Environment(\.appThemePalette) private var palette
+    @EnvironmentObject private var session: AppSession
     @ObservedObject var serverStore: ServerStore
     @ObservedObject var sessionManager: SessionManager
     @ObservedObject var syncService: SyncService
     @Binding var searchText: String
-    @State private var collapsedGroups: Set<String> = []
+    let searchFocusRequest: Int
+    // Empty means no group has been explicitly expanded. Search temporarily
+    // expands matching groups without changing the user's disclosure state.
+    @State private var expandedGroups: Set<String> = []
     @State private var hoveredServerID: UUID?
+    @State private var isSynchronizing = false
+    @FocusState private var isSearchFocused: Bool
     let onCollapse: () -> Void
     let onAddServer: () -> Void
     let onEditServer: (ServerEntry) -> Void
@@ -16,6 +22,7 @@ struct WorkstationAssetSidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            activeEndpoint
             header
 
             if serverStore.servers.isEmpty {
@@ -28,6 +35,7 @@ struct WorkstationAssetSidebarView: View {
             } else {
                 TextField("搜索名称、IP、用户、分组或标签", text: $searchText)
                     .textFieldStyle(.roundedBorder)
+                    .focused($isSearchFocused)
                     .padding(.horizontal, 12)
                     .padding(.bottom, 8)
 
@@ -101,6 +109,41 @@ struct WorkstationAssetSidebarView: View {
                 endPoint: .bottomTrailing
             )
         )
+        .task(id: searchFocusRequest) {
+            guard searchFocusRequest > 0 else { return }
+            isSearchFocused = true
+        }
+    }
+
+    @ViewBuilder
+    private var activeEndpoint: some View {
+        if let active = sessionManager.activeSession, active.isConnected {
+            HStack(spacing: 6) {
+                Text("当前资产 IP")
+                    .font(.caption)
+                    .foregroundStyle(palette.textSecondary.color)
+                Text(active.server.host)
+                    .font(.caption.monospaced().weight(.medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 4)
+                Button {
+                    _ = SecureClipboard.copy(active.server.host, kind: .ordinaryText)
+                } label: {
+                    Label("复制", systemImage: "doc.on.doc")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.borderless)
+                .help("复制当前已连接资产 IP")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(palette.surfaceGlassStrong.color)
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(palette.divider.color).frame(height: 1)
+            }
+            .accessibilityElement(children: .contain)
+        }
     }
 
     private var header: some View {
@@ -129,6 +172,22 @@ struct WorkstationAssetSidebarView: View {
                 .font(.caption)
             Text(syncStatusMessage)
                 .lineLimit(2)
+            Spacer(minLength: 4)
+            Button {
+                startImmediateSynchronization()
+            } label: {
+                if isSynchronizing {
+                    ProgressView()
+                        .controlSize(.mini)
+                } else {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.caption.weight(.semibold))
+                }
+            }
+            .buttonStyle(.borderless)
+            .disabled(isSynchronizing || !session.isUnlocked)
+            .help("立即双向同步")
+            .accessibilityLabel("立即双向同步")
         }
         .font(.caption2)
         .foregroundStyle(
@@ -150,6 +209,30 @@ struct WorkstationAssetSidebarView: View {
         .accessibilityLabel("同步状态：\(syncStatusMessage)")
         .fixedSize(horizontal: false, vertical: true)
         .layoutPriority(1)
+    }
+
+    private func startImmediateSynchronization() {
+        guard !isSynchronizing else { return }
+        guard let token = session.readToken(),
+              let masterPassword = session.readMasterPassword() else {
+            syncService.setSyncRecoveryPresentation(
+                session.isAuthenticated
+                    ? OperationRecoveryMapper.syncMasterPasswordUnavailable()
+                    : OperationRecoveryMapper.syncTokenUnavailable()
+            )
+            return
+        }
+        isSynchronizing = true
+        Task {
+            defer { isSynchronizing = false }
+            await syncService.reconcileAssetInventory(
+                token: token,
+                masterPassword: masterPassword,
+                store: serverStore,
+                accountID: session.username
+            )
+            await syncService.refreshInventoryDiagnostic(token: token, store: serverStore)
+        }
     }
 
     private var syncStatusMessage: String {
@@ -251,14 +334,14 @@ struct WorkstationAssetSidebarView: View {
     }
 
     private func isCollapsed(_ group: String) -> Bool {
-        searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && collapsedGroups.contains(group)
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !expandedGroups.contains(group)
     }
 
     private func toggleGroup(_ group: String) {
-        if collapsedGroups.contains(group) {
-            collapsedGroups.remove(group)
+        if expandedGroups.contains(group) {
+            expandedGroups.remove(group)
         } else {
-            collapsedGroups.insert(group)
+            expandedGroups.insert(group)
         }
     }
 }

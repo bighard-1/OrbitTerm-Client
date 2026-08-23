@@ -165,6 +165,7 @@ actor CheckedMonitorPollingLoop {
     private let binding: CheckedMonitorBinding
     private let fetcher: any CheckedMonitorSnapshotFetching
     private let intervalNanoseconds: UInt64
+    private let isEnabled: @Sendable () -> Bool
     private let retryDelayNanoseconds: UInt64 = 1_000_000_000
     private var task: Task<Void, Never>?
     private var activeRunID: UUID?
@@ -172,11 +173,13 @@ actor CheckedMonitorPollingLoop {
     init(
         binding: CheckedMonitorBinding,
         fetcher: any CheckedMonitorSnapshotFetching,
-        intervalNanoseconds: UInt64
+        intervalNanoseconds: UInt64,
+        isEnabled: @escaping @Sendable () -> Bool = { true }
     ) {
         self.binding = binding
         self.fetcher = fetcher
         self.intervalNanoseconds = intervalNanoseconds
+        self.isEnabled = isEnabled
     }
 
     deinit {
@@ -204,11 +207,25 @@ actor CheckedMonitorPollingLoop {
 
     private func run(runID: UUID, handler: @escaping EventHandler) async {
         while !Task.isCancelled, activeRunID == runID {
+            if !isEnabled() {
+                do {
+                    try await Task.sleep(nanoseconds: 250_000_000)
+                } catch {
+                    return
+                }
+                continue
+            }
+            let span = PerformanceSignpost.begin(.monitorRefresh)
             do {
                 let payload = try await fetcher.snapshot(binding: binding)
-                guard !Task.isCancelled, activeRunID == runID else { return }
+                guard !Task.isCancelled, activeRunID == runID else {
+                    span.cancel()
+                    return
+                }
                 await handler(.success(payload))
+                span.finish()
             } catch {
+                span.cancel()
                 guard !Task.isCancelled, activeRunID == runID else { return }
                 let mapped = error as? CheckedMonitorServiceError ?? .unknownCheckedFFIError
                 await handler(.failure(mapped))

@@ -18,10 +18,12 @@ struct AssetManagerView: View {
     @State private var showingBulkAdd = false
     @State private var selectedAssetIDs: Set<UUID> = []
     @State private var showingBulkDeleteConfirmation = false
+    @State private var assetActionTask: Task<Void, Never>?
+    @State private var assetActionOwner = PageOperationOwner()
 
     private let vault = CredentialVault.shared
     @StateObject private var orbitManager = OrbitManager()
-    @StateObject private var syncService = SyncService.shared
+    @EnvironmentObject private var syncService: SyncService
 
     var body: some View {
         NavigationStack {
@@ -123,6 +125,22 @@ struct AssetManagerView: View {
 #if os(macOS)
         .frame(minWidth: 760, minHeight: 520)
 #endif
+        .onDisappear {
+            cancelAssetAction(.pageDisappeared)
+        }
+        .onChange(of: session.username) { _, _ in
+            cancelAssetAction(.accountChanged)
+        }
+        .onChange(of: session.isAuthenticated) { _, authenticated in
+            if !authenticated {
+                cancelAssetAction(.accountSignedOut)
+            }
+        }
+        .onChange(of: session.isUnlocked) { _, unlocked in
+            if !unlocked {
+                cancelAssetAction(.accountLocked)
+            }
+        }
     }
 
     private var filteredServers: [ServerEntry] {
@@ -144,7 +162,7 @@ struct AssetManagerView: View {
             edit: { onEdit(server) },
             keySetup: { keySetupServer = server },
             enablePasswordFallback: { enablePasswordFallback(server) },
-            disablePasswordFallback: { Task { await disablePasswordFallback(server) } },
+            disablePasswordFallback: { startDisablePasswordFallback(server) },
             delete: { deleteServer(server) }
         )
         return AssetManagerServerRow(
@@ -250,16 +268,23 @@ struct AssetManagerView: View {
         guard let credentials = try? vault.read(for: server.credentialID),
               let token = session.readToken(),
               let masterPassword = session.readMasterPassword() else { return }
-        let portable = server.makePortableConfig(savedAtUnix: Int(Date().timeIntervalSince1970), credentials: credentials)
+        let jumpHostCredentials = server.jumpHost.flatMap { try? vault.read(for: $0.credentialID) }
+        guard server.jumpHost == nil || jumpHostCredentials?.isEmpty == false else { return }
+        let portable = server.makePortableConfig(
+            savedAtUnix: Int(Date().timeIntervalSince1970),
+            credentials: credentials,
+            jumpHostCredentials: jumpHostCredentials
+        )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(portable),
               let plain = String(data: data, encoding: .utf8) else { return }
+        let accountID = session.username
         Task(priority: .background) {
             _ = await syncService.uploadEncryptedConfig(
                 token: token,
                 masterPassword: masterPassword,
-                accountID: session.username,
+                accountID: accountID,
                 plaintextConfig: plain,
                 vectorClock: ["client": Int(Date().timeIntervalSince1970)],
                 allowQueueOnNetworkFailure: true
@@ -267,7 +292,47 @@ struct AssetManagerView: View {
         }
     }
 
-    private func disablePasswordFallback(_ server: ServerEntry) async {
+    private var accountOperationScope: OperationScope {
+        guard let account = AccountScope(username: session.username) else { return .anonymous }
+        return .account(account.storageIdentifier)
+    }
+
+    private func startDisablePasswordFallback(_ server: ServerEntry) {
+        guard assetActionTask == nil else { return }
+        let scope = accountOperationScope
+        let lease = assetActionOwner.begin(scope: scope, timeout: PageOperationTimeout.assetMutation)
+        assetActionTask = Task {
+            await disablePasswordFallback(server, lease: lease, scope: scope)
+            if assetActionOwner.timeoutReached(lease) {
+                assetActionOwner.cancel(.timedOut)
+                policyChangingID = nil
+                noticeKind = .warning
+                noticeText = "操作超时，请检查网络后重试。"
+                assetActionTask = nil
+                return
+            }
+            guard accepts(lease, scope: scope) else { return }
+            assetActionTask = nil
+        }
+    }
+
+    private func cancelAssetAction(_ reason: PageOperationCancellationReason) {
+        assetActionOwner.cancel(reason)
+        assetActionTask?.cancel()
+        assetActionTask = nil
+        policyChangingID = nil
+    }
+
+    private func accepts(_ lease: PageOperationLease, scope: OperationScope) -> Bool {
+        !Task.isCancelled && assetActionOwner.accepts(lease, scope: scope)
+    }
+
+    private func disablePasswordFallback(
+        _ server: ServerEntry,
+        lease: PageOperationLease,
+        scope: OperationScope
+    ) async {
+        guard accepts(lease, scope: scope) else { return }
         guard policyChangingID == nil else { return }
         guard ConnectionSecurityPolicy.allowsLegacyConnectionTest else {
             noticeKind = .warning
@@ -293,6 +358,7 @@ struct AssetManagerView: View {
             privateKeyPassphrase: credentials.privateKeyPassphrase,
             allowPasswordFallback: false
         )
+        guard accepts(lease, scope: scope) else { return }
 
         guard result.hasPrefix("成功") else {
             noticeKind = .warning

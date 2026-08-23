@@ -13,6 +13,72 @@ typealias PlatformColor = NSColor
 typealias PlatformFont = NSFont
 
 final class ContextMenuTerminalView: TerminalView, NSMenuItemValidation {
+    override func copy(_ sender: Any?) {
+        super.copy(sender ?? self)
+
+        // SwiftTerm performs the selection extraction. Route the resulting
+        // text back through OrbitTerm's central policy so terminal output has
+        // the same conditional expiry as every other terminal-copy path.
+        guard let data = NSPasteboard.general.data(forType: .string) else { return }
+        Task { @MainActor in
+            _ = SecureClipboard.copy(data, kind: .terminalOutput)
+        }
+    }
+
+    override func paste(_ sender: Any?) {
+        guard let raw = NSPasteboard.general.string(forType: .string) else { return }
+        let normalized = raw
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .unicodeScalars
+            .filter { $0.value >= 0x20 || $0.value == 0x0A || $0.value == 0x09 }
+            .map(String.init)
+            .joined()
+        guard !normalized.isEmpty,
+              normalized.lengthOfBytes(using: .utf8) <= 8 * 1024 else { return }
+
+        guard normalized.contains("\n") else {
+            // Insert the sanitized text rather than asking AppKit to read the
+            // original clipboard again; this keeps control characters out of
+            // the remote PTY on both single-line and multi-line paths.
+            insertText(normalized, replacementRange: NSRange(location: 0, length: 0))
+            return
+        }
+
+        let lineCount = normalized.reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
+        let alert = NSAlert()
+        alert.messageText = "确认粘贴多行终端内容"
+        alert.informativeText = "检测到 \(lineCount) 行内容。“合并为单行并执行”会用分号连接每一行后执行一次；“逐行粘贴并执行”会保留换行并按原顺序执行。请确认内容可信。"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "合并为单行并执行")
+        alert.addButton(withTitle: "逐行粘贴并执行")
+        alert.addButton(withTitle: "取消")
+
+        let apply: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard let self else { return }
+            switch response {
+            case .alertFirstButtonReturn:
+                let commands = normalized
+                    .split(separator: "\n", omittingEmptySubsequences: true)
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                guard !commands.isEmpty else { return }
+                self.insertText(commands.joined(separator: "; ") + "\r", replacementRange: NSRange(location: 0, length: 0))
+            case .alertSecondButtonReturn:
+                let payload = normalized.last.map({ $0 == "\n" }) == true ? normalized : normalized + "\r"
+                self.insertText(payload, replacementRange: NSRange(location: 0, length: 0))
+            default:
+                break
+            }
+        }
+
+        if let window {
+            alert.beginSheetModal(for: window, completionHandler: apply)
+        } else {
+            apply(alert.runModal())
+        }
+    }
+
     @objc func clearLocalTerminalDisplay(_ sender: Any?) {
         // Feed standard erase sequences into the *local* terminal emulator.
         // `resetNormalBuffer()` only replaces SwiftTerm's normal-buffer
@@ -271,13 +337,12 @@ enum TerminalPlatformSupport {
 #endif
     }
 
-    static func copyToClipboard(_ content: Data) {
-#if os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setData(content, forType: .string)
-#else
-        UIPasteboard.general.setData(content, forPasteboardType: "public.utf8-plain-text")
-#endif
+    static func copyToClipboard(_ content: Data, kind: ClipboardContentKind = .terminalOutput) {
+        // Terminal delegates are not actor-isolated. Clipboard access itself is
+        // always promoted to the main actor by the central policy.
+        Task { @MainActor in
+            _ = SecureClipboard.copy(content, kind: kind)
+        }
     }
 
     static func readClipboard() -> Data? {

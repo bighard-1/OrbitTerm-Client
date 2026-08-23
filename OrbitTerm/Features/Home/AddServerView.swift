@@ -17,7 +17,7 @@ struct AddServerView: View {
     var prefill: ServerAddPrefill? = nil
     var onSaveAndConnect: (ServerEntry) -> Void
 
-    @StateObject private var syncService = SyncService.shared
+    @EnvironmentObject private var syncService: SyncService
     @StateObject private var orbitManager = OrbitManager()
 
     @State private var name: String = ""
@@ -37,6 +37,17 @@ struct AddServerView: View {
     @State private var showKeyFileImporter = false
     @State private var selectedKeyFileName: String = ""
 
+    @State private var isJumpHostEnabled = false
+    @State private var jumpHost = ""
+    @State private var jumpPortText = "22"
+    @State private var jumpUsername = ""
+    @State private var jumpAuthMethod: ServerAuthMethod = .password
+    @State private var jumpAllowPasswordFallback = true
+    @State private var jumpPassword = ""
+    @State private var jumpPrivateKeyContent = ""
+    @State private var jumpPrivateKeyPassphrase = ""
+    @State private var jumpCredentialID = UUID()
+
     @State private var isTestingConnection = false
     @State private var isSaving = false
     @AppStorage(TelnetAccessPolicy.enabledStorageKey) private var telnetEnabled: Bool = false
@@ -51,144 +62,14 @@ struct AddServerView: View {
     @State private var didApplyPrefill = false
     @State private var deletedIdentityMatch: DeletedIdentityMatch?
     @State private var saveErrorMessage: String?
+    @State private var userOperationTask: Task<Void, Never>?
+    @State private var userOperationOwner = PageOperationOwner()
 
     private let vault = CredentialVault.shared
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                formHeader
-
-                ScrollView(.vertical, showsIndicators: true) {
-                    VStack(spacing: 14) {
-                        AddServerSectionCard(title: "主机信息") {
-                            AddServerFormRow(icon: "tag.fill", title: "名称") {
-                                AddServerTextField("例如：生产服务器", text: $name)
-                            }
-                            AddServerFormRow(icon: "tray.full.fill", title: "分组（可选）") {
-                                AddServerTextField("例如：线上", text: $group)
-                            }
-                            AddServerFormRow(icon: "tag", title: "标签（可选）") {
-                                AddServerTextField("例如：生产、Web、华东", text: $tagsText)
-                            }
-                            AddServerFormRow(icon: "network", title: "IP 地址") {
-                                AddServerTextField("例如：192.168.1.10", text: $host)
-                            }
-                            AddServerFormRow(icon: "point.3.connected.trianglepath.dotted", title: "端口") {
-                                AddServerTextField("默认 22，可自定义高位端口", text: $portText, numeric: true)
-                            }
-                        }
-
-                        AddServerAuthSection(
-                            username: $username,
-                            authMethod: $authMethod,
-                            transport: $transport,
-                            networkDeviceProfile: $networkDeviceProfile,
-                            password: $password,
-                            keyInputMode: $keyInputMode,
-                            privateKeyContent: $privateKeyContent,
-                            privateKeyPassphrase: $privateKeyPassphrase,
-                            allowPasswordFallback: $allowPasswordFallback,
-                            telnetEnabled: telnetEnabled,
-                            selectedKeyFileName: selectedKeyFileName,
-                            privateKeyValidationMessage: privateKeyValidationMessage,
-                            privateKeyValidationKind: privateKeyValidationKind
-                        ) {
-                            showKeyFileImporter = true
-                        }
-
-                        if authMethod == .password && password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text("当前首选密码认证，请填写密码。")
-                                .font(.caption)
-                                .foregroundStyle(palette.textSecondary.color)
-                        }
-
-                        if transport == .ssh && authMethod == .key && !hasValidPrivateKey {
-                            Text("当前首选密钥认证，请提供有效私钥。")
-                                .font(.caption)
-                                .foregroundStyle(palette.textSecondary.color)
-                        }
-                        
-
-                        AddServerSectionCard(title: "高级设置") {
-                            DisclosureGroup("连接测试参数", isExpanded: $showAdvanced) {
-                                Stepper(value: $testTimeoutSec, in: 3...20) {
-                                    Text("连接测试超时：\(testTimeoutSec) 秒")
-                                }
-                                .padding(.top, 2)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 14)
-                }
-                .frame(maxHeight: .infinity)
-                .scrollDismissesKeyboard(.interactively)
-                .font(.system(.body, design: .rounded))
-
-                VStack(spacing: 0) {
-                    AddServerStatusBar(
-                        isTestingConnection: isTestingConnection,
-                        isConnectionVerified: isConnectionVerified,
-                        testStatus: testStatus,
-                        canTestConnection: canTestConnection
-                    ) {
-                        Task { await testConnection() }
-                    }
-
-                    HStack(spacing: 10) {
-                        Button("取消") { dismiss() }
-                            .buttonStyle(ThemedSecondaryButtonStyle())
-                            .frame(width: 92)
-
-                        Button(isSaving ? "保存中..." : "保存并连接") {
-                            Task { await saveAndConnect() }
-                        }
-                        .buttonStyle(ThemedPrimaryButtonStyle())
-                        .disabled(!saveButtonEnabled || isSaving)
-                        .frame(width: 224)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.horizontal, 18)
-                    .padding(.top, 12)
-                    .padding(.bottom, 28)
-                }
-                .background(palette.surfaceReadable.color)
-            }
-            .navigationTitle("")
-            .background {
-                ZStack {
-                    AppChromeBackground()
-                    palette.surfaceReadable.color.opacity(0.76)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-#if os(macOS)
-            .frame(minWidth: 560, minHeight: 640)
-#endif
-            .onChange(of: name) { _, _ in invalidateVerification() }
-            .onChange(of: host) { _, _ in invalidateVerification() }
-            .onChange(of: username) { _, _ in invalidateVerification() }
-            .onChange(of: portText) { _, newValue in
-                let filtered = newValue.filter(\.isNumber)
-                if filtered != newValue {
-                    portText = filtered
-                }
-                invalidateVerification()
-            }
-            .onChange(of: authMethod) { _, _ in invalidateVerification() }
-            .onChange(of: transport) { _, newValue in
-                handleTransportChange(newValue)
-            }
-            .onChange(of: networkDeviceProfile) { _, _ in invalidateVerification() }
-            .onChange(of: password) { _, _ in invalidateVerification() }
-            .onChange(of: privateKeyContent) { _, _ in invalidateVerification() }
-            .onChange(of: privateKeyPassphrase) { _, _ in invalidateVerification() }
-            .applyKeyboardDismissToolbar()
-            .onChange(of: allowPasswordFallback) { _, _ in invalidateVerification() }
-            .task {
-                await initialLoad()
-            }
+            editorShell
         }
         .fileImporter(
             isPresented: $showKeyFileImporter,
@@ -208,7 +89,7 @@ struct AddServerView: View {
             Button("恢复原资产") {
                 guard let match = deletedIdentityMatch else { return }
                 deletedIdentityMatch = nil
-                Task { await restoreMatchedAsset(match) }
+                startRestoreMatchedAsset(match)
             }
             Button("作为新资产添加") {
                 guard let match = deletedIdentityMatch else { return }
@@ -226,6 +107,245 @@ struct AddServerView: View {
             Button("知道了", role: .cancel) { saveErrorMessage = nil }
         } message: {
             Text(saveErrorMessage ?? "未知错误")
+        }
+    }
+
+    private var editorShell: some View {
+        VStack(spacing: 0) {
+            formHeader
+            scrollableForm
+            footer
+        }
+        .navigationTitle("")
+        .background {
+            ZStack {
+                AppChromeBackground()
+                palette.surfaceReadable.color.opacity(0.76)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+#if os(macOS)
+        .frame(minWidth: 560, minHeight: 640)
+#endif
+        .background(validationObserver)
+        .applyKeyboardDismissToolbar()
+        .task { await initialLoad() }
+        .onDisappear {
+            cancelUserOperation(.pageDisappeared)
+        }
+        .onChange(of: session.username) { _, _ in
+            cancelUserOperation(.accountChanged)
+        }
+        .onChange(of: session.isAuthenticated) { _, authenticated in
+            if !authenticated {
+                cancelUserOperation(.accountSignedOut)
+            }
+        }
+        .onChange(of: session.isUnlocked) { _, unlocked in
+            if !unlocked {
+                cancelUserOperation(.accountLocked)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .orbitTermClearTransientSensitiveInput)) { _ in
+            clearTransientCredentials()
+        }
+    }
+
+    private func clearTransientCredentials() {
+        password = ""
+        privateKeyContent = ""
+        privateKeyPassphrase = ""
+        jumpPassword = ""
+        jumpPrivateKeyContent = ""
+        jumpPrivateKeyPassphrase = ""
+        selectedKeyFileName = ""
+        isConnectionVerified = false
+    }
+
+    private var scrollableForm: some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            formContent
+                .padding(.horizontal, 14)
+                .padding(.vertical, 14)
+        }
+        .frame(maxHeight: .infinity)
+        .scrollDismissesKeyboard(.interactively)
+        .font(.system(.body, design: .rounded))
+    }
+
+    private var footer: some View {
+        AddServerFooter(
+            isTestingConnection: isTestingConnection,
+            isConnectionVerified: isConnectionVerified,
+            testStatus: testStatus,
+            canTestConnection: canTestConnection,
+            isSaving: isSaving,
+            saveButtonEnabled: saveButtonEnabled,
+            onTest: startConnectionTest,
+            onCancel: { dismiss() },
+            onSave: startSaveAndConnect
+        )
+        .background(palette.surfaceReadable.color)
+    }
+
+    private var validationObserver: some View {
+        ZStack {
+            identityValidationObserver
+            targetConnectionValidationObserver
+            targetCredentialValidationObserver
+            jumpConnectionValidationObserver
+            jumpCredentialValidationObserver
+        }
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+    }
+
+    private var identityValidationObserver: some View {
+        Color.clear
+            .onChange(of: name) { _, _ in invalidateVerification() }
+            .onChange(of: host) { _, _ in invalidateVerification() }
+            .onChange(of: username) { _, _ in invalidateVerification() }
+    }
+
+    private var targetConnectionValidationObserver: some View {
+        Color.clear
+            .onChange(of: portText) { _, newValue in
+                let filtered = newValue.filter(\.isNumber)
+                if filtered != newValue {
+                    portText = filtered
+                }
+                invalidateVerification()
+            }
+            .onChange(of: authMethod) { _, _ in invalidateVerification() }
+            .onChange(of: transport) { _, newValue in handleTransportChange(newValue) }
+            .onChange(of: networkDeviceProfile) { _, _ in invalidateVerification() }
+    }
+
+    private var targetCredentialValidationObserver: some View {
+        Color.clear
+            .onChange(of: password) { _, _ in invalidateVerification() }
+            .onChange(of: privateKeyContent) { _, _ in invalidateVerification() }
+            .onChange(of: privateKeyPassphrase) { _, _ in invalidateVerification() }
+            .onChange(of: allowPasswordFallback) { _, _ in invalidateVerification() }
+    }
+
+    private var jumpConnectionValidationObserver: some View {
+        Color.clear
+            .onChange(of: isJumpHostEnabled) { _, _ in invalidateVerification() }
+            .onChange(of: jumpHost) { _, _ in invalidateVerification() }
+            .onChange(of: jumpPortText) { _, newValue in
+                let filtered = newValue.filter(\.isNumber)
+                if filtered != newValue {
+                    jumpPortText = filtered
+                }
+                invalidateVerification()
+            }
+            .onChange(of: jumpUsername) { _, _ in invalidateVerification() }
+            .onChange(of: jumpAuthMethod) { _, _ in invalidateVerification() }
+    }
+
+    private var jumpCredentialValidationObserver: some View {
+        Color.clear
+            .onChange(of: jumpAllowPasswordFallback) { _, _ in invalidateVerification() }
+            .onChange(of: jumpPassword) { _, _ in invalidateVerification() }
+            .onChange(of: jumpPrivateKeyContent) { _, _ in invalidateVerification() }
+            .onChange(of: jumpPrivateKeyPassphrase) { _, _ in invalidateVerification() }
+    }
+
+    private var formContent: some View {
+        VStack(spacing: 14) {
+            hostInformationSection
+            jumpHostSection
+            authenticationSection
+            authenticationValidationMessage
+            advancedSettingsSection
+        }
+    }
+
+    private var hostInformationSection: some View {
+        AddServerSectionCard(title: "主机信息") {
+            AddServerFormRow(icon: "tag.fill", title: "名称") {
+                AddServerTextField("例如：生产服务器", text: $name)
+            }
+            AddServerFormRow(icon: "tray.full.fill", title: "分组（可选）") {
+                AddServerTextField("例如：线上", text: $group)
+            }
+            AddServerFormRow(icon: "tag", title: "标签（可选）") {
+                AddServerTextField("例如：生产、Web、华东", text: $tagsText)
+            }
+            AddServerFormRow(icon: "network", title: "IP 地址") {
+                AddServerTextField("例如：192.168.1.10", text: $host)
+            }
+            AddServerFormRow(icon: "point.3.connected.trianglepath.dotted", title: "端口") {
+                AddServerTextField(
+                    transport == .telnet ? "默认 23，可自定义端口" : "默认 22，可自定义高位端口",
+                    text: $portText,
+                    numeric: true
+                )
+            }
+        }
+    }
+
+    private var authenticationSection: some View {
+        AddServerAuthSection(
+            username: $username,
+            authMethod: $authMethod,
+            transport: $transport,
+            networkDeviceProfile: $networkDeviceProfile,
+            password: $password,
+            keyInputMode: $keyInputMode,
+            privateKeyContent: $privateKeyContent,
+            privateKeyPassphrase: $privateKeyPassphrase,
+            allowPasswordFallback: $allowPasswordFallback,
+            telnetEnabled: telnetEnabled,
+            selectedKeyFileName: selectedKeyFileName,
+            privateKeyValidationMessage: privateKeyValidationMessage,
+            privateKeyValidationKind: privateKeyValidationKind
+        ) {
+            showKeyFileImporter = true
+        }
+    }
+
+    @ViewBuilder
+    private var jumpHostSection: some View {
+        if transport == .ssh {
+            JumpHostConfigurationSection(
+                isEnabled: $isJumpHostEnabled,
+                host: $jumpHost,
+                portText: $jumpPortText,
+                username: $jumpUsername,
+                authMethod: $jumpAuthMethod,
+                allowPasswordFallback: $jumpAllowPasswordFallback,
+                password: $jumpPassword,
+                privateKeyContent: $jumpPrivateKeyContent,
+                privateKeyPassphrase: $jumpPrivateKeyPassphrase
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var authenticationValidationMessage: some View {
+        if authMethod == .password && password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Text("当前首选密码认证，请填写密码。")
+                .font(.caption)
+                .foregroundStyle(palette.textSecondary.color)
+        }
+
+        if transport == .ssh && authMethod == .key && !hasValidPrivateKey {
+            Text("当前首选密钥认证，请提供有效私钥。")
+                .font(.caption)
+                .foregroundStyle(palette.textSecondary.color)
+        }
+    }
+
+    private var advancedSettingsSection: some View {
+        AddServerSectionCard(title: "高级设置") {
+            DisclosureGroup("连接测试参数", isExpanded: $showAdvanced) {
+                Stepper(value: $testTimeoutSec, in: 3...20) {
+                    Text("连接测试超时：\(testTimeoutSec) 秒")
+                }
+                .padding(.top, 2)
+            }
         }
     }
 
@@ -260,6 +380,7 @@ struct AddServerView: View {
             if !telnetEnabled {
                 testStatus = "Telnet 默认关闭，请先在设置中了解风险并手动启用"
             }
+            isJumpHostEnabled = false
         } else if portText == "23" {
             portText = "22"
         }
@@ -278,15 +399,15 @@ struct AddServerView: View {
             guard let url = urls.first else { return }
             selectedKeyFileName = url.lastPathComponent
             loadPrivateKeyFile(url)
-        case let .failure(error):
-            testStatus = "私钥文件读取失败: \(error.localizedDescription)"
+        case .failure:
+            testStatus = "无法读取私钥文件，请确认文件可访问且格式正确。"
         }
     }
 
 
 
     private var canSave: Bool {
-        AddServerValidation.canSave(validationInput)
+        AddServerValidation.canSave(validationInput) && isJumpHostValid
     }
 
     private var parsedPort: Int? {
@@ -302,7 +423,7 @@ struct AddServerView: View {
         // but the button remains actionable so the user receives the explicit
         // security explanation from AddServerConnectionTester instead of a
         // silent disabled control.
-        AddServerValidation.canTestConnection(validationInput)
+        !isJumpHostEnabled && AddServerValidation.canTestConnection(validationInput)
     }
 
     private var hasValidPrivateKey: Bool {
@@ -347,8 +468,53 @@ struct AddServerView: View {
             password: password,
             privateKeyContent: privateKeyContent,
             privateKeyPassphrase: privateKeyPassphrase,
+            jumpHost: jumpHostConfiguration,
+            jumpHostCredentials: jumpHostCredentials,
             editingServer: editingServer
         )
+    }
+
+    private var jumpHostConfiguration: JumpHostConfiguration? {
+        guard isJumpHostEnabled,
+              let port = AddServerValidation.parsedPort(from: jumpPortText) else {
+            return nil
+        }
+        return JumpHostConfiguration(
+            host: jumpHost,
+            port: port,
+            username: jumpUsername,
+            authMethod: jumpAuthMethod,
+            allowPasswordFallback: jumpAllowPasswordFallback,
+            credentialID: jumpCredentialID
+        )
+    }
+
+    private var jumpHostCredentials: ServerCredentials? {
+        guard isJumpHostEnabled else { return nil }
+        return ServerCredentials(
+            password: jumpPassword,
+            privateKeyContent: jumpPrivateKeyContent,
+            privateKeyPassphrase: jumpPrivateKeyPassphrase
+        )
+    }
+
+    private var isJumpHostValid: Bool {
+        guard isJumpHostEnabled else { return true }
+        guard transport == .ssh,
+              let configuration = jumpHostConfiguration,
+              configuration.isValid else {
+            return false
+        }
+        let hasKey = AddServerValidation.hasValidPrivateKey(jumpPrivateKeyContent)
+        if !jumpAllowPasswordFallback {
+            return hasKey
+        }
+        switch jumpAuthMethod {
+        case .password:
+            return !jumpPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .key:
+            return hasKey
+        }
     }
 
     private var connectionTestInput: AddServerConnectionTestInput {
@@ -370,37 +536,122 @@ struct AddServerView: View {
     private func invalidateVerification() {
         isConnectionVerified = false
         if !isTestingConnection {
-            testStatus = ConnectionSecurityPolicy.allowsLegacyConnectionTest
+            if isJumpHostEnabled {
+                testStatus = "跳板链路将在“保存并连接”时逐段验证服务器身份"
+            } else {
+                testStatus = ConnectionSecurityPolicy.allowsLegacyConnectionTest
                 ? "尚未测试"
                 : "保存并连接时将验证服务器身份"
+            }
         }
     }
 
-    private func testConnection() async {
+    private var accountOperationScope: OperationScope {
+        guard let account = AccountScope(username: session.username) else { return .anonymous }
+        return .account(account.storageIdentifier)
+    }
+
+    private func startConnectionTest() {
+        guard userOperationTask == nil, canTestConnection else { return }
+        let scope = accountOperationScope
+        let lease = userOperationOwner.begin(scope: scope, timeout: PageOperationTimeout.assetMutation)
+        userOperationTask = Task {
+            await testConnection(lease: lease, scope: scope)
+            completeUserOperation(lease, scope: scope)
+        }
+    }
+
+    private func startSaveAndConnect() {
+        guard userOperationTask == nil, canSave else { return }
+        let scope = accountOperationScope
+        let lease = userOperationOwner.begin(scope: scope, timeout: PageOperationTimeout.assetMutation)
+        userOperationTask = Task {
+            await saveAndConnect(lease: lease, scope: scope)
+            completeUserOperation(lease, scope: scope)
+        }
+    }
+
+    private func startRestoreMatchedAsset(_ match: DeletedIdentityMatch) {
+        guard userOperationTask == nil else { return }
+        let scope = accountOperationScope
+        let lease = userOperationOwner.begin(scope: scope, timeout: PageOperationTimeout.assetMutation)
+        userOperationTask = Task {
+            await restoreMatchedAsset(match, lease: lease, scope: scope)
+            completeUserOperation(lease, scope: scope)
+        }
+    }
+
+    private func completeUserOperation(_ lease: PageOperationLease, scope: OperationScope) {
+        if userOperationOwner.timeoutReached(lease) {
+            userOperationOwner.cancel(.timedOut)
+            isTestingConnection = false
+            isSaving = false
+            testStatus = "操作超时，请检查网络后重试。"
+            userOperationTask = nil
+            return
+        }
+        guard userOperationOwner.accepts(lease, scope: scope) else { return }
+        userOperationTask = nil
+    }
+
+    private func cancelUserOperation(_ reason: PageOperationCancellationReason) {
+        userOperationOwner.cancel(reason)
+        userOperationTask?.cancel()
+        userOperationTask = nil
+        isTestingConnection = false
+        isSaving = false
+    }
+
+    private func accepts(_ lease: PageOperationLease, scope: OperationScope) -> Bool {
+        !Task.isCancelled && userOperationOwner.accepts(lease, scope: scope)
+    }
+
+    private func testConnection(lease: PageOperationLease, scope: OperationScope) async {
+        guard accepts(lease, scope: scope) else { return }
         guard canTestConnection else { return }
         isTestingConnection = true
-        defer { isTestingConnection = false }
+        defer {
+            if accepts(lease, scope: scope) {
+                isTestingConnection = false
+            }
+        }
 
         let result = await AddServerConnectionTester.test(input: connectionTestInput, orbitManager: orbitManager)
+        guard accepts(lease, scope: scope) else { return }
         testStatus = result.status
         isConnectionVerified = result.isVerified
     }
 
-    private func saveAndConnect() async {
+    private func saveAndConnect(lease: PageOperationLease, scope: OperationScope) async {
+        guard accepts(lease, scope: scope) else { return }
         guard canSave else { return }
         isSaving = true
-        defer { isSaving = false }
+        defer {
+            if accepts(lease, scope: scope) {
+                isSaving = false
+            }
+        }
 
         let draft = AddServerDraftBuilder.build(from: draftInput)
-        if editingServer == nil, let deletedAssetID = await matchingDeletedAssetID(for: draft) {
+        if editingServer == nil,
+           let deletedAssetID = await matchingDeletedAssetID(for: draft) {
+            guard accepts(lease, scope: scope) else { return }
             deletedIdentityMatch = DeletedIdentityMatch(assetID: deletedAssetID, draft: draft)
             return
         }
+        guard accepts(lease, scope: scope) else { return }
         finalizeSave(draft)
     }
 
     private func finalizeSave(_ draft: AddServerDraft) {
-        store.addOrUpdate(draft.server, credentials: draft.credentials)
+        guard store.addOrUpdate(
+            draft.server,
+            credentials: draft.credentials,
+            jumpHostCredentials: draft.jumpHostCredentials
+        ) else {
+            saveErrorMessage = "凭据无法安全保存，资产未创建或更新。请检查系统钥匙串权限后重试。"
+            return
+        }
         onSaveAndConnect(draft.server)
 
         let token = session.readToken()
@@ -414,6 +665,7 @@ struct AddServerView: View {
             await silentSync(
                 draft.server,
                 credentials: draft.credentials,
+                jumpHostCredentials: draft.jumpHostCredentials,
                 token: token,
                 masterPassword: masterPassword,
                 accountID: accountID
@@ -427,7 +679,8 @@ struct AddServerView: View {
         do {
             let portable = draft.server.makePortableConfig(
                 savedAtUnix: Int(Date().timeIntervalSince1970),
-                credentials: draft.credentials
+                credentials: draft.credentials,
+                jumpHostCredentials: draft.jumpHostCredentials
             )
             let fingerprint = try await SyncIdentityService.fingerprint(
                 portable: portable,
@@ -445,7 +698,12 @@ struct AddServerView: View {
     }
 
     @MainActor
-    private func restoreMatchedAsset(_ match: DeletedIdentityMatch) async {
+    private func restoreMatchedAsset(
+        _ match: DeletedIdentityMatch,
+        lease: PageOperationLease,
+        scope: OperationScope
+    ) async {
+        guard accepts(lease, scope: scope) else { return }
         guard let masterPassword = session.readMasterPassword() else {
             saveErrorMessage = "主密码不可用，请重新解锁后再恢复"
             return
@@ -457,6 +715,7 @@ struct AddServerView: View {
                 masterPassword: masterPassword,
                 accountID: session.username
             )
+            guard accepts(lease, scope: scope) else { return }
             guard let item = trash.first(where: { $0.assetID == match.assetID }) else {
                 saveErrorMessage = "原资产已不在最近删除中，可选择作为新资产添加"
                 return
@@ -466,6 +725,7 @@ struct AddServerView: View {
                 store: store,
                 accountID: session.username
             )
+            guard accepts(lease, scope: scope) else { return }
             switch outcome {
             case .completed:
                 guard let restored = store.servers.first(where: { $0.id == match.assetID }) else {
@@ -479,7 +739,7 @@ struct AddServerView: View {
                 session.showTransientStatus("恢复任务已排队，联网后自动完成")
             }
         } catch {
-            saveErrorMessage = error.localizedDescription
+            saveErrorMessage = "无法恢复资产，请稍后重试。"
         }
     }
 
@@ -489,6 +749,19 @@ struct AddServerView: View {
         guard let existing = editingServer else { return }
         let credentials = try? vault.read(for: existing.credentialID)
         applyInitialState(AddServerInitialState.editing(server: existing, credentials: credentials))
+        if let jumpConfiguration = existing.jumpHost {
+            isJumpHostEnabled = true
+            jumpHost = jumpConfiguration.host
+            jumpPortText = String(jumpConfiguration.port)
+            jumpUsername = jumpConfiguration.username
+            jumpAuthMethod = jumpConfiguration.authMethod
+            jumpAllowPasswordFallback = jumpConfiguration.allowPasswordFallback
+            jumpCredentialID = jumpConfiguration.credentialID
+            let jumpCredentials = try? vault.read(for: jumpConfiguration.credentialID)
+            jumpPassword = jumpCredentials?.password ?? ""
+            jumpPrivateKeyContent = jumpCredentials?.privateKeyContent ?? ""
+            jumpPrivateKeyPassphrase = jumpCredentials?.privateKeyPassphrase ?? ""
+        }
     }
 
     private func applyInitialState(_ state: AddServerInitialState) {
@@ -519,6 +792,7 @@ struct AddServerView: View {
     private func silentSync(
         _ server: ServerEntry,
         credentials: ServerCredentials,
+        jumpHostCredentials: ServerCredentials?,
         token: String?,
         masterPassword: String?,
         accountID: String
@@ -526,6 +800,7 @@ struct AddServerView: View {
         if let message = await AddServerSilentSync.uploadStatusMessage(
             server: server,
             credentials: credentials,
+            jumpHostCredentials: jumpHostCredentials,
             token: token,
             masterPassword: masterPassword,
             accountID: accountID,
@@ -540,7 +815,7 @@ struct AddServerView: View {
         do {
             privateKeyContent = try AddServerKeyFileLoader.loadUTF8PrivateKey(from: url)
         } catch {
-            testStatus = "私钥文件读取失败: \(error.localizedDescription)"
+            testStatus = "无法读取私钥文件，请确认文件可访问且格式正确。"
         }
     }
 }

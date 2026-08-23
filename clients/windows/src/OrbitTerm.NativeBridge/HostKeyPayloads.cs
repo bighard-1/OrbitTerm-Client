@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace OrbitTerm.NativeBridge;
 
 public sealed record ConnectedPayload(
-    [property: JsonPropertyName("session_id")] string SessionId,
+    [property: JsonPropertyName("session_id")] ulong SessionId,
     [property: JsonPropertyName("host")] string Host,
     [property: JsonPropertyName("normalized_host")] string NormalizedHost,
     [property: JsonPropertyName("port")] ushort Port,
@@ -12,8 +12,8 @@ public sealed record ConnectedPayload(
     [property: JsonPropertyName("fingerprint_sha256")] string FingerprintSha256,
     [property: JsonPropertyName("security_generation")] CheckedSecurityGeneration SecurityGeneration)
 {
-    public ulong BaseSessionId => ulong.TryParse(SessionId, out var value)
-        ? value
+    public ulong BaseSessionId => SessionId != 0
+        ? SessionId
         : throw new OrbitNativeException("Connected payload contains an invalid session id.");
 }
 

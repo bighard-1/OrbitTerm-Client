@@ -119,7 +119,7 @@ function Assert-PackageManifest([string]$Root) {
 
     Assert-ManifestAttribute $manifest "/m:Package/m:Identity" "Name" "OrbitTerm.Client"
     Assert-ManifestAttribute $manifest "/m:Package/m:Identity" "Publisher" "CN=OrbitTerm Development"
-    Assert-ManifestAttribute $manifest "/m:Package/m:Identity" "Version" "0.3.0.0"
+    Assert-ManifestAttribute $manifest "/m:Package/m:Identity" "Version" "0.3.0.32"
     Assert-ManifestText $manifest "/m:Package/m:Properties/m:DisplayName" "OrbitTerm"
     Assert-ManifestText $manifest "/m:Package/m:Properties/m:PublisherDisplayName" "OrbitTerm"
     Assert-ManifestText $manifest "/m:Package/m:Properties/m:Logo" "Assets\StoreLogo.png"

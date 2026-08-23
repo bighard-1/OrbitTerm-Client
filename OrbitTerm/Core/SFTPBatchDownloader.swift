@@ -14,6 +14,11 @@ struct SFTPBatchDownloadSingleResult: Sendable {
 }
 
 enum SFTPBatchDownloader {
+    /// Shared resource budget for file transfers. A caller may request fewer
+    /// workers, but never more than this many concurrent Rust/SSH operations.
+    static let maximumConcurrentTransfers = OperationResourceBudget.sftpMaximumConcurrentTransfers
+    private static let cancelledMessage = "传输已取消"
+
     nonisolated static func run(
         sessionID: UInt64,
         entries: [SFTPBatchDownloadEntry],
@@ -22,11 +27,17 @@ enum SFTPBatchDownloader {
         var results: [SFTPBatchDownloadSingleResult] = []
         results.reserveCapacity(entries.count)
 
-        var iterator = entries.makeIterator()
-        let workerCount = max(1, min(maxConcurrent, entries.count))
+        var nextIndex = 0
+        let workerCount = OperationConcurrencyPolicy.workerCount(
+            requested: maxConcurrent,
+            itemCount: entries.count,
+            maximum: maximumConcurrentTransfers
+        )
         await withTaskGroup(of: SFTPBatchDownloadSingleResult.self) { group in
             for _ in 0..<workerCount {
-                guard let next = iterator.next() else { break }
+                guard nextIndex < entries.count else { break }
+                let next = entries[nextIndex]
+                nextIndex += 1
                 group.addTask {
                     await downloadEntry(sessionID: sessionID, entry: next)
                 }
@@ -34,10 +45,27 @@ enum SFTPBatchDownloader {
 
             while let result = await group.next() {
                 results.append(result)
-                if let next = iterator.next() {
+                guard !Task.isCancelled else {
+                    group.cancelAll()
+                    break
+                }
+                if nextIndex < entries.count {
+                    let next = entries[nextIndex]
+                    nextIndex += 1
                     group.addTask {
                         await downloadEntry(sessionID: sessionID, entry: next)
                     }
+                }
+            }
+
+            if Task.isCancelled {
+                // Mark entries never handed to a worker so the caller can
+                // render a complete, deterministic batch result.
+                for entry in entries[nextIndex...] {
+                    results.append(cancelledResult(for: entry))
+                }
+                while let result = await group.next() {
+                    results.append(result)
                 }
             }
         }
@@ -49,6 +77,7 @@ enum SFTPBatchDownloader {
         sessionID: UInt64,
         entry: SFTPBatchDownloadEntry
     ) async -> SFTPBatchDownloadSingleResult {
+        guard !Task.isCancelled else { return cancelledResult(for: entry) }
         if entry.item.isDirectory {
             return SFTPBatchDownloadSingleResult(
                 fileName: entry.item.name,
@@ -71,6 +100,8 @@ enum SFTPBatchDownloader {
                 )
             }
 
+            guard !Task.isCancelled else { return cancelledResult(for: entry) }
+
             struct TransferResp: Decodable { let bytes: UInt64 }
             let bytes = (try? JSONDecoder().decode(TransferResp.self, from: Data(payload.utf8)).bytes) ?? 0
 
@@ -81,6 +112,9 @@ enum SFTPBatchDownloader {
                 error: nil
             )
         } catch {
+            if Task.isCancelled {
+                return cancelledResult(for: entry)
+            }
             return SFTPBatchDownloadSingleResult(
                 fileName: entry.item.name,
                 localURL: entry.localURL,
@@ -88,5 +122,16 @@ enum SFTPBatchDownloader {
                 error: error.localizedDescription
             )
         }
+    }
+
+    private nonisolated static func cancelledResult(
+        for entry: SFTPBatchDownloadEntry
+    ) -> SFTPBatchDownloadSingleResult {
+        SFTPBatchDownloadSingleResult(
+            fileName: entry.item.name,
+            localURL: entry.localURL,
+            bytes: nil,
+            error: cancelledMessage
+        )
     }
 }

@@ -21,6 +21,7 @@ of this release candidate.
 - [ ] Record C Header and ABI symbol results.
 - [ ] Record Swift Release object-reference scan results.
 - [ ] Record artifact SHA-256 checksums.
+- [ ] Record the locked-dependency CycloneDX SBOM from the evidence bundle.
 
 ## Packaging
 
@@ -36,6 +37,8 @@ of this release candidate.
 - [ ] Verify Gatekeeper assessment on a clean macOS account or machine.
 - [ ] Validate the iOS archive in App Store Connect without submitting it.
 - [ ] Confirm no Android APK/AAB is attached to this release.
+- [ ] Verify the official service TLS connection with the current SPKI pin;
+      keep the current and next pin during any planned public-key rotation.
 
 ## Manual security and product QA
 
@@ -61,4 +64,6 @@ of this release candidate.
 - [ ] Approve the final release notes.
 - [ ] Confirm rollback artifact and rollback owner.
 - [ ] Confirm post-release monitoring and incident contacts.
+- [ ] Complete the protected `Apple Protected Release` workflow from the exact
+      reviewed commit SHA; do not promote a locally rebuilt artifact instead.
 - [ ] Promote RC.1 without modifying its tag; any change becomes RC.2.

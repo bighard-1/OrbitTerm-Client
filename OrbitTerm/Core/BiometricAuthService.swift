@@ -14,8 +14,9 @@ final class BiometricAuthService: ObservableObject {
     static let shared = BiometricAuthService()
 
     private let service = "com.orbitterm.biometric"
-    private let account = "master_password_derived_key"
-    private let saltAccount = "master_password_argon2_salt_v1"
+    private let legacyAccount = "master_password_derived_key"
+    private let legacySaltAccount = "master_password_argon2_salt_v1"
+    private let enabledPreferencePrefix = "orbitterm.biometric.enabled.v2."
     private let logger = Logger(subsystem: "com.orbitterm.app", category: "biometric")
     private var transientDerivedKey: Data?
 
@@ -54,8 +55,22 @@ final class BiometricAuthService: ObservableObject {
         biometricType != .none
     }
 
-    var hasEnrollment: Bool {
-        readSalt() != nil && hasProtectedDerivedKeyItem()
+    func isEnabled(for accountID: String) -> Bool {
+        guard let scope = AccountScope(username: accountID) else { return false }
+        return UserDefaults.standard.bool(forKey: enabledPreferencePrefix + scope.storageIdentifier)
+    }
+
+    func setEnabled(_ enabled: Bool, for accountID: String) {
+        guard let scope = AccountScope(username: accountID) else { return }
+        UserDefaults.standard.set(enabled, forKey: enabledPreferencePrefix + scope.storageIdentifier)
+        if !enabled {
+            deleteEnrollment(scope: scope)
+        }
+    }
+
+    func hasEnrollment(for accountID: String) -> Bool {
+        guard let scope = AccountScope(username: accountID) else { return false }
+        return readSalt(scope: scope) != nil && hasProtectedDerivedKeyItem(scope: scope)
     }
 
     func validateBiometricOnly() async -> Bool {
@@ -70,16 +85,19 @@ final class BiometricAuthService: ObservableObject {
             )
         } catch {
             if let laError = error as? LAError {
-                logger.error("[BIO] validate-only failed code=\(laError.code.rawValue) msg=\(laError.localizedDescription, privacy: .public)")
+                logger.error("[BIO] validate-only failed code=\(laError.code.rawValue, privacy: .private(mask: .hash))")
             } else {
-                logger.error("[BIO] validate-only failed msg=\(error.localizedDescription, privacy: .public)")
+                logger.error("[BIO] validate-only failed")
             }
             return false
         }
     }
 
-    func enroll(masterPassword: String) throws {
+    func enroll(masterPassword: String, accountID: String) throws {
         guard isBiometricAvailable else { return }
+        guard let scope = AccountScope(username: accountID) else {
+            throw KeychainManager.KeychainError.invalidData
+        }
 
         var mutablePassword = masterPassword
         var salt = try SecurityPrimitives.randomBytes(count: 16)
@@ -94,13 +112,16 @@ final class BiometricAuthService: ObservableObject {
             SecurityPrimitives.secureZero(&wipe)
         }
 
-        try saveSalt(salt)
-        try saveProtectedDerivedKey(derived)
+        try saveSalt(salt, scope: scope)
+        try saveProtectedDerivedKey(derived, scope: scope)
+        setEnabled(true, for: accountID)
     }
 
-    func authenticate(masterPasswordProvider: () -> String?) async -> Bool {
+    func authenticate(accountID: String, masterPasswordProvider: () -> String?) async -> Bool {
         guard isBiometricAvailable else { return false }
-        guard hasEnrollment else { return false }
+        guard let scope = AccountScope(username: accountID),
+              isEnabled(for: accountID),
+              hasEnrollment(for: accountID) else { return false }
 
         let context = LAContext()
         context.localizedFallbackTitle = "使用主密码"
@@ -114,24 +135,24 @@ final class BiometricAuthService: ObservableObject {
             guard ok else { return false }
         } catch {
             if let laError = error as? LAError {
-                logger.error("[BIO] evaluatePolicy failed code=\(laError.code.rawValue) msg=\(laError.localizedDescription, privacy: .public)")
+                logger.error("[BIO] evaluatePolicy failed code=\(laError.code.rawValue, privacy: .private(mask: .hash))")
             } else {
-                logger.error("[BIO] evaluatePolicy failed msg=\(error.localizedDescription, privacy: .public)")
+                logger.error("[BIO] evaluatePolicy failed")
             }
             return false
         }
 
-        guard let salt = readSalt() else { return false }
+        guard let salt = readSalt(scope: scope) else { return false }
         guard var master = masterPasswordProvider(), !master.isEmpty else { return false }
-        var enrolled = readProtectedDerivedKey(context: context)
+        var enrolled = readProtectedDerivedKey(context: context, scope: scope)
         if enrolled == nil {
             // 自愈：如果生物识别通过但受保护条目异常，使用当前主密码重建一次并重读。
             do {
-                try enroll(masterPassword: master)
-                enrolled = readProtectedDerivedKey(context: context)
+                try enroll(masterPassword: master, accountID: accountID)
+                enrolled = readProtectedDerivedKey(context: context, scope: scope)
                 logger.notice("[BIO] protected key self-healed by re-enroll")
             } catch {
-                logger.error("[BIO] self-heal enroll failed: \(error.localizedDescription, privacy: .public)")
+                logger.error("[BIO] self-heal enroll failed")
             }
         }
         guard let enrolled else {
@@ -184,7 +205,7 @@ final class BiometricAuthService: ObservableObject {
         return ""
     }
 
-    private func saveProtectedDerivedKey(_ derived: Data) throws {
+    private func saveProtectedDerivedKey(_ derived: Data, scope: AccountScope) throws {
         let access = SecAccessControlCreateWithFlags(
             nil,
             kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
@@ -195,14 +216,14 @@ final class BiometricAuthService: ObservableObject {
             throw KeychainManager.KeychainError.invalidData
         }
 
-        var add = baseDerivedQuery()
+        var add = baseDerivedQuery(scope: scope)
         add[kSecUseDataProtectionKeychain as String] = true
         add[kSecAttrAccessControl as String] = access
         add[kSecValueData as String] = derived
 
         // 统一删后重建，确保 ACL 策略始终生效（从旧 userPresence 升级到 biometryCurrentSet）。
-        _ = SecItemDelete(baseDerivedQuery() as CFDictionary)
-        var legacyDelete = baseDerivedQuery()
+        _ = SecItemDelete(baseDerivedQuery(scope: scope) as CFDictionary)
+        var legacyDelete = baseDerivedQuery(scope: scope)
         legacyDelete.removeValue(forKey: kSecUseDataProtectionKeychain as String)
         _ = SecItemDelete(legacyDelete as CFDictionary)
 
@@ -211,8 +232,8 @@ final class BiometricAuthService: ObservableObject {
         throw KeychainManager.KeychainError.unhandled(addStatus)
     }
 
-    private func readProtectedDerivedKey(context: LAContext?) -> Data? {
-        var query = baseDerivedQuery()
+    private func readProtectedDerivedKey(context: LAContext?, scope: AccountScope) -> Data? {
+        var query = baseDerivedQuery(scope: scope)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         if let context {
@@ -243,8 +264,8 @@ final class BiometricAuthService: ObservableObject {
         return item as? Data
     }
 
-    private func hasProtectedDerivedKeyItem() -> Bool {
-        var query = baseDerivedQuery()
+    private func hasProtectedDerivedKeyItem(scope: AccountScope) -> Bool {
+        var query = baseDerivedQuery(scope: scope)
         query[kSecReturnAttributes as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         let context = LAContext()
@@ -269,8 +290,8 @@ final class BiometricAuthService: ObservableObject {
             status == errSecAuthFailed
     }
 
-    private func saveSalt(_ salt: Data) throws {
-        let query = baseSaltQuery()
+    private func saveSalt(_ salt: Data, scope: AccountScope) throws {
+        let query = baseSaltQuery(scope: scope)
         let attrs: [String: Any] = [
             kSecValueData as String: salt,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
@@ -292,8 +313,8 @@ final class BiometricAuthService: ObservableObject {
         throw KeychainManager.KeychainError.unhandled(updateStatus)
     }
 
-    private func readSalt() -> Data? {
-        var query = baseSaltQuery()
+    private func readSalt(scope: AccountScope) -> Data? {
+        var query = baseSaltQuery(scope: scope)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
 
@@ -309,7 +330,7 @@ final class BiometricAuthService: ObservableObject {
             // 旧版 macOS 测试构建把盐写入文件钥匙串。读取成功后迁移到
             // Data Protection Keychain，避免后续启动继续触发旧项的授权提示。
             do {
-                try saveSalt(legacyData)
+                try saveSalt(legacyData, scope: scope)
                 _ = SecItemDelete(legacyQuery as CFDictionary)
             } catch {
                 logger.error("[BIO] salt migration failed")
@@ -321,22 +342,27 @@ final class BiometricAuthService: ObservableObject {
         return data
     }
 
-    private func baseDerivedQuery() -> [String: Any] {
+    private func baseDerivedQuery(scope: AccountScope) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
+            kSecAttrAccount as String: "master_password_derived_key_v2_\(scope.storageIdentifier)",
             kSecUseDataProtectionKeychain as String: true
         ]
     }
 
-    private func baseSaltQuery() -> [String: Any] {
+    private func baseSaltQuery(scope: AccountScope) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: saltAccount,
+            kSecAttrAccount as String: "master_password_argon2_salt_v2_\(scope.storageIdentifier)",
             kSecUseDataProtectionKeychain as String: true
         ]
+    }
+
+    private func deleteEnrollment(scope: AccountScope) {
+        _ = SecItemDelete(baseDerivedQuery(scope: scope) as CFDictionary)
+        _ = SecItemDelete(baseSaltQuery(scope: scope) as CFDictionary)
     }
 
     private func bindLifecycleCleanup() {

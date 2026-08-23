@@ -46,7 +46,18 @@ public abstract record MonitorSnapshotResult
                 payload.Stats.PingLatencyMilliseconds,
                 payload.Stats.ReceiveRateKilobitsPerSecond,
                 payload.Stats.TransmitRateKilobitsPerSecond,
-                payload.Diagnostics));
+                payload.Diagnostics,
+                payload.Stats.SystemInfo is null
+                    ? null
+                    : new MonitorSystemInfo(
+                        payload.Stats.SystemInfo.OsName,
+                        payload.Stats.SystemInfo.CpuCoreCount,
+                        payload.Stats.SystemInfo.CpuThreadCount,
+                        payload.Stats.SystemInfo.MemoryTotalMegabytes,
+                        payload.Stats.SystemInfo.SwapTotalMegabytes,
+                        payload.Stats.SystemInfo.SwapUsedMegabytes,
+                        payload.Stats.SystemInfo.DiskTotalMegabytes,
+                        payload.Stats.SystemInfo.DiskUsedMegabytes)));
     }
 }
 
@@ -59,4 +70,31 @@ public sealed record MonitorSnapshot(
     double? PingLatencyMilliseconds,
     double ReceiveRateKilobitsPerSecond,
     double TransmitRateKilobitsPerSecond,
-    IReadOnlyList<string> Diagnostics);
+    IReadOnlyList<string> Diagnostics,
+    MonitorSystemInfo? SystemInfo = null,
+    MonitorSampleMetrics AvailableMetrics = MonitorSampleMetrics.All);
+
+[Flags]
+public enum MonitorSampleMetrics
+{
+    None = 0,
+    Cpu = 1 << 0,
+    Memory = 1 << 1,
+    Disk = 1 << 2,
+    Download = 1 << 3,
+    Upload = 1 << 4,
+    Latency = 1 << 5,
+    System = Cpu | Memory | Disk | Latency,
+    Network = Download | Upload,
+    All = System | Network,
+}
+
+public sealed record MonitorSystemInfo(
+    string OsName,
+    uint CpuCoreCount,
+    uint CpuThreadCount,
+    ulong MemoryTotalMegabytes,
+    ulong SwapTotalMegabytes,
+    ulong SwapUsedMegabytes,
+    ulong DiskTotalMegabytes,
+    ulong DiskUsedMegabytes);

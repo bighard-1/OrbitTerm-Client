@@ -51,6 +51,7 @@ final class TerminalThemeIsolationTests: XCTestCase {
         XCTAssertEqual(TerminalThemeManager.presets.map(\.id), ["dracula", "solarized-dark", "nord", "homebrew"])
         XCTAssertTrue(TerminalThemeManager.presets.allSatisfy { $0.ansi16.count == 16 })
         XCTAssertEqual(TerminalThemeManager.theme(for: "invalid-theme-id").id, TerminalThemeManager.presets[0].id)
+        XCTAssertEqual(Set(TerminalThemeManager.presets.map(\.displayANSI16)).count, 4)
     }
 
     func testDisplayANSIEnhancementPreservesCanonicalThemePalettes() {

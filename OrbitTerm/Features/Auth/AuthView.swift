@@ -3,6 +3,9 @@ import SwiftUI
 struct AuthView: View {
     @EnvironmentObject private var session: AppSession
     @Environment(\.appThemePalette) private var palette
+#if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+#endif
     @Namespace private var modeAnimation
 
     @State private var isLoginMode: Bool = true
@@ -20,11 +23,18 @@ struct AuthView: View {
     @State private var showServerConfirmAlert: Bool = false
     @State private var customServerAddress: String = ""
     @State private var pendingServerAddress: String = ""
+    @State private var submitTask: Task<Void, Never>?
+    @State private var submitOwner = PageOperationOwner()
+    @State private var acceptedTerms = AuthTermsConsentStore.hasAcceptedCurrentVersion
+    @State private var showTerms = false
+    @State private var cooldownRemaining = 0
+    @State private var cooldownTask: Task<Void, Never>?
 
     private let network = NetworkService.shared
 
     private var canSubmit: Bool {
-        guard !isLoading, !username.isEmpty, !password.isEmpty else { return false }
+        guard !isLoading, cooldownRemaining == 0, acceptedTerms,
+              !username.isEmpty, !password.isEmpty else { return false }
         guard !isLoginMode else { return true }
         let emailParts = username.split(separator: "@", omittingEmptySubsequences: false)
         return emailParts.count == 2
@@ -47,7 +57,12 @@ struct AuthView: View {
 #if os(macOS)
             let cardWidth = min(availableCardWidth, 560)
 #else
-            let cardWidth = availableCardWidth
+            // A full-width workstation-style form looks unbalanced on iPad.
+            // Keep iPhone edge-to-edge for its limited width, while iPad uses
+            // the same focused, readable form width as a native modal task.
+            let cardWidth = horizontalSizeClass == .regular
+                ? min(availableCardWidth, 640)
+                : availableCardWidth
 #endif
             let formWidth = max(0, cardWidth - 48)
 
@@ -58,7 +73,7 @@ struct AuthView: View {
                     VStack(spacing: 24) {
                         VStack(alignment: .leading, spacing: 8) {
                                 Text("OrbitTerm")
-                                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                                    .font(.system(.largeTitle, design: .rounded).weight(.bold))
                                     .foregroundStyle(palette.textPrimary.color)
                                 Text(isLoginMode ? "欢迎回来，继续你的终端旅程" : "创建账号，开启深空控制台")
                                     .foregroundStyle(palette.textSecondary.color)
@@ -109,7 +124,7 @@ struct AuthView: View {
             .alert("安全确认", isPresented: $showServerConfirmAlert) {
                 Button("确认切换", role: .destructive) {
                     do {
-                        try network.updateBaseURL(pendingServerAddress)
+                        try network.updateApprovedCustomBaseURL(pendingServerAddress)
                         setMessage("成功: 服务地址已更新", kind: .success)
                     } catch {
                         setMessage("失败: \(error.localizedDescription)", kind: .failure)
@@ -117,9 +132,43 @@ struct AuthView: View {
                 }
                 Button("取消", role: .cancel) {}
             } message: {
-                Text("新地址：\(pendingServerAddress)\n\n自定义后端可能会拦截您的加密凭据，请确认该端点来源可靠。")
+                Text("自托管服务域名：\(network.customEndpointHost(pendingServerAddress) ?? "未知")\n\n自定义后端将接收登录与加密同步请求。请仅在确认其来源、TLS 证书和运维责任可信时启用。")
+            }
+            .sheet(isPresented: $showTerms) {
+                NavigationStack {
+                    ScrollView {
+                        Text(OrbitLegalTerms.fullText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(20)
+                            .textSelection(.enabled)
+                    }
+                    .navigationTitle("使用条款与免责声明")
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("同意并继续") {
+                                acceptedTerms = true
+                                AuthTermsConsentStore.recordCurrentVersion()
+                                showTerms = false
+                            }
+                        }
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("返回") { showTerms = false }
+                        }
+                    }
+                }
+                .presentationDetents([.medium, .large])
             }
             .applyKeyboardDismissToolbar()
+            .onReceive(NotificationCenter.default.publisher(for: .orbitTermClearTransientSensitiveInput)) { _ in
+                password = ""
+                inviteCode = ""
+                pendingServerAddress = ""
+                customServerAddress = ""
+            }
+            .onDisappear {
+                cancelSubmit(.pageDisappeared)
+                cooldownTask?.cancel()
+            }
     }
 
     private func credentialsForm(width: CGFloat) -> some View {
@@ -159,6 +208,44 @@ struct AuthView: View {
                     .foregroundStyle(palette.textSecondary.color)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+
+            HStack(alignment: .top, spacing: 8) {
+                Button {
+                    if acceptedTerms {
+                        acceptedTerms = false
+                        AuthTermsConsentStore.clearCurrentVersion()
+                    } else {
+                        acceptedTerms = true
+                        AuthTermsConsentStore.recordCurrentVersion()
+                    }
+                } label: {
+                    Image(systemName: acceptedTerms ? "checkmark.square.fill" : "square")
+                        .font(.title3)
+                        .foregroundStyle(acceptedTerms ? palette.accentPrimary.color : palette.textSecondary.color)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(acceptedTerms ? "已同意使用条款与免责声明" : "尚未同意使用条款与免责声明")
+
+                HStack(spacing: 0) {
+                    Text("我已阅读并同意")
+                        .foregroundStyle(palette.textSecondary.color)
+                    Button("《使用条款、免责声明与隐私说明》") {
+                        showTerms = true
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(palette.accentPrimary.color)
+                }
+                        .font(.footnote)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if cooldownRemaining > 0 {
+                Text("登录尝试过于频繁，请在 \(cooldownRemaining) 秒后重试。")
+                    .font(.footnote)
+                    .foregroundStyle(palette.accentSecondary.color)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
@@ -170,7 +257,7 @@ struct AuthView: View {
             isPressing: $isPressingPrimary,
             maximumWidth: width
         ) {
-            Task { await submit() }
+            startSubmit()
         }
     }
 
@@ -210,29 +297,101 @@ struct AuthView: View {
         .padding(.top, 6)
     }
 
-    private func submit() async {
+    private func startSubmit() {
+        guard submitTask == nil, canSubmit else { return }
+        let canonicalUsername = AccountIdentity.canonicalUsername(username)
+        let retryAfter = LoginAttemptThrottle.retryAfterSeconds(for: canonicalUsername)
+        guard retryAfter == 0 else {
+            beginCooldown(seconds: retryAfter)
+            setMessage("失败: 登录尝试过于频繁，请稍后重试。", kind: .failure)
+            return
+        }
+        let lease = submitOwner.begin(scope: .anonymous, timeout: PageOperationTimeout.authentication)
+        submitTask = Task {
+            await submit(lease: lease)
+            guard submitOwner.accepts(lease, scope: .anonymous) else { return }
+            submitTask = nil
+        }
+    }
+
+    private func cancelSubmit(_ reason: PageOperationCancellationReason) {
+        submitOwner.cancel(reason)
+        submitTask?.cancel()
+        submitTask = nil
+        isLoading = false
+    }
+
+    private func accepts(_ lease: PageOperationLease) -> Bool {
+        !Task.isCancelled && submitOwner.accepts(lease, scope: .anonymous)
+    }
+
+    private func submit(lease: PageOperationLease) async {
+        guard accepts(lease) else { return }
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            if accepts(lease) {
+                isLoading = false
+            }
+        }
 
         let canonicalUsername = AccountIdentity.canonicalUsername(username)
 
         do {
             if !isLoginMode {
-                try await network.register(username: canonicalUsername, password: password, inviteCode: inviteCode)
+                try await PageOperationTimeout.perform(timeout: PageOperationTimeout.authentication) {
+                    try await network.register(
+                        username: canonicalUsername,
+                        password: password,
+                        inviteCode: inviteCode
+                    )
+                }
+                guard accepts(lease) else { return }
             }
 
-            let loginData = try await network.login(username: canonicalUsername, password: password)
+            let loginData = try await PageOperationTimeout.perform(timeout: PageOperationTimeout.authentication) {
+                try await network.login(username: canonicalUsername, password: password)
+            }
+            guard accepts(lease) else { return }
             try session.persistLogin(
                 accessToken: loginData.accessTokenValue,
                 refreshToken: loginData.refreshTokenValue,
                 username: canonicalUsername
             )
             username = canonicalUsername
+            LoginAttemptThrottle.clear(for: canonicalUsername)
+            AuthTermsConsentStore.recordCurrentVersion()
             password = ""
             inviteCode = ""
             setMessage("成功: 已获取 JWT", kind: .success)
         } catch {
+            if submitOwner.timeoutReached(lease) {
+                submitOwner.cancel(.timedOut)
+                isLoading = false
+                submitTask = nil
+                setMessage("失败: 登录请求超时，请检查网络后重试。", kind: .failure)
+                return
+            }
+            guard accepts(lease) else { return }
+            if isLoginMode, LoginAttemptThrottle.isCredentialFailure(error) {
+                let delay = LoginAttemptThrottle.recordFailure(for: canonicalUsername)
+                if delay > 0 { beginCooldown(seconds: delay) }
+            }
             setMessage("失败: \(error.localizedDescription)", kind: .failure)
+        }
+    }
+
+    private func beginCooldown(seconds: Int) {
+        cooldownTask?.cancel()
+        cooldownRemaining = max(0, seconds)
+        guard cooldownRemaining > 0 else { return }
+        cooldownTask = Task { @MainActor in
+            while !Task.isCancelled, cooldownRemaining > 0 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled else { return }
+                cooldownRemaining = LoginAttemptThrottle.retryAfterSeconds(
+                    for: AccountIdentity.canonicalUsername(username)
+                )
+            }
         }
     }
 
@@ -254,5 +413,68 @@ struct AuthView: View {
     private func setMessage(_ text: String, kind: AuthStatusKind) {
         message = text
         messageKind = kind
+    }
+}
+
+private enum AuthTermsConsentStore {
+    static let version = "2026-08-22"
+    private static let key = "orbitterm.legal-consent.version"
+
+    static var hasAcceptedCurrentVersion: Bool {
+        UserDefaults.standard.string(forKey: key) == version
+    }
+
+    static func recordCurrentVersion() {
+        UserDefaults.standard.set(version, forKey: key)
+    }
+
+    static func clearCurrentVersion() {
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+}
+
+/// A client-side speed bump for repeated credential failures. The server must
+/// still enforce authoritative per-account/IP/device rate limits because a
+/// modified client can bypass local controls.
+enum LoginAttemptThrottle {
+    private static let prefix = "orbitterm.auth-throttle.v1."
+
+    static func retryAfterSeconds(for username: String, now: Date = Date()) -> Int {
+        guard let scope = AccountScope(username: username) else { return 0 }
+        let until = UserDefaults.standard.double(forKey: prefix + scope.storageIdentifier + ".until")
+        return max(0, Int(ceil(until - now.timeIntervalSince1970)))
+    }
+
+    @discardableResult
+    static func recordFailure(for username: String, now: Date = Date()) -> Int {
+        guard let scope = AccountScope(username: username) else { return 0 }
+        let base = prefix + scope.storageIdentifier
+        let count = UserDefaults.standard.integer(forKey: base + ".count") + 1
+        let delay = cooldownSeconds(failureCount: count)
+        UserDefaults.standard.set(count, forKey: base + ".count")
+        if delay > 0 {
+            UserDefaults.standard.set(now.addingTimeInterval(TimeInterval(delay)).timeIntervalSince1970, forKey: base + ".until")
+        }
+        return delay
+    }
+
+    static func clear(for username: String) {
+        guard let scope = AccountScope(username: username) else { return }
+        let base = prefix + scope.storageIdentifier
+        UserDefaults.standard.removeObject(forKey: base + ".count")
+        UserDefaults.standard.removeObject(forKey: base + ".until")
+    }
+
+    static func cooldownSeconds(failureCount: Int) -> Int {
+        LoginCooldownPolicy.seconds(failureCount: failureCount)
+    }
+
+    static func isCredentialFailure(_ error: Error) -> Bool {
+        guard let networkError = error as? NetworkService.NetworkError else { return false }
+        switch networkError {
+        case .unauthorized: return true
+        case let .unexpectedStatus(code): return code == 429
+        default: return false
+        }
     }
 }

@@ -305,6 +305,7 @@ actor ScriptedCheckedFFIClient: CheckedFFIClient {
             value: SFTPChannelOpenedPayload(
                 baseSessionID: baseSessionID,
                 sftpSessionID: try! SFTPSessionID("72057594037927937"),
+                homePath: "/home/test",
                 securityGeneration: .hostKeyVerified
             )
         )

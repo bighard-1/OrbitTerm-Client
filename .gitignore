@@ -8,12 +8,18 @@ clients/android/OrbitTermAndroid/.gradle/
 clients/android/OrbitTermAndroid/build/
 clients/android/OrbitTermAndroid/app/build/
 clients/android/OrbitTermAndroid/local.properties
+.tooling/
+.hallmark/
 clients/windows/**/bin/
 clients/windows/**/obj/
 .keys/
 dist/*.zip
 dist/*.ipa
 dist/*.dmg
+
+# Raw Instruments traces may contain process-level telemetry. Release evidence
+# is retained in the restricted artifact store, never in the source tree.
+performance-evidence/
 
 # macOS metadata
 .DS_Store

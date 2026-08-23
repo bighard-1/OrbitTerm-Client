@@ -18,4 +18,33 @@ public sealed class TerminalBacklogTests
         Assert.True(backlog.CurrentBytes <= 8);
         Assert.Equal("567890", backlog.Snapshot());
     }
+
+    [Fact]
+    public void AppendPreservesUtf8CharactersSplitAcrossTerminalCallbacks()
+    {
+        var backlog = new TerminalBacklog();
+        var bytes = Encoding.UTF8.GetBytes("中");
+
+        var first = backlog.Append(bytes.AsSpan(0, 2));
+        var second = backlog.Append(bytes.AsSpan(2));
+
+        Assert.Equal(string.Empty, first);
+        Assert.Equal("中", second);
+        Assert.Equal("中", backlog.Snapshot());
+    }
+
+    [Fact]
+    public void ClearRemovesBufferedOutputAndResetsDecoder()
+    {
+        var backlog = new TerminalBacklog();
+        var bytes = Encoding.UTF8.GetBytes("中");
+        backlog.Append(bytes.AsSpan(0, 2));
+
+        backlog.Clear();
+        var next = backlog.Append(Encoding.UTF8.GetBytes("A"));
+
+        Assert.Equal("A", next);
+        Assert.Equal("A", backlog.Snapshot());
+        Assert.Equal(1, backlog.CurrentBytes);
+    }
 }

@@ -16,6 +16,26 @@ struct AppChromeBackground: View {
                     endPoint: .bottomTrailing
                 )
                 if !reduceTransparency {
+#if os(macOS)
+                    Rectangle()
+                        .fill(
+                            RadialGradient(
+                                colors: [palette.backgroundGlowPrimary.color, .clear],
+                                center: .topLeading,
+                                startRadius: 0,
+                                endRadius: max(320, bounds.size.width * 0.62)
+                            )
+                        )
+                    Rectangle()
+                        .fill(
+                            RadialGradient(
+                                colors: [palette.backgroundGlowSecondary.color, .clear],
+                                center: .bottomTrailing,
+                                startRadius: 0,
+                                endRadius: max(280, bounds.size.width * 0.54)
+                            )
+                        )
+#else
                     Circle()
                         .fill(palette.backgroundGlowPrimary.color)
                         .frame(width: 540, height: 540)
@@ -26,6 +46,7 @@ struct AppChromeBackground: View {
                         .frame(width: 430, height: 430)
                         .blur(radius: 92)
                         .offset(x: 190, y: 270)
+#endif
                 }
             }
             // The glow may extend past the screen, but it must never enlarge the

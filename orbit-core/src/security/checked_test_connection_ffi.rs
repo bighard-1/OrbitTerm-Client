@@ -4,8 +4,9 @@ use std::path::PathBuf;
 
 use super::checked_connect_coordinator::CheckedConnectPreAuthError;
 use super::checked_test_connection::{
-    run_checked_test_connection, CheckedAuthenticationError, CheckedTestConnectionError,
-    CheckedTestConnectionOutcome, CheckedTestInputError, CheckedTestTimeoutStage,
+    run_checked_test_connection, CheckedAuthenticationError, CheckedJumpHostRequest,
+    CheckedTestConnectionError, CheckedTestConnectionOutcome, CheckedTestInputError,
+    CheckedTestTimeoutStage,
 };
 use super::connect_pre_auth_error::ConnectPreAuthError;
 use super::host_key_challenge_service::HostKeyChallengeServiceError;
@@ -278,6 +279,88 @@ pub(crate) fn parse_checked_connection_request(
         request_id.clone(),
     )
     .map_err(|error| input_error_payload(error, Some(request_id)))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn parse_checked_connection_request_with_jump(
+    host: *const c_char,
+    port: i32,
+    username: *const c_char,
+    password: *const c_char,
+    private_key: *const c_char,
+    private_key_passphrase: *const c_char,
+    allow_password_fallback: i32,
+    jump_enabled: i32,
+    jump_host: *const c_char,
+    jump_port: i32,
+    jump_username: *const c_char,
+    jump_password: *const c_char,
+    jump_private_key: *const c_char,
+    jump_private_key_passphrase: *const c_char,
+    jump_allow_password_fallback: i32,
+    known_hosts_path: *const c_char,
+    request_id: *const c_char,
+) -> Result<super::checked_test_connection::CheckedTestConnectionRequest, HostKeyFfiErrorPayload> {
+    let request = parse_checked_connection_request(
+        host,
+        port,
+        username,
+        password,
+        private_key,
+        private_key_passphrase,
+        allow_password_fallback,
+        known_hosts_path,
+        request_id,
+    )?;
+    if jump_enabled == 0 {
+        return Ok(request);
+    }
+    if jump_enabled != 1 {
+        return Err(invalid_request(
+            "invalid_jump_enabled",
+            Some(request.request_id().to_string()),
+        ));
+    }
+    let request_id = request.request_id().to_string();
+    let jump_host = parse_required_string(
+        jump_host,
+        "null_jump_host",
+        "jump_host_invalid_utf8",
+        &request_id,
+    )?;
+    let jump_username = parse_required_string(
+        jump_username,
+        "null_jump_username",
+        "jump_username_invalid_utf8",
+        &request_id,
+    )?;
+    let jump_password =
+        parse_optional_string(jump_password, "jump_password_invalid_utf8", &request_id)?;
+    let jump_private_key = parse_optional_string(
+        jump_private_key,
+        "jump_private_key_invalid_utf8",
+        &request_id,
+    )?;
+    let jump_private_key_passphrase = parse_optional_string(
+        jump_private_key_passphrase,
+        "jump_private_key_passphrase_invalid_utf8",
+        &request_id,
+    )?;
+    let jump_port = u16::try_from(jump_port)
+        .ok()
+        .filter(|value| *value != 0)
+        .ok_or_else(|| invalid_request("invalid_jump_port", Some(request_id.clone())))?;
+    let jump = CheckedJumpHostRequest::new(
+        jump_host,
+        jump_port,
+        jump_username,
+        jump_password,
+        jump_private_key,
+        jump_private_key_passphrase,
+        jump_allow_password_fallback != 0,
+    )
+    .map_err(|error| input_error_payload(error, Some(request_id)))?;
+    Ok(request.with_jump_host(jump))
 }
 
 fn parse_request_id(pointer: *const c_char) -> Result<String, HostKeyFfiErrorPayload> {

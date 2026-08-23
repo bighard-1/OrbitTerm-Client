@@ -4,7 +4,7 @@
   "package_identity": "OrbitTerm.Client",
   "publisher": "CN=OrbitTerm Development",
   "channel": "stable",
-  "version": "0.3.0.0",
+  "version": "0.3.0.32",
   "minimum_windows_version": "10.0.19041.0",
   "update_transport": "appinstaller",
   "external_distribution_enabled": false,

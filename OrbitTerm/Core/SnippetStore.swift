@@ -317,6 +317,7 @@ final class SnippetStore: ObservableObject {
             return
         }
         guard accountScope != scope else { return }
+        orbitManager.clearConfigRootKeyV2()
 
         migrateLegacyDatabaseIfNeeded(to: scope)
         accountScope = scope
@@ -330,6 +331,7 @@ final class SnippetStore: ObservableObject {
     }
 
     func deactivateAccount() {
+        orbitManager.clearConfigRootKeyV2()
         accountScope = nil
         db = SnippetStoreDB(fileURL: Self.databaseURL(scope: nil))
         snippets = []
@@ -447,7 +449,22 @@ final class SnippetStore: ObservableObject {
                 return
             }
 
-            guard let latest = await latestSnippetEnvelopeBackground(remoteItems, masterPassword: masterPassword) else {
+            let v2RootKey: Data?
+            if remoteItems.contains(where: { item in
+                Data(base64Encoded: item.encrypted_blob_base64).map(OrbitManager.isV2ConfigBlob) ?? false
+            }) {
+                try orbitManager.prepareConfigRootKeyV2(masterPassword: masterPassword, accountScope: scope)
+                v2RootKey = try orbitManager.configRootKeyV2ForBackground(scope: scope)
+            } else {
+                v2RootKey = nil
+            }
+            defer { orbitManager.clearConfigRootKeyV2() }
+
+            guard let latest = await latestSnippetEnvelopeBackground(
+                remoteItems,
+                masterPassword: masterPassword,
+                v2RootKey: v2RootKey
+            ) else {
                 guard scope == accountScope else { return }
                 lastSyncMessage = "Snippets 拉取完成（未发现 Snippet 数据）"
                 return
@@ -473,14 +490,19 @@ final class SnippetStore: ObservableObject {
 
     private nonisolated func latestSnippetEnvelopeBackground(
         _ remoteItems: [UploadConfigData],
-        masterPassword: String
+        masterPassword: String,
+        v2RootKey: Data?
     ) async -> SnippetRemoteCandidate? {
         await Task.detached(priority: .utility) {
             var latest: SnippetRemoteCandidate?
 
             for item in remoteItems {
                 guard let blobData = Data(base64Encoded: item.encrypted_blob_base64),
-                      let plain = try? Self.decryptBlob(password: masterPassword, encrypted: blobData),
+                      let plain = try? Self.decryptBlob(
+                        password: masterPassword,
+                        encrypted: blobData,
+                        v2RootKey: v2RootKey
+                      ),
                       let text = String(data: plain, encoding: .utf8),
                       let data = text.data(using: .utf8),
                       let env = try? JSONDecoder().decode(SnippetSyncEnvelope.self, from: data),
@@ -501,7 +523,35 @@ final class SnippetStore: ObservableObject {
         }.value
     }
 
-    private nonisolated static func decryptBlob(password: String, encrypted: Data) throws -> Data {
+    private nonisolated static func decryptBlob(
+        password: String,
+        encrypted: Data,
+        v2RootKey: Data? = nil
+    ) throws -> Data {
+        if OrbitManager.isV2ConfigBlob(encrypted) {
+            guard let v2RootKey, v2RootKey.count == 32 else {
+                throw NetworkService.NetworkError.decodeFailed
+            }
+            let encryptedB64 = encrypted.base64EncodedString()
+            guard let encryptedCString = encryptedB64.cString(using: .utf8) else {
+                throw NetworkService.NetworkError.decodeFailed
+            }
+            let resultPtr = v2RootKey.withUnsafeBytes { keyBuffer in
+                orbit_decrypt_config_v2(
+                    keyBuffer.bindMemory(to: UInt8.self).baseAddress,
+                    v2RootKey.count,
+                    encryptedCString
+                )
+            }
+            guard let resultPtr else { throw NetworkService.NetworkError.decodeFailed }
+            defer { orbit_free_string(resultPtr) }
+            let raw = String(cString: resultPtr)
+            guard raw.hasPrefix("OK:"),
+                  let decoded = Data(base64Encoded: String(raw.dropFirst(3))) else {
+                throw NetworkService.NetworkError.decodeFailed
+            }
+            return decoded
+        }
         guard let passwordCString = password.cString(using: .utf8) else {
             throw NetworkService.NetworkError.decodeFailed
         }
@@ -579,7 +629,13 @@ final class SnippetStore: ObservableObject {
             throw NetworkService.NetworkError.decodeFailed
         }
 
-        let encrypted = try orbitManager.encrypt(password: masterPassword, data: plainText)
+        let encrypted: Data
+        if let scope = accountScope, SyncService.isV2CipherWriteEnabled(scope: scope) {
+            try orbitManager.prepareConfigRootKeyV2(masterPassword: masterPassword, accountScope: scope)
+            encrypted = try orbitManager.encryptConfigV2(Data(plainText.utf8))
+        } else {
+            encrypted = try orbitManager.encrypt(password: masterPassword, data: plainText)
+        }
 
         let previousID = await database.readMeta(MetaKey.remoteConfigID)
         let idValue = previousID.flatMap(UInt.init)

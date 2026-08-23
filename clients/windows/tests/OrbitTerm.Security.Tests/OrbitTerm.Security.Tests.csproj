@@ -2,7 +2,16 @@
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <IsPackable>false</IsPackable>
+    <OrbitCoreNativeLibrary>$(MSBuildProjectDirectory)\..\..\..\..\orbit-core\target\x86_64-pc-windows-msvc\release\orbit_core.dll</OrbitCoreNativeLibrary>
   </PropertyGroup>
+  <ItemGroup Condition="Exists('$(OrbitCoreNativeLibrary)')">
+    <Content Include="$(OrbitCoreNativeLibrary)"
+             Link="orbit_core.dll"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="ValidateOrbitCoreNativeLibrary" BeforeTargets="Build" Condition="!Exists('$(OrbitCoreNativeLibrary)')">
+    <Error Text="orbit_core.dll is required for the native-crypto tests. Run clients/windows/scripts/build_windows_core.ps1 before testing." />
+  </Target>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />

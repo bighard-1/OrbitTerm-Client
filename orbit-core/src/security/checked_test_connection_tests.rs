@@ -19,6 +19,7 @@ use super::checked_test_connection::{
 };
 use super::checked_test_connection_ffi::{
     error_payload_for_tests, orbit_test_ssh_connection_checked_v1, outcome_json_for_tests,
+    parse_checked_connection_request_with_jump,
 };
 use super::connect_pre_auth_error::ConnectPreAuthError;
 use super::host_key::HostIdentity;
@@ -222,6 +223,47 @@ fn request_validation_and_debug_exclude_credentials_and_path() {
         ),
         Err(CheckedTestInputError::InvalidKnownHostsPath)
     ));
+}
+
+#[test]
+fn jump_ffi_request_keeps_hop_credentials_redacted_and_separate() {
+    let target_host = c_string("target.example.com");
+    let target_username = c_string("target-user");
+    let target_password = c_string("target-password-secret");
+    let jump_host = c_string("bastion.example.com");
+    let jump_username = c_string("jump-user");
+    let jump_password = c_string("jump-password-secret");
+    let known_hosts = c_string(known_hosts_path("jump-ffi").to_str().unwrap());
+    let request_id = c_string(REQUEST_ID);
+
+    let request = parse_checked_connection_request_with_jump(
+        target_host.as_ptr(),
+        22,
+        target_username.as_ptr(),
+        target_password.as_ptr(),
+        ptr::null(),
+        ptr::null(),
+        0,
+        1,
+        jump_host.as_ptr(),
+        2222,
+        jump_username.as_ptr(),
+        jump_password.as_ptr(),
+        ptr::null(),
+        ptr::null(),
+        0,
+        known_hosts.as_ptr(),
+        request_id.as_ptr(),
+    )
+    .expect("valid one-hop request");
+
+    let jump = request.jump_host().expect("jump host is preserved");
+    assert_eq!(jump.route_identity(), "jump-user@bastion.example.com:2222");
+
+    let debug = format!("{request:?} {jump:?}");
+    for secret in ["target-password-secret", "jump-password-secret"] {
+        assert!(!debug.contains(secret));
+    }
 }
 
 #[cfg(unix)]

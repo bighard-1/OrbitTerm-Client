@@ -390,8 +390,8 @@ pub(crate) async fn compute_network_rate_kbps(
     let mut snapshot = session.net_snapshot.lock().await;
     let (rx_rate_kbps, tx_rate_kbps) = if let Some(last) = snapshot.as_ref() {
         let elapsed = now.saturating_sub(last.at_unix_secs).max(1);
-        let rx_rate = rx_total.saturating_sub(last.rx_bytes) as f64 / elapsed as f64 / 1024.0;
-        let tx_rate = tx_total.saturating_sub(last.tx_bytes) as f64 / elapsed as f64 / 1024.0;
+        let rx_rate = bytes_over_interval_to_kbps(rx_total.saturating_sub(last.rx_bytes), elapsed);
+        let tx_rate = bytes_over_interval_to_kbps(tx_total.saturating_sub(last.tx_bytes), elapsed);
         (rx_rate, tx_rate)
     } else {
         (0.0, 0.0)
@@ -406,6 +406,21 @@ pub(crate) async fn compute_network_rate_kbps(
     Ok((rx_rate_kbps.max(0.0), tx_rate_kbps.max(0.0)))
 }
 
+fn bytes_over_interval_to_kbps(bytes: u64, elapsed_seconds: u64) -> f64 {
+    bytes as f64 * 8.0 / elapsed_seconds.max(1) as f64 / 1000.0
+}
+
+#[cfg(test)]
+mod network_rate_tests {
+    use super::bytes_over_interval_to_kbps;
+
+    #[test]
+    fn converts_byte_deltas_to_real_decimal_kilobits_per_second() {
+        assert_eq!(bytes_over_interval_to_kbps(125_000, 1), 1_000.0);
+        assert_eq!(bytes_over_interval_to_kbps(250_000, 2), 1_000.0);
+    }
+}
+
 pub(crate) async fn measure_ping_ms(host: &str) -> Option<f64> {
     let target = host_without_port(host).to_string();
     if target.is_empty() {
@@ -413,14 +428,25 @@ pub(crate) async fn measure_ping_ms(host: &str) -> Option<f64> {
     }
 
     let mut cmd = Command::new("ping");
-    cmd.arg("-c").arg("1");
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(windows)]
     {
-        cmd.arg("-W").arg("1000");
+        // ping.exe is a console subsystem process. Without CREATE_NO_WINDOW,
+        // every monitor refresh briefly creates a visible console window next
+        // to the WinUI client.
+        cmd.creation_flags(0x08000000);
+        cmd.arg("-n").arg("1").arg("-w").arg("1000");
     }
-    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    #[cfg(not(windows))]
     {
-        cmd.arg("-W").arg("1");
+        cmd.arg("-c").arg("1");
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        {
+            cmd.arg("-W").arg("1000");
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+        {
+            cmd.arg("-W").arg("1");
+        }
     }
     cmd.arg(&target);
 

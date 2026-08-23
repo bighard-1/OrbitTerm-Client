@@ -14,7 +14,7 @@ public sealed class CheckedConnectOutcomeTests
           "kind": "connected",
           "request_id": "request-1",
           "data": {
-            "session_id": "42",
+            "session_id": 42,
             "host": "Example.COM",
             "normalized_host": "example.com",
             "port": 22,

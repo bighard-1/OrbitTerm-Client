@@ -2,11 +2,13 @@
   "schema_version": 1,
   "product": "OrbitTerm",
   "package_identity": "OrbitTerm.Client",
-  "version": "0.3.0.0",
+  "version": "0.3.0.32",
   "readiness_profile": "internal-release-candidate",
   "internal_release_candidate_ready": true,
   "external_distribution_enabled": false,
   "external_distribution_blockers": [
+    "cross-platform asset tombstone regression matrix is not complete",
+    "large-transfer interactive concurrency evidence is not complete",
     "production signing certificate thumbprint is not configured",
     "production HTTPS App Installer URI is not configured",
     "production HTTPS MSIX package URI is not configured"

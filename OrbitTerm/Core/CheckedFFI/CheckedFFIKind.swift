@@ -11,6 +11,8 @@ enum CheckedFFIResultKind: Hashable, Sendable, Codable {
     case dockerLogs
     case dockerActionResult
     case execResult
+    case localTunnelStarted
+    case localTunnelStopped
     case hostKeyChallenge
     case hostKeyChallengeAccepted
     case hostKeyChallengeStatus
@@ -45,6 +47,8 @@ enum CheckedFFIResultKind: Hashable, Sendable, Codable {
         case "docker_logs": self = .dockerLogs
         case "docker_action_result": self = .dockerActionResult
         case "exec_result": self = .execResult
+        case "local_tunnel_started": self = .localTunnelStarted
+        case "local_tunnel_stopped": self = .localTunnelStopped
         case "host_key_challenge": self = .hostKeyChallenge
         case "host_key_challenge_accepted": self = .hostKeyChallengeAccepted
         case "host_key_challenge_status": self = .hostKeyChallengeStatus
@@ -70,6 +74,8 @@ enum CheckedFFIResultKind: Hashable, Sendable, Codable {
         case .dockerLogs: "docker_logs"
         case .dockerActionResult: "docker_action_result"
         case .execResult: "exec_result"
+        case .localTunnelStarted: "local_tunnel_started"
+        case .localTunnelStopped: "local_tunnel_stopped"
         case .hostKeyChallenge: "host_key_challenge"
         case .hostKeyChallengeAccepted: "host_key_challenge_accepted"
         case .hostKeyChallengeStatus: "host_key_challenge_status"

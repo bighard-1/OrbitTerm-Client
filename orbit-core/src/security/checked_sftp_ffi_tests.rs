@@ -1,4 +1,12 @@
 use std::ffi::{CStr, CString};
+
+fn absolute_local_test_path(file_name: &str) -> String {
+    if cfg!(windows) {
+        format!(r"C:\tmp\{file_name}")
+    } else {
+        format!("/tmp/{file_name}")
+    }
+}
 use std::os::raw::c_char;
 
 use serde_json::Value;
@@ -215,10 +223,19 @@ fn checked_channel_errors_keep_stable_json_codes() {
 
 #[test]
 fn sftp_payload_round_trips_decimal_strings_and_rejects_unsafe_ids() {
-    let payload = SftpChannelOpenedPayload::new((1_u64 << 48) | 1, u64::MAX).unwrap();
+    let payload = SftpChannelOpenedPayload::new_with_home(
+        (1_u64 << 48) | 1,
+        u64::MAX,
+        "/srv/chroot/alice".to_string(),
+    )
+    .unwrap();
     let json = serde_json::to_string(&payload).unwrap();
     assert!(json.contains(&format!("\"{}\"", u64::MAX)));
     assert!(!json.contains(&format!(":{}", u64::MAX)));
+    assert!(json.contains("\"home_path\":\"/srv/chroot/alice\""));
+
+    assert!(SftpChannelOpenedPayload::new_with_home(1, 2, "relative/home".to_string()).is_err());
+    assert!(SftpChannelOpenedPayload::new_with_home(1, 2, "/home/../root".to_string()).is_err());
 
     for malformed in [
         r#"{"base_session_id":"0","sftp_session_id":"1","security_generation":"host_key_verified"}"#,
@@ -467,6 +484,9 @@ fn header_declares_additive_checked_sftp_and_preserves_legacy_signature() {
     assert!(header.contains("orbit_sftp_read_text_checked_v1"));
     assert!(header.contains("orbit_sftp_download_checked_v1"));
     assert!(header.contains("orbit_sftp_upload_checked_v1"));
+    assert!(header.contains("orbit_sftp_cancel_checked_v1"));
+    assert!(header.contains("orbit_sftp_set_progress_callback"));
+    assert!(header.contains("orbit_sftp_progress_callback_t"));
     assert!(header.contains("orbit_sftp_mkdir_checked_v1"));
     assert!(header.contains("orbit_sftp_create_file_checked_v1"));
     assert!(header.contains("orbit_sftp_rename_checked_v1"));
@@ -504,16 +524,17 @@ fn download_requires_absolute_local_path_and_returns_redacted_checked_payload() 
         "invalid_local_download_path"
     );
 
-    let local_path = CString::new("/tmp/orbitterm-syslog").unwrap();
+    let expected_local_path = absolute_local_test_path("orbitterm-syslog");
+    let local_path = CString::new(expected_local_path.clone()).unwrap();
     let pointer = sftp_download_checked_response_for_tests(
         77,
         remote_path.as_ptr(),
         local_path.as_ptr(),
         request_id.as_ptr(),
-        |session_id, remote, local| async move {
+        move |session_id, remote, local| async move {
             assert_eq!(session_id, 77);
             assert_eq!(remote, "/var/log/syslog");
-            assert_eq!(local, "/tmp/orbitterm-syslog");
+            assert_eq!(local, expected_local_path);
             Ok(r#"{"bytes":42}"#.to_string())
         },
     );
@@ -529,7 +550,7 @@ fn download_requires_absolute_local_path_and_returns_redacted_checked_payload() 
 fn download_errors_are_stable_and_redacted() {
     let request_id = CString::new(REQUEST_ID).unwrap();
     let remote_path = CString::new("/var/log/syslog").unwrap();
-    let local_path = CString::new("/tmp/orbitterm-syslog").unwrap();
+    let local_path = CString::new(absolute_local_test_path("orbitterm-syslog")).unwrap();
     let pointer = sftp_download_checked_response_for_tests(
         77,
         remote_path.as_ptr(),
@@ -567,15 +588,16 @@ fn upload_requires_absolute_local_path_and_returns_redacted_checked_payload() {
         "invalid_local_upload_path"
     );
 
-    let local_path = CString::new("/tmp/orbitterm-upload.txt").unwrap();
+    let expected_local_path = absolute_local_test_path("orbitterm-upload.txt");
+    let local_path = CString::new(expected_local_path.clone()).unwrap();
     let pointer = sftp_upload_checked_response_for_tests(
         77,
         local_path.as_ptr(),
         remote_path.as_ptr(),
         request_id.as_ptr(),
-        |session_id, local, remote| async move {
+        move |session_id, local, remote| async move {
             assert_eq!(session_id, 77);
-            assert_eq!(local, "/tmp/orbitterm-upload.txt");
+            assert_eq!(local, expected_local_path);
             assert_eq!(remote, "/srv/upload.txt");
             Ok(r#"{"bytes":42}"#.to_string())
         },
@@ -590,7 +612,7 @@ fn upload_requires_absolute_local_path_and_returns_redacted_checked_payload() {
 #[test]
 fn upload_errors_are_stable_and_redacted() {
     let request_id = CString::new(REQUEST_ID).unwrap();
-    let local_path = CString::new("/tmp/orbitterm-upload.txt").unwrap();
+    let local_path = CString::new(absolute_local_test_path("orbitterm-upload.txt")).unwrap();
     let remote_path = CString::new("/srv/upload.txt").unwrap();
     let pointer = sftp_upload_checked_response_for_tests(
         77,
@@ -866,6 +888,10 @@ fn mutation_errors_are_stable_and_redacted() {
     let path = CString::new("/srv/private").unwrap();
     for (error, expected_code) in [
         (SftpMutationError::SessionUnavailable, "session_not_found"),
+        (
+            SftpMutationError::PermissionDenied,
+            "sftp_permission_denied",
+        ),
         (SftpMutationError::TargetExists, "sftp_target_exists"),
         (SftpMutationError::EntryChanged, "sftp_entry_changed"),
         (SftpMutationError::BackendFailed, "sftp_mutation_failed"),

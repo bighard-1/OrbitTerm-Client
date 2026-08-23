@@ -35,6 +35,8 @@ pub enum HostKeyFfiResultKind {
     SftpUploadCompleted,
     SftpMutationCompleted,
     TerminalChannelOpened,
+    LocalTunnelStarted,
+    LocalTunnelStopped,
     ExecResult,
     MonitorSnapshot,
     DockerContainers,
@@ -63,6 +65,8 @@ impl HostKeyFfiResultKind {
         Self::SftpUploadCompleted,
         Self::SftpMutationCompleted,
         Self::TerminalChannelOpened,
+        Self::LocalTunnelStarted,
+        Self::LocalTunnelStopped,
         Self::ExecResult,
         Self::MonitorSnapshot,
         Self::DockerContainers,
@@ -92,6 +96,8 @@ pub enum HostKeyFfiResult {
     SftpUploadCompleted(SftpUploadPayload),
     SftpMutationCompleted(SftpMutationPayload),
     TerminalChannelOpened(TerminalChannelOpenedPayload),
+    LocalTunnelStarted(LocalTunnelStartedPayload),
+    LocalTunnelStopped(LocalTunnelStoppedPayload),
     ExecResult(ExecResultPayload),
     MonitorSnapshot(MonitorSnapshotPayload),
     DockerContainers(DockerContainersPayload),
@@ -121,6 +127,8 @@ impl HostKeyFfiResult {
             Self::SftpUploadCompleted(_) => HostKeyFfiResultKind::SftpUploadCompleted,
             Self::SftpMutationCompleted(_) => HostKeyFfiResultKind::SftpMutationCompleted,
             Self::TerminalChannelOpened(_) => HostKeyFfiResultKind::TerminalChannelOpened,
+            Self::LocalTunnelStarted(_) => HostKeyFfiResultKind::LocalTunnelStarted,
+            Self::LocalTunnelStopped(_) => HostKeyFfiResultKind::LocalTunnelStopped,
             Self::ExecResult(_) => HostKeyFfiResultKind::ExecResult,
             Self::MonitorSnapshot(_) => HostKeyFfiResultKind::MonitorSnapshot,
             Self::DockerContainers(_) => HostKeyFfiResultKind::DockerContainers,
@@ -202,6 +210,8 @@ impl HostKeyFfiEnvelope {
             HostKeyFfiResult::SftpUploadCompleted(payload) => payload.validate()?,
             HostKeyFfiResult::SftpMutationCompleted(payload) => payload.validate()?,
             HostKeyFfiResult::TerminalChannelOpened(payload) => payload.validate()?,
+            HostKeyFfiResult::LocalTunnelStarted(payload) => payload.validate()?,
+            HostKeyFfiResult::LocalTunnelStopped(payload) => payload.validate()?,
             HostKeyFfiResult::ExecResult(payload) => payload.validate()?,
             HostKeyFfiResult::MonitorSnapshot(payload) => payload.validate()?,
             HostKeyFfiResult::DockerContainers(payload) => payload.validate()?,
@@ -233,6 +243,8 @@ impl HostKeyFfiEnvelope {
             HostKeyFfiResult::SftpUploadCompleted(payload) => (Some(to_value(payload)?), None),
             HostKeyFfiResult::SftpMutationCompleted(payload) => (Some(to_value(payload)?), None),
             HostKeyFfiResult::TerminalChannelOpened(payload) => (Some(to_value(payload)?), None),
+            HostKeyFfiResult::LocalTunnelStarted(payload) => (Some(to_value(payload)?), None),
+            HostKeyFfiResult::LocalTunnelStopped(payload) => (Some(to_value(payload)?), None),
             HostKeyFfiResult::ExecResult(payload) => (Some(to_value(payload)?), None),
             HostKeyFfiResult::MonitorSnapshot(payload) => (Some(to_value(payload)?), None),
             HostKeyFfiResult::DockerContainers(payload) => (Some(to_value(payload)?), None),
@@ -309,6 +321,12 @@ impl HostKeyFfiEnvelope {
                     }
                     HostKeyFfiResultKind::TerminalChannelOpened => {
                         HostKeyFfiResult::TerminalChannelOpened(from_value(data)?)
+                    }
+                    HostKeyFfiResultKind::LocalTunnelStarted => {
+                        HostKeyFfiResult::LocalTunnelStarted(from_value(data)?)
+                    }
+                    HostKeyFfiResultKind::LocalTunnelStopped => {
+                        HostKeyFfiResult::LocalTunnelStopped(from_value(data)?)
                     }
                     HostKeyFfiResultKind::ExecResult => {
                         HostKeyFfiResult::ExecResult(from_value(data)?)
@@ -609,6 +627,8 @@ pub struct HostKeyConnectionTestSucceededPayload {
 pub struct SftpChannelOpenedPayload {
     pub base_session_id: String,
     pub sftp_session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home_path: Option<String>,
     pub security_generation: HostKeyFfiSecurityGeneration,
 }
 
@@ -620,6 +640,22 @@ impl SftpChannelOpenedPayload {
         let payload = Self {
             base_session_id: base_session_id.to_string(),
             sftp_session_id: sftp_session_id.to_string(),
+            home_path: None,
+            security_generation: HostKeyFfiSecurityGeneration::HostKeyVerified,
+        };
+        payload.validate()?;
+        Ok(payload)
+    }
+
+    pub fn new_with_home(
+        base_session_id: u64,
+        sftp_session_id: u64,
+        home_path: String,
+    ) -> Result<Self, HostKeyFfiProtocolError> {
+        let payload = Self {
+            base_session_id: base_session_id.to_string(),
+            sftp_session_id: sftp_session_id.to_string(),
+            home_path: Some(home_path),
             security_generation: HostKeyFfiSecurityGeneration::HostKeyVerified,
         };
         payload.validate()?;
@@ -629,6 +665,9 @@ impl SftpChannelOpenedPayload {
     fn validate(&self) -> Result<(), HostKeyFfiProtocolError> {
         validate_decimal_session_id(&self.base_session_id)?;
         validate_decimal_session_id(&self.sftp_session_id)?;
+        if let Some(path) = &self.home_path {
+            validate_sftp_path(path)?;
+        }
         if self.security_generation != HostKeyFfiSecurityGeneration::HostKeyVerified {
             return Err(HostKeyFfiProtocolError::InvalidPayload);
         }
@@ -974,6 +1013,65 @@ pub struct TerminalChannelOpenedPayload {
     pub security_generation: HostKeyFfiSecurityGeneration,
     pub cols: u32,
     pub rows: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalTunnelStartedPayload {
+    pub base_session_id: String,
+    pub tunnel_id: String,
+    pub security_generation: HostKeyFfiSecurityGeneration,
+    pub bind_host: String,
+    pub bind_port: u16,
+}
+
+impl LocalTunnelStartedPayload {
+    pub fn new(
+        base_session_id: u64,
+        tunnel_id: u64,
+        bind_host: String,
+        bind_port: u16,
+    ) -> Result<Self, HostKeyFfiProtocolError> {
+        let payload = Self {
+            base_session_id: base_session_id.to_string(),
+            tunnel_id: tunnel_id.to_string(),
+            security_generation: HostKeyFfiSecurityGeneration::HostKeyVerified,
+            bind_host,
+            bind_port,
+        };
+        payload.validate()?;
+        Ok(payload)
+    }
+
+    fn validate(&self) -> Result<(), HostKeyFfiProtocolError> {
+        validate_decimal_session_id(&self.base_session_id)?;
+        validate_decimal_session_id(&self.tunnel_id)?;
+        if self.security_generation != HostKeyFfiSecurityGeneration::HostKeyVerified
+            || !matches!(self.bind_host.as_str(), "127.0.0.1" | "::1" | "localhost")
+            || self.bind_port == 0
+        {
+            return Err(HostKeyFfiProtocolError::InvalidPayload);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalTunnelStoppedPayload {
+    pub tunnel_id: String,
+}
+
+impl LocalTunnelStoppedPayload {
+    pub fn new(tunnel_id: u64) -> Result<Self, HostKeyFfiProtocolError> {
+        let payload = Self {
+            tunnel_id: tunnel_id.to_string(),
+        };
+        payload.validate()?;
+        Ok(payload)
+    }
+
+    fn validate(&self) -> Result<(), HostKeyFfiProtocolError> {
+        validate_decimal_session_id(&self.tunnel_id)
+    }
 }
 
 impl TerminalChannelOpenedPayload {

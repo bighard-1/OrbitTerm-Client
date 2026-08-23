@@ -89,8 +89,10 @@ public static class DiagnosticsBundleFactory
     {
         return session with
         {
-            Host = Bound(session.Host),
-            NormalizedHost = Bound(session.NormalizedHost),
+            // Hosts can identify customer infrastructure just as directly as a
+            // username or remote path. Diagnostics only need connection state.
+            Host = Redaction.Secret(session.Host),
+            NormalizedHost = Redaction.Secret(session.NormalizedHost),
             Username = Redaction.Secret(session.Username),
             HostKeyAlgorithm = Bound(session.HostKeyAlgorithm),
             HostKeyFingerprintSha256 = Bound(session.HostKeyFingerprintSha256),

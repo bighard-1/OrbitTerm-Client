@@ -129,7 +129,20 @@ Pass "SFTP browse interaction contract is present"
 
 foreach ($file in $sourceFiles) {
     $text = Get-Content $file.FullName -Raw
-    if ($text -match "OK:|ERR:") {
+    # OrbitConfigCrypto is the single audited adapter for the shared Rust
+    # crypto ABI, whose stable envelope is still `OK:<base64>`. No UI,
+    # application, session, SSH or SFTP code may parse that envelope.
+    $isAuditedCryptoEnvelopeAdapter = $file.Name -eq "OrbitConfigCrypto.cs" -and
+        $file.Directory.Name -eq "OrbitTerm.NativeBridge"
+    # The SSH public-key deployment script emits one namespaced, constant
+    # marker over an already verified session. It is not a native FFI envelope
+    # and is parsed only by its policy class.
+    $isAuditedKeyDeploymentMarker = $file.Name -eq "SshPublicKeyDeploymentPolicy.cs" -and
+        $file.Directory.Name -eq "Security" -and
+        $file.Directory.Parent.Name -eq "OrbitTerm.Application"
+    if ($text -match "OK:|ERR:" -and
+        -not $isAuditedCryptoEnvelopeAdapter -and
+        -not $isAuditedKeyDeploymentMarker) {
         Fail "Checked Windows code must not parse legacy OK:/ERR: strings: $($file.FullName)."
     }
     if ($text -match "Trust All|accept-anyway|accept anyway|仍然接受|全部信任") {

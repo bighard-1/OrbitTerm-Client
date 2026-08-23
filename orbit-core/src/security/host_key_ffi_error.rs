@@ -55,6 +55,7 @@ pub enum HostKeyFfiErrorCode {
     SftpDownloadFailed,
     SftpUploadFailed,
     SftpMutationFailed,
+    SftpPermissionDenied,
     SftpTargetExists,
     SftpEntryChanged,
     InvalidCommand,
@@ -119,6 +120,7 @@ impl HostKeyFfiErrorCode {
         Self::SftpDownloadFailed,
         Self::SftpUploadFailed,
         Self::SftpMutationFailed,
+        Self::SftpPermissionDenied,
         Self::SftpTargetExists,
         Self::SftpEntryChanged,
         Self::InvalidCommand,
@@ -183,6 +185,7 @@ impl HostKeyFfiErrorCode {
             Self::SftpDownloadFailed => "error.sftp.download_failed",
             Self::SftpUploadFailed => "error.sftp.upload_failed",
             Self::SftpMutationFailed => "error.sftp.mutation_failed",
+            Self::SftpPermissionDenied => "error.sftp.permission_denied",
             Self::SftpTargetExists => "error.sftp.target_exists",
             Self::SftpEntryChanged => "error.sftp.entry_changed",
             Self::InvalidCommand => "error.exec.invalid_command",
@@ -320,6 +323,10 @@ impl HostKeyFfiErrorPayload {
             CheckedChannelAccessError::ChannelOpenFailed => (
                 HostKeyFfiErrorCode::ChannelOpenFailed,
                 "channel_open_failed",
+            ),
+            CheckedChannelAccessError::InvalidChannelRequest => (
+                HostKeyFfiErrorCode::InvalidRequest,
+                "invalid_channel_request",
             ),
             CheckedChannelAccessError::SubsystemRequestFailed => (
                 HostKeyFfiErrorCode::SubsystemRequestFailed,

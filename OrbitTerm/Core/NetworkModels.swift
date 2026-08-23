@@ -32,6 +32,24 @@ struct MasterKeyRotationRequest: Encodable {
     let items: [MasterKeyRotationItemRequest]
 }
 
+/// Opaque, compare-and-swap replacement used only for the one-time V1 → V2
+/// cipher migration. Neither the master password nor plaintext leaves device.
+struct ConfigCryptoMigrationItemRequest: Encodable {
+    let id: UInt
+    let expected_vector_clock: String
+    let expected_blob_sha256: String
+    let encrypted_blob_base64: String
+    let next_vector_clock: String
+}
+
+struct ConfigCryptoMigrationRequest: Encodable {
+    let items: [ConfigCryptoMigrationItemRequest]
+}
+
+struct ConfigCryptoMigrationResponse: Decodable {
+    let migrated_count: Int
+}
+
 struct UploadConfigRequest: Codable {
     let id: UInt?
     let asset_id: String?

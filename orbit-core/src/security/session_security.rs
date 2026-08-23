@@ -84,6 +84,8 @@ pub enum CheckedChannelAccessError {
     SessionClosed,
     #[error("SSH channel could not be opened")]
     ChannelOpenFailed,
+    #[error("checked channel request is invalid")]
+    InvalidChannelRequest,
     #[error("SFTP subsystem request failed")]
     SubsystemRequestFailed,
     #[error("SFTP session registration failed")]

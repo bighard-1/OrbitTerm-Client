@@ -16,6 +16,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OrbitTerm.App", "src\OrbitT
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OrbitTerm.Security.Tests", "tests\OrbitTerm.Security.Tests\OrbitTerm.Security.Tests.csproj", "{4057E3C4-5866-4BDF-970C-17F3CB48B61E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OrbitTerm.Platform.Windows.Tests", "tests\OrbitTerm.Platform.Windows.Tests\OrbitTerm.Platform.Windows.Tests.csproj", "{6AF2F42D-B5B1-4EAB-94C7-A22B05D5190D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -50,5 +52,9 @@ Global
 		{4057E3C4-5866-4BDF-970C-17F3CB48B61E}.Debug|x64.Build.0 = Debug|Any CPU
 		{4057E3C4-5866-4BDF-970C-17F3CB48B61E}.Release|x64.ActiveCfg = Release|Any CPU
 		{4057E3C4-5866-4BDF-970C-17F3CB48B61E}.Release|x64.Build.0 = Release|Any CPU
+		{6AF2F42D-B5B1-4EAB-94C7-A22B05D5190D}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{6AF2F42D-B5B1-4EAB-94C7-A22B05D5190D}.Debug|x64.Build.0 = Debug|Any CPU
+		{6AF2F42D-B5B1-4EAB-94C7-A22B05D5190D}.Release|x64.ActiveCfg = Release|Any CPU
+		{6AF2F42D-B5B1-4EAB-94C7-A22B05D5190D}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

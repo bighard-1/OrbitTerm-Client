@@ -40,13 +40,39 @@ final class ServerStore: ObservableObject {
         AccountScope(username: username) == accountScope
     }
 
-    func addOrUpdate(_ server: ServerEntry, credentials: ServerCredentials) {
-        guard accountScope != nil else { return }
+    @discardableResult
+    func addOrUpdate(
+        _ server: ServerEntry,
+        credentials: ServerCredentials,
+        jumpHostCredentials: ServerCredentials? = nil
+    ) -> Bool {
+        guard accountScope != nil else { return false }
+        guard server.hasDistinctCredentialIDs,
+              server.jumpHost == nil || jumpHostCredentials?.isEmpty == false else {
+            // A route without its separate hop credential must never become a
+            // persisted, deceptively connectable asset.
+            return false
+        }
+        let existingServer = servers.first(where: { $0.id == server.id })
+        let previousJumpCredentialID = existingServer?.jumpHost?.credentialID
+        let previousTargetCredentials = try? vault.read(for: server.credentialID)
+        let previousJumpCredentials = existingServer?.jumpHost.flatMap {
+            try? vault.read(for: $0.credentialID)
+        }
         do {
             try vault.save(credentials, for: server.credentialID)
+            if let jumpHost = server.jumpHost, let jumpHostCredentials {
+                try vault.save(jumpHostCredentials, for: jumpHost.credentialID)
+            }
         } catch {
+            restoreCredentialState(
+                server: server,
+                previousServer: existingServer,
+                previousTargetCredentials: previousTargetCredentials,
+                previousJumpCredentials: previousJumpCredentials
+            )
             // 凭据保存失败时，不应继续写入资产配置，避免生成“无凭据资产”。
-            return
+            return false
         }
 
         if let idx = servers.firstIndex(where: { $0.id == server.id }) {
@@ -59,12 +85,28 @@ final class ServerStore: ObservableObject {
             selectedServerID = server.id
         }
         DeletedServerRegistry.shared.clear(server.id)
+        if let previousJumpCredentialID,
+           previousJumpCredentialID != server.jumpHost?.credentialID {
+            try? vault.delete(for: previousJumpCredentialID)
+        }
         persist()
+        return true
     }
 
-    func addOrUpdate(_ server: ServerEntry) {
-        guard accountScope != nil else { return }
-        // 兼容旧调用：无新凭据时保留现有 Keychain 内容，仅更新普通配置。
+    @discardableResult
+    func addOrUpdate(_ server: ServerEntry) -> Bool {
+        guard accountScope != nil else { return false }
+        let existingServer = servers.first(where: { $0.id == server.id })
+        guard server.hasDistinctCredentialIDs else { return false }
+        if let jumpHost = server.jumpHost {
+            // This entry is used by metadata-only edits and restored sync data.
+            // It must never make a new hop appear usable unless the separate
+            // credential has already been written to the Keychain.
+            guard let credentials = try? vault.read(for: jumpHost.credentialID),
+                  !credentials.isEmpty else {
+                return false
+            }
+        }
         if let idx = servers.firstIndex(where: { $0.id == server.id }) {
             servers[idx] = server
         } else {
@@ -75,7 +117,35 @@ final class ServerStore: ObservableObject {
             selectedServerID = server.id
         }
         DeletedServerRegistry.shared.clear(server.id)
+        if let previousJumpCredentialID = existingServer?.jumpHost?.credentialID,
+           previousJumpCredentialID != server.jumpHost?.credentialID {
+            try? vault.delete(for: previousJumpCredentialID)
+        }
         persist()
+        return true
+    }
+
+    private func restoreCredentialState(
+        server: ServerEntry,
+        previousServer: ServerEntry?,
+        previousTargetCredentials: ServerCredentials?,
+        previousJumpCredentials: ServerCredentials?
+    ) {
+        if let previousTargetCredentials {
+            try? vault.save(previousTargetCredentials, for: server.credentialID)
+        } else {
+            try? vault.delete(for: server.credentialID)
+        }
+
+        guard let previousJumpHost = previousServer?.jumpHost else {
+            if let configuredJumpHost = server.jumpHost {
+                try? vault.delete(for: configuredJumpHost.credentialID)
+            }
+            return
+        }
+        if let previousJumpCredentials {
+            try? vault.save(previousJumpCredentials, for: previousJumpHost.credentialID)
+        }
     }
 
     func applySyncedServers(_ synced: [ServerEntry], accountID: String) {
@@ -148,7 +218,7 @@ final class ServerStore: ObservableObject {
             selectedServerID = servers.first?.id
         }
         DeletedServerRegistry.shared.markDeleted(server.id)
-        try? vault.delete(for: server.credentialID)
+        deleteCredentials(for: server)
         persist()
     }
 
@@ -162,7 +232,7 @@ final class ServerStore: ObservableObject {
         }
         DeletedServerRegistry.shared.markDeleted(Array(ids))
         for item in removed {
-            try? vault.delete(for: item.credentialID)
+            deleteCredentials(for: item)
         }
         persist()
     }
@@ -178,7 +248,7 @@ final class ServerStore: ObservableObject {
         if selectedServerID == id {
             selectedServerID = servers.first?.id
         }
-        try? vault.delete(for: removed.credentialID)
+        deleteCredentials(for: removed)
         DeletedServerRegistry.shared.clear(id)
         persist()
     }
@@ -210,7 +280,7 @@ final class ServerStore: ObservableObject {
         }
         DeletedServerRegistry.shared.markDeleted(Array(removedIDs))
         for item in removed {
-            try? vault.delete(for: item.credentialID)
+            deleteCredentials(for: item)
         }
         persist()
     }
@@ -291,5 +361,11 @@ final class ServerStore: ObservableObject {
             return
         }
         UserDefaults.standard.set(encoded, forKey: scope.storageKey("orbitterm.servers.v2"))
+    }
+
+    private func deleteCredentials(for server: ServerEntry) {
+        for credentialID in server.credentialIDs {
+            try? vault.delete(for: credentialID)
+        }
     }
 }

@@ -14,6 +14,9 @@ enum ConflictField: String, CaseIterable {
     case password
     case privateKeyContent
     case privateKeyPassphrase
+    /// A jump host is one atomic route: endpoint metadata and its independent
+    /// credential material must never be merged field-by-field.
+    case jumpHost
 }
 
 enum ConflictChoice {
@@ -92,6 +95,7 @@ struct SyncShadowSnapshot: Codable, Equatable {
     let passwordDigest: String
     let privateKeyDigest: String
     let privateKeyPassphraseDigest: String
+    let jumpHostDigest: String
 
     init(_ portable: PortableServerConfig, authenticationKey: Data) {
         let key = SymmetricKey(data: authenticationKey)
@@ -109,12 +113,14 @@ struct SyncShadowSnapshot: Codable, Equatable {
         passwordDigest = Self.digest(portable.password, key: key)
         privateKeyDigest = Self.digest(portable.privateKeyContent, key: key)
         privateKeyPassphraseDigest = Self.digest(portable.privateKeyPassphrase, key: key)
+        let jumpHostData = (try? JSONEncoder().encode(portable.jumpHost)) ?? Data()
+        jumpHostDigest = Self.digest(Data(jumpHostData), key: key)
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, group, tags, host, port, username, authMethod, transport
         case networkDeviceProfile, allowPasswordFallback, passwordDigest
-        case privateKeyDigest, privateKeyPassphraseDigest
+        case privateKeyDigest, privateKeyPassphraseDigest, jumpHostDigest
     }
 
     init(from decoder: Decoder) throws {
@@ -133,10 +139,15 @@ struct SyncShadowSnapshot: Codable, Equatable {
         passwordDigest = try container.decode(String.self, forKey: .passwordDigest)
         privateKeyDigest = try container.decode(String.self, forKey: .privateKeyDigest)
         privateKeyPassphraseDigest = try container.decode(String.self, forKey: .privateKeyPassphraseDigest)
+        jumpHostDigest = try container.decodeIfPresent(String.self, forKey: .jumpHostDigest) ?? ""
     }
 
     private static func digest(_ value: String, key: SymmetricKey) -> String {
-        HMAC<SHA256>.authenticationCode(for: Data(value.utf8), using: key)
+        digest(Data(value.utf8), key: key)
+    }
+
+    private static func digest(_ value: Data, key: SymmetricKey) -> String {
+        HMAC<SHA256>.authenticationCode(for: value, using: key)
             .map { String(format: "%02x", $0) }
             .joined()
     }
@@ -192,6 +203,18 @@ final class SyncShadowStore {
         for portable in portables {
             map[portable.id] = snapshot(for: portable)
         }
+        persist(map, accountID: accountID)
+    }
+
+    /// Shadow records are a conflict-resolution cache, not an archive. Keep a
+    /// snapshot only while its asset still exists in the active account store;
+    /// this bounds stale records without discarding an unsynced local asset.
+    func retainOnly(assetIDs: Set<String>, accountID: String) {
+        var map = readAll(accountID: accountID)
+        let normalizedIDs = Set(assetIDs.map { $0.lowercased() })
+        let originalCount = map.count
+        map = map.filter { normalizedIDs.contains($0.key.lowercased()) }
+        guard map.count != originalCount else { return }
         persist(map, accountID: accountID)
     }
 

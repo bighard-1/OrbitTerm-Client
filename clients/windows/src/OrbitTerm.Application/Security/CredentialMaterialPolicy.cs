@@ -14,6 +14,34 @@ public static class CredentialMaterialPolicy
         EnsureField("private_key_passphrase", credential.PrivateKeyPassphrase);
     }
 
+    /// <summary>
+    /// Canonicalizes SSH key text at every platform boundary.  In particular,
+    /// Windows text files may contain a UTF BOM or CRLF line endings which are
+    /// harmless to an editor but are not accepted consistently by SSH key
+    /// parsers on every device.
+    /// </summary>
+    public static CredentialMaterial NormalizeSshCredential(CredentialMaterial credential)
+    {
+        ArgumentNullException.ThrowIfNull(credential);
+        EnsureStorable(credential);
+        if (string.IsNullOrWhiteSpace(credential.PrivateKey))
+        {
+            return credential with
+            {
+                PrivateKey = string.Empty,
+                PrivateKeyPassphrase = string.Empty,
+            };
+        }
+
+        var normalized = credential with
+        {
+            PrivateKey = SshKeyMaterialPolicy.NormalizePrivateKey(credential.PrivateKey),
+            PrivateKeyPassphrase = SshKeyMaterialPolicy.NormalizePassphrase(credential.PrivateKeyPassphrase),
+        };
+        EnsureStorable(normalized);
+        return normalized;
+    }
+
     private static void EnsureField(string name, string value)
     {
         if (value is null)

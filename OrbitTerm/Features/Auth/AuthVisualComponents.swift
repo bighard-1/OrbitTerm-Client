@@ -41,8 +41,11 @@ struct AuthModeSwitcher: View {
                     .frame(height: 36)
             }
             .frame(height: 40)
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
     }
 }
 
@@ -56,51 +59,55 @@ struct AuthInputRow: View {
     let maximumWidth: CGFloat
     @Environment(\.appThemePalette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        GeometryReader { bounds in
-            HStack(spacing: 10) {
-                Image(systemName: icon)
-                    .foregroundStyle(palette.textSecondary.color)
-                    .frame(width: 18)
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .foregroundStyle(palette.textSecondary.color)
+                // Symbols convey the field category, not user-entered text.
+                // Keep them visually stable so larger text never draws outside
+                // the rounded input surface.
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 24, height: 24)
+                .clipped()
+                .accessibilityHidden(true)
 
-                Group {
-                    if isSecure {
-                        SecureField(placeholder, text: $text)
-                    } else {
-                        plainTextInput
-                    }
-                }
-                .applyInputPolish()
-                .frame(minWidth: 0, maxWidth: .infinity)
-
-                if !text.isEmpty {
-                    Button {
-                        text = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(palette.textSecondary.color)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("清除\(placeholder)")
-                }
-
-                if showRevealToggle {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isShowingPassword.toggle()
-                        }
-                    } label: {
-                        Image(systemName: isShowingPassword ? "eye.slash.fill" : "eye.fill")
-                            .foregroundStyle(palette.textSecondary.color)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(isShowingPassword ? "隐藏密码" : "显示密码")
+            Group {
+                if isSecure {
+                    SecureField(placeholder, text: $text)
+                } else {
+                    plainTextInput
                 }
             }
-            .frame(width: bounds.size.width, alignment: .leading)
+            .applyInputPolish()
+            .frame(minWidth: 0, maxWidth: .infinity)
+
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(palette.textSecondary.color)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("清除\(placeholder)")
+            }
+
+            if showRevealToggle {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isShowingPassword.toggle()
+                    }
+                } label: {
+                    Image(systemName: isShowingPassword ? "eye.slash.fill" : "eye.fill")
+                        .foregroundStyle(palette.textSecondary.color)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isShowingPassword ? "隐藏密码" : "显示密码")
+            }
         }
-        .frame(height: 22)
+        .frame(minHeight: dynamicTypeSize.isAccessibilitySize ? 32 : 22)
         .padding(.horizontal, 12)
         .padding(.vertical, 11)
         .frame(width: maximumWidth)

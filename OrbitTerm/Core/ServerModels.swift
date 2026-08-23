@@ -107,6 +107,9 @@ struct ServerEntry: Identifiable, Codable, Hashable {
     var networkDeviceProfile: NetworkDeviceProfile
     var allowPasswordFallback: Bool
     var credentialID: UUID
+    /// Optional single SSH jump host. Its secret is stored independently in
+    /// `CredentialVault` under `jumpHost.credentialID`.
+    var jumpHost: JumpHostConfiguration?
     var createdAt: Date
 
     init(
@@ -122,6 +125,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         networkDeviceProfile: NetworkDeviceProfile = .auto,
         allowPasswordFallback: Bool = true,
         credentialID: UUID? = nil,
+        jumpHost: JumpHostConfiguration? = nil,
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -136,6 +140,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         self.networkDeviceProfile = networkDeviceProfile
         self.allowPasswordFallback = allowPasswordFallback
         self.credentialID = credentialID ?? id
+        self.jumpHost = jumpHost
         self.createdAt = createdAt
     }
 
@@ -152,6 +157,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         case networkDeviceProfile
         case allowPasswordFallback
         case credentialID
+        case jumpHost
         case createdAt
         // 旧版本字段，仅用于迁移读取，不再写回。
         case password
@@ -176,6 +182,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         networkDeviceProfile = try container.decodeIfPresent(NetworkDeviceProfile.self, forKey: .networkDeviceProfile) ?? .auto
         allowPasswordFallback = try container.decodeIfPresent(Bool.self, forKey: .allowPasswordFallback) ?? true
         credentialID = try container.decodeIfPresent(UUID.self, forKey: .credentialID) ?? id
+        jumpHost = try container.decodeIfPresent(JumpHostConfiguration.self, forKey: .jumpHost)
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
         legacyPassword = try container.decodeIfPresent(String.self, forKey: .password)
         legacyPrivateKeyContent = try container.decodeIfPresent(String.self, forKey: .privateKeyPath)
@@ -195,6 +202,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         try container.encode(networkDeviceProfile, forKey: .networkDeviceProfile)
         try container.encode(allowPasswordFallback, forKey: .allowPasswordFallback)
         try container.encode(credentialID, forKey: .credentialID)
+        try container.encodeIfPresent(jumpHost, forKey: .jumpHost)
         try container.encode(createdAt, forKey: .createdAt)
     }
 
@@ -207,6 +215,20 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         "\(host):\(port)"
     }
 
+    /// Credentials that belong to this asset. Keeping this list on the model
+    /// makes deletion and sync code unable to accidentally orphan jump-host
+    /// secrets while still preserving separate Keychain records.
+    var credentialIDs: [UUID] {
+        [credentialID] + (jumpHost.map { [$0.credentialID] } ?? [])
+    }
+
+    /// The destination and its jump host must never point at the same secret.
+    /// This remains a model invariant even for data restored from encrypted
+    /// sync, where values did not originate from the current form.
+    var hasDistinctCredentialIDs: Bool {
+        Set(credentialIDs).count == credentialIDs.count
+    }
+
     func matchesSearch(_ query: String) -> Bool {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return true }
@@ -216,7 +238,11 @@ struct ServerEntry: Identifiable, Codable, Hashable {
     }
 
     // 跨端同步时使用的平台无关模型，避免携带 macOS 私有路径。
-    func makePortableConfig(savedAtUnix: Int, credentials: ServerCredentials?) -> PortableServerConfig {
+    func makePortableConfig(
+        savedAtUnix: Int,
+        credentials: ServerCredentials?,
+        jumpHostCredentials: ServerCredentials? = nil
+    ) -> PortableServerConfig {
         // P1 修复：同步模型不再依据 authMethod 过滤凭据字段。
         // 只要本地 Keychain 有值，就要全量打入同一个加密 Blob，确保跨端拉取完整恢复。
         let password = credentials?.password ?? ""
@@ -240,7 +266,13 @@ struct ServerEntry: Identifiable, Codable, Hashable {
             // 私钥内容来自 Keychain，不存在可跨端复用的本机文件路径。
             keyReference: "",
             savedAtUnix: savedAtUnix,
-            tags: tags
+            tags: tags,
+            jumpHost: jumpHost.map {
+                PortableJumpHostConfiguration(
+                    configuration: $0,
+                    credentials: jumpHostCredentials
+                )
+            }
         )
     }
 }
@@ -263,6 +295,7 @@ struct PortableServerConfig: Codable, Equatable {
     let privateKeyPassphrase: String
     let keyReference: String
     let savedAtUnix: Int
+    let jumpHost: PortableJumpHostConfiguration?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -282,6 +315,7 @@ struct PortableServerConfig: Codable, Equatable {
         case privateKeyPassphrase
         case keyReference
         case savedAtUnix
+        case jumpHost
     }
 
     init(
@@ -301,7 +335,8 @@ struct PortableServerConfig: Codable, Equatable {
         privateKeyPassphrase: String,
         keyReference: String,
         savedAtUnix: Int,
-        tags: [String] = []
+        tags: [String] = [],
+        jumpHost: PortableJumpHostConfiguration? = nil
     ) {
         self.id = id
         self.credentialID = credentialID
@@ -320,6 +355,7 @@ struct PortableServerConfig: Codable, Equatable {
         self.privateKeyPassphrase = privateKeyPassphrase
         self.keyReference = keyReference
         self.savedAtUnix = savedAtUnix
+        self.jumpHost = jumpHost
     }
 
     init(from decoder: Decoder) throws {
@@ -341,6 +377,7 @@ struct PortableServerConfig: Codable, Equatable {
         privateKeyPassphrase = try c.decodeIfPresent(String.self, forKey: .privateKeyPassphrase) ?? ""
         keyReference = try c.decodeIfPresent(String.self, forKey: .keyReference) ?? ""
         savedAtUnix = try c.decodeIfPresent(Int.self, forKey: .savedAtUnix) ?? Int(Date().timeIntervalSince1970)
+        jumpHost = try c.decodeIfPresent(PortableJumpHostConfiguration.self, forKey: .jumpHost)
     }
 }
 

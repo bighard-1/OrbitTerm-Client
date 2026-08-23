@@ -3,6 +3,9 @@ import CryptoKit
 #if canImport(UIKit)
 import UIKit
 #endif
+#if canImport(AppKit)
+import AppKit
+#endif
 
 @MainActor
 final class AppSession: ObservableObject {
@@ -26,11 +29,44 @@ final class AppSession: ObservableObject {
     private let legacyWrapKeyAccount = "master_password_wrap_key_v2"
     private let masterPasswordMigrationFlag = "orbitterm.master-password.account-scope-migrated.v1"
 
-    init(keychain: KeychainManager = .shared) {
+    init(
+        keychain: KeychainManager = .shared,
+        uiTestLaunchState: AppUITestLaunchState = .standard
+    ) {
         self.keychain = keychain
+        #if !ORBITTERM_PUBLIC_RELEASE
+        guard uiTestLaunchState == .standard else {
+            applyUITestLaunchState(uiTestLaunchState)
+            return
+        }
+        #else
+        _ = uiTestLaunchState
+        #endif
         loadAuthState()
         bindLifecycleObservers()
     }
+
+    #if !ORBITTERM_PUBLIC_RELEASE
+    private func applyUITestLaunchState(_ state: AppUITestLaunchState) {
+        switch state {
+        case .standard:
+            return
+        case .unauthenticated:
+            isAuthenticated = false
+            isUnlocked = false
+            username = ""
+        case .authenticatedLocked:
+            isAuthenticated = true
+            isUnlocked = false
+            username = "ui-test@example.invalid"
+        case .authenticatedUnlocked:
+            isAuthenticated = true
+            isUnlocked = true
+            username = "ui-test@example.invalid"
+        }
+        authRevision = 1
+    }
+    #endif
 
     func loadAuthState() {
         do {
@@ -87,9 +123,10 @@ final class AppSession: ObservableObject {
             try keychain.delete(service: tokenService, account: tokenAccount)
             try keychain.delete(service: tokenService, account: refreshTokenAccount)
             try keychain.delete(service: tokenService, account: usernameAccount)
-            if let passwordBlobAccount = passwordBlobAccount {
-                try keychain.delete(service: passwordService, account: passwordBlobAccount)
-            }
+            // Keep the account-scoped encrypted master-password blob. It is
+            // required for biometric unlock after the same account signs in
+            // again, cannot be decrypted without the local wrap key / user
+            // presence, and is never made available to a different account.
         } catch {
             // 忽略删除异常，仍执行本地状态重置。
         }
@@ -130,6 +167,9 @@ final class AppSession: ObservableObject {
             verifierAccount: stagedPasswordVerifierAccount,
             blobAccount: stagedPasswordBlobAccount
         )
+        if let stagedPasswordAcceptedAccount {
+            try? keychain.delete(service: passwordService, account: stagedPasswordAcceptedAccount)
+        }
     }
 
     var hasStagedMasterPasswordRotation: Bool {
@@ -139,9 +179,24 @@ final class AppSession: ObservableObject {
         return !(verifier?.isEmpty ?? true) && !(blob?.isEmpty ?? true)
     }
 
+    func markStagedMasterPasswordRotationAccepted() throws {
+        guard hasStagedMasterPasswordRotation, let stagedPasswordAcceptedAccount else {
+            throw KeychainManager.KeychainError.invalidData
+        }
+        try keychain.saveString("accepted", service: passwordService, account: stagedPasswordAcceptedAccount)
+    }
+
+    var hasAcceptedStagedMasterPasswordRotation: Bool {
+        guard hasStagedMasterPasswordRotation, let stagedPasswordAcceptedAccount else { return false }
+        let marker = (try? keychain.readString(service: passwordService, account: stagedPasswordAcceptedAccount)) ?? nil
+        return marker == "accepted"
+    }
+
     func commitStagedMasterPasswordRotation() throws {
-        guard let stagedPasswordVerifierAccount,
+        guard hasAcceptedStagedMasterPasswordRotation,
+              let stagedPasswordVerifierAccount,
               let stagedPasswordBlobAccount,
+              let stagedPasswordAcceptedAccount,
               let passwordVerifierAccount,
               let passwordBlobAccount,
               let verifier = try keychain.readString(service: passwordService, account: stagedPasswordVerifierAccount),
@@ -156,6 +211,7 @@ final class AppSession: ObservableObject {
         try keychain.saveString(verifier, service: passwordService, account: passwordVerifierAccount)
         try keychain.delete(service: passwordService, account: stagedPasswordBlobAccount)
         try keychain.delete(service: passwordService, account: stagedPasswordVerifierAccount)
+        try keychain.delete(service: passwordService, account: stagedPasswordAcceptedAccount)
         masterPasswordPersistenceError = nil
         isUnlocked = true
     }
@@ -164,6 +220,9 @@ final class AppSession: ObservableObject {
         guard let stagedPasswordVerifierAccount, let stagedPasswordBlobAccount else { return }
         try? keychain.delete(service: passwordService, account: stagedPasswordBlobAccount)
         try? keychain.delete(service: passwordService, account: stagedPasswordVerifierAccount)
+        if let stagedPasswordAcceptedAccount {
+            try? keychain.delete(service: passwordService, account: stagedPasswordAcceptedAccount)
+        }
     }
 
     func verifyMasterPassword(_ input: String) -> Bool {
@@ -253,6 +312,21 @@ final class AppSession: ObservableObject {
                 if self.hasMasterPassword {
                     self.isUnlocked = false
                 }
+            }
+        }
+#elseif canImport(AppKit)
+        NotificationCenter.default.addObserver(
+            // This is delivered when the user session becomes inactive, which
+            // includes the lock screen and fast-user switching. AppKit does
+            // not expose a separate screen-lock notification on every macOS
+            // deployment target.
+            forName: NSWorkspace.sessionDidResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.hasMasterPassword else { return }
+                self.isUnlocked = false
             }
         }
 #endif
@@ -352,6 +426,10 @@ final class AppSession: ObservableObject {
 
     private var stagedPasswordBlobAccount: String? {
         accountScope.map { "master_password_rotation_blob_v1.\($0.storageIdentifier)" }
+    }
+
+    private var stagedPasswordAcceptedAccount: String? {
+        accountScope.map { "master_password_rotation_accepted_v1.\($0.storageIdentifier)" }
     }
 
     private func migrateLegacyMasterPasswordIfNeeded() {

@@ -7,6 +7,7 @@ use std::time::Duration;
 use russh::client;
 use russh::Disconnect;
 use thiserror::Error;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::timeout;
 
 use super::checked_connect_coordinator::{
@@ -122,6 +123,96 @@ pub(crate) struct CheckedTestConnectionRequest {
     allow_password_fallback: bool,
     known_hosts_path: PathBuf,
     request_id: String,
+    jump_host: Option<CheckedJumpHostRequest>,
+}
+
+/// A one-hop ProxyJump endpoint. This is intentionally separate from the
+/// destination request: credentials and host identity must never be reused
+/// between the two SSH servers.
+#[derive(Clone)]
+pub(crate) struct CheckedJumpHostRequest {
+    host_identity: HostIdentity,
+    username: String,
+    password: String,
+    private_key: String,
+    private_key_passphrase: String,
+    allow_password_fallback: bool,
+}
+
+impl fmt::Debug for CheckedJumpHostRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CheckedJumpHostRequest")
+            .field("host_identity", &self.host_identity)
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .field("private_key", &"[REDACTED]")
+            .field("private_key_passphrase", &"[REDACTED]")
+            .field("allow_password_fallback", &self.allow_password_fallback)
+            .finish()
+    }
+}
+
+impl CheckedJumpHostRequest {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new(
+        host: String,
+        port: u16,
+        username: String,
+        password: String,
+        private_key: String,
+        private_key_passphrase: String,
+        allow_password_fallback: bool,
+    ) -> Result<Self, CheckedTestInputError> {
+        let host_identity =
+            HostIdentity::parse(&host, port).map_err(|_| CheckedTestInputError::InvalidHost)?;
+        if port == 0 || host_identity.port != port {
+            return Err(CheckedTestInputError::InvalidHost);
+        }
+        let username = username.trim().to_string();
+        if username.is_empty()
+            || username.len() > MAX_USERNAME_BYTES
+            || username.chars().any(char::is_control)
+        {
+            return Err(CheckedTestInputError::InvalidUsername);
+        }
+        if password.is_empty() && private_key.trim().is_empty() {
+            return Err(CheckedTestInputError::MissingCredentials);
+        }
+        Ok(Self {
+            host_identity,
+            username,
+            password,
+            private_key,
+            private_key_passphrase,
+            allow_password_fallback,
+        })
+    }
+
+    pub(crate) fn as_connection_request(
+        &self,
+        known_hosts_path: PathBuf,
+        request_id: String,
+    ) -> Result<CheckedTestConnectionRequest, CheckedTestInputError> {
+        CheckedTestConnectionRequest::new(
+            self.host_identity.normalized_host.clone(),
+            self.host_identity.port,
+            self.username.clone(),
+            self.password.clone(),
+            self.private_key.clone(),
+            self.private_key_passphrase.clone(),
+            self.allow_password_fallback,
+            known_hosts_path,
+            request_id,
+        )
+    }
+
+    pub(crate) fn route_identity(&self) -> String {
+        format!(
+            "{}@{}:{}",
+            self.username, self.host_identity.normalized_host, self.host_identity.port
+        )
+    }
 }
 
 impl fmt::Debug for CheckedTestConnectionRequest {
@@ -185,6 +276,7 @@ impl CheckedTestConnectionRequest {
             allow_password_fallback,
             known_hosts_path,
             request_id,
+            jump_host: None,
         })
     }
 
@@ -194,6 +286,19 @@ impl CheckedTestConnectionRequest {
 
     pub(crate) fn host_identity(&self) -> &HostIdentity {
         &self.host_identity
+    }
+
+    pub(crate) fn with_jump_host(mut self, jump_host: CheckedJumpHostRequest) -> Self {
+        self.jump_host = Some(jump_host);
+        self
+    }
+
+    pub(crate) fn jump_host(&self) -> Option<&CheckedJumpHostRequest> {
+        self.jump_host.as_ref()
+    }
+
+    pub(crate) fn known_hosts_path(&self) -> &Path {
+        &self.known_hosts_path
     }
 
     pub(crate) fn username(&self) -> &str {
@@ -304,6 +409,24 @@ pub(crate) async fn prepare_checked_connection(
         .await
 }
 
+/// The same checked host-key preparation used for a direct socket, but over a
+/// stream that was opened with SSH `direct-tcpip` on a verified jump host.
+/// This keeps destination verification fully independent from the jump host.
+pub(crate) async fn prepare_checked_connection_over_stream<R>(
+    request: &CheckedTestConnectionRequest,
+    stream: R,
+) -> CheckedConnectionPreparationOutcome
+where
+    R: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    prepare_checked_connection_over_stream_with_service(
+        request,
+        stream,
+        shared_host_key_challenge_service().clone(),
+    )
+    .await
+}
+
 async fn prepare_checked_connection_with_service(
     request: &CheckedTestConnectionRequest,
     challenge_service: HostKeyChallengeService,
@@ -333,6 +456,68 @@ async fn prepare_checked_connection_with_service(
     let session = match timeout(
         CHECKED_CONNECT_TIMEOUT,
         client::connect(ssh_session::new_client_config(), address, handler),
+    )
+    .await
+    {
+        Err(_) => {
+            return CheckedConnectionPreparationOutcome::Error(
+                CheckedTestConnectionError::Timeout {
+                    stage: CheckedTestTimeoutStage::Connect,
+                },
+            );
+        }
+        Ok(Err(error)) => return preparation_outcome_from_connect_error(error),
+        Ok(Ok(session)) => session,
+    };
+
+    match coordinator.pre_authentication_check() {
+        CheckedPreAuthDecision::AllowAuthentication(approval) => {
+            CheckedConnectionPreparationOutcome::Ready(CheckedPreparedConnection {
+                session,
+                approval,
+            })
+        }
+        CheckedPreAuthDecision::Block(block) => {
+            best_effort_disconnect(&session, "host key blocked").await;
+            CheckedConnectionPreparationOutcome::Blocked(block)
+        }
+        CheckedPreAuthDecision::Fail(error) => {
+            best_effort_disconnect(&session, "pre-authentication check failed").await;
+            CheckedConnectionPreparationOutcome::Error(
+                CheckedTestConnectionError::PreAuthentication(error),
+            )
+        }
+    }
+}
+
+async fn prepare_checked_connection_over_stream_with_service<R>(
+    request: &CheckedTestConnectionRequest,
+    stream: R,
+    challenge_service: HostKeyChallengeService,
+) -> CheckedConnectionPreparationOutcome
+where
+    R: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let reloader = FileKnownHostsStoreReloader {
+        path: request.known_hosts_path.clone(),
+    };
+    let mut coordinator = match CheckedConnectCoordinator::new(
+        request.host_identity.clone(),
+        Some(request.request_id.clone()),
+        challenge_service,
+        reloader,
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            return CheckedConnectionPreparationOutcome::Error(
+                CheckedTestConnectionError::PreAuthentication(error),
+            );
+        }
+    };
+    let handler = CheckedHostKeyHandler::new(coordinator.verification_context());
+    let session = match timeout(
+        CHECKED_CONNECT_TIMEOUT,
+        client::connect_stream(ssh_session::new_client_config(), stream, handler),
     )
     .await
     {

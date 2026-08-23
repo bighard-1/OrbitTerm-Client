@@ -1,16 +1,34 @@
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+use std::time::{Duration, Instant};
 
+use rand::random;
 use regex::Regex;
-use russh_sftp::protocol::{FileAttributes, OpenFlags};
+use russh_sftp::{
+    client::error::Error as SftpClientError,
+    protocol::{FileAttributes, OpenFlags, StatusCode},
+};
 use serde::Serialize;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 use crate::{run_remote_command_for_sftp_operation, OrbitCoreError, OrbitSftpSession};
 
-const SFTP_IO_BUF_SIZE: usize = 64 * 1024;
+// Keep each operation below the 256 KiB SFTP packet ceiling. Larger reads
+// materially reduce round trips on high-latency links while avoiding a tiny
+// remainder packet after every full-size request.
+// A typical OpenSSH SFTP server advertises 32 KiB writes. A 128 KiB local
+// buffer therefore feeds several protocol requests per read without creating
+// the multi-megabyte bursts that previously starved interactive channels.
+const SFTP_UPLOAD_BUF_SIZE: usize = 128 * 1024;
+const SFTP_DOWNLOAD_BUF_SIZE: usize = 240 * 1024;
+const SFTP_PROGRESS_MIN_INTERVAL: Duration = Duration::from_millis(125);
+const SFTP_PROGRESS_MIN_BYTES: u64 = 512 * 1024;
 const SFTP_TEXT_EDIT_MAX_BYTES: usize = 2 * 1024 * 1024;
 const SFTP_TEXT_NEW_SUFFIX: &str = ".orbitterm-new";
 const SFTP_TEXT_BACKUP_SUFFIX: &str = ".orbitterm-backup";
+const MAX_SFTP_PATH_BYTES: usize = 512;
 
 #[derive(Debug, Serialize)]
 struct SftpListItem {
@@ -26,6 +44,33 @@ struct SftpTransferResult {
     bytes: u64,
 }
 
+struct TransferProgressThrottle {
+    last_reported_at: Instant,
+    last_reported_bytes: u64,
+}
+
+impl TransferProgressThrottle {
+    fn started() -> Self {
+        Self {
+            last_reported_at: Instant::now(),
+            last_reported_bytes: 0,
+        }
+    }
+
+    fn should_report(&mut self, transferred: u64, force: bool) -> bool {
+        if !force
+            && transferred.saturating_sub(self.last_reported_bytes) < SFTP_PROGRESS_MIN_BYTES
+            && self.last_reported_at.elapsed() < SFTP_PROGRESS_MIN_INTERVAL
+        {
+            return false;
+        }
+
+        self.last_reported_at = Instant::now();
+        self.last_reported_bytes = transferred;
+        true
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SftpEntrySnapshot {
     pub(crate) size: u64,
@@ -38,9 +83,25 @@ pub(crate) struct SftpEntrySnapshot {
 pub(crate) enum SftpMutationError {
     InvalidRequest,
     SessionUnavailable,
+    PermissionDenied,
     TargetExists,
     EntryChanged,
     BackendFailed,
+}
+
+fn map_create_mutation_error(error: SftpClientError) -> SftpMutationError {
+    match error {
+        SftpClientError::Status(status) if status.status_code == StatusCode::PermissionDenied => {
+            SftpMutationError::PermissionDenied
+        }
+        SftpClientError::Status(status)
+            if status.status_code == StatusCode::Failure
+                && status.error_message.to_ascii_lowercase().contains("exist") =>
+        {
+            SftpMutationError::TargetExists
+        }
+        _ => SftpMutationError::BackendFailed,
+    }
 }
 
 pub(crate) async fn list_dir(
@@ -93,6 +154,39 @@ pub(crate) async fn list_dir(
     serde_json::to_string(&items).map_err(|e| OrbitCoreError::Internal(e.to_string()))
 }
 
+/// Resolves the authenticated account's actual SFTP home directory. Guessing
+/// `/home/<user>` is incorrect for chrooted servers, custom homes, root, NAS
+/// appliances and Windows OpenSSH, and can leave mobile clients browsing `/`
+/// where create operations are legitimately denied.
+pub(crate) async fn canonical_home_path(
+    session: &Arc<OrbitSftpSession>,
+) -> Result<String, OrbitCoreError> {
+    let path = session
+        .sftp
+        .canonicalize(".")
+        .await
+        .map_err(|error| OrbitCoreError::SftpFailed(error.to_string()))?;
+    if path.starts_with('/') && path.len() <= MAX_SFTP_PATH_BYTES && !path.contains('\0') {
+        Ok(path.trim_end_matches('/').to_string().if_empty_then_root())
+    } else {
+        Err(OrbitCoreError::InvalidInput)
+    }
+}
+
+trait RootPathFallback {
+    fn if_empty_then_root(self) -> String;
+}
+
+impl RootPathFallback for String {
+    fn if_empty_then_root(self) -> String {
+        if self.is_empty() {
+            "/".to_string()
+        } else {
+            self
+        }
+    }
+}
+
 pub(crate) async fn upload_file(
     session_id: u64,
     session: &Arc<OrbitSftpSession>,
@@ -117,7 +211,7 @@ pub(crate) async fn upload_file(
         .await
         .map_err(|e| OrbitCoreError::SftpFailed(format!("open remote file failed: {e}")))?;
 
-    let mut buf = vec![0u8; SFTP_IO_BUF_SIZE];
+    let mut buf = vec![0u8; SFTP_UPLOAD_BUF_SIZE];
     let mut total: u64 = 0;
 
     loop {
@@ -152,15 +246,22 @@ pub(crate) async fn upload_file(
         .map_err(|e| OrbitCoreError::Internal(e.to_string()))
 }
 
-pub(crate) async fn upload_file_create_new(
-    session_id: u64,
+/// Transfers to an unpredictable sibling file and only publishes the completed
+/// file at the requested path.  Cancellation is intentionally observed only at
+/// chunk boundaries, preventing a half-written file from becoming visible at
+/// the requested destination.
+pub(crate) async fn upload_file_create_new_cancellable(
+    _session_id: u64,
     session: &Arc<OrbitSftpSession>,
     local_path: String,
     remote_path: String,
+    cancelled: &AtomicBool,
+    progress: &dyn Fn(u64, Option<u64>),
 ) -> Result<String, OrbitCoreError> {
     if local_path.trim().is_empty() || remote_path.trim().is_empty() {
         return Err(OrbitCoreError::InvalidInput);
     }
+    check_transfer_cancelled(cancelled)?;
 
     let metadata = tokio::fs::metadata(&local_path)
         .await
@@ -168,23 +269,107 @@ pub(crate) async fn upload_file_create_new(
     if !metadata.is_file() {
         return Err(OrbitCoreError::InvalidInput);
     }
+    let total_bytes = metadata.len();
 
+    let temporary_remote_path = transfer_temporary_path(&remote_path)?;
+    let transfer: Result<u64, OrbitCoreError> = async {
+        let mut creator = session
+            .sftp
+            .open_with_flags(
+                temporary_remote_path.clone(),
+                OpenFlags::CREATE | OpenFlags::EXCLUDE | OpenFlags::WRITE,
+            )
+            .await
+            .map_err(|e| {
+                OrbitCoreError::SftpFailed(format!("create temporary remote file failed: {e}"))
+            })?;
+        creator.shutdown().await.map_err(|e| {
+            OrbitCoreError::SftpFailed(format!("initialize temporary remote file failed: {e}"))
+        })?;
+        drop(creator);
+
+        progress(0, Some(total_bytes));
+        let uploaded = upload_file_single_checked(
+            session,
+            &local_path,
+            &temporary_remote_path,
+            total_bytes,
+            cancelled,
+            progress,
+        )
+        .await?;
+
+        check_transfer_cancelled(cancelled)?;
+        let uploaded_metadata = session
+            .sftp
+            .metadata(temporary_remote_path.clone())
+            .await
+            .map_err(|e| {
+                OrbitCoreError::SftpFailed(format!("verify temporary remote file failed: {e}"))
+            })?;
+        if uploaded_metadata.size != Some(total_bytes) {
+            return Err(OrbitCoreError::SftpFailed(
+                "temporary remote file size mismatch".to_string(),
+            ));
+        }
+        if session
+            .sftp
+            .try_exists(remote_path.clone())
+            .await
+            .map_err(|e| {
+                OrbitCoreError::SftpFailed(format!("check remote destination failed: {e}"))
+            })?
+        {
+            return Err(OrbitCoreError::SftpFailed(
+                "remote destination already exists".to_string(),
+            ));
+        }
+        check_transfer_cancelled(cancelled)?;
+        session
+            .sftp
+            .rename(temporary_remote_path.clone(), remote_path)
+            .await
+            .map_err(|e| OrbitCoreError::SftpFailed(format!("publish remote file failed: {e}")))?;
+        Ok(uploaded)
+    }
+    .await;
+
+    if transfer.is_err() {
+        // The name is generated by us and was created with EXCLUDE, so this
+        // cleanup cannot affect a user-selected destination.
+        let _ = session.sftp.remove_file(temporary_remote_path).await;
+    }
+    serde_json::to_string(&SftpTransferResult { bytes: transfer? })
+        .map_err(|e| OrbitCoreError::Internal(e.to_string()))
+}
+
+async fn upload_file_single_checked(
+    session: &Arc<OrbitSftpSession>,
+    local_path: &str,
+    temporary_remote_path: &str,
+    total_bytes: u64,
+    cancelled: &AtomicBool,
+    progress: &dyn Fn(u64, Option<u64>),
+) -> Result<u64, OrbitCoreError> {
     let mut local = tokio::fs::File::open(local_path)
         .await
         .map_err(|e| OrbitCoreError::SftpFailed(format!("open local file failed: {e}")))?;
-    let remote_for_log = remote_path.clone();
     let mut remote = session
         .sftp
-        .open_with_flags(
-            remote_path,
-            OpenFlags::CREATE | OpenFlags::EXCLUDE | OpenFlags::WRITE,
-        )
+        .open_with_flags(temporary_remote_path.to_string(), OpenFlags::WRITE)
         .await
-        .map_err(|e| OrbitCoreError::SftpFailed(format!("create remote file failed: {e}")))?;
-
-    let mut buffer = vec![0u8; SFTP_IO_BUF_SIZE];
-    let mut uploaded: u64 = 0;
+        .map_err(|e| {
+            OrbitCoreError::SftpFailed(format!("open temporary remote file failed: {e}"))
+        })?;
+    let mut buffer = vec![0u8; SFTP_UPLOAD_BUF_SIZE];
+    let mut uploaded = 0u64;
+    let mut progress_throttle = TransferProgressThrottle::started();
+    let mut observed_monitor_generation = session
+        .base
+        .monitor_sample_generation
+        .load(Ordering::SeqCst);
     loop {
+        check_transfer_cancelled(cancelled)?;
         let count = local
             .read(&mut buffer)
             .await
@@ -192,25 +377,40 @@ pub(crate) async fn upload_file_create_new(
         if count == 0 {
             break;
         }
-        if std::env::var_os("ORBIT_CORE_DEBUG").is_some() {
-            eprintln!(
-                "[orbit-core][sftp_upload_checked] session={} chunk_bytes={} remote={}",
-                session_id, count, remote_for_log
-            );
-        }
         remote
             .write_all(&buffer[..count])
             .await
             .map_err(|e| OrbitCoreError::SftpFailed(format!("write remote file failed: {e}")))?;
         uploaded += count as u64;
+        if progress_throttle.should_report(uploaded, false) {
+            progress(uploaded.min(total_bytes), Some(total_bytes));
+        }
+        let requested_monitor_generation = session
+            .base
+            .monitor_sample_generation
+            .load(Ordering::SeqCst);
+        if requested_monitor_generation != observed_monitor_generation {
+            // Drain the bounded write pipeline once so the pending monitor exec
+            // can be scheduled without permanently reducing upload throughput.
+            remote.flush().await.map_err(|e| {
+                OrbitCoreError::SftpFailed(format!("flush remote file failed: {e}"))
+            })?;
+            observed_monitor_generation = requested_monitor_generation;
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        // Yield after each bounded write so terminal output and monitor exec
+        // channels on the same verified SSH transport are not starved by a
+        // long-running bulk transfer.
+        tokio::task::yield_now().await;
     }
-
-    remote
-        .shutdown()
-        .await
-        .map_err(|e| OrbitCoreError::SftpFailed(format!("shutdown remote file failed: {e}")))?;
-    serde_json::to_string(&SftpTransferResult { bytes: uploaded })
-        .map_err(|e| OrbitCoreError::Internal(e.to_string()))
+    check_transfer_cancelled(cancelled)?;
+    remote.shutdown().await.map_err(|e| {
+        OrbitCoreError::SftpFailed(format!("shutdown temporary remote file failed: {e}"))
+    })?;
+    if progress_throttle.should_report(uploaded, true) {
+        progress(uploaded.min(total_bytes), Some(total_bytes));
+    }
+    Ok(uploaded)
 }
 
 pub(crate) async fn download_file(
@@ -259,7 +459,7 @@ pub(crate) async fn download_file(
         .await
         .map_err(|e| OrbitCoreError::SftpFailed(format!("seek local failed: {e}")))?;
 
-    let mut buf = vec![0u8; SFTP_IO_BUF_SIZE];
+    let mut buf = vec![0u8; SFTP_DOWNLOAD_BUF_SIZE];
     let mut downloaded: u64 = 0;
 
     loop {
@@ -294,58 +494,119 @@ pub(crate) async fn download_file(
         .map_err(|e| OrbitCoreError::Internal(e.to_string()))
 }
 
-pub(crate) async fn download_file_create_new(
-    session_id: u64,
+pub(crate) async fn download_file_create_new_cancellable(
+    _session_id: u64,
     session: &Arc<OrbitSftpSession>,
     remote_path: String,
     local_path: String,
+    cancelled: &AtomicBool,
+    progress: &dyn Fn(u64, Option<u64>),
 ) -> Result<String, OrbitCoreError> {
     if local_path.trim().is_empty() || remote_path.trim().is_empty() {
         return Err(OrbitCoreError::InvalidInput);
     }
+    check_transfer_cancelled(cancelled)?;
 
-    let remote_for_log = remote_path.clone();
-    let mut remote = session
-        .sftp
-        .open(remote_path)
-        .await
-        .map_err(|e| OrbitCoreError::SftpFailed(format!("open remote file failed: {e}")))?;
-    let mut local = tokio::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(local_path)
-        .await
-        .map_err(|e| OrbitCoreError::SftpFailed(format!("create local file failed: {e}")))?;
-
-    let mut buf = vec![0u8; SFTP_IO_BUF_SIZE];
-    let mut downloaded: u64 = 0;
-    loop {
-        let n = remote
-            .read(&mut buf)
+    let transfer: Result<u64, OrbitCoreError> = async {
+        let mut remote = session
+            .sftp
+            .open(remote_path.clone())
             .await
-            .map_err(|e| OrbitCoreError::SftpFailed(format!("read remote file failed: {e}")))?;
-        if n == 0 {
-            break;
+            .map_err(|e| OrbitCoreError::SftpFailed(format!("open remote file failed: {e}")))?;
+        let total_bytes = remote
+            .metadata()
+            .await
+            .ok()
+            .and_then(|metadata| metadata.size);
+
+        let mut local = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&local_path)
+            .await
+            .map_err(|e| OrbitCoreError::SftpFailed(format!("create local file failed: {e}")))?;
+
+        let mut buffer = vec![0u8; SFTP_DOWNLOAD_BUF_SIZE];
+        let mut downloaded = 0u64;
+        let mut progress_throttle = TransferProgressThrottle::started();
+        let mut observed_monitor_generation = session
+            .base
+            .monitor_sample_generation
+            .load(Ordering::SeqCst);
+        progress(downloaded, total_bytes);
+        loop {
+            check_transfer_cancelled(cancelled)?;
+            let count = remote
+                .read(&mut buffer)
+                .await
+                .map_err(|e| OrbitCoreError::SftpFailed(format!("read remote file failed: {e}")))?;
+            if count == 0 {
+                break;
+            }
+            local
+                .write_all(&buffer[..count])
+                .await
+                .map_err(|e| OrbitCoreError::SftpFailed(format!("write local file failed: {e}")))?;
+            downloaded += count as u64;
+            if progress_throttle.should_report(downloaded, false) {
+                progress(downloaded, total_bytes);
+            }
+            let requested_monitor_generation = session
+                .base
+                .monitor_sample_generation
+                .load(Ordering::SeqCst);
+            if requested_monitor_generation != observed_monitor_generation {
+                observed_monitor_generation = requested_monitor_generation;
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
         }
-        if std::env::var_os("ORBIT_CORE_DEBUG").is_some() {
-            eprintln!(
-                "[orbit-core][sftp_download_checked] session={} chunk_bytes={} remote={}",
-                session_id, n, remote_for_log
-            );
-        }
+        check_transfer_cancelled(cancelled)?;
         local
-            .write_all(&buf[..n])
+            .flush()
             .await
-            .map_err(|e| OrbitCoreError::SftpFailed(format!("write local file failed: {e}")))?;
-        downloaded += n as u64;
+            .map_err(|e| OrbitCoreError::SftpFailed(format!("flush local file failed: {e}")))?;
+        if progress_throttle.should_report(downloaded, true) {
+            progress(downloaded, total_bytes);
+        }
+        Ok(downloaded)
     }
-    local
-        .flush()
-        .await
-        .map_err(|e| OrbitCoreError::SftpFailed(format!("flush local file failed: {e}")))?;
+    .await;
 
-    serde_json::to_string(&SftpTransferResult { bytes: downloaded })
+    if transfer.is_err() {
+        // Checked downloads create a previously absent staging path. Removing it
+        // on cancellation/failure ensures callers never consume a partial file.
+        let _ = tokio::fs::remove_file(&local_path).await;
+    }
+    serde_json::to_string(&SftpTransferResult { bytes: transfer? })
         .map_err(|e| OrbitCoreError::Internal(e.to_string()))
+}
+
+fn check_transfer_cancelled(cancelled: &AtomicBool) -> Result<(), OrbitCoreError> {
+    if cancelled.load(Ordering::Acquire) {
+        Err(OrbitCoreError::SftpTransferCancelled)
+    } else {
+        Ok(())
+    }
+}
+
+fn transfer_temporary_path(remote_path: &str) -> Result<String, OrbitCoreError> {
+    let parent = remote_path
+        .rsplit_once('/')
+        .map(|(parent, _)| parent)
+        .unwrap_or("");
+    let separator = if parent.is_empty() || parent == "/" {
+        ""
+    } else {
+        "/"
+    };
+    let temporary = format!(
+        "{parent}{separator}.orbitterm-upload-{:032x}.part",
+        random::<u128>()
+    );
+    if temporary.len() > MAX_SFTP_PATH_BYTES {
+        return Err(OrbitCoreError::InvalidInput);
+    }
+    Ok(temporary)
 }
 
 pub(crate) async fn read_text_file(
@@ -356,19 +617,22 @@ pub(crate) async fn read_text_file(
         return Err(OrbitCoreError::InvalidInput);
     }
 
-    let mut remote = session
+    let remote = session
         .sftp
         .open(remote_path)
         .await
         .map_err(|e| OrbitCoreError::SftpFailed(format!("open remote file failed: {e}")))?;
 
-    let mut data = Vec::new();
-    remote
+    // Read one byte beyond the editor budget and stop. Checking only after an
+    // unbounded read allows a very large remote file to exhaust mobile memory.
+    let mut limited = remote.take((SFTP_TEXT_EDIT_MAX_BYTES + 1) as u64);
+    let mut data = Vec::with_capacity(SFTP_TEXT_EDIT_MAX_BYTES.min(64 * 1024));
+    limited
         .read_to_end(&mut data)
         .await
         .map_err(|e| OrbitCoreError::SftpFailed(format!("read remote file failed: {e}")))?;
 
-    if data.len() > 2 * 1024 * 1024 {
+    if data.len() > SFTP_TEXT_EDIT_MAX_BYTES {
         return Err(OrbitCoreError::SftpFailed(
             "文件超过 2MB，暂不支持在线编辑".to_string(),
         ));
@@ -606,19 +870,11 @@ pub(crate) async fn mkdir_checked_create_new(
     if !is_canonical_mutation_path(&remote_path) {
         return Err(SftpMutationError::InvalidRequest);
     }
-    if session
-        .sftp
-        .try_exists(remote_path.clone())
-        .await
-        .map_err(|_| SftpMutationError::BackendFailed)?
-    {
-        return Err(SftpMutationError::TargetExists);
-    }
     session
         .sftp
         .create_dir(remote_path)
         .await
-        .map_err(|_| SftpMutationError::BackendFailed)
+        .map_err(map_create_mutation_error)
 }
 
 pub(crate) async fn create_file_checked_create_new(
@@ -628,14 +884,6 @@ pub(crate) async fn create_file_checked_create_new(
     if !is_canonical_mutation_path(&remote_path) {
         return Err(SftpMutationError::InvalidRequest);
     }
-    if session
-        .sftp
-        .try_exists(remote_path.clone())
-        .await
-        .map_err(|_| SftpMutationError::BackendFailed)?
-    {
-        return Err(SftpMutationError::TargetExists);
-    }
     let mut remote = session
         .sftp
         .open_with_flags(
@@ -643,7 +891,7 @@ pub(crate) async fn create_file_checked_create_new(
             OpenFlags::CREATE | OpenFlags::EXCLUDE | OpenFlags::WRITE,
         )
         .await
-        .map_err(|_| SftpMutationError::BackendFailed)?;
+        .map_err(map_create_mutation_error)?;
     remote
         .shutdown()
         .await
@@ -757,4 +1005,63 @@ pub(crate) async fn chmod(
 
 fn shell_single_quote(input: &str) -> String {
     format!("'{}'", input.replace('\'', "'\"'\"'"))
+}
+
+#[cfg(test)]
+mod transfer_progress_tests {
+    use super::{
+        map_create_mutation_error, SftpMutationError, TransferProgressThrottle,
+        SFTP_PROGRESS_MIN_BYTES,
+    };
+    use russh_sftp::{
+        client::error::Error as SftpClientError,
+        protocol::{Status, StatusCode},
+    };
+
+    #[test]
+    fn coalesces_small_immediate_progress_updates() {
+        let mut throttle = TransferProgressThrottle::started();
+
+        assert!(!throttle.should_report(64 * 1024, false));
+        assert!(!throttle.should_report(256 * 1024, false));
+        assert!(throttle.should_report(SFTP_PROGRESS_MIN_BYTES, false));
+    }
+
+    #[test]
+    fn always_reports_the_final_transfer_position() {
+        let mut throttle = TransferProgressThrottle::started();
+
+        assert!(throttle.should_report(1, true));
+        assert!(throttle.should_report(1, true));
+    }
+
+    #[test]
+    fn create_mutation_preserves_permission_denied() {
+        let error = SftpClientError::Status(Status {
+            id: 1,
+            status_code: StatusCode::PermissionDenied,
+            error_message: "Permission denied".to_string(),
+            language_tag: String::new(),
+        });
+
+        assert_eq!(
+            map_create_mutation_error(error),
+            SftpMutationError::PermissionDenied
+        );
+    }
+
+    #[test]
+    fn create_mutation_recognizes_generic_already_exists_response() {
+        let error = SftpClientError::Status(Status {
+            id: 1,
+            status_code: StatusCode::Failure,
+            error_message: "File already exists".to_string(),
+            language_tag: String::new(),
+        });
+
+        assert_eq!(
+            map_create_mutation_error(error),
+            SftpMutationError::TargetExists
+        );
+    }
 }

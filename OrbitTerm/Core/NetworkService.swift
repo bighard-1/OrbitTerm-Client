@@ -10,8 +10,8 @@ final class NetworkService: NSObject {
     // 默认后端地址：首次启动直接指向正式域名。
     // 同时支持从 UserDefaults 读取已保存的自定义地址。
     private static let baseURLKey = "orbitterm.network.base_url"
+    private static let approvedCustomBaseURLKey = "orbitterm.network.approved_custom_base_url"
     private static let defaultBaseURLString = "https://server.orbitterm.com"
-    private static let defaultHost = "server.orbitterm.com"
 
     private let logger = Logger(subsystem: "com.orbitterm.app", category: "network")
     private let keychain = KeychainManager.shared
@@ -19,6 +19,9 @@ final class NetworkService: NSObject {
     private let tokenAccount = "jwt_token"
     private let refreshTokenAccount = "jwt_refresh_token"
     private let refreshCoordinator = RefreshCoordinator()
+    /// App composition injects the account-scoped recorder. The static fallback
+    /// only covers pre-composition calls during process bootstrap.
+    private var diagnosticsManager: DiagnosticsManager?
 
     private lazy var session: URLSession = {
         let config = URLSessionConfiguration.default
@@ -32,10 +35,15 @@ final class NetworkService: NSObject {
         super.init()
     }
 
+    func configureDiagnostics(_ diagnostics: DiagnosticsManager) {
+        diagnosticsManager = diagnostics
+    }
+
     enum NetworkError: Error, LocalizedError {
         case invalidURL
         case invalidBaseURL
         case insecureScheme
+        case customEndpointApprovalRequired
         case server(String)
         case unexpectedStatus(Int)
         case unauthorized(String?)
@@ -49,6 +57,8 @@ final class NetworkService: NSObject {
                 return "服务地址格式无效"
             case .insecureScheme:
                 return "仅允许 HTTPS 服务地址"
+            case .customEndpointApprovalRequired:
+                return "自托管服务必须经过明确风险确认后才能启用"
             case let .server(message):
                 return "服务端错误: \(message)"
             case let .unexpectedStatus(code):
@@ -67,30 +77,63 @@ final class NetworkService: NSObject {
     // 返回当前生效的后端地址字符串（用于调试或隐形设置）。
     // 若本地存储为空，自动返回内置默认值。
     var currentBaseURLString: String {
-        UserDefaults.standard.string(forKey: Self.baseURLKey) ?? Self.defaultBaseURLString
+        let stored = UserDefaults.standard.string(forKey: Self.baseURLKey) ?? Self.defaultBaseURLString
+        guard let endpoint = try? normalizedEndpoint(stored) else {
+            return Self.defaultBaseURLString
+        }
+        switch endpoint {
+        case let .official(normalized):
+            return normalized
+        case let .custom(normalized):
+            return UserDefaults.standard.string(forKey: Self.approvedCustomBaseURLKey) == normalized
+                ? normalized
+                : Self.defaultBaseURLString
+        }
     }
 
     var defaultBaseURLString: String {
         Self.defaultBaseURLString
     }
 
-    // 写入自定义后端地址。入参允许省略 scheme，会自动补全为 https。
-    // 只允许 https，避免明文 http 被 ATS 拦截或产生安全风险。
+    // Only the official endpoint can be changed without an explicit custom
+    // endpoint approval. This prevents any future caller from silently
+    // redirecting authenticated traffic to a self-hosted server.
     func updateBaseURL(_ rawInput: String) throws {
-        let normalized = try normalizeBaseURLString(rawInput)
+        let endpoint = try normalizedEndpoint(rawInput)
+        guard case let .official(normalized) = endpoint else {
+            throw NetworkError.customEndpointApprovalRequired
+        }
         UserDefaults.standard.set(normalized, forKey: Self.baseURLKey)
+        UserDefaults.standard.removeObject(forKey: Self.approvedCustomBaseURLKey)
+    }
+
+    /// Stores a self-hosted HTTPS endpoint only after the caller has rendered
+    /// the host-specific risk confirmation to the user.
+    func updateApprovedCustomBaseURL(_ rawInput: String) throws {
+        let endpoint = try normalizedEndpoint(rawInput)
+        switch endpoint {
+        case let .official(normalized):
+            try updateBaseURL(normalized)
+        case let .custom(normalized):
+            UserDefaults.standard.set(normalized, forKey: Self.baseURLKey)
+            UserDefaults.standard.set(normalized, forKey: Self.approvedCustomBaseURLKey)
+        }
     }
 
     // 在真正保存前提供预校验能力，便于 UI 做二次确认弹窗。
     func validatedBaseURLString(_ rawInput: String) throws -> String {
-        try normalizeBaseURLString(rawInput)
+        try normalizedEndpoint(rawInput).normalizedURLString
     }
 
     func isDefaultEndpoint(_ rawInput: String) -> Bool {
-        guard let host = URL(string: rawInput)?.host?.lowercased() else {
-            return false
-        }
-        return host == Self.defaultHost
+        guard case .official = try? normalizedEndpoint(rawInput) else { return false }
+        return true
+    }
+
+    func customEndpointHost(_ rawInput: String) -> String? {
+        guard case let .custom(normalized) = try? normalizedEndpoint(rawInput),
+              let host = URL(string: normalized)?.host else { return nil }
+        return host
     }
 
     static func isRetriableNetworkError(_ error: Error) -> Bool {
@@ -178,6 +221,17 @@ final class NetworkService: NSObject {
                 items: items
             ),
             responseType: LoginData.self
+        )
+    }
+
+    func migrateConfigCryptoV2(
+        items: [ConfigCryptoMigrationItemRequest]
+    ) async throws -> ConfigCryptoMigrationResponse {
+        try await sendAuthorized(
+            path: "/api/v1/config/crypto/migrate-v2",
+            method: "POST",
+            body: ConfigCryptoMigrationRequest(items: items),
+            responseType: ConfigCryptoMigrationResponse.self
         )
     }
 
@@ -359,7 +413,7 @@ final class NetworkService: NSObject {
 
         let envelope = try? JSONDecoder().decode(APIEnvelope<Resp>.self, from: data)
         await MainActor.run {
-            DiagnosticsManager.shared.record(
+            (self.diagnosticsManager ?? DiagnosticsManager.shared).record(
                 method: method,
                 url: requestURLString,
                 statusCode: httpResp.statusCode,
@@ -404,7 +458,7 @@ final class NetworkService: NSObject {
         let requestURLString = request.url?.absoluteString ?? path
         let envelope = try? JSONDecoder().decode(APIEnvelope<EmptyResponseData>.self, from: data)
         await MainActor.run {
-            DiagnosticsManager.shared.record(
+            (self.diagnosticsManager ?? DiagnosticsManager.shared).record(
                 method: method,
                 url: requestURLString,
                 statusCode: httpResp.statusCode,
@@ -448,7 +502,7 @@ final class NetworkService: NSObject {
 
         let envelope = try? JSONDecoder().decode(APIEnvelope<Resp>.self, from: data)
         await MainActor.run {
-            DiagnosticsManager.shared.record(
+            (self.diagnosticsManager ?? DiagnosticsManager.shared).record(
                 method: method,
                 url: requestURLString,
                 statusCode: httpResp.statusCode,
@@ -477,7 +531,7 @@ final class NetworkService: NSObject {
 
     private func resolvedBaseURL() throws -> URL {
         let storedOrDefault = currentBaseURLString
-        let normalized = try normalizeBaseURLString(storedOrDefault)
+        let normalized = try normalizedEndpoint(storedOrDefault).normalizedURLString
         guard let url = URL(string: normalized) else {
             throw NetworkError.invalidBaseURL
         }
@@ -485,6 +539,21 @@ final class NetworkService: NSObject {
     }
 
     private func normalizeBaseURLString(_ input: String) throws -> String {
+        try normalizedEndpoint(input).normalizedURLString
+    }
+
+    private enum Endpoint: Equatable {
+        case official(String)
+        case custom(String)
+
+        var normalizedURLString: String {
+            switch self {
+            case let .official(value), let .custom(value): value
+            }
+        }
+    }
+
+    private func normalizedEndpoint(_ input: String) throws -> Endpoint {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw NetworkError.invalidBaseURL
@@ -493,7 +562,12 @@ final class NetworkService: NSObject {
         let candidate = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
         guard var comps = URLComponents(string: candidate),
               let host = comps.host,
-              !host.isEmpty else {
+              !host.isEmpty,
+              comps.user == nil,
+              comps.password == nil,
+              comps.query == nil,
+              comps.fragment == nil,
+              comps.path.isEmpty || comps.path == "/" else {
             throw NetworkError.invalidBaseURL
         }
 
@@ -503,12 +577,15 @@ final class NetworkService: NSObject {
         }
 
         comps.scheme = "https"
-        comps.path = comps.path.isEmpty ? "" : comps.path
+        comps.host = host.lowercased()
+        comps.path = ""
 
         guard let normalizedURL = comps.url else {
             throw NetworkError.invalidBaseURL
         }
-        return normalizedURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let normalized = normalizedURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let isOfficial = comps.host == OfficialServiceTLSPinningPolicy.officialHost && (comps.port == nil || comps.port == 443)
+        return isOfficial ? .official(normalized) : .custom(normalized)
     }
 
     private func executeRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse, Int, Int) {
@@ -524,10 +601,10 @@ final class NetworkService: NSObject {
                 let latency = Int(Date().timeIntervalSince(start) * 1000)
 
                 if (500 ... 599).contains(httpResp.statusCode), attempt < maxAttempts {
-                    await MainActor.run { DiagnosticsManager.shared.beginRetry() }
-                    defer { Task { @MainActor in DiagnosticsManager.shared.endRetry() } }
+                    await MainActor.run { (self.diagnosticsManager ?? DiagnosticsManager.shared).beginRetry() }
+                    defer { Task { @MainActor in (self.diagnosticsManager ?? DiagnosticsManager.shared).endRetry() } }
                     await MainActor.run {
-                        DiagnosticsManager.shared.record(
+                        (self.diagnosticsManager ?? DiagnosticsManager.shared).record(
                             method: request.httpMethod ?? "GET",
                             url: request.url?.absoluteString ?? "-",
                             statusCode: httpResp.statusCode,
@@ -545,7 +622,7 @@ final class NetworkService: NSObject {
                 let latency = Int(Date().timeIntervalSince(start) * 1000)
                 let isTimeout = isTimeoutError(error)
                 await MainActor.run {
-                    DiagnosticsManager.shared.record(
+                    (self.diagnosticsManager ?? DiagnosticsManager.shared).record(
                         method: request.httpMethod ?? "GET",
                         url: request.url?.absoluteString ?? "-",
                         statusCode: nil,
@@ -555,9 +632,9 @@ final class NetworkService: NSObject {
                     )
                 }
                 guard isTimeout, attempt < maxAttempts else { throw error }
-                await MainActor.run { DiagnosticsManager.shared.beginRetry() }
-                defer { Task { @MainActor in DiagnosticsManager.shared.endRetry() } }
-                logger.debug("[NET] timeout retry attempt=\(attempt) url=\(request.url?.absoluteString ?? "-", privacy: .public)")
+                await MainActor.run { (self.diagnosticsManager ?? DiagnosticsManager.shared).beginRetry() }
+                defer { Task { @MainActor in (self.diagnosticsManager ?? DiagnosticsManager.shared).endRetry() } }
+                logger.debug("[NET] timeout retry attempt=\(attempt)")
                 try? await Task.sleep(nanoseconds: retryBackoffNanos(for: attempt))
             }
         }
@@ -621,11 +698,25 @@ final class NetworkService: NSObject {
     }
 }
 
+extension NetworkService.NetworkError: SyncRecoveryClassifiable {
+    var syncRecoveryFailure: SyncRecoveryNetworkFailure {
+        switch self {
+        case .unauthorized:
+            return .authenticationExpired
+        case .invalidURL, .invalidBaseURL, .insecureScheme, .customEndpointApprovalRequired:
+            return .serviceConfigurationInvalid
+        case .server, .unexpectedStatus:
+            return .serviceUnavailable
+        case .decodeFailed:
+            return .protocolViolation
+        }
+    }
+}
+
 extension NetworkService: URLSessionDelegate {
-    // 对默认正式域名执行额外 TLS 校验加固：
-    // 1) 强制 hostname policy
-    // 2) 强制系统信任评估通过
-    // 3) 拒绝单证书（常见自签名）链路
+    // Official traffic requires both the normal hostname/system trust check and
+    // a pinned certificate chain. Self-hosted endpoints intentionally retain
+    // normal platform HTTPS trust after an explicit host-specific confirmation.
     func urlSession(
         _ session: URLSession,
         didReceive challenge: URLAuthenticationChallenge,
@@ -638,7 +729,7 @@ extension NetworkService: URLSessionDelegate {
         }
 
         let host = challenge.protectionSpace.host.lowercased()
-        guard host == Self.defaultHost else {
+        guard OfficialServiceTLSPinningPolicy.requiresPinning(for: host) else {
             completionHandler(.performDefaultHandling, nil)
             return
         }
@@ -652,9 +743,12 @@ extension NetworkService: URLSessionDelegate {
             return
         }
 
-        // 基础防护：对默认域名拒绝单证书链（降低自签名风险）。
-        let certCount = SecTrustGetCertificateCount(trust)
-        guard certCount > 1 else {
+        let certificates = SecTrustCopyCertificateChain(trust) as? [SecCertificate] ?? []
+        let publicKeyPins = Set(certificates.compactMap { certificate in
+            try? OfficialServiceTLSPinningPolicy.spkiSHA256(for: certificate)
+        })
+        guard OfficialServiceTLSPinningPolicy.acceptsValidatedChainSPKIHashes(publicKeyPins) else {
+            logger.error("[NET] official TLS pin validation failed")
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }

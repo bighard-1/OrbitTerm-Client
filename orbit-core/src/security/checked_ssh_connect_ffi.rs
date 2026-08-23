@@ -6,6 +6,7 @@ use super::checked_ssh_connect::{
 };
 use super::checked_test_connection_ffi::{
     connection_error_payload, parse_checked_connection_request,
+    parse_checked_connection_request_with_jump,
 };
 use super::host_key_ffi_api::{ffi_response, success_envelope, FfiOperationResult};
 use super::host_key_ffi_error::{HostKeyFfiErrorCode, HostKeyFfiErrorPayload};
@@ -36,6 +37,58 @@ pub extern "C" fn orbit_ssh_connect_checked_v1(
             private_key,
             private_key_passphrase,
             allow_password_fallback,
+            known_hosts_path,
+            request_id,
+        )?;
+        let request_id = request.request_id().to_string();
+        let outcome = ORBIT_RUNTIME.block_on(run_checked_ssh_connect(request));
+        outcome_to_ffi(outcome, request_id)
+    })
+}
+
+/// Checked SSH connection with an optional single ProxyJump hop.
+///
+/// The v1 ABI remains untouched for existing clients. Both the jump host and
+/// the destination are independently checked against `known_hosts`; a jump
+/// channel is never a substitute for destination host-key verification.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub extern "C" fn orbit_ssh_connect_checked_v2(
+    host: *const c_char,
+    port: i32,
+    username: *const c_char,
+    password: *const c_char,
+    private_key: *const c_char,
+    private_key_passphrase: *const c_char,
+    allow_password_fallback: i32,
+    jump_enabled: i32,
+    jump_host: *const c_char,
+    jump_port: i32,
+    jump_username: *const c_char,
+    jump_password: *const c_char,
+    jump_private_key: *const c_char,
+    jump_private_key_passphrase: *const c_char,
+    jump_allow_password_fallback: i32,
+    known_hosts_path: *const c_char,
+    request_id: *const c_char,
+) -> *mut c_char {
+    ffi_response(|| {
+        let request = parse_checked_connection_request_with_jump(
+            host,
+            port,
+            username,
+            password,
+            private_key,
+            private_key_passphrase,
+            allow_password_fallback,
+            jump_enabled,
+            jump_host,
+            jump_port,
+            jump_username,
+            jump_password,
+            jump_private_key,
+            jump_private_key_passphrase,
+            jump_allow_password_fallback,
             known_hosts_path,
             request_id,
         )?;

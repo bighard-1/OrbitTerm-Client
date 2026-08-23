@@ -10,6 +10,12 @@ extension SFTPManager {
             statusText = "上传失败: 未连接"
             return
         }
+        guard let connectionLease = currentTransferConnectionLease(sessionID: sid) else {
+            return
+        }
+
+        guard beginTransferOperation() != nil else { return }
+        defer { finishTransferOperation() }
 
         let task = TransferTaskItem(
             fileName: localURL.lastPathComponent,
@@ -18,7 +24,11 @@ extension SFTPManager {
             statusText: "准备上传",
             isDone: false
         )
-        transfers.insert(task, at: 0)
+        recordTransfer(task)
+        registerTransferRetry(taskID: task.id) { [weak self] in
+            guard let self else { return }
+            Task { await self.upload(localURL: localURL, remotePath: remotePath, progress: nil) }
+        }
         progress?(0)
 
         let remoteTarget = remotePath ?? makeChildPath(name: localURL.lastPathComponent)
@@ -42,13 +52,17 @@ extension SFTPManager {
             }
 
             let bytes = parseTransferBytes(payload)
+            guard acceptsTransferCompletion(connectionLease, sessionID: sid) else { return }
             updateTransfer(taskID: task.id, progress: 1, statusText: "上传完成 \(FileSizeFormatter.humanReadable(bytes))", isDone: true)
+            trimTransferHistory()
             progress?(1)
             try await refresh(path: currentPath)
             successHaptic()
             debugLog("upload_ok", ["bytes": "\(bytes)"])
         } catch {
+            guard acceptsTransferCompletion(connectionLease, sessionID: sid) else { return }
             updateTransfer(taskID: task.id, progress: 0, statusText: "上传失败: \(error.localizedDescription)", isDone: true)
+            trimTransferHistory()
             statusText = "上传失败: \(error.localizedDescription)"
             debugLog("upload_failed", ["error": error.localizedDescription])
         }
@@ -63,8 +77,14 @@ extension SFTPManager {
             statusText = "下载失败: 未连接"
             return
         }
+        guard let connectionLease = currentTransferConnectionLease(sessionID: sid) else {
+            return
+        }
 
         let remotePath = makeChildPath(name: item.name)
+        guard beginTransferOperation() != nil else { return }
+        defer { finishTransferOperation() }
+
         let task = TransferTaskItem(
             fileName: item.name,
             direction: .download,
@@ -72,7 +92,11 @@ extension SFTPManager {
             statusText: "准备下载",
             isDone: false
         )
-        transfers.insert(task, at: 0)
+        recordTransfer(task)
+        registerTransferRetry(taskID: task.id) { [weak self] in
+            guard let self else { return }
+            Task { await self.download(item: item, to: localURL, resumeOffset: resumeOffset, progress: nil) }
+        }
         progress?(0)
 
         debugLog("download_start", [
@@ -96,12 +120,16 @@ extension SFTPManager {
             }
 
             let bytes = parseTransferBytes(payload)
+            guard acceptsTransferCompletion(connectionLease, sessionID: sid) else { return }
             updateTransfer(taskID: task.id, progress: 1, statusText: "下载完成 \(FileSizeFormatter.humanReadable(bytes))", isDone: true)
+            trimTransferHistory()
             progress?(1)
             successHaptic()
             debugLog("download_ok", ["bytes": "\(bytes)"])
         } catch {
+            guard acceptsTransferCompletion(connectionLease, sessionID: sid) else { return }
             updateTransfer(taskID: task.id, progress: 0, statusText: "下载失败: \(error.localizedDescription)", isDone: true)
+            trimTransferHistory()
             statusText = "下载失败: \(error.localizedDescription)"
             debugLog("download_failed", ["error": error.localizedDescription])
         }
@@ -110,7 +138,7 @@ extension SFTPManager {
     func batchDownload(
         items: [FileItem],
         destinationDirectory: URL,
-        maxConcurrent: Int = 3,
+        maxConcurrent: Int = OperationResourceBudget.sftpMaximumConcurrentTransfers,
         progress: (@Sendable (BatchDownloadProgress) -> Void)? = nil
     ) async -> BatchDownloadResult {
         let total = items.count
@@ -119,6 +147,10 @@ extension SFTPManager {
         }
         guard let sid = operationSessionID else {
             let failed = Dictionary(uniqueKeysWithValues: items.map { ($0.name, "未连接") })
+            return BatchDownloadResult(summary: BatchOperationSummary(succeeded: [], failed: failed), downloadedURLs: [])
+        }
+        guard let connectionLease = currentTransferConnectionLease(sessionID: sid) else {
+            let failed = Dictionary(uniqueKeysWithValues: items.map { ($0.name, "会话已切换或断开") })
             return BatchDownloadResult(summary: BatchOperationSummary(succeeded: [], failed: failed), downloadedURLs: [])
         }
 
@@ -137,11 +169,22 @@ extension SFTPManager {
             )
         }
 
+        guard let grantedWorkers = beginTransferOperation(requestedSlots: maxConcurrent) else {
+            let failed = Dictionary(uniqueKeysWithValues: items.map { ($0.name, "传输队列繁忙") })
+            return BatchDownloadResult(summary: BatchOperationSummary(succeeded: [], failed: failed), downloadedURLs: [])
+        }
+        defer { finishTransferOperation(slots: grantedWorkers) }
+
         let results = await SFTPBatchDownloader.run(
             sessionID: sid,
             entries: entries,
-            maxConcurrent: maxConcurrent
+            maxConcurrent: grantedWorkers
         )
+
+        guard acceptsTransferCompletion(connectionLease, sessionID: sid) else {
+            let failed = Dictionary(uniqueKeysWithValues: items.map { ($0.name, "会话已切换或断开") })
+            return BatchDownloadResult(summary: BatchOperationSummary(succeeded: [], failed: failed), downloadedURLs: [])
+        }
 
         var summary = BatchOperationSummary()
         var urls: [URL] = []

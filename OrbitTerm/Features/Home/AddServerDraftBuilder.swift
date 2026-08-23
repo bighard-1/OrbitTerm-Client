@@ -14,12 +14,15 @@ struct AddServerDraftInput {
     let password: String
     let privateKeyContent: String
     let privateKeyPassphrase: String
+    let jumpHost: JumpHostConfiguration?
+    let jumpHostCredentials: ServerCredentials?
     let editingServer: ServerEntry?
 }
 
 struct AddServerDraft {
     let server: ServerEntry
     let credentials: ServerCredentials
+    let jumpHostCredentials: ServerCredentials?
 }
 
 enum AddServerDraftBuilder {
@@ -31,7 +34,11 @@ enum AddServerDraftBuilder {
         )
 
         let server = makeServer(from: input)
-        return AddServerDraft(server: server, credentials: credentials)
+        return AddServerDraft(
+            server: server,
+            credentials: credentials,
+            jumpHostCredentials: input.jumpHostCredentials
+        )
     }
 
     private static func makeServer(from input: AddServerDraftInput) -> ServerEntry {
@@ -52,6 +59,7 @@ enum AddServerDraftBuilder {
                 networkDeviceProfile: input.networkDeviceProfile,
                 allowPasswordFallback: normalizedFallback,
                 credentialID: existing.credentialID,
+                jumpHost: input.transport == .ssh ? input.jumpHost : nil,
                 createdAt: existing.createdAt
             )
         }
@@ -66,7 +74,8 @@ enum AddServerDraftBuilder {
             authMethod: normalizedAuthMethod,
             transport: input.transport,
             networkDeviceProfile: input.networkDeviceProfile,
-            allowPasswordFallback: normalizedFallback
+            allowPasswordFallback: normalizedFallback,
+            jumpHost: input.transport == .ssh ? input.jumpHost : nil
         )
     }
 }
