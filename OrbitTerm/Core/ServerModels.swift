@@ -43,6 +43,7 @@ enum ServerAuthMethod: String, Codable, CaseIterable, Identifiable, Sendable {
 enum ServerTransportProtocol: String, Codable, CaseIterable, Identifiable, Sendable {
     case ssh
     case telnet
+    case rdp
 
     var id: String { rawValue }
 
@@ -50,7 +51,20 @@ enum ServerTransportProtocol: String, Codable, CaseIterable, Identifiable, Senda
         switch self {
         case .ssh: return "SSH"
         case .telnet: return "Telnet"
+        case .rdp: return "RDP"
         }
+    }
+
+    /// Terminal/SFTP/Docker tools must never reinterpret an RDP asset as SSH.
+    var supportsTerminalWorkspace: Bool {
+        self == .ssh || self == .telnet
+    }
+
+    /// RDP metadata is portable before every Apple target ships its native
+    /// remote-desktop engine. Keeping this separate from terminal support lets
+    /// sync preserve the asset without exposing an unsafe fallback path.
+    var requiresRemoteDesktopWorkspace: Bool {
+        self == .rdp
     }
 }
 

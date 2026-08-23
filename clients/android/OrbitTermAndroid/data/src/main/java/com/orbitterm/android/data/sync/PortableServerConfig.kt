@@ -40,7 +40,7 @@ data class PortableServerConfig(
         require(username.isNotBlank()) { "username is required" }
         require(port in 1..65535) { "port must be between 1 and 65535" }
         require(authMethod == "password" || authMethod == "key") { "unsupported authMethod" }
-        require(transport == "ssh" || transport == "telnet") { "unsupported transport" }
+        require(transport == "ssh" || transport == "telnet" || transport == "rdp") { "unsupported transport" }
         val normalizedJumpHost = jumpHost?.validate()
         if (normalizedJumpHost != null) {
             require(transport == ServerTransportProtocol.ssh.name) { "jump host requires SSH transport" }

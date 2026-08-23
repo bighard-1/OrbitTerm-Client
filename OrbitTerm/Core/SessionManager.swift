@@ -383,6 +383,11 @@ final class SessionManager: ObservableObject {
     func testConnection(session: WorkspaceSession) async {
         session.appendTerminal("[check] 正在测试连接 \(session.server.endpointText)")
 
+        guard session.server.transport.supportsTerminalWorkspace else {
+            session.appendTerminal("[rdp] 请在远程桌面工作区测试连接；未启动 SSH 探测")
+            return
+        }
+
         guard checkedConnectionDispatcher.policy.allowsLegacyNetwork else {
             session.appendTerminal("[check] 独立连接测试已停用，请使用“连接”完成服务器身份验证")
             return
@@ -477,6 +482,13 @@ final class SessionManager: ObservableObject {
     }
 
     func connect(session: WorkspaceSession) async {
+        guard session.server.transport.supportsTerminalWorkspace else {
+            session.terminalStatus = "需要远程桌面"
+            session.isConnected = false
+            session.appendTerminal("[rdp] 此资产已安全同步；当前 Apple 版本尚未接入 RDP 工作区，不会将其误作 SSH 连接")
+            return
+        }
+
         if session.server.transport == .telnet {
             let target = TelnetTargetIdentity(
                 serverID: session.server.id,

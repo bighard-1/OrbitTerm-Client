@@ -20,4 +20,12 @@ class AndroidTransportSupportPolicyTest {
         assertTrue(label.contains("TELNET"))
         assertTrue(label.contains("明文"))
     }
+
+    @Test
+    fun rdpMetadataIsVisibleButCannotFallBackToSsh() {
+        assertFalse(AndroidTransportSupportPolicy.allowsCheckedConnection("rdp"))
+        val label = AndroidTransportSupportPolicy.compatibilityLabel("rdp")
+        assertTrue(label.contains("RDP"))
+        assertTrue(label.contains("已同步"))
+    }
 }

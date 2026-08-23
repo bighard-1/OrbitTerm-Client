@@ -1291,6 +1291,14 @@ private fun TransportSelector(
                 onClick = { onSelected(ServerTransportProtocol.telnet) },
                 label = { Text("Telnet") },
             )
+            if (selected == ServerTransportProtocol.rdp) {
+                FilterChip(
+                    selected = true,
+                    enabled = false,
+                    onClick = {},
+                    label = { Text("RDP · 仅同步") },
+                )
+            }
         }
     }
 }

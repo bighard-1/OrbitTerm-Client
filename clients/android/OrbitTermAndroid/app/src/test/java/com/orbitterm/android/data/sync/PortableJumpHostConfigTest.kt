@@ -21,6 +21,24 @@ class PortableJumpHostConfigTest {
     }
 
     @Test
+    fun `rdp sync payload is preserved for future native remote desktop support`() {
+        val portable = PortableServerConfig(
+            id = "portable-rdp-asset",
+            name = "Windows desktop",
+            host = "10.0.1.25",
+            port = 3389,
+            username = "Administrator",
+            authMethod = "password",
+            transport = "rdp",
+            password = "rdp-secret",
+            savedAtUnix = 1L,
+        ).validate()
+
+        assertEquals("rdp", portable.transport)
+        assertEquals(3389, portable.port)
+    }
+
+    @Test
     fun `valid jump configuration keeps separate credential metadata`() {
         val jump = PortableJumpHostConfig(
             credentialID = "asset-1-jump",

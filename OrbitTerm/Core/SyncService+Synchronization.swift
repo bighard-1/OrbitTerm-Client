@@ -665,6 +665,9 @@ extension SyncService {
         guard let serverID = UUID(uuidString: portable.id) else {
             throw NetworkService.NetworkError.server("资产 UUID 无效")
         }
+        guard let transport = ServerTransportProtocol(rawValue: portable.transport) else {
+            throw NetworkService.NetworkError.server("资产传输协议不受支持")
+        }
         let credentialID = UUID(uuidString: portable.credentialID) ?? serverID
         let jumpHost: JumpHostConfiguration?
         if let portableJumpHost = portable.jumpHost {
@@ -687,7 +690,7 @@ extension SyncService {
             port: portable.port,
             username: portable.username,
             authMethod: portable.authMethod == ServerAuthMethod.key.rawValue ? .key : .password,
-            transport: portable.transport == ServerTransportProtocol.telnet.rawValue ? .telnet : .ssh,
+            transport: transport,
             networkDeviceProfile: NetworkDeviceProfile(rawValue: portable.networkDeviceProfile) ?? .auto,
             allowPasswordFallback: portable.allowPasswordFallback,
             credentialID: credentialID,
@@ -747,6 +750,10 @@ extension SyncService {
                         skipped += 1
                         continue
                     }
+                    guard let transport = ServerTransportProtocol(rawValue: portable.transport) else {
+                        skipped += 1
+                        continue
+                    }
                     let credentialID = UUID(uuidString: portable.credentialID) ?? serverID
                     let credentials = ServerCredentials(
                         password: portable.password,
@@ -776,7 +783,7 @@ extension SyncService {
                         port: portable.port,
                         username: portable.username,
                         authMethod: portable.authMethod == ServerAuthMethod.key.rawValue ? .key : .password,
-                        transport: portable.transport == ServerTransportProtocol.telnet.rawValue ? .telnet : .ssh,
+                        transport: transport,
                         networkDeviceProfile: NetworkDeviceProfile(rawValue: portable.networkDeviceProfile) ?? .auto,
                         allowPasswordFallback: portable.allowPasswordFallback,
                         credentialID: credentialID,

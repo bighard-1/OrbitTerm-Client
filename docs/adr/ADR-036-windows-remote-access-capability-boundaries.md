@@ -30,8 +30,9 @@ embedded RDP experience without creating a second, weaker trust path.
 6. NLA is mandatory. Clipboard, drive and printer redirection are individually
    configurable; enabled redirections are shown before connection. RDP-over-SSH
    reuses a loopback local tunnel created by rule 3.
-7. RDP, tunnels and their passwords are not added to cross-device sync until a
-   reviewed encrypted schema version exists. Unknown future fields fail closed.
+7. This document's original local-only RDP rule is superseded by ADR-037. RDP
+   asset metadata and credentials now use the reviewed encrypted portable asset
+   envelope; port-forwarding runtime state remains local-only.
 
 ## Delivery order
 

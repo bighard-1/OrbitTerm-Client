@@ -2863,7 +2863,6 @@ public sealed class MainWindowViewModel : ObservableObject
                 await accountUnlockController.QueueUnsyncedAssetsAsync(
                     encryptedAssetPublisher!,
                     Assets.Where(asset =>
-                            asset.Transport != ServerTransport.RemoteDesktop &&
                             asset.StorageScope == AssetStorageScope.AccountSynced &&
                             CanAccessAsset(asset))
                         .Select(asset => asset.Id)
@@ -2957,7 +2956,6 @@ public sealed class MainWindowViewModel : ObservableObject
         var unavailableCredentials = 0;
         foreach (var asset in Assets
             .Where(item =>
-                item.Transport != ServerTransport.RemoteDesktop &&
                 item.StorageScope == AssetStorageScope.AccountSynced &&
                 CanAccessAsset(item))
             .Select(item => item.ToRecord())
@@ -3566,10 +3564,6 @@ public sealed class MainWindowViewModel : ObservableObject
             }
             AssetEditorStatus = "已保存为仅此设备资产；不会进入账户同步或云端备份。";
         }
-        else if (record.Transport == ServerTransport.RemoteDesktop)
-        {
-            AssetEditorStatus = "远程桌面资产已安全保存到本机；为避免旧版 Apple 客户端误判，暂不进入跨端同步队列。";
-        }
         else if (IsAccountSignedIn && accountUnlockController is not null && encryptedAssetPublisher is not null)
         {
             await accountUnlockController
@@ -3772,7 +3766,7 @@ public sealed class MainWindowViewModel : ObservableObject
             foreach (var asset in replacements.Values)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (asset.Transport == ServerTransport.RemoteDesktop || asset.StorageScope == AssetStorageScope.LocalOnly)
+                if (asset.StorageScope == AssetStorageScope.LocalOnly)
                 {
                     skippedSync++;
                     continue;
@@ -3806,7 +3800,7 @@ public sealed class MainWindowViewModel : ObservableObject
         }
         if (skippedSync > 0)
         {
-            status += $" {skippedSync} 个 Windows 专用资产仅更新本机记录。";
+            status += $" {skippedSync} 个仅本机资产未进入同步队列。";
         }
         AssetEditorStatus = status;
         RefreshFilteredAssets();
@@ -3833,7 +3827,7 @@ public sealed class MainWindowViewModel : ObservableObject
             foreach (var asset in requestedAssets)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (asset.Transport == ServerTransport.RemoteDesktop || asset.StorageScope == AssetStorageScope.LocalOnly)
+                if (asset.StorageScope == AssetStorageScope.LocalOnly)
                 {
                     deletableAssets.Add(asset);
                     continue;

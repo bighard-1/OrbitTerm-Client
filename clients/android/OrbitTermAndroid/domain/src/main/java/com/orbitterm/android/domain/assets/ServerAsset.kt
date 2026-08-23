@@ -4,7 +4,7 @@ import kotlinx.serialization.Serializable
 
 enum class ServerAuthMethod { password, key }
 
-enum class ServerTransportProtocol { ssh, telnet }
+enum class ServerTransportProtocol { ssh, telnet, rdp }
 
 enum class NetworkDeviceProfile {
     auto,

@@ -34,10 +34,14 @@ struct AddServerAuthSection: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.segmented)
-                    .disabled(transport == .telnet)
+                    .disabled(transport != .ssh)
 
                     if transport == .telnet {
                         Text("Telnet 使用文本提示符自动登录，认证方式固定为密码。")
+                            .font(.caption2)
+                            .foregroundStyle(palette.textSecondary.color)
+                    } else if transport == .rdp {
+                        Text("RDP 资产已参与端到端加密同步；当前 Apple 版本仅保留配置，尚未开放连接入口。")
                             .font(.caption2)
                             .foregroundStyle(palette.textSecondary.color)
                     }
@@ -67,13 +71,22 @@ struct AddServerAuthSection: View {
             }
 
             AddServerFormRow(icon: "lock.fill", title: "密码") {
-                AddServerSecureField(transport == .telnet ? "用于自动应答 Password 提示" : "可选：SSH 密码", text: $password)
+                AddServerSecureField(
+                    transport == .telnet
+                        ? "用于自动应答 Password 提示"
+                        : transport == .rdp ? "Windows 远程桌面密码" : "可选：SSH 密码",
+                    text: $password
+                )
             }
 
             if transport == .ssh {
                 sshCredentialOptions
-            } else {
+            } else if transport == .telnet {
                 Text("Telnet 密码仅存储在系统钥匙串，连接时用于自动应答设备登录提示符。")
+                    .font(.caption)
+                    .foregroundStyle(palette.textSecondary.color)
+            } else {
+                Text("RDP 凭据继续存储在系统钥匙串并参与加密同步；不会被终端、SFTP、Docker 或监控模块读取。")
                     .font(.caption)
                     .foregroundStyle(palette.textSecondary.color)
             }
@@ -81,8 +94,11 @@ struct AddServerAuthSection: View {
     }
 
     private var availableTransports: [ServerTransportProtocol] {
+        if transport == .rdp {
+            return [.rdp]
+        }
         if telnetEnabled || transport == .telnet {
-            return ServerTransportProtocol.allCases
+            return [.ssh, .telnet]
         }
         return [.ssh]
     }

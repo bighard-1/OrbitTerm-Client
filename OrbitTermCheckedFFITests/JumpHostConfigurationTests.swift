@@ -158,4 +158,38 @@ final class JumpHostConfigurationTests: XCTestCase {
 
         XCTAssertFalse(server.hasDistinctCredentialIDs)
     }
+
+    func testWindowsRemoteDesktopEnvelopeIsPreservedWithoutSshFallback() throws {
+        let id = UUID()
+        let credentialID = UUID()
+        let server = ServerEntry(
+            id: id,
+            name: "Windows desktop",
+            group: "Desktop",
+            tags: ["RDP"],
+            host: "10.0.1.25",
+            port: 3389,
+            username: "Administrator",
+            authMethod: .password,
+            transport: .rdp,
+            allowPasswordFallback: false,
+            credentialID: credentialID
+        )
+        let portable = server.makePortableConfig(
+            savedAtUnix: 1_727_000_000,
+            credentials: ServerCredentials(password: "rdp-secret")
+        )
+        let roundTripped = try JSONDecoder().decode(
+            PortableServerConfig.self,
+            from: JSONEncoder().encode(portable)
+        )
+
+        XCTAssertEqual(server.transport, .rdp)
+        XCTAssertTrue(server.transport.requiresRemoteDesktopWorkspace)
+        XCTAssertFalse(server.transport.supportsTerminalWorkspace)
+        XCTAssertEqual(server.port, 3389)
+        XCTAssertEqual(server.credentialID, credentialID)
+        XCTAssertEqual(roundTripped.transport, "rdp")
+        XCTAssertEqual(roundTripped.password, "rdp-secret")
+    }
 }

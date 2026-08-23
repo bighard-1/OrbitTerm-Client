@@ -42,7 +42,7 @@ enum AddServerDraftBuilder {
     }
 
     private static func makeServer(from input: AddServerDraftInput) -> ServerEntry {
-        let normalizedAuthMethod: ServerAuthMethod = input.transport == .telnet ? .password : input.authMethod
+        let normalizedAuthMethod: ServerAuthMethod = input.transport == .ssh ? input.authMethod : .password
         let normalizedFallback = input.transport == .telnet ? true : input.allowPasswordFallback
 
         if let existing = input.editingServer {

@@ -1,4 +1,4 @@
-# OrbitTerm iOS / macOS / Android 行为对齐矩阵
+# OrbitTerm Windows / iOS / macOS / Android 行为对齐矩阵
 
 更新时间：2026-08-21  
 范围：以安全语义、远端数据变化和用户可恢复结果为准；不要求复制平台控件、窗口或像素布局。  
@@ -22,6 +22,7 @@
 | 跳板机 | 跳板与最终目标分别验证，工具服务仅复用最终已验证会话 | JumpHostConfiguration | JumpHostConfiguration | PortableJumpHostConfig | 已对齐 | Apple + Android | 跳板失败、Host Key 阻断或取消时不创建终端、SFTP、Docker 或监控会话。 |
 | 资产生命周期 | 批量导入、保存前连接测试、最近删除恢复与永久清理 | AssetBulkAddSheet / RecentlyDeletedView | 同 iOS | AssetBulkImportParser / RecentlyDeletedViewModel | 已对齐 | Apple + Android | 导入有大小/数量/重复限制且不回显秘密；测试会话不持久化；恢复校验密文身份；永久删除二次确认。 |
 | Telnet | 仅在显式风险确认后使用，且不伪装成已验证 SSH | TelnetAccessPolicy | TelnetAccessPolicy | 仅兼容同步保存，禁止创建和连接 | 有意差异 | 产品 / 安全 + Android | Android 明确不支持 Telnet；导入记录不被销毁，但必须 fail-closed，未来支持前需独立风险确认与测试。 |
+| RDP 远程桌面 | `rdp` 资产使用同一 E2EE 资产信封、账户隔离、冲突合并和删除墓碑；未接入引擎的平台保留资产但绝不回退为 SSH | 保存并同步，原生工作区待 FreeRDP 阶段 | 保存并同步，原生工作区待 FreeRDP 阶段 | 保存并同步，原生工作区待 FreeRDP 阶段 | 分阶段对齐 | Windows RDP Host + ADR-037 | Windows/Linux 可作为图形目标；macOS 图形目标不在首期范围。四端往返同步不得丢凭据、改协议或复活墓碑。 |
 | 会话 | 多会话切换、关闭、重连及迟到回调只能作用于原会话 | SessionManager | SessionManager | TerminalSessionController / OperationScopeCoordinator | 已对齐 | Apple + Android | 锁定、登出、换账号、关闭会话后，旧回调不能复活 UI 或 native handle。 |
 | 终端 | 输入、ANSI 输出、复制粘贴、清屏、滚动历史与快捷键均由用户显式触发 | SwiftTermTerminalView | SwiftTermTerminalView | RemoteTerminalCanvasView | 已对齐 | Apple + Android | 应用主题不改变 ANSI palette；敏感剪贴板按统一策略清理。 |
 | 终端布局 | 移动端单终端视图；桌面端可分屏 | macOS 支持会话分屏 | iOS 单窗会话切换，不提供分屏入口 | Android 单窗标签式会话，不提供分屏入口 | 已对齐 | 产品 | 移动端统一移除终端分屏；macOS/Windows 工作站继续保留独立 PTY 分屏。 |

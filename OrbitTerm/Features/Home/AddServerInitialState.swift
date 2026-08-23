@@ -28,7 +28,7 @@ struct AddServerInitialState {
             host: server.host,
             portText: String(server.port),
             username: server.username,
-            authMethod: transport == .telnet ? .password : server.authMethod,
+            authMethod: transport == .ssh ? server.authMethod : .password,
             transport: transport,
             networkDeviceProfile: server.networkDeviceProfile,
             allowPasswordFallback: server.allowPasswordFallback,

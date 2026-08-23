@@ -278,7 +278,7 @@ struct AddServerView: View {
             }
             AddServerFormRow(icon: "point.3.connected.trianglepath.dotted", title: "端口") {
                 AddServerTextField(
-                    transport == .telnet ? "默认 23，可自定义端口" : "默认 22，可自定义高位端口",
+                    portPlaceholder,
                     text: $portText,
                     numeric: true
                 )
@@ -381,10 +381,24 @@ struct AddServerView: View {
                 testStatus = "Telnet 默认关闭，请先在设置中了解风险并手动启用"
             }
             isJumpHostEnabled = false
+        } else if newValue == .rdp {
+            if portText == "22" || portText == "23" {
+                portText = "3389"
+            }
+            authMethod = .password
+            isJumpHostEnabled = false
         } else if portText == "23" {
             portText = "22"
         }
         invalidateVerification()
+    }
+
+    private var portPlaceholder: String {
+        switch transport {
+        case .ssh: "默认 22，可自定义高位端口"
+        case .telnet: "默认 23，可自定义端口"
+        case .rdp: "默认 3389，可自定义端口"
+        }
     }
 
     private func initialLoad() async {
@@ -520,7 +534,13 @@ struct AddServerView: View {
     private var connectionTestInput: AddServerConnectionTestInput {
         AddServerConnectionTestInput(
             host: host,
-            port: parsedPort ?? (transport == .telnet ? 23 : 22),
+            port: parsedPort ?? {
+                switch transport {
+                case .ssh: 22
+                case .telnet: 23
+                case .rdp: 3389
+                }
+            }(),
             username: username,
             password: password,
             authMethod: authMethod,

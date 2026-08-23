@@ -34,6 +34,9 @@ enum AddServerValidation {
             !input.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
         guard baseValid else { return false }
+        if input.transport == .rdp {
+            return !input.password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
         if input.transport == .telnet {
             return !input.password.isEmpty
         }
@@ -55,6 +58,10 @@ enum AddServerValidation {
         let baseReady = !input.host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             !input.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         guard baseReady else { return false }
+
+        if input.transport == .rdp {
+            return false
+        }
 
         if input.transport == .telnet {
             return !input.password.isEmpty
