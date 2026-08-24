@@ -82,6 +82,7 @@
 		2B23DC6986FDD1918543F546 /* RemoteDesktopAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9F5BD6067FB45DFCB094B4 /* RemoteDesktopAdapter.swift */; };
 		2CA5B48AA4D2BD5DCB98EFE8 /* JumpHostConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD1994CA24F0AC79461C7E9C /* JumpHostConfiguration.swift */; };
 		2D5178B315D93BEBDDCE09EC /* AddServerAuthSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36296E55AE0C9150AC8BB729 /* AddServerAuthSection.swift */; };
+		2DF1A5467DE97CDAD9A0C14B /* orbit_remote_desktop.c in Sources */ = {isa = PBXBuildFile; fileRef = 7C203E05922D6C73653ECD6A /* orbit_remote_desktop.c */; };
 		2E5167F35BA7CE00C882E89D /* ServerModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DF6C48C6A90753469560AA6 /* ServerModels.swift */; };
 		2FEB079D8FFF4F50AE6F9850 /* SFTPBatchOperationFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0745CC8E9FCDB47926A280 /* SFTPBatchOperationFormatter.swift */; };
 		30964E866A545DA1A90499AD /* OrbitTermApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A5F5D8DD631076A80C6B264 /* OrbitTermApp.swift */; };
@@ -113,6 +114,7 @@
 		3A17E58824BF9988E1AB1DBC /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10B229BED0B0F3176FF87E7A /* SettingsView.swift */; };
 		3A46C8DEE6FB5A033ED79B99 /* WorkspaceToolCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB5AF769CF4113A85460BDBD /* WorkspaceToolCoordinator.swift */; };
 		3AA24B2C0C58DB4864AFE901 /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA155A9F65638E6194ADA93 /* KeychainManager.swift */; };
+		3ABD1233A5CA04AD81D0A177 /* FreeRDPFrameBufferView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34967533FAB34C7B2D0FF823 /* FreeRDPFrameBufferView.swift */; };
 		3B7743B9F34714A141D9DD66 /* AssetDetailThemeSemantics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7523280FF81ED3A80729122 /* AssetDetailThemeSemantics.swift */; };
 		3BB412787D76B6A8436ED0DD /* MobileSessionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA44539F264985D253A45D92 /* MobileSessionViews.swift */; };
 		3C1DC23B3976040613F88C1B /* PerformanceSignpost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09502274F23E2F81A76402EA /* PerformanceSignpost.swift */; };
@@ -145,6 +147,7 @@
 		4722C410165AD2271E1B382B /* CheckedFFIKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 735C5043134DAC338A430C10 /* CheckedFFIKind.swift */; };
 		4793D7BE7ACE45D094E2BD7C /* AccountScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D1E354AA0263B020B77C1DB /* AccountScope.swift */; };
 		47DBCBCA1415646E778C5A76 /* KeychainDataStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DBCBF20FBDCB52274842C5D /* KeychainDataStoreTests.swift */; };
+		486F6296CA8A09C5C9E9DE9A /* orbit_remote_desktop.c in Sources */ = {isa = PBXBuildFile; fileRef = 7C203E05922D6C73653ECD6A /* orbit_remote_desktop.c */; };
 		48BFC7E8085F081B90E3B9E1 /* HostKeyTrustViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B7DA78E6B914CF622EA1AB6 /* HostKeyTrustViews.swift */; };
 		48CD66B653668D2865B48306 /* ScriptedCheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B4CAA3973F1B8D89EE215E3 /* ScriptedCheckedFFIClient.swift */; };
 		4AEF46E3E1AF2B528E3EBA5B /* CredentialVaultCheckedProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 094AE566852B57129DFE5E7D /* CredentialVaultCheckedProvider.swift */; };
@@ -292,6 +295,7 @@
 		915DEF261D70D05F1E1A58CA /* SnippetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A91FAC92F6EEB51AACE1DEB /* SnippetStore.swift */; };
 		91EA0FFD3C8223D6CE75C625 /* JumpHostConfigurationSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45997E49869983122530FE36 /* JumpHostConfigurationSection.swift */; };
 		943FD1ADB361529A72F0F73B /* CheckedDockerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B980CEA85C1A75EAB7AF96A6 /* CheckedDockerService.swift */; };
+		9440D50C03300D39CE20AB6C /* FreeRDPFrameBufferView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34967533FAB34C7B2D0FF823 /* FreeRDPFrameBufferView.swift */; };
 		94B6DD52F6058B3F1B49B0BA /* WorkstationSFTPCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA681CD5E929D54BAF59BA3 /* WorkstationSFTPCardView.swift */; };
 		955DD5394B16994C1AAF58C3 /* DockerLogStreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A37A7CD3B58D296A9E3AF54 /* DockerLogStreamView.swift */; };
 		95924FDA3C6CD160DFA59340 /* SecureClipboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44C44D1771B1537B7D07F4FE /* SecureClipboard.swift */; };
@@ -332,6 +336,7 @@
 		A94634DBBB0599DE4294848C /* ApplicationOperationLifecyclePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB132EE6006010051D48C71F /* ApplicationOperationLifecyclePolicy.swift */; };
 		A95C10C79E9AFFC37E80ED68 /* WorkstationTerminalToolbarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC1301A8254D411A95E31A69 /* WorkstationTerminalToolbarView.swift */; };
 		A9675B6D75F32D1D0047526E /* AppAccessibilityPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A32DEC690F6560E85051181 /* AppAccessibilityPresentation.swift */; };
+		A9CBAC5564B7A6AFCBC2B0E5 /* orbit_remote_desktop.c in Sources */ = {isa = PBXBuildFile; fileRef = 7C203E05922D6C73653ECD6A /* orbit_remote_desktop.c */; };
 		AA00F87908889CA084AD1D27 /* AssetQuickKeySetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DA03126726F8585CE9F3B82 /* AssetQuickKeySetupSheet.swift */; };
 		AA180C68437B90DAC47E8B14 /* MainWorkstationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16F52E3B6E83F077783BEC22 /* MainWorkstationView.swift */; };
 		AA208B67E72D0F45704200D9 /* TerminalInputDispatchPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 059E0679B2C1FC2F7251B28D /* TerminalInputDispatchPolicyTests.swift */; };
@@ -455,6 +460,7 @@
 		E94772C953A9212E9098872A /* WorkstationToolbarModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CAC2E9B1546BFD66A6161FF /* WorkstationToolbarModifier.swift */; };
 		EB18551F6941809822CC4368 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 381EB860DD822B532F60A2E4 /* ContentView.swift */; };
 		EB6965ECE971E76E4ACB41FA /* AddServerKeyFileLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BE06A1C6F5FFBAFADD9A746 /* AddServerKeyFileLoader.swift */; };
+		EC738903B30BBE89C3ECD552 /* FreeRDPFrameBufferView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34967533FAB34C7B2D0FF823 /* FreeRDPFrameBufferView.swift */; };
 		ECDE1ACDE1B1D6F7A0E078B5 /* MasterPasswordGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */; };
 		ED01DBAB821181DB5AB5FA71 /* SnippetVariablePrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06259C5D1E3951CFFA6E3578 /* SnippetVariablePrompt.swift */; };
 		ED2393FE50452F08D00EFA76 /* OrbitCoreCheckedFFILiveFunctions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9767CC31B2E380BC77CA4295 /* OrbitCoreCheckedFFILiveFunctions.swift */; };
@@ -552,6 +558,7 @@
 		328F84C5034D50790C4E2250 /* CheckedConnectionMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedConnectionMode.swift; sourceTree = "<group>"; };
 		33E248A5FD3DD7C8F896ECA2 /* SyncQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncQueue.swift; sourceTree = "<group>"; };
 		33EF6481439C305953E69B86 /* WorkstationTerminalDropUploadModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalDropUploadModifier.swift; sourceTree = "<group>"; };
+		34967533FAB34C7B2D0FF823 /* FreeRDPFrameBufferView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreeRDPFrameBufferView.swift; sourceTree = "<group>"; };
 		359499CAC2D38DDAD3001AB2 /* OrbitTerm.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OrbitTerm.entitlements; sourceTree = "<group>"; };
 		36296E55AE0C9150AC8BB729 /* AddServerAuthSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerAuthSection.swift; sourceTree = "<group>"; };
 		36B93DE418463A03FD5EE836 /* WorkspaceToolCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceToolCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -595,6 +602,7 @@
 		62574FF79DCC3A178EE8FDEC /* OrbitTerm.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OrbitTerm.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		62847EC28220849324529ECF /* TabBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabBarView.swift; sourceTree = "<group>"; };
 		656C4A6BCB0AD2479795FBDB /* CheckedFFIPayloads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIPayloads.swift; sourceTree = "<group>"; };
+		68491EC7758CFEB5CA5F61CE /* orbit_remote_desktop.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = orbit_remote_desktop.h; sourceTree = "<group>"; };
 		690770EDC7E1AC93C9D9BDFD /* WorkstationTerminalSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSearchOverlay.swift; sourceTree = "<group>"; };
 		69ABC9043C869E78633E9DF7 /* TerminalRenderEscapeFilterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRenderEscapeFilterTests.swift; sourceTree = "<group>"; };
 		6A6CAAD2E51DFF2618790ECC /* TelnetRiskConfirmationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelnetRiskConfirmationView.swift; sourceTree = "<group>"; };
@@ -615,6 +623,7 @@
 		78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterPasswordGateView.swift; sourceTree = "<group>"; };
 		79C98A67B69AA654CC5A6B77 /* DetachedSessionWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedSessionWindowView.swift; sourceTree = "<group>"; };
 		7B74BC2A072244011E0AF309 /* SFTPManager+Mock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+Mock.swift"; sourceTree = "<group>"; };
+		7C203E05922D6C73653ECD6A /* orbit_remote_desktop.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = orbit_remote_desktop.c; sourceTree = "<group>"; };
 		7CDA09138D12C60748CCF5EC /* TerminalRenderEscapeFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRenderEscapeFilter.swift; sourceTree = "<group>"; };
 		7CDABB2A6CDA0C6532845C89 /* CheckedBatchCommandService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedBatchCommandService.swift; sourceTree = "<group>"; };
 		7D8CA9F193357BEA51E8A654 /* RemoteDesktopAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDesktopAdapterTests.swift; sourceTree = "<group>"; };
@@ -956,6 +965,8 @@
 			isa = PBXGroup;
 			children = (
 				CF0C018CC927BA3B0E42EE18 /* orbit_core.h */,
+				7C203E05922D6C73653ECD6A /* orbit_remote_desktop.c */,
+				68491EC7758CFEB5CA5F61CE /* orbit_remote_desktop.h */,
 				ED34A104EBBDBA17DC64A535 /* OrbitTerm-Bridging-Header.h */,
 			);
 			path = CBridge;
@@ -1112,6 +1123,7 @@
 		E3029C50FBE3EA98AF11DA61 /* RemoteDesktop */ = {
 			isa = PBXGroup;
 			children = (
+				34967533FAB34C7B2D0FF823 /* FreeRDPFrameBufferView.swift */,
 				CF9F5BD6067FB45DFCB094B4 /* RemoteDesktopAdapter.swift */,
 			);
 			path = RemoteDesktop;
@@ -1150,6 +1162,7 @@
 				58DF301231D4A278559E6C26 /* Sources */,
 				B0904285199D77C88957CF81 /* Resources */,
 				A24922311842AC6B2ED133E9 /* Frameworks */,
+				813040219226CA7F9F3500BB /* Embed audited FreeRDP runtime */,
 			);
 			buildRules = (
 			);
@@ -1170,6 +1183,7 @@
 				BB0507047F99AEB4F2572F27 /* Sources */,
 				337B62E78ABACF3559405ACD /* Resources */,
 				50C67EA4B15856743A51E78A /* Frameworks */,
+				56B2939A46DCF53004D9FE90 /* Embed audited FreeRDP runtime */,
 			);
 			buildRules = (
 			);
@@ -1316,6 +1330,47 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		56B2939A46DCF53004D9FE90 /* Embed audited FreeRDP runtime */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Embed audited FreeRDP runtime";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = scripts/embed_freerdp_macos.sh;
+		};
+		813040219226CA7F9F3500BB /* Embed audited FreeRDP runtime */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Embed audited FreeRDP runtime";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = scripts/embed_freerdp_macos.sh;
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		016DAC3255E8288F93C3F74B /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -1370,6 +1425,7 @@
 				D20D46CB627C4025CE318000 /* DiagnosticsPrivacyTests.swift in Sources */,
 				74D4EA900D47574F606649DB /* DockerLogPresentationBuffer.swift in Sources */,
 				DF39AA2B38CFB557A8D91CD7 /* DockerThemeSemantics.swift in Sources */,
+				EC738903B30BBE89C3ECD552 /* FreeRDPFrameBufferView.swift in Sources */,
 				29174213C6883CAD5BACE7E9 /* HeaderForwardingCompileCheck.c in Sources */,
 				4BC40FE93C339A62EC76D69F /* HostKeyPresentationSnapshot.swift in Sources */,
 				016D1CBD9C8A94E4AC0BFC5E /* HostKeyTrustCoordinator.swift in Sources */,
@@ -1428,6 +1484,7 @@
 				B554193CA4D83D3B8E28E97E /* WorkspacePresentationCoordinatorTests.swift in Sources */,
 				ED43FC68E55A20D6C7953CCF /* WorkspaceToolCoordinator.swift in Sources */,
 				433759DCC2AAEC99FD217BAB /* WorkspaceToolCoordinatorTests.swift in Sources */,
+				486F6296CA8A09C5C9E9DE9A /* orbit_remote_desktop.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1502,6 +1559,7 @@
 				67536C13CA08E03FF3A12BA8 /* DockerService.swift in Sources */,
 				0D314F89527BCF70437EF140 /* DockerThemeSemantics.swift in Sources */,
 				38D00146CCC257E6EDBA4582 /* FileSizeFormatter.swift in Sources */,
+				9440D50C03300D39CE20AB6C /* FreeRDPFrameBufferView.swift in Sources */,
 				FA5E044F14A579FEE3D4F1BA /* HostKeyPresentationSnapshot.swift in Sources */,
 				5E0B5CECBC6D53F21433B284 /* HostKeyTrustCoordinator.swift in Sources */,
 				0BA37119A9F1A5F1FDAD394F /* HostKeyTrustPresentation.swift in Sources */,
@@ -1617,6 +1675,7 @@
 				551A5B136E5320E888F11ECE /* WorkstationTerminalSplitLayoutView.swift in Sources */,
 				A95C10C79E9AFFC37E80ED68 /* WorkstationTerminalToolbarView.swift in Sources */,
 				E94772C953A9212E9098872A /* WorkstationToolbarModifier.swift in Sources */,
+				2DF1A5467DE97CDAD9A0C14B /* orbit_remote_desktop.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1707,6 +1766,7 @@
 				D73945F35D103F36900752C6 /* DockerService.swift in Sources */,
 				4BF46732D599F8312DFBDB30 /* DockerThemeSemantics.swift in Sources */,
 				D7582594F04FB2E4C5812CCC /* FileSizeFormatter.swift in Sources */,
+				3ABD1233A5CA04AD81D0A177 /* FreeRDPFrameBufferView.swift in Sources */,
 				2547F864B85B15D1A16C4675 /* HostKeyPresentationSnapshot.swift in Sources */,
 				43BAF96E64EDC82E70CD8569 /* HostKeyTrustCoordinator.swift in Sources */,
 				E6166F70BD65DC7AA658EA16 /* HostKeyTrustPresentation.swift in Sources */,
@@ -1822,6 +1882,7 @@
 				6608879835CA152C64A6758A /* WorkstationTerminalSplitLayoutView.swift in Sources */,
 				A71E613C556C660348BF8795 /* WorkstationTerminalToolbarView.swift in Sources */,
 				4D8E8455AF03DE1A4A42911A /* WorkstationToolbarModifier.swift in Sources */,
+				A9CBAC5564B7A6AFCBC2B0E5 /* orbit_remote_desktop.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1957,6 +2018,11 @@
 				CODE_SIGNING_ALLOWED = NO;
 				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/OrbitTerm/CBridge",
+					"$(SRCROOT)/orbit-core/include",
+				);
 				INFOPLIST_FILE = OrbitTerm/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1971,6 +2037,7 @@
 				PRODUCT_MODULE_NAME = OrbitTermCheckedFFITests;
 				PRODUCT_NAME = OrbitTermCheckedFFITests;
 				SDKROOT = macosx;
+				SWIFT_OBJC_BRIDGING_HEADER = "OrbitTerm/CBridge/OrbitTerm-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
@@ -2178,6 +2245,11 @@
 				CODE_SIGNING_ALLOWED = NO;
 				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/OrbitTerm/CBridge",
+					"$(SRCROOT)/orbit-core/include",
+				);
 				INFOPLIST_FILE = OrbitTerm/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -2192,6 +2264,7 @@
 				PRODUCT_MODULE_NAME = OrbitTermCheckedFFITests;
 				PRODUCT_NAME = OrbitTermCheckedFFITests;
 				SDKROOT = macosx;
+				SWIFT_OBJC_BRIDGING_HEADER = "OrbitTerm/CBridge/OrbitTerm-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;

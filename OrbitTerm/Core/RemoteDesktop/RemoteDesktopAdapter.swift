@@ -80,6 +80,47 @@ enum RemoteDesktopRuntimeCapability: Equatable, Sendable {
     case unavailable
 }
 
+enum FreeRDPRuntimeStatus: Equatable, Sendable {
+    case available
+    case unavailable
+    case versionMismatch
+}
+
+struct FreeRDPRuntimeInfo: Equatable, Sendable {
+    let abiVersion: UInt32
+    let expectedVersion: String
+    let actualVersion: String?
+    let status: FreeRDPRuntimeStatus
+}
+
+/// Reads only the audited embedded FreeRDP runtime. It never downloads code,
+/// accepts certificates, opens sockets or reads credentials.
+enum FreeRDPRuntimeProbe {
+    static func current() -> FreeRDPRuntimeInfo {
+        let expectedVersion = String(cString: orbit_rdp_expected_freerdp_version())
+        var versionBytes = [CChar](repeating: 0, count: 64)
+        let rawStatus = versionBytes.withUnsafeMutableBufferPointer { buffer in
+            orbit_rdp_runtime_probe(buffer.baseAddress, buffer.count).rawValue
+        }
+        let actualVersion = versionBytes.first == 0 ? nil : String(cString: versionBytes)
+        let status: FreeRDPRuntimeStatus
+        switch rawStatus {
+        case 1:
+            status = .available
+        case 2:
+            status = .versionMismatch
+        default:
+            status = .unavailable
+        }
+        return FreeRDPRuntimeInfo(
+            abiVersion: orbit_rdp_abi_version(),
+            expectedVersion: expectedVersion,
+            actualVersion: actualVersion,
+            status: status
+        )
+    }
+}
+
 @MainActor
 protocol RemoteDesktopEngineSession: AnyObject {
     var updates: AsyncStream<RemoteDesktopSessionUpdate> { get }

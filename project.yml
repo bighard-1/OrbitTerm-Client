@@ -31,6 +31,10 @@ targets:
       - path: OrbitTerm/App/PrivacyInfo.xcprivacy
     dependencies:
       - package: SwiftTerm
+    postBuildScripts:
+      - name: Embed audited FreeRDP runtime
+        script: scripts/embed_freerdp_macos.sh
+        basedOnDependencyAnalysis: false
     settings:
       base:
         SWIFT_OBJC_BRIDGING_HEADER: OrbitTerm/CBridge/OrbitTerm-Bridging-Header.h
@@ -119,6 +123,10 @@ targets:
         excludes:
           - Core/CheckedFFI/CredentialVaultCheckedProvider.swift
           - Core/CheckedFFI/OrbitCoreCheckedFFILiveFunctions.swift
+      - path: OrbitTerm/CBridge
+        includes:
+          - orbit_remote_desktop.c
+          - orbit_remote_desktop.h
     settings:
       base:
         ARCHS[sdk=macosx*]: arm64
@@ -127,6 +135,11 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.orbitterm.checkedffi.tests
         PRODUCT_NAME: OrbitTermCheckedFFITests
         PRODUCT_MODULE_NAME: OrbitTermCheckedFFITests
+        SWIFT_OBJC_BRIDGING_HEADER: OrbitTerm/CBridge/OrbitTerm-Bridging-Header.h
+        HEADER_SEARCH_PATHS:
+          - $(inherited)
+          - $(SRCROOT)/OrbitTerm/CBridge
+          - $(SRCROOT)/orbit-core/include
         SWIFT_VERSION: 5.0
         OTHER_LDFLAGS[sdk=macosx*]:
           - $(inherited)

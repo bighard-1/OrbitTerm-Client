@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "component": "FreeRDP",
+  "version": "3.26.0",
+  "source": "https://github.com/FreeRDP/FreeRDP/releases/download/3.26.0/freerdp-3.26.0.tar.gz",
+  "sha256": "55fa5c3159399886ba4adbe2c8a10d0b1c0484022efdf3827f68adc478b944d5",
+  "tagCommit": "3f6d7cb1f8973cc84c66b258a9a61c4e2b2f30a6",
+  "license": "Apache-2.0",
+  "licenseSource": "https://github.com/FreeRDP/FreeRDP/blob/3.26.0/LICENSE",
+  "securityPolicy": "https://github.com/FreeRDP/FreeRDP/security/policy",
+  "macOS": {
+    "minimumVersion": "14.0",
+    "architectures": ["arm64"],
+    "linkage": "dynamic-framework-bundle",
+    "excludedFeatures": [
+      "standalone clients",
+      "server",
+      "SDL",
+      "X11",
+      "Wayland",
+      "FFmpeg",
+      "OpenH264",
+      "printing",
+      "smart card",
+      "FUSE"
+    ]
+  },
+  "dependencies": [
+    {
+      "component": "OpenSSL",
+      "version": "3.6.0",
+      "source": "https://github.com/openssl/openssl/releases/download/openssl-3.6.0/openssl-3.6.0.tar.gz",
+      "sha256": "b6a5f44b7eb69e3fa35dbf15524405b44837a481d43d81daddde3ff21fcbb8e9",
+      "license": "Apache-2.0"
+    }
+  ]
+}
