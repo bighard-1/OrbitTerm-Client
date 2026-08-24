@@ -19,13 +19,22 @@ internal sealed class RemoteDesktopWindow : Form
     private readonly Label statusLabel = new();
     private readonly System.Windows.Forms.Timer stateTimer = new() { Interval = 500 };
     private readonly RdpHostLaunch launch;
+    private readonly RdpHostStatusReporter reporter;
+    private readonly TableLayoutPanel root;
+    private readonly Panel titleBar;
     private string password;
     private bool connected;
     private bool closing;
+    private bool awaitingDecisionReported;
+    private bool fullScreen;
+    private DateTimeOffset connectionStartedAt;
+    private Rectangle restoredBounds;
+    private FormWindowState restoredWindowState;
 
-    public RemoteDesktopWindow(RdpHostLaunch launch)
+    public RemoteDesktopWindow(RdpHostLaunch launch, RdpHostStatusReporter reporter)
     {
         this.launch = launch;
+        this.reporter = reporter;
         password = launch.Password;
         Text = $"远程桌面 · {launch.DisplayName}";
         StartPosition = FormStartPosition.CenterScreen;
@@ -40,10 +49,10 @@ internal sealed class RemoteDesktopWindow : Form
         var foreground = launch.DarkTheme ? Color.FromArgb(244, 247, 252) : Color.FromArgb(23, 32, 51);
         BackColor = stroke;
 
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = surface, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty };
+        root = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = surface, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty };
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        var titleBar = new Panel { Dock = DockStyle.Fill, BackColor = chrome, Margin = Padding.Empty };
+        titleBar = new Panel { Dock = DockStyle.Fill, BackColor = chrome, Margin = Padding.Empty };
         var title = new Label { Text = Text, AutoEllipsis = true, ForeColor = foreground, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold), Location = new Point(14, 4), Height = 32, Width = 470, TextAlign = ContentAlignment.MiddleLeft };
         statusLabel.Text = "正在准备安全连接…";
         statusLabel.AutoEllipsis = true;
@@ -54,10 +63,20 @@ internal sealed class RemoteDesktopWindow : Form
         statusLabel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         var minimize = CaptionButton("\uE921", foreground, chrome);
         var maximize = CaptionButton("\uE922", foreground, chrome);
+        var reconnect = CaptionButton("\uE72C", foreground, chrome);
+        var enterFullScreen = CaptionButton("\uE740", foreground, chrome);
         var close = CaptionButton("\uE8BB", foreground, chrome);
         minimize.Click += (_, _) => WindowState = FormWindowState.Minimized;
         maximize.Click += (_, _) => ToggleMaximize();
+        reconnect.Click += (_, _) => Reconnect();
+        enterFullScreen.Click += (_, _) => ToggleFullScreen();
         close.Click += (_, _) => Close();
+        ToolTip toolTip = new();
+        toolTip.SetToolTip(reconnect, "重新连接");
+        toolTip.SetToolTip(enterFullScreen, "全屏（F11）");
+        toolTip.SetToolTip(minimize, "最小化");
+        toolTip.SetToolTip(maximize, "最大化/还原");
+        toolTip.SetToolTip(close, "关闭");
         close.MouseEnter += (_, _) => close.BackColor = Color.FromArgb(196, 43, 28);
         close.MouseLeave += (_, _) => close.BackColor = chrome;
         title.MouseDown += TitleBarMouseDown;
@@ -69,9 +88,11 @@ internal sealed class RemoteDesktopWindow : Form
             close.SetBounds(titleBar.ClientSize.Width - 46, 0, 46, 40);
             maximize.SetBounds(close.Left - 46, 0, 46, 40);
             minimize.SetBounds(maximize.Left - 46, 0, 46, 40);
-            statusLabel.Left = Math.Max(title.Right + 8, minimize.Left - statusLabel.Width - 8);
+            enterFullScreen.SetBounds(minimize.Left - 46, 0, 46, 40);
+            reconnect.SetBounds(enterFullScreen.Left - 46, 0, 46, 40);
+            statusLabel.Left = Math.Max(title.Right + 8, reconnect.Left - statusLabel.Width - 8);
         };
-        titleBar.Controls.AddRange([title, statusLabel, minimize, maximize, close]);
+        titleBar.Controls.AddRange([title, statusLabel, reconnect, enterFullScreen, minimize, maximize, close]);
 
         ((ISupportInitialize)rdpHost).BeginInit();
         rdpHost.Dock = DockStyle.Fill;
@@ -80,16 +101,22 @@ internal sealed class RemoteDesktopWindow : Form
         root.Controls.Add(rdpHost, 0, 1);
         Controls.Add(root);
         ((ISupportInitialize)rdpHost).EndInit();
+        KeyPreview = true;
         Shown += (_, _) => Connect();
         FormClosing += RemoteDesktopWindowClosing;
         stateTimer.Tick += PollConnection;
     }
 
-    private void Connect()
+    private void Connect(bool reconnecting = false)
     {
         var stage = "创建系统远程桌面控件";
         try
         {
+            connected = false;
+            awaitingDecisionReported = false;
+            connectionStartedAt = DateTimeOffset.UtcNow;
+            if (reconnecting)
+                reporter.Report("Reconnecting", "正在重新连接远程桌面…");
             rdpHost.CreateControl();
             stage = "读取远程桌面接口";
             var client = rdpHost.ActiveXObject;
@@ -124,6 +151,7 @@ internal sealed class RemoteDesktopWindow : Form
                 SetComProperty(advanced, "ClearTextPassword", password);
             }
             statusLabel.Text = $"正在连接 {launch.Host}:{launch.Port} · NLA 已启用";
+            reporter.Report("Authenticating", "正在进行 NLA 身份验证和服务器证书检查…");
             stage = "发起远程桌面连接";
             InvokeComMethod(client, "Connect");
             password = string.Empty;
@@ -134,6 +162,15 @@ internal sealed class RemoteDesktopWindow : Form
             password = string.Empty;
             var code = $"0x{exception.HResult:X8}";
             statusLabel.Text = $"远程桌面初始化失败 · {stage} · {code}";
+            var failureKind = exception.HResult == unchecked((int)0x80040154)
+                ? "EngineUnavailable"
+                : "ProtocolError";
+            reporter.Report(
+                "Failed",
+                "远程桌面初始化失败",
+                failureKind,
+                code,
+                canRetry: true);
             WriteDiagnostic(stage, exception);
         }
     }
@@ -145,12 +182,70 @@ internal sealed class RemoteDesktopWindow : Form
             var client = rdpHost.ActiveXObject;
             if (Convert.ToInt32(GetComProperty(client, "Connected"), CultureInfo.InvariantCulture) != 0)
             {
-                connected = true;
+                if (!connected)
+                {
+                    connected = true;
+                    reporter.Report("Connected", "远程桌面已连接");
+                }
                 statusLabel.Text = $"已连接 {launch.Host}:{launch.Port} · NLA";
             }
-            else if (connected) { statusLabel.Text = "远程桌面会话已断开"; stateTimer.Stop(); }
+            else if (connected)
+            {
+                connected = false;
+                statusLabel.Text = "远程桌面会话已断开 · 可点击重新连接";
+                reporter.Report(
+                    "Disconnected",
+                    "远程桌面连接已断开",
+                    "NetworkUnavailable",
+                    canRetry: true);
+                stateTimer.Stop();
+            }
+            else
+            {
+                var elapsed = DateTimeOffset.UtcNow - connectionStartedAt;
+                if (!awaitingDecisionReported && elapsed >= TimeSpan.FromSeconds(3))
+                {
+                    awaitingDecisionReported = true;
+                    statusLabel.Text = "等待 Windows 完成证书或凭据确认…";
+                    reporter.Report(
+                        "AwaitingUserDecision",
+                        "等待 Windows 证书或凭据确认",
+                        canRetry: true);
+                }
+                if (elapsed >= TimeSpan.FromSeconds(60))
+                {
+                    statusLabel.Text = "连接等待超时 · 请检查系统提示或重新连接";
+                    reporter.Report(
+                        "Failed",
+                        "远程桌面连接等待超时",
+                        "TimedOut",
+                        canRetry: true);
+                    stateTimer.Stop();
+                }
+            }
         }
-        catch { stateTimer.Stop(); }
+        catch (Exception exception)
+        {
+            var code = $"0x{exception.HResult:X8}";
+            statusLabel.Text = "无法读取远程桌面连接状态 · 可重新连接";
+            reporter.Report("Failed", "无法读取远程桌面连接状态", "Unknown", code, canRetry: true);
+            WriteDiagnostic("读取连接状态", exception);
+            stateTimer.Stop();
+        }
+    }
+
+    private void Reconnect()
+    {
+        if (closing) return;
+        stateTimer.Stop();
+        try
+        {
+            var client = rdpHost.ActiveXObject;
+            if (Convert.ToInt32(GetComProperty(client, "Connected"), CultureInfo.InvariantCulture) != 0)
+                InvokeComMethod(client, "Disconnect");
+        }
+        catch { }
+        Connect(reconnecting: true);
     }
 
     private void RemoteDesktopWindowClosing(object? sender, FormClosingEventArgs e)
@@ -166,6 +261,22 @@ internal sealed class RemoteDesktopWindow : Form
                 InvokeComMethod(client, "Disconnect");
         }
         catch { }
+        reporter.Report("Closed", "远程桌面窗口已关闭");
+    }
+
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        if (keyData == Keys.F11)
+        {
+            ToggleFullScreen();
+            return true;
+        }
+        if (keyData == Keys.Escape && fullScreen)
+        {
+            ToggleFullScreen();
+            return true;
+        }
+        return base.ProcessCmdKey(ref msg, keyData);
     }
 
     protected override void WndProc(ref Message message)
@@ -194,6 +305,28 @@ internal sealed class RemoteDesktopWindow : Form
     }
 
     private void ToggleMaximize() => WindowState = WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized;
+
+    private void ToggleFullScreen()
+    {
+        if (!fullScreen)
+        {
+            restoredBounds = Bounds;
+            restoredWindowState = WindowState;
+            WindowState = FormWindowState.Normal;
+            titleBar.Visible = false;
+            root.RowStyles[0].Height = 0;
+            Bounds = Screen.FromControl(this).Bounds;
+            fullScreen = true;
+            return;
+        }
+
+        titleBar.Visible = true;
+        root.RowStyles[0].Height = 40;
+        WindowState = restoredWindowState;
+        if (restoredWindowState == FormWindowState.Normal && !restoredBounds.IsEmpty)
+            Bounds = restoredBounds;
+        fullScreen = false;
+    }
     private static Button CaptionButton(string text, Color foreground, Color background) => new()
     {
         Text = text,

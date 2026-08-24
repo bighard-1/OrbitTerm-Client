@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "orbitterm.remote-desktop.session",
+  "version": 1,
+  "engine": "freerdp",
+  "controllerPlatforms": ["windows", "macos", "ios", "android", "linux"],
+  "supportedTargetPlatforms": ["windows", "linux"],
+  "unsupportedTargetPlatforms": ["macos"],
+  "phases": [
+    "starting",
+    "authenticating",
+    "awaitingUserDecision",
+    "connected",
+    "reconnecting",
+    "disconnected",
+    "failed",
+    "closed"
+  ],
+  "allowedTransitions": {
+    "starting": ["authenticating", "awaitingUserDecision", "failed", "closed"],
+    "authenticating": ["awaitingUserDecision", "connected", "reconnecting", "failed", "closed"],
+    "awaitingUserDecision": ["authenticating", "connected", "reconnecting", "failed", "closed"],
+    "connected": ["reconnecting", "disconnected", "failed", "closed"],
+    "reconnecting": ["authenticating", "awaitingUserDecision", "connected", "disconnected", "failed", "closed"],
+    "disconnected": ["reconnecting", "closed"],
+    "failed": ["reconnecting", "closed"],
+    "closed": []
+  },
+  "failureKinds": [
+    "engineUnavailable",
+    "invalidTarget",
+    "certificateRejected",
+    "authenticationFailed",
+    "networkUnavailable",
+    "timedOut",
+    "protocolError",
+    "cancelled",
+    "unknown"
+  ],
+  "security": {
+    "requireNlaByDefault": true,
+    "certificateDecisionMustBeExplicit": true,
+    "credentialPayloadForbiddenInProfile": true,
+    "fallbackToSshForbidden": true,
+    "macosTargetForbidden": true
+  }
+}

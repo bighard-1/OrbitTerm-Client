@@ -11,6 +11,7 @@ namespace OrbitTerm.App;
 public sealed partial class MainWindow
 {
     private readonly Dictionary<RemoteDesktopHostSession, LocalTunnelLease?> remoteDesktopHosts = [];
+    private readonly HashSet<RemoteDesktopHostSession> remoteDesktopFailurePresented = [];
     private readonly object remoteDesktopHostsGate = new();
     private readonly RemoteDesktopHostLauncher remoteDesktopHostLauncher = new();
     private bool isRemoteDesktopDialogOpen;
@@ -269,12 +270,15 @@ public sealed partial class MainWindow
             }
 
             var host = await remoteDesktopHostLauncher.LaunchAsync(new RemoteDesktopHostRequest(
-                asset.Name, targetHost, targetPort, username, password,
+                asset.Id, asset.Name, targetHost, targetPort, username, password,
                 request.ClipboardEnabled, request.DriveRedirectionEnabled,
                 request.PrinterRedirectionEnabled,
                 Root.ActualTheme == ElementTheme.Dark || terminalAppearance.AppTheme == "深色"));
             lock (remoteDesktopHostsGate) remoteDesktopHosts[host] = tunnel;
             host.Exited += RemoteDesktopHostExited;
+            host.StateChanged += RemoteDesktopHostStateChanged;
+            if (host.Current.Phase == RemoteDesktopSessionPhase.Failed)
+                PresentRemoteDesktopFailure(host, host.Current);
         }
         catch (Exception exception)
         {
@@ -290,6 +294,34 @@ public sealed partial class MainWindow
     private WorkspaceTabViewModel? FindConnectedWorkspace(Guid assetId) =>
         ViewModel.WorkspaceTabs.FirstOrDefault(tab => tab.AssetId == assetId && tab.IsConnected);
 
+    private void RemoteDesktopHostStateChanged(object? sender, RemoteDesktopSessionUpdate update)
+    {
+        if (sender is not RemoteDesktopHostSession session) return;
+        if (update.Phase is RemoteDesktopSessionPhase.Reconnecting or RemoteDesktopSessionPhase.Connected)
+        {
+            lock (remoteDesktopHostsGate) remoteDesktopFailurePresented.Remove(session);
+            return;
+        }
+        if (update.Phase == RemoteDesktopSessionPhase.Failed)
+            PresentRemoteDesktopFailure(session, update);
+    }
+
+    private void PresentRemoteDesktopFailure(
+        RemoteDesktopHostSession session,
+        RemoteDesktopSessionUpdate update)
+    {
+        lock (remoteDesktopHostsGate)
+        {
+            if (!remoteDesktopFailurePresented.Add(session)) return;
+        }
+        DispatcherQueue.TryEnqueue(async () =>
+        {
+            await ShowAccountMessageAsync(
+                "远程桌面连接未完成",
+                RemoteDesktopFailurePresentation.UserMessage(update));
+        });
+    }
+
     private async void RemoteDesktopHostExited(object? sender, EventArgs e)
     {
         if (sender is not RemoteDesktopHostSession session) return;
@@ -297,7 +329,9 @@ public sealed partial class MainWindow
         lock (remoteDesktopHostsGate)
         {
             if (!remoteDesktopHosts.Remove(session, out tunnel)) return;
+            remoteDesktopFailurePresented.Remove(session);
         }
+        session.StateChanged -= RemoteDesktopHostStateChanged;
         session.Dispose();
         if (tunnel is null) return;
         activeLocalTunnels.Remove(tunnel.TunnelId);
@@ -311,10 +345,12 @@ public sealed partial class MainWindow
         {
             sessions = remoteDesktopHosts.Keys.ToArray();
             remoteDesktopHosts.Clear();
+            remoteDesktopFailurePresented.Clear();
         }
         foreach (var session in sessions)
         {
             session.Exited -= RemoteDesktopHostExited;
+            session.StateChanged -= RemoteDesktopHostStateChanged;
             session.Close();
             session.Dispose();
         }

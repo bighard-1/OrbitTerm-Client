@@ -60,4 +60,49 @@ public sealed class RemoteAccessPolicyTests
         Assert.Equal("RDP", asset.TransportLabel);
         Assert.Equal(record, asset.ToRecord());
     }
+
+    [Fact]
+    public void RemoteDesktopStateMachineRejectsStaleRevivalAfterClose()
+    {
+        var machine = new RemoteDesktopSessionStateMachine();
+
+        Assert.True(machine.TryTransition(new(
+            RemoteDesktopSessionPhase.Authenticating,
+            "正在验证")));
+        Assert.True(machine.TryTransition(new(
+            RemoteDesktopSessionPhase.AwaitingUserDecision,
+            "等待证书确认")));
+        Assert.True(machine.TryTransition(new(
+            RemoteDesktopSessionPhase.Connected,
+            "已连接")));
+        Assert.True(machine.TryTransition(new(
+            RemoteDesktopSessionPhase.Disconnected,
+            "已断开",
+            RemoteDesktopFailureKind.NetworkUnavailable,
+            CanRetry: true)));
+        Assert.True(machine.TryTransition(new(
+            RemoteDesktopSessionPhase.Closed,
+            "已关闭")));
+        Assert.False(machine.TryTransition(new(
+            RemoteDesktopSessionPhase.Connected,
+            "迟到的已连接事件")));
+        Assert.Equal(RemoteDesktopSessionPhase.Closed, machine.Current.Phase);
+    }
+
+    [Fact]
+    public void RemoteDesktopFailureFeedbackDoesNotExposeNativeExceptionText()
+    {
+        var update = new RemoteDesktopSessionUpdate(
+            RemoteDesktopSessionPhase.Failed,
+            "native detail with host and username",
+            RemoteDesktopFailureKind.AuthenticationFailed,
+            "0x80004005",
+            CanRetry: true);
+
+        var message = RemoteDesktopFailurePresentation.UserMessage(update);
+
+        Assert.Contains("身份验证失败", message);
+        Assert.DoesNotContain("native detail", message);
+        Assert.DoesNotContain("username", message);
+    }
 }

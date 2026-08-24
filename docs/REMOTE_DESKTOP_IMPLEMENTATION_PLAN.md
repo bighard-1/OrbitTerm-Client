@@ -72,8 +72,8 @@ macOS 客户端仍可连接 Windows/Linux 的 RDP 资产。首期不引入 VNC�
 ## 五、交付阶段
 
 1. **契约基线**：四端识别并安全同步 `rdp`，Windows 取消本机专用限制，不支持端 fail-closed。
-2. **Windows 收口**：统一状态机、证书/NLA、全屏、DPI、断线重连和诊断。
-3. **macOS 控制端**：FreeRDP 原生视图、键鼠、剪贴板、全屏和 Windows/Linux 真机矩阵。
+2. **Windows 收口**：统一状态机、证书/NLA、全屏、DPI、断线重连和诊断。状态机、证书确认状态、重连、全屏与脱敏错误反馈已完成代码和 Release 构建验证，尚需实机交互矩阵验收。
+3. **macOS 控制端**：FreeRDP 原生视图、键鼠、剪贴板、全屏和 Windows/Linux 真机矩阵。Apple/Android 共用会话契约与 fail-closed 适配接口已经建立；下一步才链接经审计的 FreeRDP 二进制与原生渲染视图。
 4. **移动控制端**：iOS/Android 渲染、手势、输入法、RDP 工作区横屏和生命周期。
 5. **Linux 控制端预留落地**：凭据适配、窗口适配与打包。
 6. **高级能力**：RDP-over-SSH、网关、显示器选择和受控重定向。

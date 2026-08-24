@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 54;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -39,6 +39,7 @@
 		1133FBBB8E0101B7271AD8FE /* AppThemeEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 168C8663E17D5D384561E4B2 /* AppThemeEnvironment.swift */; };
 		11D4B5C9C89E45AAC46A4A6E /* AccountScopedServiceLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 177940A06C4B27BF33CA1DA0 /* AccountScopedServiceLifecycle.swift */; };
 		11EC0289C3E003A8D96EF7EE /* SFTPBrowserPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C07F3CC8B2B8064ED317D63 /* SFTPBrowserPanels.swift */; };
+		122B0D82B63601F273E9BF77 /* OfficialServiceTLSPinningPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22279E2C442482FE01B1BF36 /* OfficialServiceTLSPinningPolicyTests.swift */; };
 		127045F73326EBDCBAD410D7 /* OrbitTermmacOSUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C33005AE48863E51517EE27 /* OrbitTermmacOSUITests.swift */; };
 		128C9369AA7FAA7BDDC505FE /* WorkstationMonitorCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24CD1624F5A719FD6E790B98 /* WorkstationMonitorCardView.swift */; };
 		13607C2FB4CD179CEC5699A3 /* AccountScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D1E354AA0263B020B77C1DB /* AccountScope.swift */; };
@@ -54,6 +55,7 @@
 		1CA23122CB3D32319E80C7BB /* NetworkModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4AE5E8FEC909FFBA6B236E /* NetworkModels.swift */; };
 		1D03B136A96FB85CE439F36F /* AppThemeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 887A26B3A8DADED8D1F641CB /* AppThemeTests.swift */; };
 		1E1FB5464A4586D7A90148DE /* AppThemePalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8A22F3FFCBA53A57236BDD6 /* AppThemePalette.swift */; };
+		1E40AD4CBEC2BBF146A05652 /* SyncConfigCipherMigrationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AC978D1EC79B620DDE63FDA /* SyncConfigCipherMigrationPolicy.swift */; };
 		1E95752E6E6344C4480735C4 /* HostKeyTrustCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BFC7645D040D7775262D3B9 /* HostKeyTrustCoordinatorTests.swift */; };
 		1E9B9E49F948508485F30D9C /* NetworkModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4AE5E8FEC909FFBA6B236E /* NetworkModels.swift */; };
 		1F00B2E18DB64E2454CE051A /* KeychainDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3283D7558028E2BB3A5C9AC /* KeychainDataStore.swift */; };
@@ -77,6 +79,7 @@
 		29174213C6883CAD5BACE7E9 /* HeaderForwardingCompileCheck.c in Sources */ = {isa = PBXBuildFile; fileRef = 7713E6E04A40DA1BC5D07D1A /* HeaderForwardingCompileCheck.c */; };
 		29E092287DEB4689A02D04C9 /* DockerCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94CA85B4AEBF74F59E325CD1 /* DockerCardView.swift */; };
 		29EFC7F3658B10F765D16B9D /* AddServerFooter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0491AEADC0D897DA27ADC4C5 /* AddServerFooter.swift */; };
+		2B23DC6986FDD1918543F546 /* RemoteDesktopAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9F5BD6067FB45DFCB094B4 /* RemoteDesktopAdapter.swift */; };
 		2CA5B48AA4D2BD5DCB98EFE8 /* JumpHostConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD1994CA24F0AC79461C7E9C /* JumpHostConfiguration.swift */; };
 		2D5178B315D93BEBDDCE09EC /* AddServerAuthSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36296E55AE0C9150AC8BB729 /* AddServerAuthSection.swift */; };
 		2E5167F35BA7CE00C882E89D /* ServerModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DF6C48C6A90753469560AA6 /* ServerModels.swift */; };
@@ -114,14 +117,6 @@
 		3BB412787D76B6A8436ED0DD /* MobileSessionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA44539F264985D253A45D92 /* MobileSessionViews.swift */; };
 		3C1DC23B3976040613F88C1B /* PerformanceSignpost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09502274F23E2F81A76402EA /* PerformanceSignpost.swift */; };
 		3CBBCA430C39BB5D72595613 /* SyncPullRecoveryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC432D7167B38CF9C7D4660B /* SyncPullRecoveryPolicy.swift */; };
-		A9D11C7E0000000000000001 /* SyncConfigCipherMigrationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9D11C7E0000000000000002 /* SyncConfigCipherMigrationPolicy.swift */; };
-		A9D11C7E0000000000000003 /* SyncConfigCipherMigrationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9D11C7E0000000000000004 /* SyncConfigCipherMigrationPolicyTests.swift */; };
-		A9D11C7E0000000000000005 /* SyncConfigCipherMigrationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9D11C7E0000000000000002 /* SyncConfigCipherMigrationPolicy.swift */; };
-		A9D11C7E0000000000000006 /* SyncConfigCipherMigrationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9D11C7E0000000000000002 /* SyncConfigCipherMigrationPolicy.swift */; };
-		A9D11C7E0000000000000007 /* OfficialServiceTLSPinningPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9D11C7E000000000000000B /* OfficialServiceTLSPinningPolicy.swift */; };
-		A9D11C7E0000000000000008 /* OfficialServiceTLSPinningPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9D11C7E000000000000000C /* OfficialServiceTLSPinningPolicyTests.swift */; };
-		A9D11C7E0000000000000009 /* OfficialServiceTLSPinningPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9D11C7E000000000000000B /* OfficialServiceTLSPinningPolicy.swift */; };
-		A9D11C7E000000000000000A /* OfficialServiceTLSPinningPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9D11C7E000000000000000B /* OfficialServiceTLSPinningPolicy.swift */; };
 		3D85D3A635000A45A703B805 /* SFTPActivityShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A8CF8B6134CC76C9376A2B /* SFTPActivityShareSheet.swift */; };
 		3DA37901A4E63DF0BEF2FA20 /* OrbitCoreCheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98B23E2A2CD42FFDD3EF8330 /* OrbitCoreCheckedFFIClient.swift */; };
 		3DBFDFBCF613C85F01A8B88D /* MonitorService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F14341CBA2F36F648BF5800 /* MonitorService.swift */; };
@@ -172,6 +167,7 @@
 		56141FFCF4D0C00E5C280005 /* CheckedConnectionMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 328F84C5034D50790C4E2250 /* CheckedConnectionMode.swift */; };
 		5640BE786C6F90A9FCC3203A /* TerminalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82956A0F1C5D1E30A78D1E37 /* TerminalService.swift */; };
 		56574B441F9241FFF7C9E2DC /* CheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9D64379CFB1DF22B325FB09 /* CheckedFFIClient.swift */; };
+		57613416D7D03121FBAE5668 /* OfficialServiceTLSPinningPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 750501D439C0373B6AC4F785 /* OfficialServiceTLSPinningPolicy.swift */; };
 		578F8F3554FEB1F83DF9B7CC /* BiometricAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924DF400619ABD0FB4150133 /* BiometricAuthService.swift */; };
 		58C298037701A5FE55CF273C /* DiagnosticsPrivacy.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADAE88D2E6BE55CFEF81BB3D /* DiagnosticsPrivacy.swift */; };
 		58E2DD7AB605954D9FB0A998 /* SFTPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77D09730A51A26B9E686F253 /* SFTPManager.swift */; };
@@ -228,8 +224,10 @@
 		6BECA618BD0039C847588D64 /* SecuritySemanticPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD9277EE82AFEAD57C3D1F5E /* SecuritySemanticPalette.swift */; };
 		6C1E63F36E704CCFF9A33DFB /* ApplicationOperationLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 006826977E5BDA2E3CB220D5 /* ApplicationOperationLifecycle.swift */; };
 		6D0C0DD0922BB61F67A79EBD /* SFTPManager+Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9714382A7905BD9F6A4EFD8A /* SFTPManager+Connection.swift */; };
+		6D800DCC1A7C4FE7D8C1A3DE /* RemoteDesktopAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D8CA9F193357BEA51E8A654 /* RemoteDesktopAdapterTests.swift */; };
 		6DD9A2057FBD4F0745ECA5B1 /* SyncQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33E248A5FD3DD7C8F896ECA2 /* SyncQueue.swift */; };
 		6E0107D6FA5E91F706B50D9C /* MobileSessionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA44539F264985D253A45D92 /* MobileSessionViews.swift */; };
+		6F40C26A2620AF05AF43BA11 /* RemoteDesktopAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9F5BD6067FB45DFCB094B4 /* RemoteDesktopAdapter.swift */; };
 		71231D79008DB61E9CE40F61 /* SnippetVariableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA7AD58C1A1CED310B6875EE /* SnippetVariableResolver.swift */; };
 		73CDC379BC442FF95AFD2F14 /* DockerLogPresentationBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26E77A87BB17AB8BB22FBE05 /* DockerLogPresentationBuffer.swift */; };
 		749429BFF654F1AB265411AF /* View+InputPolish.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */; };
@@ -357,8 +355,10 @@
 		B1547A01247E01C13B756C9E /* SFTPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77D09730A51A26B9E686F253 /* SFTPManager.swift */; };
 		B2337348EBB72F2351322814 /* OperationOwner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E60982F403B7EC71708054 /* OperationOwner.swift */; };
 		B2DE4E30DE3E0471FC1A744B /* SFTPManager+Directory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9575AA7E205CF09F7CE38E07 /* SFTPManager+Directory.swift */; };
+		B4D7C685794E05C8FBCEF340 /* OfficialServiceTLSPinningPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 750501D439C0373B6AC4F785 /* OfficialServiceTLSPinningPolicy.swift */; };
 		B51FDE8C38374BC39208498C /* TelnetAccessPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC1976CD3FBAA98751C994BE /* TelnetAccessPolicyTests.swift */; };
 		B554193CA4D83D3B8E28E97E /* WorkspacePresentationCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C420A6895611ADBB739B7DBC /* WorkspacePresentationCoordinatorTests.swift */; };
+		B62E44EBC6CC0A2EDCECE2B5 /* SyncConfigCipherMigrationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED2A704E53D6A2DABB2DC26F /* SyncConfigCipherMigrationPolicyTests.swift */; };
 		B63576EF89FC2527D8742384 /* OrbitCoreCheckedFFIClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E6DA6F702782EA345096BAB /* OrbitCoreCheckedFFIClientTests.swift */; };
 		B70DA3D5794307B334D76543 /* AppThemeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82919D674337CEDD0480F21B /* AppThemeManager.swift */; };
 		B750CA07776E82064E61F903 /* TerminalThemeReadability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 508EB3B71E213C9F1AC37945 /* TerminalThemeReadability.swift */; };
@@ -387,6 +387,7 @@
 		C366A32CC05E89AA5FA38DDD /* OrbitCStringResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF296C0F924480DD21047D08 /* OrbitCStringResult.swift */; };
 		C3DFDCCCC8EBE087463610E0 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C7BDE123FD4A34D40AB63132 /* PrivacyInfo.xcprivacy */; };
 		C3F661036F847112CA11C87D /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20EA2AC1C67C6744ECBB46BD /* AuthView.swift */; };
+		C47F2E7333D815A9E7F806B7 /* RemoteDesktopAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9F5BD6067FB45DFCB094B4 /* RemoteDesktopAdapter.swift */; };
 		C4830A60642DB131712671DA /* SFTPManager+Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9714382A7905BD9F6A4EFD8A /* SFTPManager+Connection.swift */; };
 		C5D8955473817845931665E8 /* CheckedDockerServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5786DEF9086A4B29A2F0FEA2 /* CheckedDockerServiceTests.swift */; };
 		C5FDED5ED408066B5AF7B2B8 /* SFTPBrowserConnectionDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F3A50B12C7EDA8BE4D4CF2F /* SFTPBrowserConnectionDraft.swift */; };
@@ -403,6 +404,7 @@
 		CB6EE7011045A709B4FEA931 /* WorkspaceToolCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB5AF769CF4113A85460BDBD /* WorkspaceToolCoordinator.swift */; };
 		CB9E3D53A09DA933831490C6 /* CheckedFFIEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08CEE6111EC22C4515BA30BA /* CheckedFFIEnvelope.swift */; };
 		CDD889A9B7330F6B353FDEF6 /* CheckedFFIEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08CEE6111EC22C4515BA30BA /* CheckedFFIEnvelope.swift */; };
+		CF9B77537B71653AAAFFEFA0 /* SyncConfigCipherMigrationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AC978D1EC79B620DDE63FDA /* SyncConfigCipherMigrationPolicy.swift */; };
 		CFADA57AD98ECD0453997B3C /* RecentlyDeletedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E32DBAB1DC7E1D140A221B7E /* RecentlyDeletedView.swift */; };
 		D00572525DDF9E956CA17C13 /* CheckedFFITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D1FF33B328795D45C135045 /* CheckedFFITests.swift */; };
 		D024843AC443C8F1DBDA09B9 /* AppThemeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82919D674337CEDD0480F21B /* AppThemeManager.swift */; };
@@ -410,6 +412,7 @@
 		D20B91FF4CDD65340CC410C3 /* ConnectionPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C84F621EBED61659728A12C /* ConnectionPresentationTests.swift */; };
 		D20D46CB627C4025CE318000 /* DiagnosticsPrivacyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F561464A697E4DD1DE9EAC7 /* DiagnosticsPrivacyTests.swift */; };
 		D32A2630B47540D9846461F9 /* NetworkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */; };
+		D4660C277FFE9E316617273A /* OfficialServiceTLSPinningPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 750501D439C0373B6AC4F785 /* OfficialServiceTLSPinningPolicy.swift */; };
 		D4987C352F151E05C5338557 /* BoundedCircularBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 946EA266AB0E95A9ACA6896D /* BoundedCircularBuffer.swift */; };
 		D5ADDB4B2081E9700CED8137 /* JumpHostConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD1994CA24F0AC79461C7E9C /* JumpHostConfiguration.swift */; };
 		D5F66562B76B4DD46167BE5C /* ServerModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DF6C48C6A90753469560AA6 /* ServerModels.swift */; };
@@ -446,6 +449,7 @@
 		E547884553C72C7C1E70F1BB /* AddServerConnectionTester.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8477779BBFFBE8F7C7B613F /* AddServerConnectionTester.swift */; };
 		E5BC038DD18BC0BCA94B00BB /* SFTPDropUploadHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C6CC3823E022872639B0219 /* SFTPDropUploadHandler.swift */; };
 		E6166F70BD65DC7AA658EA16 /* HostKeyTrustPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A0F26B8CC3A2CE0C6BE8D48 /* HostKeyTrustPresentation.swift */; };
+		E731F801257CBD5DBE2AE2FB /* SyncConfigCipherMigrationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AC978D1EC79B620DDE63FDA /* SyncConfigCipherMigrationPolicy.swift */; };
 		E7907F3D7B64FC7DEF6CA09C /* AddServerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BDEC92E6B4B8974125CB64A /* AddServerView.swift */; };
 		E8C996D5A571357D645450FC /* ShellSyntaxHighlighter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAB5939382050BD82F11FBC6 /* ShellSyntaxHighlighter.swift */; };
 		E94772C953A9212E9098872A /* WorkstationToolbarModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CAC2E9B1546BFD66A6161FF /* WorkstationToolbarModifier.swift */; };
@@ -536,6 +540,7 @@
 		20EA2AC1C67C6744ECBB46BD /* AuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthView.swift; sourceTree = "<group>"; };
 		21664BB8085C952E8AB3C53B /* AccountScopedServiceLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountScopedServiceLifecycleTests.swift; sourceTree = "<group>"; };
 		21BA8750BFF4212C103320E8 /* ServerListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerListView.swift; sourceTree = "<group>"; };
+		22279E2C442482FE01B1BF36 /* OfficialServiceTLSPinningPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfficialServiceTLSPinningPolicyTests.swift; sourceTree = "<group>"; };
 		23CDE6AF8E0550184AC99A12 /* BatchCommandRunnerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchCommandRunnerView.swift; sourceTree = "<group>"; };
 		24CD1624F5A719FD6E790B98 /* WorkstationMonitorCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationMonitorCardView.swift; sourceTree = "<group>"; };
 		25D2EEFD7E78AFA3733A254C /* CheckedFFIFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIFixtures.swift; sourceTree = "<group>"; };
@@ -581,6 +586,7 @@
 		56D3F03810DC065AADA6A2C2 /* SFTPManager+Transfers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+Transfers.swift"; sourceTree = "<group>"; };
 		5786DEF9086A4B29A2F0FEA2 /* CheckedDockerServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedDockerServiceTests.swift; sourceTree = "<group>"; };
 		5A37A7CD3B58D296A9E3AF54 /* DockerLogStreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerLogStreamView.swift; sourceTree = "<group>"; };
+		5AC978D1EC79B620DDE63FDA /* SyncConfigCipherMigrationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncConfigCipherMigrationPolicy.swift; sourceTree = "<group>"; };
 		5B0DB0DE0CCDDA52D06A792C /* TelnetClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelnetClient.swift; sourceTree = "<group>"; };
 		5C84F621EBED61659728A12C /* ConnectionPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionPresentationTests.swift; sourceTree = "<group>"; };
 		5FC5B32387271FA418F10773 /* HostKeyTrustCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostKeyTrustCoordinator.swift; sourceTree = "<group>"; };
@@ -601,6 +607,7 @@
 		735C5043134DAC338A430C10 /* CheckedFFIKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIKind.swift; sourceTree = "<group>"; };
 		745FBDA528F6B4F8EA9D4467 /* WorkstationSheetsAndAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationSheetsAndAlerts.swift; sourceTree = "<group>"; };
 		74A76D7C5B67B09C44C7B10B /* OrbitTermiOSUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitTermiOSUITests.swift; sourceTree = "<group>"; };
+		750501D439C0373B6AC4F785 /* OfficialServiceTLSPinningPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfficialServiceTLSPinningPolicy.swift; sourceTree = "<group>"; };
 		76AB95FB1E7D6619332A255A /* MobileSessionComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSessionComponents.swift; sourceTree = "<group>"; };
 		7713E6E04A40DA1BC5D07D1A /* HeaderForwardingCompileCheck.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = HeaderForwardingCompileCheck.c; sourceTree = "<group>"; };
 		77D09730A51A26B9E686F253 /* SFTPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPManager.swift; sourceTree = "<group>"; };
@@ -610,6 +617,7 @@
 		7B74BC2A072244011E0AF309 /* SFTPManager+Mock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+Mock.swift"; sourceTree = "<group>"; };
 		7CDA09138D12C60748CCF5EC /* TerminalRenderEscapeFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRenderEscapeFilter.swift; sourceTree = "<group>"; };
 		7CDABB2A6CDA0C6532845C89 /* CheckedBatchCommandService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedBatchCommandService.swift; sourceTree = "<group>"; };
+		7D8CA9F193357BEA51E8A654 /* RemoteDesktopAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDesktopAdapterTests.swift; sourceTree = "<group>"; };
 		7DA03126726F8585CE9F3B82 /* AssetQuickKeySetupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetQuickKeySetupSheet.swift; sourceTree = "<group>"; };
 		7DAB223E842154D2614BEFDB /* MonitorPollingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorPollingPolicy.swift; sourceTree = "<group>"; };
 		7DF6C48C6A90753469560AA6 /* ServerModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerModels.swift; sourceTree = "<group>"; };
@@ -666,10 +674,6 @@
 		AB132EE6006010051D48C71F /* ApplicationOperationLifecyclePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationOperationLifecyclePolicy.swift; sourceTree = "<group>"; };
 		AB6B5AD58F8D1496F4973531 /* MonitorStatsPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorStatsPayload.swift; sourceTree = "<group>"; };
 		ADAE88D2E6BE55CFEF81BB3D /* DiagnosticsPrivacy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsPrivacy.swift; sourceTree = "<group>"; };
-		A9D11C7E0000000000000002 /* SyncConfigCipherMigrationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncConfigCipherMigrationPolicy.swift; sourceTree = "<group>"; };
-		A9D11C7E0000000000000004 /* SyncConfigCipherMigrationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncConfigCipherMigrationPolicyTests.swift; sourceTree = "<group>"; };
-		A9D11C7E000000000000000B /* OfficialServiceTLSPinningPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfficialServiceTLSPinningPolicy.swift; sourceTree = "<group>"; };
-		A9D11C7E000000000000000C /* OfficialServiceTLSPinningPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfficialServiceTLSPinningPolicyTests.swift; sourceTree = "<group>"; };
 		AED26C552B7072D2AAC4669F /* ServerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerStore.swift; sourceTree = "<group>"; };
 		AF296C0F924480DD21047D08 /* OrbitCStringResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitCStringResult.swift; sourceTree = "<group>"; };
 		B4D7532938F0DC9FF02B25D6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -694,6 +698,7 @@
 		CCC379F20967A9F869DE09B1 /* CheckedFFIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIError.swift; sourceTree = "<group>"; };
 		CF0C018CC927BA3B0E42EE18 /* orbit_core.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = orbit_core.h; sourceTree = "<group>"; };
 		CF8482667CCEAB37877728A8 /* SFTPBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserView.swift; sourceTree = "<group>"; };
+		CF9F5BD6067FB45DFCB094B4 /* RemoteDesktopAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDesktopAdapter.swift; sourceTree = "<group>"; };
 		D2551D25C3CF3502A851665F /* OperationRecoveryPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationRecoveryPresentation.swift; sourceTree = "<group>"; };
 		D39A4AEB90905AF3505A2948 /* SyncMetadataStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncMetadataStore.swift; sourceTree = "<group>"; };
 		D44C7BA4E8C0FF98A3D67ABC /* AssetBulkAddSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetBulkAddSheet.swift; sourceTree = "<group>"; };
@@ -715,6 +720,7 @@
 		E98B77FA2367EC90E7474B58 /* HostKeyPresentationSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostKeyPresentationSnapshot.swift; sourceTree = "<group>"; };
 		EBF252B95C1A0A974038062E /* WorkstationSFTPDialogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationSFTPDialogs.swift; sourceTree = "<group>"; };
 		EC1301A8254D411A95E31A69 /* WorkstationTerminalToolbarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalToolbarView.swift; sourceTree = "<group>"; };
+		ED2A704E53D6A2DABB2DC26F /* SyncConfigCipherMigrationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncConfigCipherMigrationPolicyTests.swift; sourceTree = "<group>"; };
 		ED34A104EBBDBA17DC64A535 /* OrbitTerm-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "OrbitTerm-Bridging-Header.h"; sourceTree = "<group>"; };
 		ED3DF073D05A8CC8D2274F86 /* ApplicationOperationLifecyclePolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationOperationLifecyclePolicyTests.swift; sourceTree = "<group>"; };
 		EDB1034B7939B68118FACF98 /* TelnetAccessPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelnetAccessPolicy.swift; sourceTree = "<group>"; };
@@ -798,6 +804,7 @@
 				A780B78BD56BAD6B05BC3378 /* MonitorTargetStore.swift */,
 				7E4AE5E8FEC909FFBA6B236E /* NetworkModels.swift */,
 				3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */,
+				750501D439C0373B6AC4F785 /* OfficialServiceTLSPinningPolicy.swift */,
 				52E60982F403B7EC71708054 /* OperationOwner.swift */,
 				DC937B797931679C4553F2AF /* OperationResourceBudget.swift */,
 				E5EA4E9F3A6AD954AB0C814C /* OrbitManager.swift */,
@@ -820,12 +827,11 @@
 				F564909FA3819599A35DA95E /* ShellPathResolver.swift */,
 				49A82DE81A0B407B463AD4AF /* SnippetAssetScope.swift */,
 				9A91FAC92F6EEB51AACE1DEB /* SnippetStore.swift */,
+				5AC978D1EC79B620DDE63FDA /* SyncConfigCipherMigrationPolicy.swift */,
 				E0FAA4130AD937FDB99259DB /* SyncIdentityService.swift */,
 				D39A4AEB90905AF3505A2948 /* SyncMetadataStore.swift */,
 				995C008B81C1BCF2CC6B5122 /* SyncModels.swift */,
 				CC432D7167B38CF9C7D4660B /* SyncPullRecoveryPolicy.swift */,
-				A9D11C7E0000000000000002 /* SyncConfigCipherMigrationPolicy.swift */,
-				A9D11C7E000000000000000B /* OfficialServiceTLSPinningPolicy.swift */,
 				33E248A5FD3DD7C8F896ECA2 /* SyncQueue.swift */,
 				C3E0EFB34CACD29FEB53B377 /* SyncService.swift */,
 				461FDC634D076E7A0DF2798A /* SyncService+Conflict.swift */,
@@ -842,6 +848,7 @@
 				C0BC560D8F8E36365618B52A /* Appearance */,
 				927BFBD2838280FEA44FC157 /* CheckedFFI */,
 				2A4058A969CBCF6B2A439533 /* HostKeyTrust */,
+				E3029C50FBE3EA98AF11DA61 /* RemoteDesktop */,
 				E1A50DA47C6BF403582D80C4 /* TerminalAppearance */,
 			);
 			path = Core;
@@ -1002,17 +1009,18 @@
 				808FFAC757EB9FA079E2E5F8 /* HostKeyTrustPresentationTests.swift */,
 				8967AE81F6B71DCBAA90E585 /* JumpHostConfigurationTests.swift */,
 				8DBCBF20FBDCB52274842C5D /* KeychainDataStoreTests.swift */,
+				22279E2C442482FE01B1BF36 /* OfficialServiceTLSPinningPolicyTests.swift */,
 				036531D24C4C02DC88281F6C /* OperationOwnerTests.swift */,
 				DBBD4156F827335BB72AAE3F /* OperationRecoveryPresentationTests.swift */,
 				A55B22461DFC93EC23BD2C81 /* OperationResourceBudgetStressTests.swift */,
 				03CCFF611E40A538EB361595 /* OperationResourceBudgetTests.swift */,
 				1E6DA6F702782EA345096BAB /* OrbitCoreCheckedFFIClientTests.swift */,
+				7D8CA9F193357BEA51E8A654 /* RemoteDesktopAdapterTests.swift */,
 				9B4CAA3973F1B8D89EE215E3 /* ScriptedCheckedFFIClient.swift */,
 				FC7FD6608AE3F86AC45A7A36 /* ShellSyntaxHighlighterTests.swift */,
 				60D4D8AF8B15F9B660BC1E13 /* SnippetAssetScopeTests.swift */,
+				ED2A704E53D6A2DABB2DC26F /* SyncConfigCipherMigrationPolicyTests.swift */,
 				FBA4D64E2874ED0C905BBF3D /* SyncPullRecoveryPolicyTests.swift */,
-				A9D11C7E0000000000000004 /* SyncConfigCipherMigrationPolicyTests.swift */,
-				A9D11C7E000000000000000C /* OfficialServiceTLSPinningPolicyTests.swift */,
 				FC1976CD3FBAA98751C994BE /* TelnetAccessPolicyTests.swift */,
 				059E0679B2C1FC2F7251B28D /* TerminalInputDispatchPolicyTests.swift */,
 				69ABC9043C869E78633E9DF7 /* TerminalRenderEscapeFilterTests.swift */,
@@ -1101,6 +1109,14 @@
 			path = TerminalAppearance;
 			sourceTree = "<group>";
 		};
+		E3029C50FBE3EA98AF11DA61 /* RemoteDesktop */ = {
+			isa = PBXGroup;
+			children = (
+				CF9F5BD6067FB45DFCB094B4 /* RemoteDesktopAdapter.swift */,
+			);
+			path = RemoteDesktop;
+			sourceTree = "<group>";
+		};
 		F36C787D185F927F358E2DEE /* Features */ = {
 			isa = PBXGroup;
 			children = (
@@ -1179,6 +1195,8 @@
 				EFDF87A27140DAAF28CF0DBD /* PBXTargetDependency */,
 			);
 			name = OrbitTermmacOSUITests;
+			packageProductDependencies = (
+			);
 			productName = OrbitTermmacOSUITests;
 			productReference = 93C75B149A9185509247CD96 /* OrbitTermmacOSUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
@@ -1195,6 +1213,8 @@
 				99482D715732F35BA9C72856 /* PBXTargetDependency */,
 			);
 			name = OrbitTermiOSUITests;
+			packageProductDependencies = (
+			);
 			productName = OrbitTermiOSUITests;
 			productReference = 6F14590EDF4A6FC7DBBEED60 /* OrbitTermiOSUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
@@ -1210,6 +1230,8 @@
 			dependencies = (
 			);
 			name = OrbitTermCheckedFFITests;
+			packageProductDependencies = (
+			);
 			productName = OrbitTermCheckedFFITests;
 			productReference = F660F6B83AFB5A902A70F64F /* OrbitTermCheckedFFITests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -1248,7 +1270,6 @@
 				};
 			};
 			buildConfigurationList = B0979EF4A02DA3DF25DFC616 /* Build configuration list for PBXProject "OrbitTerm" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -1256,15 +1277,18 @@
 				en,
 			);
 			mainGroup = 5C8A07681BFCB1AEB32399A7;
+			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				4355C47EEEB7C4FF1A17DEFF /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5BD31C74C2737D02F64C8B9C /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				F315953FC26D7D933FC1B9C6 /* OrbitTermCheckedFFITests */,
 				9037F5C81C57EF6606CFD7B1 /* OrbitTerm_iOS */,
 				5D894F6ED837B8E66D8BC143 /* OrbitTerm_macOS */,
+				F315953FC26D7D933FC1B9C6 /* OrbitTermCheckedFFITests */,
 				EC14BE7743DD43C458930A42 /* OrbitTermiOSUITests */,
 				D2C11F7DAA9D8EB7115B9D4A /* OrbitTermmacOSUITests */,
 			);
@@ -1359,6 +1383,8 @@
 				FCA07310BDE5A8CD20DF6C9C /* KeychainManager.swift in Sources */,
 				5CD7DEFB5603F280E3F85C28 /* MonitorSystemInfo.swift in Sources */,
 				8E8868F92DAC015D8A48696C /* MonitorThemeSemantics.swift in Sources */,
+				57613416D7D03121FBAE5668 /* OfficialServiceTLSPinningPolicy.swift in Sources */,
+				122B0D82B63601F273E9BF77 /* OfficialServiceTLSPinningPolicyTests.swift in Sources */,
 				8299F7BD3A57AE00080BC812 /* OperationOwner.swift in Sources */,
 				A1AADDDA8752E25266DCDD9F /* OperationOwnerTests.swift in Sources */,
 				637CC958F059E5AFF533CC6D /* OperationRecoveryPresentation.swift in Sources */,
@@ -1370,6 +1396,8 @@
 				3DA37901A4E63DF0BEF2FA20 /* OrbitCoreCheckedFFIClient.swift in Sources */,
 				B63576EF89FC2527D8742384 /* OrbitCoreCheckedFFIClientTests.swift in Sources */,
 				3C1DC23B3976040613F88C1B /* PerformanceSignpost.swift in Sources */,
+				2B23DC6986FDD1918543F546 /* RemoteDesktopAdapter.swift in Sources */,
+				6D800DCC1A7C4FE7D8C1A3DE /* RemoteDesktopAdapterTests.swift in Sources */,
 				3EDC640F7AF5C5F46A1B7F89 /* SFTPThemeSemantics.swift in Sources */,
 				48CD66B653668D2865B48306 /* ScriptedCheckedFFIClient.swift in Sources */,
 				66F42DD280736EE1C21B58F1 /* SecureClipboard.swift in Sources */,
@@ -1382,12 +1410,10 @@
 				003E361D55EE62247FBAA1F4 /* SnippetAssetScope.swift in Sources */,
 				37125FDCA6EC581FCE3F6719 /* SnippetAssetScopeTests.swift in Sources */,
 				79E13E4BB4B0DC98C196C7B5 /* SnippetVariableResolver.swift in Sources */,
+				E731F801257CBD5DBE2AE2FB /* SyncConfigCipherMigrationPolicy.swift in Sources */,
+				B62E44EBC6CC0A2EDCECE2B5 /* SyncConfigCipherMigrationPolicyTests.swift in Sources */,
 				3CBBCA430C39BB5D72595613 /* SyncPullRecoveryPolicy.swift in Sources */,
 				783A87571BE91B3744CEEF83 /* SyncPullRecoveryPolicyTests.swift in Sources */,
-				A9D11C7E0000000000000001 /* SyncConfigCipherMigrationPolicy.swift in Sources */,
-				A9D11C7E0000000000000003 /* SyncConfigCipherMigrationPolicyTests.swift in Sources */,
-				A9D11C7E0000000000000007 /* OfficialServiceTLSPinningPolicy.swift in Sources */,
-				A9D11C7E0000000000000008 /* OfficialServiceTLSPinningPolicyTests.swift in Sources */,
 				5BAA624D9CBB114A3C91E165 /* TelnetAccessPolicy.swift in Sources */,
 				B51FDE8C38374BC39208498C /* TelnetAccessPolicyTests.swift in Sources */,
 				ED4AD3D87E2754B1E46EB33F /* TerminalChunkBuffer.swift in Sources */,
@@ -1498,6 +1524,7 @@
 				75CAE8F43F6EC022201E10A1 /* MonitorThemeSemantics.swift in Sources */,
 				1CA23122CB3D32319E80C7BB /* NetworkModels.swift in Sources */,
 				7537219233F149DD96EE566D /* NetworkService.swift in Sources */,
+				D4660C277FFE9E316617273A /* OfficialServiceTLSPinningPolicy.swift in Sources */,
 				B2337348EBB72F2351322814 /* OperationOwner.swift in Sources */,
 				5EB32A648A77D4A86A95F0AE /* OperationRecoveryPresentation.swift in Sources */,
 				8214D6A08151D16471F69F0A /* OperationResourceBudget.swift in Sources */,
@@ -1508,6 +1535,7 @@
 				64F544A29C8DC4526D624C8F /* OrbitTermApp.swift in Sources */,
 				68CB03F0F01413CFFC7B53E5 /* PerformanceSignpost.swift in Sources */,
 				774AEC150F44DF342DFCC77F /* RecentlyDeletedView.swift in Sources */,
+				C47F2E7333D815A9E7F806B7 /* RemoteDesktopAdapter.swift in Sources */,
 				6599D89B9C262F7D2644455D /* RustFFI.swift in Sources */,
 				3D85D3A635000A45A703B805 /* SFTPActivityShareSheet.swift in Sources */,
 				05B3FCDA5DDEC076BAF0EDAC /* SFTPBatchDownloader.swift in Sources */,
@@ -1548,12 +1576,11 @@
 				FEEBE43BE00573E47EF35283 /* SnippetsPanelView.swift in Sources */,
 				28E672FDA0369A2F602203CA /* SwiftTermPlatformSupport.swift in Sources */,
 				7F996E7D9810AEABC9BE7BCA /* SwiftTermTerminalView.swift in Sources */,
+				1E40AD4CBEC2BBF146A05652 /* SyncConfigCipherMigrationPolicy.swift in Sources */,
 				0C85D9659374297F5DE445CB /* SyncIdentityService.swift in Sources */,
 				770A52F2023C7ED94E32F7D3 /* SyncMetadataStore.swift in Sources */,
 				88B80DB3BB5EEA60FC61FE79 /* SyncModels.swift in Sources */,
 				A2F0DCBEFBB6B6D1F720E341 /* SyncPullRecoveryPolicy.swift in Sources */,
-				A9D11C7E0000000000000005 /* SyncConfigCipherMigrationPolicy.swift in Sources */,
-				A9D11C7E0000000000000009 /* OfficialServiceTLSPinningPolicy.swift in Sources */,
 				AE07E73A7CFE5A5C07F11398 /* SyncQueue.swift in Sources */,
 				AB525E4A7F9569C290984ADF /* SyncService+Conflict.swift in Sources */,
 				BBD2CFB53FFF17C11D1B9597 /* SyncService+Synchronization.swift in Sources */,
@@ -1702,6 +1729,7 @@
 				9C22346C922E947A2F2BB050 /* MonitorThemeSemantics.swift in Sources */,
 				1E9B9E49F948508485F30D9C /* NetworkModels.swift in Sources */,
 				D32A2630B47540D9846461F9 /* NetworkService.swift in Sources */,
+				B4D7C685794E05C8FBCEF340 /* OfficialServiceTLSPinningPolicy.swift in Sources */,
 				E144879BFDF39586A5080791 /* OperationOwner.swift in Sources */,
 				40DF59B581CA8E54B44087EE /* OperationRecoveryPresentation.swift in Sources */,
 				C0C636CC4ECB08DD7B0A2590 /* OperationResourceBudget.swift in Sources */,
@@ -1712,6 +1740,7 @@
 				30964E866A545DA1A90499AD /* OrbitTermApp.swift in Sources */,
 				40EDB7F425B26322ABBE7348 /* PerformanceSignpost.swift in Sources */,
 				CFADA57AD98ECD0453997B3C /* RecentlyDeletedView.swift in Sources */,
+				6F40C26A2620AF05AF43BA11 /* RemoteDesktopAdapter.swift in Sources */,
 				B92B5BA15DD3A98E6CD8DDB6 /* RustFFI.swift in Sources */,
 				607FF897165AAB0B017E61AD /* SFTPActivityShareSheet.swift in Sources */,
 				A0155143734296B0E0EEC4BC /* SFTPBatchDownloader.swift in Sources */,
@@ -1752,12 +1781,11 @@
 				AFF1D8B2C45D35B9B44C3285 /* SnippetsPanelView.swift in Sources */,
 				DBE8AE5DD2A5774DA24CB2D4 /* SwiftTermPlatformSupport.swift in Sources */,
 				390B44D1B24945CC4EBAB4C1 /* SwiftTermTerminalView.swift in Sources */,
+				CF9B77537B71653AAAFFEFA0 /* SyncConfigCipherMigrationPolicy.swift in Sources */,
 				A6FAF4E1A4CC4519CEBD9E38 /* SyncIdentityService.swift in Sources */,
 				0746A780CA9CCC691B347D4F /* SyncMetadataStore.swift in Sources */,
 				16BA0EEF9A6CF0B76D52DC1F /* SyncModels.swift in Sources */,
 				7FCB8139DD2ED49F66B8E215 /* SyncPullRecoveryPolicy.swift in Sources */,
-				A9D11C7E0000000000000006 /* SyncConfigCipherMigrationPolicy.swift in Sources */,
-				A9D11C7E000000000000000A /* OfficialServiceTLSPinningPolicy.swift in Sources */,
 				6DD9A2057FBD4F0745ECA5B1 /* SyncQueue.swift in Sources */,
 				D1A2D596F0D5A82272EE761E /* SyncService+Conflict.swift in Sources */,
 				4EFA73C26542323B8F1818C0 /* SyncService+Synchronization.swift in Sources */,
@@ -1816,8 +1844,14 @@
 		1B8502282F67A2FB9B1F9FD5 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGNING_ALLOWED = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "com.orbitterm.ios.ui-tests";
 				PRODUCT_NAME = OrbitTermiOSUITests;
 				SDKROOT = iphoneos;
@@ -1836,6 +1870,7 @@
 				"ARCHS[sdk=macosx*]" = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = OrbitTerm/OrbitTerm.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1843,6 +1878,10 @@
 					"$(SRCROOT)/orbit-core/include",
 				);
 				INFOPLIST_FILE = OrbitTerm/App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
 				"ONLY_ACTIVE_ARCH[sdk=iphoneos*]" = YES;
 				"ONLY_ACTIVE_ARCH[sdk=iphonesimulator*]" = YES;
 				"ONLY_ACTIVE_ARCH[sdk=macosx*]" = YES;
@@ -1859,6 +1898,7 @@
 					"$(SRCROOT)/orbit-core/target/aarch64-apple-darwin/debug/liborbit_core.a",
 				);
 				PRODUCT_NAME = OrbitTerm;
+				SDKROOT = macosx;
 				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos macosx";
 				SWIFT_OBJC_BRIDGING_HEADER = "OrbitTerm/CBridge/OrbitTerm-Bridging-Header.h";
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -1873,6 +1913,7 @@
 				"ARCHS[sdk=macosx*]" = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = OrbitTerm/OrbitTerm.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1880,6 +1921,10 @@
 					"$(SRCROOT)/orbit-core/include",
 				);
 				INFOPLIST_FILE = OrbitTerm/App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
 				"ONLY_ACTIVE_ARCH[sdk=iphoneos*]" = YES;
 				"ONLY_ACTIVE_ARCH[sdk=iphonesimulator*]" = YES;
 				"ONLY_ACTIVE_ARCH[sdk=macosx*]" = YES;
@@ -1896,6 +1941,7 @@
 					"$(SRCROOT)/orbit-core/target/aarch64-apple-darwin/release/liborbit_core.a",
 				);
 				PRODUCT_NAME = OrbitTerm;
+				SDKROOT = macosx;
 				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos macosx";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) ORBITTERM_PUBLIC_RELEASE";
 				SWIFT_OBJC_BRIDGING_HEADER = "OrbitTerm/CBridge/OrbitTerm-Bridging-Header.h";
@@ -1907,9 +1953,16 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				"ARCHS[sdk=macosx*]" = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGNING_ALLOWED = NO;
+				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = OrbitTerm/App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
 				"OTHER_LDFLAGS[sdk=macosx*]" = (
 					"$(inherited)",
 					"$(SRCROOT)/orbit-core/target/aarch64-apple-darwin/debug/liborbit_core.a",
@@ -1917,6 +1970,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.orbitterm.checkedffi.tests;
 				PRODUCT_MODULE_NAME = OrbitTermCheckedFFITests;
 				PRODUCT_NAME = OrbitTermCheckedFFITests;
+				SDKROOT = macosx;
 				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
@@ -1924,8 +1978,15 @@
 		4F81C8C99D7A5090525C8382 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGNING_ALLOWED = NO;
+				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "com.orbitterm.macos.ui-tests";
 				PRODUCT_NAME = OrbitTermmacOSUITests;
 				SDKROOT = macosx;
@@ -1943,6 +2004,7 @@
 				"ARCHS[sdk=macosx*]" = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = OrbitTerm/OrbitTerm.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_HARDENED_RUNTIME = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1950,6 +2012,10 @@
 					"$(SRCROOT)/orbit-core/include",
 				);
 				INFOPLIST_FILE = OrbitTerm/App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
 				"ONLY_ACTIVE_ARCH[sdk=iphoneos*]" = YES;
 				"ONLY_ACTIVE_ARCH[sdk=iphonesimulator*]" = YES;
 				"ONLY_ACTIVE_ARCH[sdk=macosx*]" = YES;
@@ -1966,6 +2032,7 @@
 					"$(SRCROOT)/orbit-core/target/aarch64-apple-darwin/debug/liborbit_core.a",
 				);
 				PRODUCT_NAME = OrbitTerm;
+				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos macosx";
 				SWIFT_OBJC_BRIDGING_HEADER = "OrbitTerm/CBridge/OrbitTerm-Bridging-Header.h";
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -1975,15 +2042,68 @@
 		6074F9A97CA8AE95585205E6 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 20260624;
+				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = BYZK354JK4;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0.1;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.orbitterm.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
@@ -1991,15 +2111,61 @@
 		ADECE83760DE850973B4DAEC /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 20260624;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = BYZK354JK4;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0.1;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.orbitterm.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
@@ -2008,9 +2174,16 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				"ARCHS[sdk=macosx*]" = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGNING_ALLOWED = NO;
+				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = OrbitTerm/App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
 				"OTHER_LDFLAGS[sdk=macosx*]" = (
 					"$(inherited)",
 					"$(SRCROOT)/orbit-core/target/aarch64-apple-darwin/debug/liborbit_core.a",
@@ -2018,6 +2191,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.orbitterm.checkedffi.tests;
 				PRODUCT_MODULE_NAME = OrbitTermCheckedFFITests;
 				PRODUCT_NAME = OrbitTermCheckedFFITests;
+				SDKROOT = macosx;
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
@@ -2025,8 +2199,14 @@
 		CAC168FA2099183E43CC011C /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGNING_ALLOWED = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "com.orbitterm.ios.ui-tests";
 				PRODUCT_NAME = OrbitTermiOSUITests;
 				SDKROOT = iphoneos;
@@ -2045,6 +2225,7 @@
 				"ARCHS[sdk=macosx*]" = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = OrbitTerm/OrbitTerm.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_HARDENED_RUNTIME = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
@@ -2052,6 +2233,10 @@
 					"$(SRCROOT)/orbit-core/include",
 				);
 				INFOPLIST_FILE = OrbitTerm/App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
 				"ONLY_ACTIVE_ARCH[sdk=iphoneos*]" = YES;
 				"ONLY_ACTIVE_ARCH[sdk=iphonesimulator*]" = YES;
 				"ONLY_ACTIVE_ARCH[sdk=macosx*]" = YES;
@@ -2068,6 +2253,7 @@
 					"$(SRCROOT)/orbit-core/target/aarch64-apple-darwin/release/liborbit_core.a",
 				);
 				PRODUCT_NAME = OrbitTerm;
+				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos macosx";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) ORBITTERM_PUBLIC_RELEASE";
 				SWIFT_OBJC_BRIDGING_HEADER = "OrbitTerm/CBridge/OrbitTerm-Bridging-Header.h";
@@ -2078,8 +2264,15 @@
 		F733EA3EB2B52AE522AEA65E /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGNING_ALLOWED = NO;
+				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "com.orbitterm.macos.ui-tests";
 				PRODUCT_NAME = OrbitTermmacOSUITests;
 				SDKROOT = macosx;

@@ -110,6 +110,7 @@ targets:
           - Core/AccountScopedServiceLifecycle.swift
           - Core/SnippetAssetScope.swift
           - Core/MonitorSystemInfo.swift
+          - Core/RemoteDesktop/*.swift
           - Core/Appearance/*.swift
           - Core/TerminalAppearance/*.swift
           - Core/TerminalInputDispatchPolicy.swift

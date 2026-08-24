@@ -1,5 +1,6 @@
 package com.orbitterm.android.domain.assets
 
+import com.orbitterm.android.domain.remote.RemoteDesktopRuntimeCapability
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -27,5 +28,17 @@ class AndroidTransportSupportPolicyTest {
         val label = AndroidTransportSupportPolicy.compatibilityLabel("rdp")
         assertTrue(label.contains("RDP"))
         assertTrue(label.contains("已同步"))
+    }
+
+    @Test
+    fun rdpBecomesConnectableOnlyWhenTheAuditedRuntimeIsAvailable() {
+        assertTrue(AndroidTransportSupportPolicy.allowsCheckedConnection(
+            "rdp",
+            remoteDesktopCapability = RemoteDesktopRuntimeCapability.available,
+        ))
+        assertTrue(AndroidTransportSupportPolicy.compatibilityLabel(
+            "rdp",
+            RemoteDesktopRuntimeCapability.available,
+        ).contains("FreeRDP"))
     }
 }
