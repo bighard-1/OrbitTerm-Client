@@ -64,7 +64,34 @@ evidence_dir="$(mktemp -d "${TMPDIR:-/tmp}/orbitterm-apple-evidence.XXXXXX")"
 rm -rf "$evidence_dir"
 pass "privacy manifest, entitlements, locked dependencies, and Rust provenance inputs verified"
 
+section "Public Release UI exclusions"
+auth_view="$ORBIT_ROOT/OrbitTerm/Features/Auth/AuthView.swift"
+settings_view="$ORBIT_ROOT/OrbitTerm/Features/Home/SettingsView.swift"
+rg -U -q '#if ORBITTERM_PUBLIC_RELEASE\nprivate struct DevelopmentEndpointControls: ViewModifier \{[[:space:][:print:]]{0,400}func body\(content: Content\) -> some View \{ content \}' "$auth_view" || \
+  fail "public Release does not compile the development endpoint control to a no-op"
+rg -U -q '#if os\(macOS\)\n[[:space:]]*@AppStorage\("orbitterm[.]monitor[.]history[.]range"\)' "$settings_view" || \
+  fail "mobile build still owns the workstation-only monitor range setting"
+pass "development endpoint UI and inert mobile monitor range are excluded from public Release"
+
+# XCTest runs with a file-system sandbox and cannot load linked test
+# dependencies directly from the repository-local audited toolchain path.
+# Stage the exact reviewed dylibs inside each isolated build-products rpath;
+# do not weaken the sandbox or fall back to a machine-global FreeRDP install.
+stage_checked_test_runtime() {
+  local products_dir="$1"
+  mkdir -p "$products_dir"
+  local runtime_dir
+  for runtime_dir in \
+    "$ORBIT_ROOT/.tooling/freerdp-macos/install/freerdp/lib" \
+    "$ORBIT_ROOT/.tooling/freerdp-macos/install/openssl/lib"; do
+    while IFS= read -r runtime; do
+      cp -L "$runtime" "$products_dir/$(basename "$runtime")"
+    done < <(find "$runtime_dir" -maxdepth 1 \( -type f -o -type l \) -name '*.dylib*' | sort)
+  done
+}
+
 section "Checked FFI XCTest"
+stage_checked_test_runtime "$derived_data/Build/Products/Debug"
 xcodebuild test -quiet -project "$project" -scheme OrbitTermCheckedFFITests \
   -destination 'platform=macOS,arch=arm64' -derivedDataPath "$derived_data" CODE_SIGNING_ALLOWED=NO
 
@@ -86,6 +113,13 @@ xcodebuild test -quiet -project "$project" -scheme OrbitTermCheckedFFITests \
   -only-testing:OrbitTermCheckedFFITests/OperationResourceBudgetTests \
   -only-testing:OrbitTermCheckedFFITests/OperationResourceBudgetStressTests
 
+section "Native HTTP fault regressions"
+# Keep timeout, connection interruption, truncated/malformed success payloads,
+# cancellation, and idempotency-header stability in the mandatory Apple gate.
+xcodebuild test -quiet -project "$project" -scheme OrbitTermCheckedFFITests \
+  -destination 'platform=macOS,arch=arm64' -derivedDataPath "$derived_data" CODE_SIGNING_ALLOWED=NO \
+  -only-testing:OrbitTermCheckedFFITests/NetworkServiceFaultInjectionTests
+
 section "Real-device performance evidence contract"
 # Ordinary source CI cannot manufacture real-device performance evidence. A
 # signed release-candidate lane sets both variables and therefore fails closed
@@ -104,8 +138,13 @@ simulator_id="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ { 
 [[ -n "$simulator_id" ]] || fail "no available iPhone simulator for UI lifecycle tests"
 xcrun simctl boot "$simulator_id" 2>/dev/null || true
 xcrun simctl bootstatus "$simulator_id" -b
+# Xcode 26.6 can compile an unsigned UI-test bundle but cannot reliably launch
+# its test host (the runner reports missing debugger metadata and app roots are
+# never exposed). Simulator signing is ephemeral and uses no distribution
+# identity, so keep the source-build lanes unsigned while allowing Xcode's
+# default ad-hoc signing for this executable UI lifecycle contract.
 xcodebuild test -quiet -project "$project" -scheme OrbitTermiOSUITests \
-  -destination "platform=iOS Simulator,id=$simulator_id" -derivedDataPath "$derived_data" CODE_SIGNING_ALLOWED=NO
+  -destination "platform=iOS Simulator,id=$simulator_id" -derivedDataPath "$derived_data"
 
 section "macOS UI target compile contract"
 # A macOS XCUITest runner needs a locally provisioned signing identity in order
@@ -142,7 +181,7 @@ section "Release fixture exclusion"
 release_binary="$derived_data/Build/Products/Release/OrbitTerm.app/Contents/MacOS/OrbitTerm"
 [[ -x "$release_binary" ]] || fail "macOS Release executable not found for fixture exclusion audit"
 if strings "$release_binary" | rg -i \
-  '当前为模拟模式|模拟目录|进入模拟浏览|Mock 文件列表|ui-test@example[.]invalid|orbitTermUITestState|ORBITTERM_UI_TEST_STATE'; then
+  '当前为模拟模式|模拟目录|进入模拟浏览|Mock 文件列表|ui-test@example[.]invalid|orbitTermUITestState|ORBITTERM_UI_TEST_STATE|fault-probe|FaultInjectionProbeBody|ScriptedURLProtocol|隐藏菜单：仅用于调试|后端地址设置'; then
   fail "Release executable contains a mock-directory or UI-test fixture marker"
 fi
 pass "Release executable excludes mock directories and UI-test fixtures"
@@ -183,6 +222,12 @@ trap 'rm -rf "$tmp_dir"' EXIT
 xcodegen generate --quiet --spec "$ORBIT_ROOT/project.yml" --project "$tmp_dir" --project-root "$ORBIT_ROOT"
 generated_project="$tmp_dir/OrbitTerm.xcodeproj"
 [[ -f "$generated_project/project.pbxproj" ]] || fail "XcodeGen did not produce a project"
+# XcodeGen intentionally writes a self-contained project into the temporary
+# directory. Keep all source and audited toolchain references resolvable from
+# that generated SRCROOT without copying or mutating repository content.
+for generated_source in OrbitTerm OrbitTermCheckedFFITests orbit-core scripts .tooling; do
+  ln -s "$ORBIT_ROOT/$generated_source" "$tmp_dir/$generated_source"
+done
 rg -q 'ORBITTERM_PUBLIC_RELEASE' "$generated_project/project.pbxproj" || fail "generated project is missing the public Release condition"
 rg -q 'OrbitTermCheckedFFITests' "$generated_project/project.pbxproj" || fail "generated project is missing the checked FFI test target"
 rg -q 'OrbitTermiOSUITests' "$generated_project/project.pbxproj" || fail "generated project is missing the iOS UI test target"
@@ -197,6 +242,7 @@ rg -q 'OrbitTermmacOSUITests' "$project/project.pbxproj" || fail "checked-in pro
   fail "generated project does not expose the iOS UI test scheme"
 [[ -f "$generated_project/xcshareddata/xcschemes/OrbitTermmacOSUITests.xcscheme" ]] || \
   fail "generated project does not expose the macOS UI test scheme"
+stage_checked_test_runtime "$derived_data/generated/Build/Products/Debug"
 xcodebuild test -quiet -project "$generated_project" -scheme OrbitTermCheckedFFITests \
   -destination 'platform=macOS,arch=arm64' -derivedDataPath "$derived_data/generated" CODE_SIGNING_ALLOWED=NO
 pass "project.yml and checked-in project contain the same release-security targets and flags"

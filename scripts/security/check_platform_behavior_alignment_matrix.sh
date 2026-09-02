@@ -8,8 +8,8 @@ matrix="$ORBIT_ROOT/docs/PLATFORM_BEHAVIOR_ALIGNMENT_MATRIX.md"
 acceptance="$ORBIT_ROOT/docs/PLATFORM_REAL_DEVICE_ACCEPTANCE.md"
 [[ -f "$acceptance" ]] || fail "cross-platform real-device acceptance record is missing"
 
-section "iOS/macOS/Android behavior alignment matrix"
-rg -q '^# OrbitTerm iOS / macOS / Android 行为对齐矩阵$' "$matrix" || \
+section "Windows/iOS/macOS/Android behavior alignment matrix"
+rg -q '^# OrbitTerm Windows / iOS / macOS / Android 行为对齐矩阵$' "$matrix" || \
   fail "cross-platform behavior alignment matrix has an unexpected title"
 
 for scope in 'Host Key' '跳板机' 'Telnet' 'SFTP' 'Docker' 'Monitor' '同步' '无障碍' '发布证据'; do
@@ -37,14 +37,14 @@ awk -F'|' '
     }
     status = $7
     gsub(/^[[:space:]]+|[[:space:]]+$/, "", status)
-    if (status != "已对齐" && status != "有意差异" && status != "待完成") {
+    if (status != "已对齐" && status != "分阶段对齐" && status != "有意差异" && status != "待完成") {
       printf("invalid alignment status at line %d: %s\n", NR, status) > "/dev/stderr"
       exit 1
     }
   }
 ' "$matrix" || fail "cross-platform behavior alignment matrix contains incomplete or invalid rows"
 
-pass "iOS/macOS/Android behavior alignment matrix"
+pass "Windows/iOS/macOS/Android behavior alignment matrix"
 
 section "cross-platform real-device acceptance preparation"
 for scope in 'iPhone / iPad' 'macOS' 'Android' 'VoiceOver' 'TalkBack' 'Telnet'; do

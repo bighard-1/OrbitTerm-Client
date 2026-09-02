@@ -5,6 +5,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 require_command unzip
 require_command shasum
+require_command strings
 
 ANDROID_PROJECT="$ORBIT_ROOT/clients/android/OrbitTermAndroid"
 ANDROID_GRADLE="$ANDROID_PROJECT/gradlew"
@@ -13,6 +14,7 @@ ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-${ORBIT_ROOT}/.tooling/android-sdk/ndk/29.
 [[ -x "$ANDROID_GRADLE" ]] || fail "Android Gradle wrapper is missing"
 [[ -d "$ANDROID_NDK_HOME" ]] || fail "ANDROID_NDK_HOME is missing"
 [[ -f "$ANDROID_PROJECT/app/gradle.lockfile" ]] || fail "Android dependency lockfile is missing"
+[[ -f "$ANDROID_PROJECT/data/gradle.lockfile" ]] || fail "Android data/test dependency lockfile is missing"
 protected_release_workflow="$ORBIT_ROOT/.github/workflows/android-protected-release.yml"
 [[ -f "$protected_release_workflow" ]] || fail "Android protected release workflow is missing"
 
@@ -26,6 +28,9 @@ section "Android unit tests and Release assembly"
 (
   cd "$ANDROID_PROJECT"
   ANDROID_NDK_HOME="$ANDROID_NDK_HOME" ./gradlew --no-daemon \
+    :core:testDebugUnitTest \
+    :domain:testDebugUnitTest \
+    :data:testDebugUnitTest \
     :app:testDebugUnitTest \
     :feature:testDebugUnitTest \
     :app:verifyReleaseSigning \
@@ -37,6 +42,24 @@ unit_results_root="$ANDROID_PROJECT/app/build/test-results/testDebugUnitTest"
 [[ -d "$unit_results_root" ]] || fail "Android unit-test results are missing"
 rg -q 'AndroidTransportSupportPolicyTest' "$unit_results_root" || \
   fail "Android Telnet transport-policy regression test did not run"
+rg -q 'unlocking a new account atomically replaces every old authority' "$unit_results_root" || \
+  fail "Android single-account sync-authority regression test did not run"
+data_unit_results_root="$ANDROID_PROJECT/data/build/test-results/testDebugUnitTest"
+[[ -d "$data_unit_results_root" ]] || fail "Android data unit-test results are missing"
+rg -q 'OrbitApiFaultInjectionTest' "$data_unit_results_root" || \
+  fail "Android native HTTP fault-injection regression test did not run"
+for required_fault_regression in \
+  'timeoutAndConnectionInterruptionUseStableTransportErrors' \
+  'malformedSuccessfulResponseIsBlockedProtocolViolation' \
+  'cancellationPassesThroughWithoutErrorRemapping' \
+  'idempotencyHeaderIsStableAcrossQueueEquivalentReplays'; do
+  rg -q "$required_fault_regression" "$data_unit_results_root" || \
+    fail "Android native HTTP fault regression did not run: $required_fault_regression"
+done
+domain_unit_results_root="$ANDROID_PROJECT/domain/build/test-results/testDebugUnitTest"
+[[ -d "$domain_unit_results_root" ]] || fail "Android domain unit-test results are missing"
+rg -q 'RetryClockGuardTest' "$domain_unit_results_root" || \
+  fail "Android monotonic retry-clock regression test did not run"
 feature_unit_results_root="$ANDROID_PROJECT/feature/build/test-results/testDebugUnitTest"
 [[ -d "$feature_unit_results_root" ]] || fail "Android feature unit-test results are missing"
 rg -q 'SftpShareArchivePolicyTest' "$feature_unit_results_root" || \
@@ -85,6 +108,12 @@ for apk in "${release_apks[@]}"; do
   if "$aapt_bin" dump xmltree "$apk" AndroidManifest.xml | grep -q 'SmokeFixtureActivity'; then
     fail "smoke fixture leaked into Release APK: $apk"
   fi
+  while IFS= read -r dex_file; do
+    if unzip -p "$apk" "$dex_file" | strings | rg -q \
+      'OrbitApiFaultInjectionTest|RetryClockGuardTest|fault-fixture[.]invalid|io/ktor/client/engine/mock'; then
+      fail "test fault fixture leaked into Release APK: $apk ($dex_file)"
+    fi
+  done < <(unzip -Z1 "$apk" 'classes*.dex')
   case "$(basename "$apk")" in
     *arm64-v8a*) expected_abi="arm64-v8a" ;;
     *x86_64*) expected_abi="x86_64" ;;

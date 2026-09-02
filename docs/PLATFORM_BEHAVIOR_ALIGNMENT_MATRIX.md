@@ -1,12 +1,13 @@
 # OrbitTerm Windows / iOS / macOS / Android 行为对齐矩阵
 
-更新时间：2026-08-21  
+更新时间：2026-08-29
 范围：以安全语义、远端数据变化和用户可恢复结果为准；不要求复制平台控件、窗口或像素布局。  
-状态：`已对齐`、`有意差异`、`待完成`。
+状态：`已对齐`、`分阶段对齐`、`有意差异`、`待完成`。
 
 ## 使用方式
 
-- **已对齐**：三端的安全前提、数据变化和失败恢复结果一致，并至少有源码或自动化证据。
+- **已对齐**：声明覆盖平台的安全前提、数据变化和失败恢复结果一致，并至少有源码或自动化证据。
+- **分阶段对齐**：安全和数据契约已经一致，但一个或多个平台的原生工作区仍按已记录阶段实施，不能声称功能完整。
 - **有意差异**：平台能力不同，但差异不改变安全语义或远端结果；必须说明原因。
 - **待完成**：不得在发布说明中称作三端一致；完成时必须更新本矩阵、对应自动化测试与真机记录。
 - 详细 Android/iOS 项目追踪保留在
@@ -21,7 +22,7 @@
 | Host Key | unknown 必须确认；changed、revoked、unsupported 必须阻断 | HostKeyTrust | HostKeyTrust | CheckedSshNativeClient | 已对齐 | 安全 | 无绕过路径；指纹可访问但不泄露其他凭据。 |
 | 跳板机 | 跳板与最终目标分别验证，工具服务仅复用最终已验证会话 | JumpHostConfiguration | JumpHostConfiguration | PortableJumpHostConfig | 已对齐 | Apple + Android | 跳板失败、Host Key 阻断或取消时不创建终端、SFTP、Docker 或监控会话。 |
 | 资产生命周期 | 批量导入、保存前连接测试、最近删除恢复与永久清理 | AssetBulkAddSheet / RecentlyDeletedView | 同 iOS | AssetBulkImportParser / RecentlyDeletedViewModel | 已对齐 | Apple + Android | 导入有大小/数量/重复限制且不回显秘密；测试会话不持久化；恢复校验密文身份；永久删除二次确认。 |
-| Telnet | 仅在显式风险确认后使用，且不伪装成已验证 SSH | TelnetAccessPolicy | TelnetAccessPolicy | 仅兼容同步保存，禁止创建和连接 | 有意差异 | 产品 / 安全 + Android | Android 明确不支持 Telnet；导入记录不被销毁，但必须 fail-closed，未来支持前需独立风险确认与测试。 |
+| Telnet | 仅在显式风险确认后创建、测试和连接，且不伪装成已验证 SSH | TelnetAccessPolicy | TelnetAccessPolicy | AndroidTransportSupportPolicy / TelnetTerminalConnection | 已对齐 | 产品 / 安全 + Android | 两端均需明文风险确认；Telnet 不可使用跳板、Host Key、SFTP、Docker 或监控；SSH 失败绝不自动降级。 |
 | RDP 远程桌面 | `rdp` 资产使用同一 E2EE 资产信封、账户隔离、冲突合并和删除墓碑；未接入引擎的平台保留资产但绝不回退为 SSH | 保存并同步，原生工作区待 FreeRDP 阶段 | 保存并同步，原生工作区待 FreeRDP 阶段 | 保存并同步，原生工作区待 FreeRDP 阶段 | 分阶段对齐 | Windows RDP Host + ADR-037 | Windows/Linux 可作为图形目标；macOS 图形目标不在首期范围。四端往返同步不得丢凭据、改协议或复活墓碑。 |
 | 会话 | 多会话切换、关闭、重连及迟到回调只能作用于原会话 | SessionManager | SessionManager | TerminalSessionController / OperationScopeCoordinator | 已对齐 | Apple + Android | 锁定、登出、换账号、关闭会话后，旧回调不能复活 UI 或 native handle。 |
 | 终端 | 输入、ANSI 输出、复制粘贴、清屏、滚动历史与快捷键均由用户显式触发 | SwiftTermTerminalView | SwiftTermTerminalView | RemoteTerminalCanvasView | 已对齐 | Apple + Android | 应用主题不改变 ANSI palette；敏感剪贴板按统一策略清理。 |

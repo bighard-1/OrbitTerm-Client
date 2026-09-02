@@ -53,7 +53,7 @@ assert_state() {
 }
 
 section "Android isolated smoke fixtures"
-assert_state locked "解锁工作台"
+assert_state locked "验证主密码"
 assert_state light "浅色主题夹具"
 assert_state dark "深色主题夹具"
 assert_state empty-session "暂无活动会话。请先在服务器页连接一台资产。"
