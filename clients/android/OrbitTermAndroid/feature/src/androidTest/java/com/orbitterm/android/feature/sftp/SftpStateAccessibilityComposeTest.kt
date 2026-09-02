@@ -43,7 +43,8 @@ class SftpStateAccessibilityComposeTest {
                     onBatchRemove = {}, onChmod = { _, _ -> }, onUpload = {}, onDownload = {},
                     onDownloadAsZip = {}, onShareAsZip = {}, onRetryLastTransfer = { retryCount += 1 },
                     onCancelActiveTransfer = { cancelCount += 1 }, onCancelQueuedTransfer = {},
-                    onResumeTransferQueue = {}, onDismissTextDocument = {}, onEditTextDocument = {}, onSaveTextDocument = {},
+                    onResumeTransferQueue = {}, onDismissTransferMessage = {}, onDismissTextDocument = {},
+                    onEditTextDocument = {}, onSaveTextDocument = {},
                 )
             }
         }
@@ -81,7 +82,7 @@ class SftpStateAccessibilityComposeTest {
                     onBatchRemove = {}, onChmod = { _, _ -> }, onUpload = {}, onDownload = {},
                     onDownloadAsZip = {}, onShareAsZip = {}, onRetryLastTransfer = {}, onCancelActiveTransfer = {},
                     onCancelQueuedTransfer = { removedId = it }, onResumeTransferQueue = { resumeCount += 1 },
-                    onDismissTextDocument = {}, onEditTextDocument = {}, onSaveTextDocument = {},
+                    onDismissTransferMessage = {}, onDismissTextDocument = {}, onEditTextDocument = {}, onSaveTextDocument = {},
                 )
             }
         }

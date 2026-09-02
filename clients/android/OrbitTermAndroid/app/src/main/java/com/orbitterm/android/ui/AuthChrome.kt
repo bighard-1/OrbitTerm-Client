@@ -109,7 +109,7 @@ internal fun AuthErrorBanner(message: String) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .semantics { liveRegion = LiveRegionMode.Polite },
+            .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
         shape = RoundedCornerShape(14.dp),
         color = status.container,
         border = androidx.compose.foundation.BorderStroke(1.dp, status.indicator.copy(alpha = 0.45f)),

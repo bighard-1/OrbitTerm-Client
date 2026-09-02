@@ -21,16 +21,21 @@ import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.orbitterm.android.app.AuthViewModel
+import com.orbitterm.android.app.BackgroundLockDisposition
+import com.orbitterm.android.app.BiometricPromptFailure
 import com.orbitterm.android.app.MasterPasswordViewModel
 import com.orbitterm.android.app.SyncViewModel
 import com.orbitterm.android.app.OrbitTermAppViewModel
 import com.orbitterm.android.app.SessionForegroundServiceController
+import com.orbitterm.android.app.backgroundLockDisposition
 import com.orbitterm.android.feature.terminal.TerminalSessionController
 import com.orbitterm.android.domain.settings.AppThemePreference
 import com.orbitterm.android.domain.support.AdministratorContactRepository
 import com.orbitterm.android.ui.MainScreen
 import com.orbitterm.android.ui.LoginScreen
 import com.orbitterm.android.ui.MasterPasswordScreen
+import com.orbitterm.android.ui.LocalStorageCheckingScreen
+import com.orbitterm.android.ui.LocalStorageRecoveryScreen
 import com.orbitterm.android.ui.theme.OrbitTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -51,7 +56,7 @@ class MainActivity : FragmentActivity() {
         // The app can render terminal output, private keys, and decrypted asset metadata.
         // Protect screenshots, screen recording, and task-switcher previews at the host level.
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
-        deepLinks.handle(intent?.data)
+        handleIncomingIntent(intent)
         setContent {
             val appViewModel: OrbitTermAppViewModel = viewModel()
             val authViewModel: AuthViewModel = viewModel()
@@ -78,15 +83,20 @@ class MainActivity : FragmentActivity() {
             var biometricPromptAction by androidx.compose.runtime.remember {
                 mutableStateOf(BiometricPromptAction.Unlock)
             }
+            var biometricPromptActive by androidx.compose.runtime.remember { mutableStateOf(false) }
+            var hostResumed by androidx.compose.runtime.remember {
+                mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+            }
             val biometricPrompt = androidx.compose.runtime.remember(masterViewModel) {
                 BiometricPrompt(
                     this@MainActivity,
                     ContextCompat.getMainExecutor(this@MainActivity),
                     object : BiometricPrompt.AuthenticationCallback() {
                         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                            biometricPromptActive = false
                             val cipher = result.cryptoObject?.cipher
                             if (cipher == null) {
-                                masterViewModel.reportBiometricError("生物识别结果无效，请使用主密码解锁。")
+                                masterViewModel.reportBiometricPromptFailure(BiometricPromptFailure.FAILED)
                                 return
                             }
                             when (biometricPromptAction) {
@@ -96,27 +106,46 @@ class MainActivity : FragmentActivity() {
                         }
 
                         override fun onAuthenticationError(errorCode: Int, errorMessage: CharSequence) {
-                            if (errorCode != BiometricPrompt.ERROR_USER_CANCELED && errorCode != BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
-                                masterViewModel.reportBiometricError(errorMessage.toString())
-                            }
+                            biometricPromptActive = false
+                            masterViewModel.reportBiometricPromptFailure(errorCode.toBiometricPromptFailure())
                         }
                     },
                 )
             }
             val startBiometricUnlock = {
-                val cipher = masterViewModel.biometricUnlockCipher()
-                if (cipher == null) {
-                    masterViewModel.reportBiometricError("生物识别密钥不可用，请使用主密码解锁后重新启用。")
-                } else {
-                    biometricPromptAction = BiometricPromptAction.Unlock
-                    biometricPrompt.authenticate(
-                        BiometricPrompt.PromptInfo.Builder()
-                            .setTitle("解锁 OrbitTerm")
-                            .setSubtitle("验证身份后解密本机资产")
-                            .setNegativeButtonText("使用主密码")
-                            .build(),
-                        BiometricPrompt.CryptoObject(cipher),
-                    )
+                if (!biometricPromptActive) {
+                    val cipher = masterViewModel.biometricUnlockCipher()
+                    if (cipher != null) {
+                        biometricPromptActive = true
+                        biometricPromptAction = BiometricPromptAction.Unlock
+                        biometricPrompt.authenticate(
+                            BiometricPrompt.PromptInfo.Builder()
+                                .setTitle("解锁 OrbitTerm")
+                                .setSubtitle("验证身份后解密本机资产")
+                                .setNegativeButtonText("使用主密码")
+                                .build(),
+                            BiometricPrompt.CryptoObject(cipher),
+                        )
+                    }
+                }
+            }
+
+            LaunchedEffect(
+                authState.session?.username,
+                masterState.isConfigured,
+                masterState.isUnlocked,
+                masterState.biometricEnabled,
+                hostResumed,
+            ) {
+                if (
+                    authState.session != null &&
+                    masterState.isConfigured &&
+                    !masterState.isUnlocked &&
+                    masterState.biometricEnabled &&
+                    hostResumed
+                ) {
+                    delay(500)
+                    startBiometricUnlock()
                 }
             }
 
@@ -124,23 +153,32 @@ class MainActivity : FragmentActivity() {
                 val observer = LifecycleEventObserver { _, event ->
                     when (event) {
                         Lifecycle.Event.ON_RESUME -> {
-                            externalActivityLockCoordinator.resumeHost()
+                            hostResumed = true
+                            val documentInteractionExpired = externalActivityLockCoordinator.resumeHost(
+                                DOCUMENT_INTERACTION_LOCK_GRACE_MILLIS,
+                            )
                             foregroundSessions.appForegrounded()
+                            if (documentInteractionExpired) masterViewModel.lock()
                         }
-                        Lifecycle.Event.ON_STOP -> if (!isChangingConfigurations) {
-                            if (terminalSessions.activeSessions.value.isNotEmpty()) {
-                                // A visible foreground notification keeps the already-verified
-                                // native channels alive. Explicit lock/logout still closes them.
-                                foregroundSessions.appBackgrounded()
-                            } else if (externalActivityLockCoordinator.isDocumentInteractionPending()) {
-                                coroutineScope.launch {
-                                    delay(DOCUMENT_INTERACTION_LOCK_GRACE_MILLIS)
-                                    if (externalActivityLockCoordinator.isDocumentInteractionExpired(DOCUMENT_INTERACTION_LOCK_GRACE_MILLIS)) {
-                                        masterViewModel.lock()
+                        Lifecycle.Event.ON_STOP -> {
+                            hostResumed = false
+                            when (backgroundLockDisposition(
+                                isChangingConfigurations = isChangingConfigurations,
+                                isDocumentInteractionPending = externalActivityLockCoordinator.isDocumentInteractionPending(),
+                            )) {
+                                BackgroundLockDisposition.IGNORE_CONFIGURATION_CHANGE -> Unit
+                                BackgroundLockDisposition.DEFER_FOR_DOCUMENT_INTERACTION -> {
+                                    if (terminalSessions.activeSessions.value.isNotEmpty()) {
+                                        foregroundSessions.appBackgrounded()
+                                    }
+                                    coroutineScope.launch {
+                                        delay(DOCUMENT_INTERACTION_LOCK_GRACE_MILLIS)
+                                        if (externalActivityLockCoordinator.isDocumentInteractionExpired(DOCUMENT_INTERACTION_LOCK_GRACE_MILLIS)) {
+                                            masterViewModel.lock()
+                                        }
                                     }
                                 }
-                            } else {
-                                masterViewModel.lock()
+                                BackgroundLockDisposition.LOCK_NOW -> masterViewModel.lock()
                             }
                         }
                         else -> Unit
@@ -151,16 +189,23 @@ class MainActivity : FragmentActivity() {
             }
 
             OrbitTheme(darkTheme = isDark, colorTheme = uiState.appColorTheme) {
-                if (authState.session == null) LoginScreen(
+                if (authState.isCheckingLocalStorage) LocalStorageCheckingScreen()
+                else if (authState.localStorageRecovery != null) LocalStorageRecoveryScreen(
+                    presentation = authState.localStorageRecovery,
+                    onRetry = authViewModel::retryLocalStorage,
+                )
+                else if (authState.session == null) LoginScreen(
                     isLoading = authState.isLoading,
                     error = authState.error,
+                    retryAfterSeconds = authState.retryAfterSeconds,
                     onLogin = authViewModel::login,
                     onRegister = authViewModel::register,
                 )
                 else if (!masterState.isUnlocked) MasterPasswordScreen(
                     configured = masterState.isConfigured,
                     biometricEnabled = masterState.biometricEnabled,
-                    error = masterState.error,
+                    biometricAuthenticating = biometricPromptActive,
+                    error = masterState.error ?: masterState.biometricFeedback?.message,
                     onSubmit = masterViewModel::submit,
                     onBiometricUnlock = startBiometricUnlock,
                 )
@@ -184,7 +229,9 @@ class MainActivity : FragmentActivity() {
                     },
                     onLock = masterViewModel::lock,
                     biometricEnabled = masterState.biometricEnabled,
-                    securityError = masterState.error ?: authState.securityError,
+                    biometricFeedback = masterState.biometricFeedback,
+                    loginPasswordFeedback = authState.loginPasswordFeedback,
+                    masterPasswordFeedback = masterState.rotationFeedback,
                     onToggleBiometric = {
                         if (masterState.biometricEnabled) {
                             masterViewModel.disableBiometricUnlock()
@@ -192,9 +239,8 @@ class MainActivity : FragmentActivity() {
                                 .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS
                         ) {
                             val cipher = masterViewModel.biometricEnrollmentCipher()
-                            if (cipher == null) {
-                                masterViewModel.reportBiometricError("无法准备生物识别，请先确认已录入指纹或安全级别人脸。")
-                            } else {
+                            if (cipher != null && !biometricPromptActive) {
+                                biometricPromptActive = true
                                 biometricPromptAction = BiometricPromptAction.Enroll
                                 biometricPrompt.authenticate(
                                     BiometricPrompt.PromptInfo.Builder()
@@ -206,7 +252,7 @@ class MainActivity : FragmentActivity() {
                                 )
                             }
                         } else {
-                            masterViewModel.reportBiometricError("此设备未配置可用的强生物识别方式。")
+                            masterViewModel.reportBiometricPromptFailure(BiometricPromptFailure.UNAVAILABLE)
                         }
                     },
                     isChangingLoginPassword = authState.isChangingPassword,
@@ -230,6 +276,8 @@ class MainActivity : FragmentActivity() {
                     onRetrySync = {
                         applicationSync.requestNow()
                     },
+                    onRetryBlockedSync = applicationSync::retryBlockedOutbox,
+                    onDiscardBlockedSync = applicationSync::discardBlockedOutbox,
                     onResolveConflict = { conflict, keepLocal ->
                     authState.session?.let { session ->
                         coroutineScope.launch {
@@ -273,8 +321,18 @@ class MainActivity : FragmentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        setIntent(intent)
-        deepLinks.handle(intent.data)
+        handleIncomingIntent(intent)
+    }
+
+    private fun handleIncomingIntent(source: Intent?) {
+        deepLinks.handle(source?.data)
+        // Do not leave a host/username-bearing external URL attached to the
+        // Activity or recent-task base intent after it has been parsed into the
+        // bounded in-memory review model.
+        setIntent(
+            Intent(this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        )
     }
 
     private companion object {
@@ -283,3 +341,16 @@ class MainActivity : FragmentActivity() {
 }
 
 private enum class BiometricPromptAction { Unlock, Enroll }
+
+private fun Int.toBiometricPromptFailure(): BiometricPromptFailure = when (this) {
+    BiometricPrompt.ERROR_USER_CANCELED,
+    BiometricPrompt.ERROR_NEGATIVE_BUTTON,
+    BiometricPrompt.ERROR_CANCELED -> BiometricPromptFailure.CANCELLED
+    BiometricPrompt.ERROR_LOCKOUT,
+    BiometricPrompt.ERROR_LOCKOUT_PERMANENT -> BiometricPromptFailure.LOCKED_OUT
+    BiometricPrompt.ERROR_HW_NOT_PRESENT,
+    BiometricPrompt.ERROR_HW_UNAVAILABLE,
+    BiometricPrompt.ERROR_NO_BIOMETRICS,
+    BiometricPrompt.ERROR_NO_DEVICE_CREDENTIAL -> BiometricPromptFailure.UNAVAILABLE
+    else -> BiometricPromptFailure.FAILED
+}

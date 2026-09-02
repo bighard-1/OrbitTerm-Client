@@ -3,7 +3,10 @@ package com.orbitterm.android.sync
 import com.orbitterm.android.data.sync.PortableServerConfig
 import com.orbitterm.android.domain.assets.ServerAsset
 import com.orbitterm.android.domain.assets.JumpHostConfiguration
+import com.orbitterm.android.domain.assets.ServerCredentials
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AssetSyncConflictPolicyTest {
@@ -93,6 +96,44 @@ class AssetSyncConflictPolicyTest {
             AssetSyncConflictPolicy.changedFields(
                 AssetSyncConflictPolicy.shadow(before),
                 AssetSyncConflictPolicy.shadow(after),
+            ),
+        )
+    }
+
+    @Test
+    fun `accepted upload with lost response is recognized without persisting a secret digest`() {
+        val local = sampleAsset()
+        val credentials = ServerCredentials(password = "correct horse battery staple")
+        val remote = PortableServerConfig(
+            id = local.id,
+            credentialID = "different-device-credential",
+            name = local.name,
+            group = local.group,
+            tags = local.tags,
+            host = local.host,
+            port = local.port,
+            username = local.username,
+            authMethod = local.authMethod,
+            transport = local.transport,
+            networkDeviceProfile = local.networkDeviceProfile,
+            allowPasswordFallback = local.allowPasswordFallback,
+            password = credentials.password,
+            savedAtUnix = 99,
+        )
+
+        assertTrue(AssetSyncConflictPolicy.remoteRepresentsLocalState(local, credentials, null, remote))
+        assertTrue(AssetSyncConflictPolicy.isAcceptedUploadEcho("active", matchesLocalState = true))
+        assertTrue(AssetSyncConflictPolicy.isAcceptedUploadEcho(null, matchesLocalState = true))
+        assertFalse(
+            "a tombstone retains old ciphertext but is not proof that a restore or upload completed",
+            AssetSyncConflictPolicy.isAcceptedUploadEcho("deleted", matchesLocalState = true),
+        )
+        assertFalse(
+            AssetSyncConflictPolicy.remoteRepresentsLocalState(
+                local,
+                credentials.copy(password = "different"),
+                null,
+                remote,
             ),
         )
     }

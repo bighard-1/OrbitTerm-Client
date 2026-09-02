@@ -2,6 +2,7 @@ package com.orbitterm.android.sync
 
 import com.orbitterm.android.data.sync.PortableServerConfig
 import com.orbitterm.android.domain.assets.ServerAsset
+import com.orbitterm.android.domain.assets.ServerCredentials
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -63,6 +64,50 @@ object AssetSyncConflictPolicy {
 
     fun encode(shadow: AssetSyncShadow): String = json.encodeToString(shadow)
     fun decode(value: String): AssetSyncShadow? = runCatching { json.decodeFromString<AssetSyncShadow>(value) }.getOrNull()
+
+    fun isAcceptedUploadEcho(remoteState: String?, matchesLocalState: Boolean): Boolean =
+        matchesLocalState && (remoteState == null || remoteState == "active")
+
+    /**
+     * Detects the authoritative echo of a request whose HTTP response was
+     * lost. Secrets are compared only in memory and are never hashed, logged,
+     * or persisted as reconciliation metadata.
+     */
+    fun remoteRepresentsLocalState(
+        local: ServerAsset,
+        localCredentials: ServerCredentials,
+        localJumpCredentials: ServerCredentials?,
+        remote: PortableServerConfig,
+    ): Boolean {
+        if (shadow(local) != AssetSyncShadow(
+                name = remote.name,
+                group = remote.group,
+                tags = remote.tags,
+                host = remote.host,
+                port = remote.port,
+                username = remote.username,
+                authMethod = remote.authMethod,
+                transport = remote.transport,
+                networkDeviceProfile = remote.networkDeviceProfile,
+                allowPasswordFallback = remote.allowPasswordFallback,
+                jumpHost = remote.jumpHost?.toConfiguration()?.toAssetJumpHostShadow(),
+            )) return false
+        if (localCredentials != ServerCredentials(
+                password = remote.password,
+                privateKeyContent = remote.privateKeyContent,
+                privateKeyPassphrase = remote.privateKeyPassphrase,
+            )) return false
+        val remoteJump = remote.jumpHost
+        return when {
+            local.jumpHost == null && remoteJump == null -> true
+            local.jumpHost == null || remoteJump == null || localJumpCredentials == null -> false
+            else -> localJumpCredentials == ServerCredentials(
+                password = remoteJump.password,
+                privateKeyContent = remoteJump.privateKeyContent,
+                privateKeyPassphrase = remoteJump.privateKeyPassphrase,
+            )
+        }
+    }
 
     fun changedFields(base: AssetSyncShadow, newer: AssetSyncShadow): Set<AssetSyncField> = buildSet {
         if (base.name != newer.name) add(AssetSyncField.Name)

@@ -74,8 +74,8 @@ class OrbitDesignScreenshotBaselineTest {
 
     companion object {
         // Re-record only after a reviewed visual change on the fixed baseline canvas.
-        private const val LIGHT_BASELINE = "320x640:039b34486bfcfb6b7644700fee989fc7d667b3977d15137a2f00ee39e974f41b"
-        private const val DARK_DANGER_BASELINE = "320x640:939b4d76263026b5c009f34830f69336319f0f1599e50be58f913b1b3be4652c"
+        private const val LIGHT_BASELINE = "320x640:15b0518786781f6fcdf1e7e07b7e57054b415039d2e636684c25436c01824b55"
+        private const val DARK_DANGER_BASELINE = "320x640:31fe7ecc1fb6b11778b0c160b75ab9bdf74bd2a5985519d7698b4bc42e4194a8"
     }
 }
 

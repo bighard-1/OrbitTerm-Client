@@ -4,12 +4,16 @@ import com.orbitterm.android.app.AccountScopeController
 import com.orbitterm.android.app.AppSyncRequestBus
 import com.orbitterm.android.app.ExternalActivityLockCoordinator
 import com.orbitterm.android.app.SessionForegroundServiceController
+import com.orbitterm.android.app.LiveSessionRecoveryPreferences
+import com.orbitterm.android.app.NetworkAvailabilityObserver
 import com.orbitterm.android.domain.assets.CredentialVault
 import com.orbitterm.android.domain.auth.ActiveAccountScopeProvider
 import com.orbitterm.android.domain.auth.OperationGenerationProvider
 import com.orbitterm.android.domain.sync.SyncRequester
 import com.orbitterm.android.core.DocumentInteractionCoordinator
 import com.orbitterm.android.core.SessionForegroundController
+import com.orbitterm.android.core.LiveSessionRecoveryStore
+import com.orbitterm.android.core.SessionNetworkAvailability
 import com.orbitterm.android.security.SecureCredentialStore
 import dagger.Binds
 import dagger.Module
@@ -26,4 +30,6 @@ abstract class ArchitectureBindingsModule {
     @Binds abstract fun bindSyncRequester(bus: AppSyncRequestBus): SyncRequester
     @Binds abstract fun bindDocumentInteraction(coordinator: ExternalActivityLockCoordinator): DocumentInteractionCoordinator
     @Binds abstract fun bindSessionForeground(controller: SessionForegroundServiceController): SessionForegroundController
+    @Binds abstract fun bindSessionNetworkAvailability(observer: NetworkAvailabilityObserver): SessionNetworkAvailability
+    @Binds abstract fun bindLiveSessionRecoveryStore(store: LiveSessionRecoveryPreferences): LiveSessionRecoveryStore
 }

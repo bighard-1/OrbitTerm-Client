@@ -11,13 +11,21 @@ import com.orbitterm.android.domain.error.OrbitErrorCode
 import com.orbitterm.android.domain.error.syncError
 import com.orbitterm.android.domain.session.CustomQuickCommand
 import com.orbitterm.android.domain.session.QuickCommandRepository
+import com.orbitterm.android.domain.sync.PrivacySafeSyncMetrics
+import com.orbitterm.android.domain.sync.RetryClockGuard
+import com.orbitterm.android.domain.sync.SyncDiagnosticEvent
+import com.orbitterm.android.domain.performance.RuntimeResourceBudget
+import com.orbitterm.android.domain.performance.SyncOutboxBatchPolicy
 import com.orbitterm.android.domain.assets.CredentialVault
 import com.orbitterm.android.security.SecureCredentialStore
 import com.orbitterm.android.data.local.AssetSyncMetadataDao
 import com.orbitterm.android.data.local.AssetSyncMetadataEntity
 import com.orbitterm.android.data.local.AssetSyncOperation
 import com.orbitterm.android.data.local.AssetSyncOutboxDao
+import com.orbitterm.android.data.local.SyncDeliveryDisposition as StoredSyncDeliveryDisposition
 import com.orbitterm.android.data.local.ServerAssetDao
+import com.orbitterm.android.domain.sync.SyncDeliveryDisposition as PolicySyncDeliveryDisposition
+import com.orbitterm.android.domain.sync.SyncDeliveryPolicy
 import com.orbitterm.android.data.sync.PortableJumpHostConfig
 import com.orbitterm.android.data.local.toDomain
 import com.orbitterm.android.data.local.toEntity
@@ -28,6 +36,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.flow.first
+import android.os.SystemClock
 import android.util.Base64
 import java.time.Instant
 import java.security.MessageDigest
@@ -36,6 +45,13 @@ import javax.inject.Inject
 
 /** Carries only a stable code; remote payloads and encrypted data never escape this layer. */
 class SyncFailure(val error: OrbitError) : IllegalStateException(error.diagnosticCode)
+
+private fun Throwable.syncDeliveryError(): OrbitError = when (this) {
+    is SyncFailure -> error
+    is OrbitServiceFailure -> error
+    else -> syncError(OrbitErrorCode.Unknown)
+}
+
 data class AssetSyncConflict(
     val assetId: String,
     val fields: Set<AssetSyncField>,
@@ -44,8 +60,19 @@ data class AssetSyncConflict(
 )
 data class AssetOutboxResult(
     val delivered: Int = 0,
+    /** Temporary failures retained as READY for WorkManager's bounded backoff. */
     val deferred: Int = 0,
+    val blocked: Int = 0,
+    val waitingForAuthentication: Int = 0,
+    val waitingForUnlock: Int = 0,
+    val userActionRequired: Int = 0,
+    val retryableFailureCode: OrbitErrorCode? = null,
+    /** True when WorkManager should apply its ordinary transport backoff. */
+    val requiresSystemBackoff: Boolean = false,
+    /** Earliest durable Retry-After delay when no immediate READY work remains. */
+    val retryAfterSeconds: Long? = null,
     val conflicts: List<AssetSyncConflict> = emptyList(),
+    val hasUnprocessedBacklog: Boolean = false,
 )
 data class RecentlyDeletedAssetSummary(
     val assetId: String,
@@ -68,9 +95,31 @@ class SyncRepository @Inject constructor(
 ) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val configCipherSession = ConfigCipherSession()
+    private val retryClock = RetryClockGuard()
 
     /** Security boundary hook: root keys never survive a lock, logout, or account switch. */
     fun clearTransientConfigCrypto() = configCipherSession.clear()
+
+    /** Re-enable only permanent-failure rows after an explicit user action. */
+    suspend fun retryBlockedOutbox(accountScope: String): Int = withContext(Dispatchers.IO) {
+        outboxDao.resetDisposition(accountScope, StoredSyncDeliveryDisposition.BLOCKED.name)
+    }
+
+    /** A confirmed discard never touches retryable, authentication, unlock, or conflict work. */
+    suspend fun discardBlockedOutbox(accountScope: String): Int = withContext(Dispatchers.IO) {
+        outboxDao.deleteBlocked(accountScope)
+    }
+
+    /** Authentication/unlock recovery may resume only the matching paused classes. */
+    suspend fun resumeCredentialBlockedOutbox(accountScope: String) = withContext(Dispatchers.IO) {
+        outboxDao.resetDisposition(accountScope, StoredSyncDeliveryDisposition.WAITING_FOR_AUTHENTICATION.name)
+        outboxDao.resetDisposition(accountScope, StoredSyncDeliveryDisposition.WAITING_FOR_UNLOCK.name)
+    }
+
+    /** Existing conflicts are reconsidered only after an explicit retry from the UI. */
+    suspend fun resumeUserActionOutbox(accountScope: String): Int = withContext(Dispatchers.IO) {
+        outboxDao.resetDisposition(accountScope, StoredSyncDeliveryDisposition.NEEDS_USER_ACTION.name)
+    }
 
     suspend fun loadRecentlyDeleted(
         token: String,
@@ -100,6 +149,7 @@ class SyncRepository @Inject constructor(
         token: String,
         masterPassword: String,
         accountScope: AccountScope,
+        operationId: String = UUID.randomUUID().toString(),
     ) = withContext(Dispatchers.IO) {
         val canonicalAssetId = RemoteTombstoneMergePolicy.canonicalAssetId(assetId)
             ?: throw SyncFailure(syncError(OrbitErrorCode.RemoteServiceRejected))
@@ -107,7 +157,7 @@ class SyncRepository @Inject constructor(
         val plaintext = configCipherSession.decrypt(masterPassword, accountScope, remote.encrypted_blob_base64)
         val portable = json.decodeFromString<PortableServerConfig>(plaintext).validate()
         check(portable.id == canonicalAssetId) { "restored asset identity mismatch" }
-        val restored = restore(canonicalAssetId, token, remote.vector_clock)
+        val restored = restore(canonicalAssetId, token, remote.vector_clock, operationId)
         applyRemoteAsset(accountScope.storageId, RemoteAssetCandidate(restored, portable))
     }
 
@@ -115,6 +165,7 @@ class SyncRepository @Inject constructor(
         assetId: String,
         token: String,
         accountScope: AccountScope,
+        operationId: String = UUID.randomUUID().toString(),
     ) = withContext(Dispatchers.IO) {
         val canonicalAssetId = RemoteTombstoneMergePolicy.canonicalAssetId(assetId)
             ?: throw SyncFailure(syncError(OrbitErrorCode.RemoteServiceRejected))
@@ -125,7 +176,7 @@ class SyncRepository @Inject constructor(
             canonicalAssetId,
             AssetMutationRequest(
                 device_id = deviceIdentity.value,
-                operation_id = UUID.randomUUID().toString(),
+                operation_id = operationId,
                 vector_clock = SyncVectorClock.bump(remote.vector_clock, "android"),
                 confirmation = "CONFIRM",
             ),
@@ -135,7 +186,12 @@ class SyncRepository @Inject constructor(
         }
     }
 
-    suspend fun queueRecentlyDeletedMutation(assetId: String, accountScope: AccountScope, purge: Boolean) {
+    suspend fun queueRecentlyDeletedMutation(
+        assetId: String,
+        accountScope: AccountScope,
+        purge: Boolean,
+        operationId: String = UUID.randomUUID().toString(),
+    ) {
         val canonicalAssetId = RemoteTombstoneMergePolicy.canonicalAssetId(assetId)
             ?: throw IllegalArgumentException("asset ID is required")
         UUID.fromString(canonicalAssetId)
@@ -144,9 +200,11 @@ class SyncRepository @Inject constructor(
                 accountScope = accountScope.storageId,
                 assetId = canonicalAssetId,
                 operation = if (purge) AssetSyncOperation.PURGE_FROM_TRASH.name else AssetSyncOperation.RESTORE_FROM_TRASH.name,
+                operationId = operationId,
                 enqueuedAtUnix = Instant.now().epochSecond,
             ),
         )
+        PrivacySafeSyncMetrics.record(SyncDiagnosticEvent.UnknownResultQueued)
     }
 
     private suspend fun findTrashAsset(token: String, assetId: String): UploadConfigData {
@@ -314,41 +372,129 @@ class SyncRepository @Inject constructor(
 
     /** Delivers persisted local mutations without dropping failures from the outbox. */
     suspend fun processAssetOutbox(token: String, masterPassword: String, accountScope: String): AssetOutboxResult = withContext(Dispatchers.IO) {
+        val nowUnix = retryClock.trustedNowUnix(
+            wallClockUnixSeconds = Instant.now().epochSecond,
+            elapsedRealtimeSeconds = SystemClock.elapsedRealtime() / 1_000,
+        )
         val remoteByAssetId = activeRemoteAssets(token, masterPassword, AccountScope(accountScope))
         registerUntrackedLocalAssets(accountScope, remoteByAssetId)
-        val queued = outboxDao.list(accountScope)
-        if (queued.isEmpty()) return@withContext AssetOutboxResult()
+        val queued = outboxDao.listReadyBatch(
+            accountScope,
+            RuntimeResourceBudget.SYNC_OUTBOX_MAX_OPERATIONS_PER_RUN,
+            nowUnix,
+        )
         var delivered = 0
         var deferred = 0
+        var retryableFailureCode: OrbitErrorCode? = null
+        var requiresSystemBackoff = false
         val conflicts = mutableListOf<AssetSyncConflict>()
         queued.forEach { operation ->
             val completed = try {
                 when (AssetSyncOperation.entries.firstOrNull { it.name == operation.operation }) {
-                    AssetSyncOperation.UPSERT -> deliverUpsert(operation.assetId, token, masterPassword, accountScope, remoteByAssetId)
-                    AssetSyncOperation.MOVE_TO_TRASH -> deliverDeletion(operation.assetId, token, accountScope, remoteByAssetId)
+                    AssetSyncOperation.UPSERT -> deliverUpsert(
+                        operation.assetId, token, masterPassword, accountScope, remoteByAssetId, operation.operationId,
+                    )
+                    AssetSyncOperation.MOVE_TO_TRASH -> deliverDeletion(
+                        operation.assetId, token, accountScope, remoteByAssetId, operation.operationId,
+                    )
                     AssetSyncOperation.RESTORE_FROM_TRASH -> restoreRecentlyDeleted(
-                        operation.assetId, token, masterPassword, AccountScope(accountScope),
+                        operation.assetId, token, masterPassword, AccountScope(accountScope), operation.operationId,
                     )
                     AssetSyncOperation.PURGE_FROM_TRASH -> purgeRecentlyDeleted(
-                        operation.assetId, token, AccountScope(accountScope),
+                        operation.assetId, token, AccountScope(accountScope), operation.operationId,
                     )
                     null -> error("unknown_outbox_operation")
                 }
                 true
             } catch (conflict: DetectedAssetConflict) {
                 conflicts += conflict.value
+                outboxDao.markFailure(
+                    accountScope = accountScope,
+                    assetId = operation.assetId,
+                    operationId = operation.operationId,
+                    disposition = StoredSyncDeliveryDisposition.NEEDS_USER_ACTION.name,
+                    failureCode = OrbitErrorCode.SyncConflict.diagnosticCode,
+                    nextAttemptAtUnix = 0,
+                )
+                PrivacySafeSyncMetrics.record(SyncDiagnosticEvent.ConflictDeferred)
                 false
-            } catch (_: Throwable) {
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                val orbitError = error.syncDeliveryError()
+                val disposition = SyncDeliveryPolicy.disposition(
+                    orbitError,
+                    attemptCount = operation.attemptCount + 1,
+                )
+                val storedDisposition = when (disposition) {
+                    PolicySyncDeliveryDisposition.Ready -> StoredSyncDeliveryDisposition.READY
+                    PolicySyncDeliveryDisposition.WaitingForAuthentication ->
+                        StoredSyncDeliveryDisposition.WAITING_FOR_AUTHENTICATION
+                    PolicySyncDeliveryDisposition.WaitingForUnlock ->
+                        StoredSyncDeliveryDisposition.WAITING_FOR_UNLOCK
+                    PolicySyncDeliveryDisposition.Blocked -> StoredSyncDeliveryDisposition.BLOCKED
+                }
+                outboxDao.markFailure(
+                    accountScope = accountScope,
+                    assetId = operation.assetId,
+                    operationId = operation.operationId,
+                    disposition = storedDisposition.name,
+                    failureCode = orbitError.diagnosticCode,
+                    nextAttemptAtUnix = orbitError.retryAfterSeconds
+                        ?.let { nowUnix + it }
+                        ?: 0,
+                )
+                if (storedDisposition == StoredSyncDeliveryDisposition.READY) {
+                    deferred += 1
+                    retryableFailureCode = retryableFailureCode ?: orbitError.code
+                    if (orbitError.retryAfterSeconds == null) requiresSystemBackoff = true
+                }
+                PrivacySafeSyncMetrics.record(SyncDiagnosticEvent.DeliveryDeferred)
+                if (storedDisposition == StoredSyncDeliveryDisposition.BLOCKED) {
+                    PrivacySafeSyncMetrics.record(SyncDiagnosticEvent.DeliveryBlocked)
+                }
                 false
             }
             if (completed) {
-                outboxDao.delete(accountScope, operation.assetId)
+                val removed = outboxDao.deleteCompleted(accountScope, operation.assetId, operation.operationId)
+                if (removed == 0) PrivacySafeSyncMetrics.record(SyncDiagnosticEvent.LateResponseIgnored)
                 delivered += 1
-            } else {
-                deferred += 1
             }
         }
-        AssetOutboxResult(delivered = delivered, deferred = deferred, conflicts = conflicts)
+        val eligibleRemaining = outboxDao.countReadyEligible(accountScope, nowUnix)
+        val earliestDelayedAttempt = outboxDao.earliestDelayedAttempt(accountScope, nowUnix)
+        val delayedFailureCode = outboxDao.earliestDelayedFailureCode(accountScope, nowUnix)
+            ?.let { diagnostic -> OrbitErrorCode.entries.firstOrNull { it.diagnosticCode == diagnostic } }
+        val blocked = outboxDao.countByDisposition(accountScope, StoredSyncDeliveryDisposition.BLOCKED.name)
+        val waitingForAuthentication = outboxDao.countByDisposition(
+            accountScope,
+            StoredSyncDeliveryDisposition.WAITING_FOR_AUTHENTICATION.name,
+        )
+        val waitingForUnlock = outboxDao.countByDisposition(
+            accountScope,
+            StoredSyncDeliveryDisposition.WAITING_FOR_UNLOCK.name,
+        )
+        val userActionRequired = outboxDao.countByDisposition(
+            accountScope,
+            StoredSyncDeliveryDisposition.NEEDS_USER_ACTION.name,
+        )
+        AssetOutboxResult(
+            delivered = delivered,
+            deferred = deferred,
+            blocked = blocked,
+            waitingForAuthentication = waitingForAuthentication,
+            waitingForUnlock = waitingForUnlock,
+            userActionRequired = userActionRequired,
+            retryableFailureCode = retryableFailureCode ?: delayedFailureCode,
+            requiresSystemBackoff = requiresSystemBackoff,
+            retryAfterSeconds = earliestDelayedAttempt?.let { (it - nowUnix).coerceAtLeast(1) },
+            conflicts = conflicts,
+            hasUnprocessedBacklog = deferred == 0 && conflicts.isEmpty() && SyncOutboxBatchPolicy.hasUnprocessedBacklog(
+                attempted = queued.size,
+                delivered = delivered,
+                remaining = eligibleRemaining,
+            ),
+        )
     }
 
     /**
@@ -371,6 +517,7 @@ class SyncRepository @Inject constructor(
                         accountScope = accountScope,
                         assetId = entity.id,
                         operation = AssetSyncOperation.UPSERT.name,
+                        operationId = UUID.randomUUID().toString(),
                         enqueuedAtUnix = Instant.now().epochSecond,
                     ),
                 )
@@ -386,17 +533,33 @@ class SyncRepository @Inject constructor(
         masterPassword: String,
         accountScope: String,
         remoteByAssetId: Map<String, RemoteAssetCandidate>,
+        operationId: String,
     ) {
         val localAsset = assetDao.findById(accountScope, assetId)?.toDomain() ?: return
         val metadata = metadataDao.find(accountScope, assetId)
         val remote = remoteByAssetId[assetId]
+        if (remote != null) {
+            val credentials = credentialStore.read(localAsset.credentialID) ?: ServerCredentials()
+            val jumpCredentials = localAsset.jumpHost?.let { credentialStore.read(it.credentialID) }
+            val matchesLocalState = AssetSyncConflictPolicy.remoteRepresentsLocalState(
+                localAsset, credentials, jumpCredentials, remote.portable,
+            )
+            if (AssetSyncConflictPolicy.isAcceptedUploadEcho(remote.config.state, matchesLocalState)) {
+                PrivacySafeSyncMetrics.record(SyncDiagnosticEvent.IdempotentReplayConfirmed)
+                saveMetadata(
+                    accountScope, assetId, remote.config, remote.config.state ?: "active",
+                    AssetSyncConflictPolicy.encode(AssetSyncConflictPolicy.shadow(localAsset)),
+                )
+                return
+            }
+        }
         if (shouldAdoptRemote(localAsset, metadata, remote)) {
             applyRemoteAsset(accountScope, requireNotNull(remote))
             return
         }
         val asset = mergeNonConflictingChanges(localAsset, metadata, remote)
         val restored = if (metadata?.remoteState == "deleted") {
-            restore(assetId, token, metadata.vectorClock)
+            restore(assetId, token, metadata.vectorClock, operationId)
         } else {
             remote?.config
         }
@@ -424,11 +587,14 @@ class SyncRepository @Inject constructor(
         token: String,
         accountScope: String,
         remoteByAssetId: Map<String, RemoteAssetCandidate>,
+        operationId: String,
     ) {
         val metadata = metadataDao.find(accountScope, assetId)
         val remote = remoteByAssetId[assetId]
         if (metadata == null && remote == null) return
-        val response = moveToTrash(assetId, token, metadata?.vectorClock ?: remote?.config?.vector_clock ?: "{}")
+        val response = moveToTrash(
+            assetId, token, metadata?.vectorClock ?: remote?.config?.vector_clock ?: "{}", operationId,
+        )
         saveMetadata(
             accountScope = accountScope,
             assetId = assetId,
@@ -541,27 +707,37 @@ class SyncRepository @Inject constructor(
     private data class RemoteAssetCandidate(val config: UploadConfigData, val portable: PortableServerConfig)
     private class DetectedAssetConflict(val value: AssetSyncConflict) : IllegalStateException()
 
-    private suspend fun moveToTrash(assetId: String, token: String, vectorClock: String): UploadConfigData {
+    private suspend fun moveToTrash(
+        assetId: String,
+        token: String,
+        vectorClock: String,
+        operationId: String = UUID.randomUUID().toString(),
+    ): UploadConfigData {
         UUID.fromString(assetId)
         return api.moveAssetToTrash(
             token,
             assetId,
             AssetMutationRequest(
                 device_id = deviceIdentity.value,
-                operation_id = UUID.randomUUID().toString(),
+                operation_id = operationId,
                 vector_clock = SyncVectorClock.bump(vectorClock, "android"),
             ),
         )
     }
 
-    private suspend fun restore(assetId: String, token: String, vectorClock: String): UploadConfigData {
+    private suspend fun restore(
+        assetId: String,
+        token: String,
+        vectorClock: String,
+        operationId: String = UUID.randomUUID().toString(),
+    ): UploadConfigData {
         UUID.fromString(assetId)
         return api.restoreAsset(
             token,
             assetId,
             AssetMutationRequest(
                 device_id = deviceIdentity.value,
-                operation_id = UUID.randomUUID().toString(),
+                operation_id = operationId,
                 vector_clock = SyncVectorClock.bump(vectorClock, "android"),
             ),
         )

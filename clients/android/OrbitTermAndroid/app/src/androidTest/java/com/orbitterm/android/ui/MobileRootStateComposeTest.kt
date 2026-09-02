@@ -6,8 +6,13 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import com.orbitterm.android.domain.settings.AppColorTheme
 import com.orbitterm.android.ui.theme.OrbitTheme
 import org.junit.Rule
@@ -24,6 +29,7 @@ class MobileRootStateComposeTest {
                 LoginScreen(
                     isLoading = false,
                     error = "登录失败，请检查账号、密码和网络。",
+                    retryAfterSeconds = 0,
                     onLogin = { _, _ -> },
                     onRegister = { _, _, _ -> },
                 )
@@ -33,12 +39,17 @@ class MobileRootStateComposeTest {
         compose.onNodeWithText("OrbitTerm")
             .assertIsDisplayed()
             .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading))
-        compose.onNodeWithText("账号").assertIsDisplayed()
-        compose.onNodeWithText("密码").assertIsDisplayed()
-        compose.onNodeWithText("登录").assertIsDisplayed()
+        compose.onNodeWithText("邮箱账号").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("密码").performScrollTo().assertIsDisplayed()
+        compose.onAllNodesWithText("登录").assertCountEquals(2)
         compose.onNodeWithText("登录失败，请检查账号、密码和网络。")
             .assertIsDisplayed()
             .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion))
+        compose.onNodeWithText("已阅读并同意").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("查看法律条款").performScrollTo().assertIsDisplayed().assertHasClickAction()
+
+        compose.onNodeWithText("注册").performScrollTo().performClick()
+        compose.onNodeWithText("查看法律条款").performScrollTo().assertIsDisplayed().assertHasClickAction()
     }
 
     @Test
@@ -55,14 +66,36 @@ class MobileRootStateComposeTest {
             }
         }
 
-        compose.onNodeWithText("解锁工作台")
+        compose.onNodeWithText("验证主密码")
+            .performScrollTo()
             .assertIsDisplayed()
             .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading))
-        compose.onNodeWithText("主密码").assertIsDisplayed()
-        compose.onNodeWithText("验证并解锁").assertIsDisplayed()
-        compose.onNodeWithText("使用生物识别解锁").assertIsDisplayed().assertHasClickAction()
+        compose.onNodeWithText("输入主密码").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("验证并解锁").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("使用生物识别解锁").performScrollTo().assertIsDisplayed().assertHasClickAction()
         compose.onNodeWithText("主密码不正确。")
             .assertIsDisplayed()
             .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion))
+    }
+
+    @Test
+    fun biometricPromptBusyStatePreventsDuplicateSubmission() {
+        compose.setContent {
+            OrbitTheme(darkTheme = false, colorTheme = AppColorTheme.GlacierMint) {
+                MasterPasswordScreen(
+                    configured = true,
+                    biometricEnabled = true,
+                    biometricAuthenticating = true,
+                    error = null,
+                    onSubmit = { _, _ -> },
+                    onBiometricUnlock = {},
+                )
+            }
+        }
+
+        compose.onNodeWithText("正在验证…")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertIsNotEnabled()
     }
 }

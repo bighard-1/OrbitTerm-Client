@@ -18,8 +18,14 @@ class ExternalActivityLockCoordinator @Inject constructor() : DocumentInteractio
         startedAtMillis = SystemClock.elapsedRealtime()
     }
 
-    fun resumeHost() {
+    fun resumeHost(graceMillis: Long): Boolean {
+        val requiresLock = documentInteractionRequiresLockOnResume(
+            startedAtMillis = startedAtMillis,
+            resumedAtMillis = SystemClock.elapsedRealtime(),
+            graceMillis = graceMillis,
+        )
         startedAtMillis = null
+        return requiresLock
     }
 
     fun isDocumentInteractionPending(): Boolean = startedAtMillis != null

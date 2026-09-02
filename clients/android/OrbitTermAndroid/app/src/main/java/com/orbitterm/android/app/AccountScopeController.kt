@@ -3,6 +3,7 @@ package com.orbitterm.android.app
 import com.orbitterm.android.domain.auth.AccountScope
 import com.orbitterm.android.domain.auth.ActiveAccountScopeProvider
 import com.orbitterm.android.domain.auth.OperationGenerationProvider
+import com.orbitterm.android.domain.sync.PrivacySafeSyncMetrics
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
@@ -15,10 +16,13 @@ class AccountScopeController @Inject constructor() : OperationGenerationProvider
     override val scope = mutableScope.asStateFlow()
     override val generation = mutableGeneration.asStateFlow()
     fun activate(username: String) {
+        val nextScope = AccountScope.fromUsername(username)
+        if (mutableScope.value != nextScope) PrivacySafeSyncMetrics.clear()
         mutableGeneration.value += 1
-        mutableScope.value = AccountScope.fromUsername(username)
+        mutableScope.value = nextScope
     }
     fun deactivate() {
+        PrivacySafeSyncMetrics.clear()
         mutableGeneration.value += 1
         mutableScope.value = null
     }

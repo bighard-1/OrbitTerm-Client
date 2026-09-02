@@ -1,11 +1,13 @@
 package com.orbitterm.android.feature.terminal
 
 import com.orbitterm.android.core.CheckedTerminalNativeClient
+import com.orbitterm.android.core.CheckedTerminalCommandResult
 import com.orbitterm.android.core.CheckedTerminalOpenResult
 import com.orbitterm.android.core.CheckedSshNativeClient
 import com.orbitterm.android.core.NativeTerminalOutputRouter
 import com.orbitterm.android.core.OrbitCoreBridge
 import com.orbitterm.android.core.SessionForegroundController
+import com.orbitterm.android.core.LiveSessionRecoveryStore
 import com.orbitterm.android.domain.performance.FrameInvalidationBatcher
 import com.orbitterm.android.domain.performance.RuntimeResourceBudget
 import kotlinx.coroutines.CoroutineScope
@@ -36,6 +38,7 @@ data class ActiveTerminalSession(
     val terminalChannelId: Long,
     val transport: String = ServerTransportProtocol.ssh.name,
     val engine: RemoteTerminalEngine,
+    val connectionState: TerminalSessionConnectionState = TerminalSessionConnectionState.Connected,
     val revision: Long = 0,
     /** Most-recent-first commands sent as complete lines through OrbitTerm controls. */
     val commandHistory: List<String> = emptyList(),
@@ -47,6 +50,7 @@ class TerminalSessionController @Inject constructor(
     private val nativeClient: CheckedTerminalNativeClient,
     private val checkedSsh: CheckedSshNativeClient,
     private val foregroundSessions: SessionForegroundController,
+    private val recoveryStore: LiveSessionRecoveryStore,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val sessions = MutableStateFlow<List<ActiveTerminalSession>>(emptyList())
@@ -63,6 +67,7 @@ class TerminalSessionController @Inject constructor(
     val activeSessions: StateFlow<List<ActiveTerminalSession>> = sessions.asStateFlow()
     /** The workspace selected by the user; tool screens use this rather than creation order. */
     val selectedSessionId: StateFlow<String?> = mutableSelectedSessionId.asStateFlow()
+    val hadInterruptedSessionsAtProcessStart: Boolean = recoveryStore.hadInterruptedSessionsAtProcessStart
 
     init {
         scope.launch {
@@ -104,7 +109,9 @@ class TerminalSessionController @Inject constructor(
             return false
         }
         val engine = RemoteTerminalEngine(columns, rows, onInput = { bytes ->
-            scope.launch(Dispatchers.IO) { nativeClient.write(opened.terminalChannelId, bytes) }
+            scope.launch(Dispatchers.IO) {
+                handleTerminalCommandResult(opened.terminalChannelId, nativeClient.write(opened.terminalChannelId, bytes))
+            }
         })
         val terminalSessionId = UUID.randomUUID().toString()
         // Publish the engine before enabling callback delivery. A server may emit
@@ -130,6 +137,7 @@ class TerminalSessionController @Inject constructor(
             }
         }
         foregroundSessions.sessionOpened()
+        recoveryStore.markLiveSessionsPresent()
         return true
     }
 
@@ -161,6 +169,7 @@ class TerminalSessionController @Inject constructor(
             onClosed = { reason ->
                 scope.launch {
                     if (reason != null) engine.append("\r\n[Telnet 连接已断开]\r\n".toByteArray())
+                    markDisconnected(channelId)
                     scheduleRenderInvalidation(channelId)
                 }
             },
@@ -179,6 +188,7 @@ class TerminalSessionController @Inject constructor(
         )
         mutableSelectedSessionId.value = sessionId
         foregroundSessions.sessionOpened()
+        recoveryStore.markLiveSessionsPresent()
         return true
     }
 
@@ -197,7 +207,12 @@ class TerminalSessionController @Inject constructor(
         if (session.transport == ServerTransportProtocol.telnet.name) {
             telnetConnections[sessionId]?.resize(columns, rows)
         } else {
-            scope.launch(Dispatchers.IO) { nativeClient.resize(session.terminalChannelId, columns, rows) }
+            scope.launch(Dispatchers.IO) {
+                handleTerminalCommandResult(
+                    session.terminalChannelId,
+                    nativeClient.resize(session.terminalChannelId, columns, rows),
+                )
+            }
         }
     }
 
@@ -257,7 +272,10 @@ class TerminalSessionController @Inject constructor(
             nativeClient.close(session.terminalChannelId)
             checkedSsh.disconnect(session.baseSessionId)
         }
-        if (remaining.isEmpty()) foregroundSessions.sessionsClosed()
+        if (remaining.isEmpty()) {
+            foregroundSessions.sessionsClosed()
+            recoveryStore.clearLiveSessions()
+        }
     }
 
     /** Releases every live terminal and its verified SSH base session. */
@@ -270,6 +288,7 @@ class TerminalSessionController @Inject constructor(
         pendingRenderChannels.clear()
         renderFlushJob?.cancel()
         renderFlushJob = null
+        recoveryStore.clearLiveSessions()
         active.filter { it.transport != ServerTransportProtocol.telnet.name }
             .forEach { session -> NativeTerminalOutputRouter.retire(session.terminalChannelId) }
         telnetConnections.values.forEach(TelnetTerminalConnection::close)
@@ -321,6 +340,28 @@ class TerminalSessionController @Inject constructor(
             if (dirtyChannels.isEmpty()) return@launch
             sessions.value = sessions.value.map { session ->
                 if (session.terminalChannelId in dirtyChannels) session.copy(revision = session.revision + 1) else session
+            }
+        }
+    }
+
+    private fun handleTerminalCommandResult(
+        terminalChannelId: Long,
+        result: CheckedTerminalCommandResult,
+    ) {
+        val failure = result as? CheckedTerminalCommandResult.Failure ?: return
+        if (!terminalFailureClosesSession(failure.code)) return
+        scope.launch { markDisconnected(terminalChannelId) }
+    }
+
+    private fun markDisconnected(terminalChannelId: Long) {
+        sessions.value = sessions.value.map { session ->
+            if (session.terminalChannelId == terminalChannelId) {
+                session.copy(
+                    connectionState = TerminalSessionConnectionState.Disconnected,
+                    revision = session.revision + 1,
+                )
+            } else {
+                session
             }
         }
     }

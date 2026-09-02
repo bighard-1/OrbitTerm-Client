@@ -9,21 +9,21 @@ class TerminalSpecialKeyOrderTest {
     fun mobileAccessoryContainsIosParityKeys() {
         val labels = terminalSpecialKeys.map { it.label }
         assertTrue(labels.containsAll(listOf("Tab", "Ctrl+C", "Esc", "↑", "↓", "←", "→")))
-        assertTrue(labels.containsAll(listOf("+", "-", "*", "/", "_", "(", ")", "[", "]", "{", "}")))
+        assertTrue(labels.containsAll(listOf("←", "↑", "↓", "→", "-", "+", "×", "/", "|", "\\", "~", "=", "_", "$", "#", ";", ":", "?")))
     }
     @Test
     fun `usage count moves a special key ahead of default order`() {
-        val ordered = orderedTerminalSpecialKeys(mapOf("#" to 5, "{" to 2))
+        val ordered = orderedTerminalSpecialKeys(mapOf("#" to 5, "_" to 2))
 
-        assertEquals(listOf("#", "{"), ordered.take(2).map(TerminalSpecialKey::label))
+        assertEquals(listOf("#", "_"), ordered.take(2).map(TerminalSpecialKey::label))
     }
 
     @Test
     fun `unused keys retain the curated default order`() {
         val ordered = orderedTerminalSpecialKeys(emptyMap())
 
-        assertEquals(listOf("Enter", "Ctrl+C"), ordered.take(2).map(TerminalSpecialKey::label))
-        assertTrue(ordered.map(TerminalSpecialKey::label).containsAll(listOf("_", "(", ")", "[", "]", "{", "}", "<", ">", "~", "#")))
+        assertEquals(listOf("Tab", "Ctrl+C"), ordered.take(2).map(TerminalSpecialKey::label))
+        assertTrue(ordered.map(TerminalSpecialKey::label).containsAll(listOf("|", "\\", "~", "=", "_", "$", "#", ";", ":", "?")))
     }
 
     @Test

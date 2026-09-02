@@ -21,7 +21,7 @@ class TerminalReconnectAccessibilityComposeTest {
     fun reconnectActionCommunicatesAvailabilityAndFailureToAssistiveTech() {
         compose.setContent {
             MaterialTheme {
-                TerminalReconnectAction(reconnecting = false, onReconnect = {})
+                TerminalReconnectAction(reconnecting = false, isNetworkUsable = true, onReconnect = {})
                 TerminalReconnectFailure("重新连接失败：网络不可用。")
             }
         }
@@ -38,12 +38,34 @@ class TerminalReconnectAccessibilityComposeTest {
     fun reconnectActionIsUnavailableWhileAReconnectIsAlreadyRunning() {
         compose.setContent {
             MaterialTheme {
-                TerminalReconnectAction(reconnecting = true, onReconnect = {})
+                TerminalReconnectAction(reconnecting = true, isNetworkUsable = true, onReconnect = {})
             }
         }
 
         compose.onNodeWithTag("terminal_reconnect_action")
             .assertIsDisplayed()
             .assertIsNotEnabled()
+    }
+
+    @Test
+    fun reconnectActionWaitsForNetworkAndRecoveryNoticeCanBeDismissed() {
+        compose.setContent {
+            MaterialTheme {
+                androidx.compose.foundation.layout.Column {
+                    TerminalReconnectAction(reconnecting = false, isNetworkUsable = false, onReconnect = {})
+                    TerminalProcessRecoveryNotice(
+                        message = "应用进程已重新启动。出于安全，先前的实时会话未自动恢复。",
+                        onDismiss = {},
+                    )
+                }
+            }
+        }
+
+        compose.onNodeWithTag("terminal_reconnect_action")
+            .assertIsDisplayed()
+            .assertIsNotEnabled()
+        compose.onNodeWithText("知道了")
+            .assertIsDisplayed()
+            .assertHasClickAction()
     }
 }

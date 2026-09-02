@@ -28,5 +28,12 @@ class ServerDeepLinkParserTest {
         assertNull(ServerDeepLinkParser.parse("ssh://user%20name@example.com"))
         assertNull(ServerDeepLinkParser.parse("orbitterm://connect?host=example.com&port=70000"))
         assertNull(ServerDeepLinkParser.parse("orbitterm://settings?host=example.com"))
+        assertNull(ServerDeepLinkParser.parse("ssh://ops:secret@example.com"))
+        assertNull(ServerDeepLinkParser.parse("orbitterm://connect?host=example.com&password=secret"))
+        assertNull(
+            ServerDeepLinkParser.parse(
+                "orbitterm://connect?host=example.com&name=${"n".repeat(81)}",
+            ),
+        )
     }
 }

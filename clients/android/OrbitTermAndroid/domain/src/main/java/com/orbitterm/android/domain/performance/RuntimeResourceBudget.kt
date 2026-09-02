@@ -31,6 +31,18 @@ object RuntimeResourceBudget {
 
     const val MONITOR_MIN_REFRESH_SECONDS = 2
     const val MONITOR_HISTORY_SAMPLES = 60
+
+    // WorkManager processes a durable outbox in short, restartable slices.
+    // The database retains the full queue; only one bounded page enters heap.
+    const val SYNC_OUTBOX_MAX_OPERATIONS_PER_RUN = 100
+}
+
+object SyncOutboxBatchPolicy {
+    fun hasUnprocessedBacklog(attempted: Int, delivered: Int, remaining: Int): Boolean {
+        require(attempted >= 0 && delivered in 0..attempted && remaining >= 0)
+        val unresolvedFromThisBatch = attempted - delivered
+        return remaining > unresolvedFromThisBatch
+    }
 }
 
 /** Device-test thresholds for repeatable release smoke tests, not benchmark claims. */

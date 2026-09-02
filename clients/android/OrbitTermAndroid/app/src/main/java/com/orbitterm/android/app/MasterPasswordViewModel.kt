@@ -2,6 +2,7 @@ package com.orbitterm.android.app
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.orbitterm.android.domain.auth.AccountScope
 import com.orbitterm.android.feature.terminal.TerminalSessionController
 import com.orbitterm.android.security.SecureCredentialStore
 import com.orbitterm.android.sync.AuthResponse
@@ -10,6 +11,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -21,6 +24,8 @@ data class MasterPasswordUiState(
     val isRotating: Boolean = false,
     val hasPendingLocalCommit: Boolean = false,
     val error: String? = null,
+    val biometricFeedback: SecurityOperationFeedback? = null,
+    val rotationFeedback: SecurityOperationFeedback? = null,
 )
 
 @HiltViewModel
@@ -32,11 +37,19 @@ class MasterPasswordViewModel @Inject constructor(
     private val applicationSync: ApplicationSyncCoordinator,
 ) : ViewModel() {
     private var unlockedMasterPassword: String? = null
+    private var rotationGeneration = 0L
+    private var rotationFeedbackRevision = 0L
+    private var rotationFeedbackJob: Job? = null
+    private var biometricFeedbackRevision = 0L
+    private var biometricFeedbackJob: Job? = null
     private val mutableState = MutableStateFlow(MasterPasswordUiState(isConfigured = false))
     val uiState = mutableState.asStateFlow()
     init {
         viewModelScope.launch {
             accountScopeController.scope.collect { scope ->
+                rotationGeneration += 1
+                rotationFeedbackJob?.cancel()
+                biometricFeedbackJob?.cancel()
                 unlockedMasterPassword = null
                 mutableState.value = MasterPasswordUiState(
                     isConfigured = scope?.let { secureStore.hasMasterPassword(it.storageId) } ?: false,
@@ -80,22 +93,37 @@ class MasterPasswordViewModel @Inject constructor(
     fun biometricEnrollmentCipher(): javax.crypto.Cipher? {
         val scope = accountScopeController.scope.value ?: return null
         if (unlockedMasterPassword == null) {
-            mutableState.value = mutableState.value.copy(error = "请先使用主密码解锁后再启用生物识别。")
+            publishBiometricFeedback(SecurityOperationFeedbackKind.FAILURE, "请先使用主密码解锁后再启用生物识别。")
             return null
         }
-        return secureStore.biometricEnrollmentCipher(scope.storageId)
+        return secureStore.biometricEnrollmentCipher(scope.storageId) ?: run {
+            publishBiometricFeedback(
+                SecurityOperationFeedbackKind.RECOVERY_REQUIRED,
+                SecurityOperationPresentation.BIOMETRIC_UNAVAILABLE,
+            )
+            null
+        }
     }
 
     fun completeBiometricEnrollment(cipher: javax.crypto.Cipher) {
         val scope = accountScopeController.scope.value ?: return
         val master = unlockedMasterPassword ?: return
         runCatching { secureStore.completeBiometricEnrollment(scope.storageId, master, cipher) }
-            .onSuccess { mutableState.value = mutableState.value.copy(biometricEnabled = true, error = null) }
+            .onSuccess {
+                mutableState.value = mutableState.value.copy(biometricEnabled = true, error = null)
+                publishBiometricFeedback(
+                    SecurityOperationFeedbackKind.SUCCESS,
+                    SecurityOperationPresentation.BIOMETRIC_ENABLED_SUCCESS,
+                )
+            }
             .onFailure {
                 secureStore.invalidateBiometricUnlock(scope.storageId)
                 mutableState.value = mutableState.value.copy(
                     biometricEnabled = false,
-                    error = "生物识别启用失败，请重新验证指纹或安全级别人脸。",
+                    biometricFeedback = nextBiometricFeedback(
+                        SecurityOperationFeedbackKind.RECOVERY_REQUIRED,
+                        SecurityOperationPresentation.BIOMETRIC_INVALIDATED,
+                    ),
                 )
             }
     }
@@ -112,7 +140,10 @@ class MasterPasswordViewModel @Inject constructor(
             secureStore.invalidateBiometricUnlock(scope.storageId)
             mutableState.value = mutableState.value.copy(
                 biometricEnabled = false,
-                error = "生物识别密钥已失效，请使用主密码解锁后重新启用。",
+                biometricFeedback = nextBiometricFeedback(
+                    SecurityOperationFeedbackKind.RECOVERY_REQUIRED,
+                    SecurityOperationPresentation.BIOMETRIC_INVALIDATED,
+                ),
             )
         }
         return cipher
@@ -125,17 +156,29 @@ class MasterPasswordViewModel @Inject constructor(
             secureStore.invalidateBiometricUnlock(scope.storageId)
             mutableState.value = mutableState.value.copy(
                 biometricEnabled = false,
-                error = "生物识别密钥已失效，请使用主密码解锁后重新启用。",
+                biometricFeedback = nextBiometricFeedback(
+                    SecurityOperationFeedbackKind.RECOVERY_REQUIRED,
+                    SecurityOperationPresentation.BIOMETRIC_INVALIDATED,
+                ),
             )
         } else {
             unlockedMasterPassword = master
             applicationSync.onUnlocked(scope)
             mutableState.value = mutableState.value.copy(isUnlocked = true, error = null)
+            publishBiometricFeedback(
+                SecurityOperationFeedbackKind.SUCCESS,
+                SecurityOperationPresentation.BIOMETRIC_UNLOCK_SUCCESS,
+            )
         }
     }
 
-    fun reportBiometricError(message: String) {
-        mutableState.value = mutableState.value.copy(error = message)
+    fun reportBiometricPromptFailure(failure: BiometricPromptFailure) {
+        val presentation = biometricFailurePresentation(failure) ?: return
+        if (failure == BiometricPromptFailure.UNAVAILABLE) {
+            accountScopeController.scope.value?.let { secureStore.invalidateBiometricUnlock(it.storageId) }
+            mutableState.value = mutableState.value.copy(biometricEnabled = false)
+        }
+        publishBiometricFeedback(presentation.kind, presentation.message)
     }
 
     /**
@@ -155,27 +198,29 @@ class MasterPasswordViewModel @Inject constructor(
         if (current.isRotating) return
         when {
             current.hasPendingLocalCommit -> {
-                mutableState.value = current.copy(error = "请先完成上一次主密码的本机更新。")
+                publishRotationFeedback(SecurityOperationFeedbackKind.RECOVERY_REQUIRED, "请先完成上一次主密码的本机更新。")
                 return
             }
             newPassword.isBlank() || currentLoginPassword.isBlank() -> {
-                mutableState.value = current.copy(error = "请完整填写当前登录密码和新主密码。")
+                publishRotationFeedback(SecurityOperationFeedbackKind.FAILURE, "请完整填写当前登录密码和新主密码。")
                 return
             }
             newPassword != confirmation -> {
-                mutableState.value = current.copy(error = "两次输入的新主密码不一致。")
+                publishRotationFeedback(SecurityOperationFeedbackKind.FAILURE, "两次输入的新主密码不一致。")
                 return
             }
             newPassword == currentPassword -> {
-                mutableState.value = current.copy(error = "新主密码不能与当前主密码相同。")
+                publishRotationFeedback(SecurityOperationFeedbackKind.FAILURE, "新主密码不能与当前主密码相同。")
                 return
             }
             secureStore.verifyAndReadMasterPassword(scope.storageId, currentPassword) == null -> {
-                mutableState.value = current.copy(error = "当前主密码不正确。")
+                publishRotationFeedback(SecurityOperationFeedbackKind.FAILURE, "当前主密码不正确。")
                 return
             }
         }
-        mutableState.value = current.copy(isRotating = true, error = null)
+        val generationAtRequestStart = ++rotationGeneration
+        rotationFeedbackJob?.cancel()
+        mutableState.value = current.copy(isRotating = true, rotationFeedback = null)
         viewModelScope.launch {
             val remoteAccepted = runCatching {
                 withContext(Dispatchers.IO) {
@@ -190,7 +235,7 @@ class MasterPasswordViewModel @Inject constructor(
                 }
             }
             remoteAccepted.onSuccess { response ->
-                if (accountScopeController.scope.value != scope) return@onSuccess
+                if (!isCurrentRotation(generationAtRequestStart, scope)) return@onSuccess
                 runCatching {
                     withContext(Dispatchers.IO) {
                         secureStore.markStagedMasterPasswordRotationAccepted(scope.storageId)
@@ -200,32 +245,43 @@ class MasterPasswordViewModel @Inject constructor(
                         secureStore.commitStagedMasterPasswordRotation(scope.storageId)
                     }
                 }.onSuccess {
+                    if (!isCurrentRotation(generationAtRequestStart, scope)) return@onSuccess
                     unlockedMasterPassword = newPassword
                     mutableState.value = mutableState.value.copy(
                         isRotating = false,
                         biometricEnabled = false,
                         hasPendingLocalCommit = false,
-                        error = null,
+                    )
+                    publishRotationFeedback(
+                        SecurityOperationFeedbackKind.SUCCESS,
+                        SecurityOperationPresentation.MASTER_PASSWORD_SUCCESS,
                     )
                 }.onFailure {
+                    if (!isCurrentRotation(generationAtRequestStart, scope)) return@onFailure
                     // The server already committed atomically. Keep the staged
                     // encrypted replacement for recovery rather than reverting.
                     unlockedMasterPassword = newPassword
                     mutableState.value = mutableState.value.copy(
                         isRotating = false,
                         hasPendingLocalCommit = secureStore.hasAcceptedStagedMasterPasswordRotation(scope.storageId),
-                        error = "云端主密码已轮换，但本机更新待完成；请勿退出应用并重试。",
+                        rotationFeedback = nextRotationFeedback(
+                            SecurityOperationFeedbackKind.RECOVERY_REQUIRED,
+                            "云端主密码已轮换，但本机更新待完成；请勿退出应用并重试。",
+                        ),
                     )
                 }
             }.onFailure {
-                if (accountScopeController.scope.value != scope) return@onFailure
+                if (!isCurrentRotation(generationAtRequestStart, scope)) return@onFailure
                 // A timeout after submission is indistinguishable from a server
                 // commit whose response was lost. Keep the encrypted staged
                 // record; a later retry can safely replace it, but discarding it
                 // could make a committed cloud rotation unrecoverable.
                 mutableState.value = mutableState.value.copy(
                     isRotating = false,
-                    error = "主密码轮换未确认完成，请保持当前会话并重试。",
+                    rotationFeedback = nextRotationFeedback(
+                        SecurityOperationFeedbackKind.RECOVERY_REQUIRED,
+                        "主密码轮换未确认完成，请保持当前会话并重试。",
+                    ),
                 )
             }
         }
@@ -239,7 +295,9 @@ class MasterPasswordViewModel @Inject constructor(
         val scope = accountScopeController.scope.value ?: return
         val current = mutableState.value
         if (current.isRotating || !current.hasPendingLocalCommit) return
-        mutableState.value = current.copy(isRotating = true, error = null)
+        val generationAtRequestStart = ++rotationGeneration
+        rotationFeedbackJob?.cancel()
+        mutableState.value = current.copy(isRotating = true, rotationFeedback = null)
         viewModelScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
@@ -249,7 +307,7 @@ class MasterPasswordViewModel @Inject constructor(
                     stagedPassword
                 }
             }.onSuccess { stagedPassword ->
-                if (accountScopeController.scope.value != scope) return@onSuccess
+                if (!isCurrentRotation(generationAtRequestStart, scope)) return@onSuccess
                 unlockedMasterPassword = stagedPassword
                 applicationSync.onUnlocked(scope)
                 mutableState.value = mutableState.value.copy(
@@ -258,15 +316,60 @@ class MasterPasswordViewModel @Inject constructor(
                     biometricEnabled = false,
                     isRotating = false,
                     hasPendingLocalCommit = false,
-                    error = null,
+                )
+                publishRotationFeedback(
+                    SecurityOperationFeedbackKind.SUCCESS,
+                    SecurityOperationPresentation.LOCAL_COMMIT_SUCCESS,
                 )
             }.onFailure {
-                if (accountScopeController.scope.value != scope) return@onFailure
+                if (!isCurrentRotation(generationAtRequestStart, scope)) return@onFailure
                 mutableState.value = mutableState.value.copy(
                     isRotating = false,
                     hasPendingLocalCommit = secureStore.hasAcceptedStagedMasterPasswordRotation(scope.storageId),
-                    error = "本机主密码更新仍未完成，请保持当前登录并再次重试。",
+                    rotationFeedback = nextRotationFeedback(
+                        SecurityOperationFeedbackKind.RECOVERY_REQUIRED,
+                        "本机主密码更新仍未完成，请保持当前登录并再次重试。",
+                    ),
                 )
+            }
+        }
+    }
+
+    private fun isCurrentRotation(generation: Long, scope: AccountScope): Boolean =
+        generation == rotationGeneration && accountScopeController.scope.value == scope
+
+    private fun nextRotationFeedback(
+        kind: SecurityOperationFeedbackKind,
+        message: String,
+    ): SecurityOperationFeedback = SecurityOperationFeedback(kind, message, ++rotationFeedbackRevision)
+
+    private fun publishRotationFeedback(kind: SecurityOperationFeedbackKind, message: String) {
+        rotationFeedbackJob?.cancel()
+        val feedback = nextRotationFeedback(kind, message)
+        mutableState.value = mutableState.value.copy(rotationFeedback = feedback)
+        val lifetime = feedback.autoDismissAfterMillis ?: return
+        rotationFeedbackJob = viewModelScope.launch {
+            delay(lifetime)
+            if (mutableState.value.rotationFeedback?.revision == feedback.revision) {
+                mutableState.value = mutableState.value.copy(rotationFeedback = null)
+            }
+        }
+    }
+
+    private fun nextBiometricFeedback(
+        kind: SecurityOperationFeedbackKind,
+        message: String,
+    ): SecurityOperationFeedback = SecurityOperationFeedback(kind, message, ++biometricFeedbackRevision)
+
+    private fun publishBiometricFeedback(kind: SecurityOperationFeedbackKind, message: String) {
+        biometricFeedbackJob?.cancel()
+        val feedback = nextBiometricFeedback(kind, message)
+        mutableState.value = mutableState.value.copy(biometricFeedback = feedback)
+        val lifetime = feedback.autoDismissAfterMillis ?: return
+        biometricFeedbackJob = viewModelScope.launch {
+            delay(lifetime)
+            if (mutableState.value.biometricFeedback?.revision == feedback.revision) {
+                mutableState.value = mutableState.value.copy(biometricFeedback = null)
             }
         }
     }
@@ -274,7 +377,7 @@ class MasterPasswordViewModel @Inject constructor(
     private fun updateBiometric(enabled: Boolean) {
         val scope = accountScopeController.scope.value ?: return
         val master = unlockedMasterPassword ?: run {
-            mutableState.value = mutableState.value.copy(error = "请先使用主密码解锁后再修改生物识别设置。")
+            publishBiometricFeedback(SecurityOperationFeedbackKind.FAILURE, "请先使用主密码解锁后再修改生物识别设置。")
             return
         }
         if (enabled) {
@@ -283,16 +386,28 @@ class MasterPasswordViewModel @Inject constructor(
         }
         runCatching { secureStore.disableBiometricUnlock(scope.storageId, master) }.onSuccess {
             mutableState.value = mutableState.value.copy(biometricEnabled = enabled, error = null)
+            publishBiometricFeedback(
+                SecurityOperationFeedbackKind.SUCCESS,
+                SecurityOperationPresentation.BIOMETRIC_DISABLED_SUCCESS,
+            )
         }.onFailure {
-            mutableState.value = mutableState.value.copy(error = "无法更新生物识别设置。")
+            publishBiometricFeedback(SecurityOperationFeedbackKind.FAILURE, "无法更新生物识别设置。")
         }
     }
 
     /** Clears the in-memory secret when the account session ends or the task is locked. */
     fun lock() {
+        rotationGeneration += 1
+        rotationFeedbackJob?.cancel()
+        biometricFeedbackJob?.cancel()
         accountScopeController.scope.value?.let(applicationSync::onLockedOrLoggedOut)
         unlockedMasterPassword = null
         terminalSessions.closeAll()
-        mutableState.value = mutableState.value.copy(isUnlocked = false, error = null)
+        mutableState.value = mutableState.value.copy(
+            isUnlocked = false,
+            error = null,
+            biometricFeedback = null,
+            rotationFeedback = null,
+        )
     }
 }

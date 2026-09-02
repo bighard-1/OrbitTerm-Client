@@ -48,7 +48,10 @@ class ApplicationSyncCoordinator @Inject constructor(
         // is actually encountered.
         syncRepository.clearTransientConfigCrypto()
         authority.allow(accountScope)
-        enqueueCurrentIfAllowed()
+        scope.launch {
+            syncRepository.resumeCredentialBlockedOutbox(accountScope.storageId)
+            enqueueCurrentIfAllowed()
+        }
     }
 
     fun onLockedOrLoggedOut(accountScope: AccountScope) {
@@ -59,7 +62,29 @@ class ApplicationSyncCoordinator @Inject constructor(
         scheduler.cancel(accountScope)
     }
 
-    fun requestNow() = enqueueCurrentIfAllowed()
+    fun requestNow() {
+        val current = accountScopes.scope.value ?: return
+        scope.launch {
+            syncRepository.resumeUserActionOutbox(current.storageId)
+            enqueueCurrentIfAllowed()
+        }
+    }
+
+    fun retryBlockedOutbox() {
+        val current = accountScopes.scope.value ?: return
+        scope.launch {
+            syncRepository.retryBlockedOutbox(current.storageId)
+            enqueueCurrentIfAllowed()
+        }
+    }
+
+    fun discardBlockedOutbox() {
+        val current = accountScopes.scope.value ?: return
+        scope.launch {
+            syncRepository.discardBlockedOutbox(current.storageId)
+            enqueueCurrentIfAllowed()
+        }
+    }
 
     /**
      * A conflict choice needs the currently unlocked master password, but this
@@ -96,7 +121,7 @@ class ApplicationSyncCoordinator @Inject constructor(
 
     private fun enqueueCurrentIfAllowed() {
         val current = accountScopes.scope.value ?: return
-        if (!authority.isAllowed(current)) return
+        if (authority.currentLease(current) == null) return
         if (network.isOnline.value) scheduler.enqueue(current) else scheduler.stateAwaitingNetwork()
     }
 }

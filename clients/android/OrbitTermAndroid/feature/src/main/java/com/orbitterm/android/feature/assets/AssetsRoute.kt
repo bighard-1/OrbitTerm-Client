@@ -86,10 +86,10 @@ import com.orbitterm.android.feature.batch.BatchCommandUiState
 import com.orbitterm.android.feature.batch.BatchCommandViewModel
 import com.orbitterm.android.ui.design.OrbitConfirmationDialog
 import com.orbitterm.android.ui.design.OrbitFormDialog
+import com.orbitterm.android.security.ClipboardContentKind
 import com.orbitterm.android.security.SensitiveClipboard
 import com.orbitterm.android.ui.design.OrbitStatusLine
 import androidx.compose.runtime.LaunchedEffect
-import kotlinx.coroutines.delay
 
 @Composable
 fun AssetsRoute(
@@ -108,8 +108,7 @@ fun AssetsRoute(
     val batchState = batchViewModel.uiState.collectAsStateWithLifecycle().value
     LaunchedEffect(deepLink) {
         deepLink?.let {
-            viewModel.openDeepLink(it)
-            onDeepLinkConsumed()
+            viewModel.openDeepLink(it, onDeepLinkConsumed)
         }
     }
 
@@ -212,13 +211,6 @@ private fun AssetList(
     var groupRenameText by rememberSaveable { mutableStateOf("") }
     var groupMenu by rememberSaveable { mutableStateOf<String?>(null) }
     var groupPendingDeletion by rememberSaveable { mutableStateOf<String?>(null) }
-    var armedConnectionAssetId by rememberSaveable { mutableStateOf<String?>(null) }
-    LaunchedEffect(armedConnectionAssetId) {
-        if (armedConnectionAssetId != null) {
-            delay(3_000)
-            armedConnectionAssetId = null
-        }
-    }
     val filteredAssets = assets.filter { asset ->
         val normalizedQuery = query.trim()
         normalizedQuery.isBlank() || listOf(asset.name, asset.host, asset.username, asset.group, *asset.tags.toTypedArray())
@@ -444,15 +436,11 @@ private fun AssetList(
                                 batchMode = batchMode,
                                 isConnected = asset.id in activeAssetIds,
                                 isSelected = asset.id in selectedIds,
-                                isConnectionArmed = armedConnectionAssetId == asset.id,
                                 onClick = {
                                     if (batchMode) {
                                         selectedIds = selectedIds.toggle(asset.id)
-                                    } else if (asset.id in activeAssetIds || armedConnectionAssetId == asset.id) {
-                                        armedConnectionAssetId = null
-                                        onConnect(asset.id)
                                     } else {
-                                        armedConnectionAssetId = asset.id
+                                        onConnect(asset.id)
                                     }
                                 },
                                 onEdit = { onAssetSelected(asset.id) },
@@ -529,7 +517,12 @@ private fun AssetList(
                     // Command output can contain tokens or operational details.
                     // Treat it like terminal text and clear it only if it has
                     // not been superseded by the user within the timeout.
-                    SensitiveClipboard.copy(context, "OrbitTerm 批量命令回执", text)
+                    SensitiveClipboard.copy(
+                        context,
+                        "OrbitTerm 批量命令回执",
+                        text,
+                        ClipboardContentKind.TERMINAL_OUTPUT,
+                    )
                 }) { Text("复制回执") }
             },
             shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
@@ -539,7 +532,7 @@ private fun AssetList(
     if (deleteConfirmationVisible) {
         OrbitConfirmationDialog(
             title = "删除选中的资产？",
-            message = "将永久删除 ${selectedIds.size} 个资产及其本机保存的凭据。此操作无法撤销。",
+            message = "将 ${selectedIds.size} 个资产移入最近删除，并移除本机凭据。保留期内可在个人中心恢复。",
             confirmLabel = "删除",
             onConfirm = {
                 onDeleteAssets(selectedIds)
@@ -572,7 +565,7 @@ private fun AssetList(
         val count = assets.count { it.group == group }
         OrbitConfirmationDialog(
             title = "删除分组？",
-            message = "将永久删除“$group”及其下 $count 个资产和本机凭据。此操作无法撤销。",
+            message = "将“$group”下 $count 个资产移入最近删除，并移除本机凭据。保留期内可恢复。",
             confirmLabel = "删除",
             onConfirm = { onDeleteGroup(group); groupPendingDeletion = null },
             onDismiss = { groupPendingDeletion = null },
@@ -653,7 +646,7 @@ private fun EmptyAssetsState(modifier: Modifier) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(text = "还没有资产", style = MaterialTheme.typography.headlineSmall)
+        Text(text = "还没有服务器", style = MaterialTheme.typography.headlineSmall)
         Text(
             text = "添加服务器后，即可在此安全地发起连接。",
             modifier = Modifier.padding(top = 8.dp),
@@ -740,7 +733,6 @@ private fun AssetListItem(
     batchMode: Boolean,
     isConnected: Boolean,
     isSelected: Boolean,
-    isConnectionArmed: Boolean,
     onClick: () -> Unit,
     onEdit: () -> Unit,
 ) {
@@ -773,12 +765,8 @@ private fun AssetListItem(
             )
             if (!batchMode) {
                 OrbitStatusLine(
-                    label = when {
-                        isConnected -> if (asset.transport == ServerTransportProtocol.telnet.name) "Telnet 会话已连接" else "SSH 会话已连接"
-                        isConnectionArmed -> "再次点击以连接"
-                        else -> "尚未连接"
-                    },
-                    isActive = isConnected || isConnectionArmed,
+                    label = if (isConnected) "已连接" else "未连接",
+                    isActive = isConnected,
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
@@ -810,8 +798,7 @@ private fun AssetListItem(
                 Text(
                     when {
                         isConnected -> "打开会话"
-                        isConnectionArmed -> "再次点击连接"
-                        else -> "点击两次连接"
+                        else -> "点击连接"
                     },
                     color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.labelLarge,
@@ -845,7 +832,12 @@ private fun ConnectionDialog(
         ) {
             Text("首次连接 ${challenge.host}:${challenge.port}\n${challenge.keyAlgorithm}\n${challenge.fingerprintSha256}")
             TextButton(onClick = {
-                SensitiveClipboard.copy(context, "SSH Host Key fingerprint", challenge.fingerprintSha256)
+                SensitiveClipboard.copy(
+                    context,
+                    "SSH Host Key fingerprint",
+                    challenge.fingerprintSha256,
+                    ClipboardContentKind.HOST_KEY_FINGERPRINT,
+                )
             }) { Text("复制指纹") }
         }
         ConnectionPhase.Connected -> OrbitFormDialog(
@@ -863,7 +855,7 @@ private fun ConnectionDialog(
             )
         }
         is ConnectionPhase.Blocked, is ConnectionPhase.Failed -> OrbitConfirmationDialog(
-            title = "连接未建立",
+            title = connection.phase.presentationHeadline(),
             message = connection.phase.userMessage(),
             confirmLabel = "关闭",
             onConfirm = onDismiss,
@@ -1182,7 +1174,7 @@ private fun AssetEditor(
     if (state.deleteConfirmationVisible) {
         OrbitConfirmationDialog(
             title = "删除资产？",
-            message = "将永久删除该资产及其保存在本机的凭据。此操作无法撤销。",
+            message = "将该资产移入最近删除，并移除本机凭据。保留期内可在个人中心恢复。",
             confirmLabel = "删除",
             onConfirm = onConfirmDelete,
             onDismiss = onDismissDeleteConfirmation,
@@ -1226,7 +1218,7 @@ private fun EditorConnectionTestDialog(
             onDismiss = onDismiss,
         )
         is ConnectionPhase.Blocked, is ConnectionPhase.Failed -> OrbitConfirmationDialog(
-            title = "连接测试未通过",
+            title = "连接测试未通过 · ${connection.phase.presentationHeadline()}",
             message = connection.phase.userMessage(),
             confirmLabel = "关闭",
             onConfirm = onDismiss,

@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
+import java.util.UUID
 
 data class RecentlyDeletedUiState(
     val isLoading: Boolean = false,
@@ -54,13 +55,15 @@ class RecentlyDeletedViewModel @Inject constructor(
         assetId = assetId,
         successMessage = "资产已恢复。",
         purge = false,
-    ) { scope -> repository.restoreRecentlyDeleted(assetId, session.accessToken, masterPassword, scope) }
+    ) { scope, operationId ->
+        repository.restoreRecentlyDeleted(assetId, session.accessToken, masterPassword, scope, operationId)
+    }
 
     fun purge(assetId: String, session: AuthSession, masterPassword: String) = mutate(
         assetId = assetId,
         successMessage = "资产已永久删除。",
         purge = true,
-    ) { scope -> repository.purgeRecentlyDeleted(assetId, session.accessToken, scope) }
+    ) { scope, operationId -> repository.purgeRecentlyDeleted(assetId, session.accessToken, scope, operationId) }
 
     fun dismissFeedback() {
         mutableState.value = mutableState.value.copy(error = null, message = null)
@@ -75,18 +78,21 @@ class RecentlyDeletedViewModel @Inject constructor(
         assetId: String,
         successMessage: String,
         purge: Boolean,
-        action: suspend (com.orbitterm.android.domain.auth.AccountScope) -> Unit,
+        action: suspend (com.orbitterm.android.domain.auth.AccountScope, String) -> Unit,
     ) {
         val scope = accountScopes.scope.value ?: return
         if (mutableState.value.mutatingAssetId != null) return
         val operation = operations.begin("recently_deleted_mutation", assetId) ?: return
+        val operationId = UUID.randomUUID().toString()
         mutableState.value = mutableState.value.copy(mutatingAssetId = assetId, error = null, message = null)
         viewModelScope.launch {
-            val result = runCatching { withContext(Dispatchers.IO) { action(scope) } }
+            val result = runCatching { withContext(Dispatchers.IO) { action(scope, operationId) } }
             if (!operations.isCurrent(operation)) return@launch
             val error = result.exceptionOrNull()
             val queued = error?.isRetryableRecentlyDeletedFailure() == true && runCatching {
-                withContext(Dispatchers.IO) { repository.queueRecentlyDeletedMutation(assetId, scope, purge) }
+                withContext(Dispatchers.IO) {
+                    repository.queueRecentlyDeletedMutation(assetId, scope, purge, operationId)
+                }
             }.isSuccess
             if (queued) syncRequester.requestSync()
             mutableState.value = when {

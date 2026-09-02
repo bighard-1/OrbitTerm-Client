@@ -3,6 +3,7 @@ package com.orbitterm.android.app
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.orbitterm.android.domain.auth.AuthSession
+import com.orbitterm.android.data.local.OrbitTermDatabase
 import com.orbitterm.android.security.SecureCredentialStore
 import com.orbitterm.android.feature.terminal.TerminalSessionController
 import com.orbitterm.android.sync.OrbitApi
@@ -25,10 +26,12 @@ import javax.inject.Inject
 
 data class AuthUiState(
     val session: AuthSession? = null,
+    val isCheckingLocalStorage: Boolean = false,
+    val localStorageRecovery: LocalStorageRecoveryPresentation? = null,
     val isLoading: Boolean = false,
     val error: String? = null,
     val isChangingPassword: Boolean = false,
-    val securityError: String? = null,
+    val loginPasswordFeedback: SecurityOperationFeedback? = null,
     val retryAfterSeconds: Int = 0,
 )
 
@@ -39,14 +42,44 @@ class AuthViewModel @Inject constructor(
     private val accountScopeController: AccountScopeController,
     private val terminalSessions: TerminalSessionController,
     private val applicationSync: ApplicationSyncCoordinator,
+    private val database: OrbitTermDatabase,
 ) : ViewModel() {
-    private val mutableState = MutableStateFlow(AuthUiState(session = secureStore.readAuthSession()))
+    private val mutableState = MutableStateFlow(AuthUiState(isCheckingLocalStorage = true))
     /** Invalidates login callbacks started before logout. */
     private var loginGeneration = 0L
+    private var passwordChangeGeneration = 0L
+    private var securityFeedbackRevision = 0L
+    private var securityFeedbackJob: Job? = null
     private var cooldownJob: Job? = null
+    private var storageCheckGeneration = 0L
     val uiState = mutableState.asStateFlow()
 
-    init { mutableState.value.session?.let { accountScopeController.activate(it.username) } }
+    init { retryLocalStorage() }
+
+    fun retryLocalStorage() {
+        val generation = ++storageCheckGeneration
+        mutableState.value = mutableState.value.copy(
+            isCheckingLocalStorage = true,
+            localStorageRecovery = null,
+            error = null,
+        )
+        viewModelScope.launch {
+            checkLocalStorage(database, secureStore)
+                .onSuccess { session ->
+                    if (generation != storageCheckGeneration) return@onSuccess
+                    session?.let { accountScopeController.activate(it.username) }
+                    mutableState.value = AuthUiState(session = session)
+                }
+                .onFailure { error ->
+                    if (generation != storageCheckGeneration) return@onFailure
+                    val kind = LocalStorageRecoveryPolicy.classify(error)
+                    mutableState.value = AuthUiState(
+                        isCheckingLocalStorage = false,
+                        localStorageRecovery = LocalStorageRecoveryPolicy.presentation(kind),
+                    )
+                }
+        }
+    }
 
     fun login(username: String, password: String) {
         if (username.isBlank() || password.isBlank() || mutableState.value.isLoading) return
@@ -75,7 +108,7 @@ class AuthViewModel @Inject constructor(
                         accountScopeController.activate(session.username)
                         mutableState.value = AuthUiState(session = session)
                     }
-                    .onFailure { mutableState.value = AuthUiState(error = "无法安全保存登录会话。") }
+                    .onFailure { publishSecureStorageRecovery() }
             }.onFailure { error ->
                 if (generationAtRequestStart != loginGeneration) return@onFailure
                 val isCredentialFailure = (error as? OrbitServiceFailure)?.error?.code == OrbitErrorCode.AuthenticationFailed
@@ -103,7 +136,7 @@ class AuthViewModel @Inject constructor(
 
     /** Registration follows the server's invite policy, then creates the same local session as login. */
     fun register(username: String, password: String, inviteCode: String) {
-        val canonicalUsername = username.trim()
+        val canonicalUsername = username.trim().lowercase()
         if (mutableState.value.isLoading) return
         val validationError = registrationValidationError(canonicalUsername, password, inviteCode)
         if (validationError != null) {
@@ -121,7 +154,7 @@ class AuthViewModel @Inject constructor(
                 if (generationAtRequestStart != loginGeneration) return@onSuccess
                 runCatching { secureStore.saveAuthSession(session) }
                     .onSuccess { accountScopeController.activate(session.username); mutableState.value = AuthUiState(session = session) }
-                    .onFailure { mutableState.value = AuthUiState(error = "账户已创建，但无法安全保存登录会话。") }
+                    .onFailure { publishSecureStorageRecovery() }
             }.onFailure { error ->
                 if (generationAtRequestStart != loginGeneration) return@onFailure
                 mutableState.value = AuthUiState(error = error.authFailureMessage("注册"))
@@ -131,16 +164,26 @@ class AuthViewModel @Inject constructor(
 
     fun logout() {
         loginGeneration += 1
+        passwordChangeGeneration += 1
+        securityFeedbackJob?.cancel()
         accountScopeController.scope.value?.let(applicationSync::onLockedOrLoggedOut)
         terminalSessions.closeAll()
-        runCatching { secureStore.deleteAuthSession() }
+        val activeSession = mutableState.value.session
+        if (runCatching { secureStore.deleteAuthSession() }.isFailure) {
+            publishSecureStorageRecovery(session = activeSession)
+            return
+        }
         accountScopeController.deactivate()
         mutableState.value = AuthUiState()
     }
 
     /** Stores tokens returned by the atomic master-key rotation endpoint. */
     fun applyMasterKeyRotation(session: AuthSession, response: AuthResponse): Boolean {
-        if (!isCurrentSession(session)) return false
+        // A background refresh may legitimately replace the access token while
+        // the same account's rotation is in flight. Account-scope and rotation
+        // generation fences reject logout/account-switch callbacks; requiring
+        // the old token here would strand a valid rotation after token refresh.
+        if (!isCurrentAccount(session.username)) return false
         return runCatching {
             val updated = AuthSession(
                 username = session.username,
@@ -149,7 +192,13 @@ class AuthViewModel @Inject constructor(
             )
             secureStore.saveAuthSession(updated)
             mutableState.value = mutableState.value.copy(session = updated, error = null)
-        }.isSuccess
+        }.fold(
+            onSuccess = { true },
+            onFailure = {
+                publishSecureStorageRecovery(session = session)
+                false
+            },
+        )
     }
 
     fun changeLoginPassword(currentPassword: String, newPassword: String, confirmation: String) {
@@ -158,47 +207,69 @@ class AuthViewModel @Inject constructor(
         if (current.isChangingPassword) return
         when {
             currentPassword.isBlank() || newPassword.isBlank() -> {
-                mutableState.value = current.copy(securityError = "请完整填写登录密码。")
+                publishLoginPasswordFeedback(SecurityOperationFeedbackKind.FAILURE, "请完整填写登录密码。")
                 return
             }
             newPassword != confirmation -> {
-                mutableState.value = current.copy(securityError = "两次输入的新登录密码不一致。")
+                publishLoginPasswordFeedback(SecurityOperationFeedbackKind.FAILURE, "两次输入的新登录密码不一致。")
                 return
             }
             currentPassword == newPassword -> {
-                mutableState.value = current.copy(securityError = "新登录密码不能与当前密码相同。")
+                publishLoginPasswordFeedback(SecurityOperationFeedbackKind.FAILURE, "新登录密码不能与当前密码相同。")
                 return
             }
         }
-        mutableState.value = current.copy(isChangingPassword = true, securityError = null)
+        val generationAtRequestStart = ++passwordChangeGeneration
+        securityFeedbackJob?.cancel()
+        mutableState.value = current.copy(isChangingPassword = true, loginPasswordFeedback = null)
         viewModelScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) { api.changePassword(session.accessToken, currentPassword, newPassword) }
             }.onSuccess { response ->
-                if (!isCurrentSession(session)) return@onSuccess
+                if (generationAtRequestStart != passwordChangeGeneration || !isCurrentAccount(session.username)) return@onSuccess
                 val updated = AuthSession(
                     username = session.username,
                     accessToken = response.accessTokenValue.ifBlank { session.accessToken },
                     refreshToken = response.refresh_token ?: session.refreshToken,
                 )
                 runCatching { secureStore.saveAuthSession(updated) }
-                    .onSuccess { mutableState.value = mutableState.value.copy(session = updated, isChangingPassword = false, securityError = null) }
-                    .onFailure {
-                        // Keep the server-issued token usable for this live
-                        // process; persistence failure only affects the next
-                        // launch, where an explicit login is required.
-                        mutableState.value = mutableState.value.copy(
-                            session = updated,
-                            isChangingPassword = false,
-                            securityError = "密码已更新，但无法安全保存新会话；下次启动前请重新登录。",
+                    .onSuccess {
+                        mutableState.value = mutableState.value.copy(session = updated, isChangingPassword = false)
+                        publishLoginPasswordFeedback(
+                            SecurityOperationFeedbackKind.SUCCESS,
+                            SecurityOperationPresentation.LOGIN_PASSWORD_SUCCESS,
                         )
                     }
+                    .onFailure {
+                        publishSecureStorageRecovery(session = updated)
+                    }
             }.onFailure { error ->
-                if (!isCurrentSession(session)) return@onFailure
+                if (generationAtRequestStart != passwordChangeGeneration || !isCurrentAccount(session.username)) return@onFailure
                 mutableState.value = mutableState.value.copy(
                     isChangingPassword = false,
-                    securityError = error.authFailureMessage("更新登录密码"),
+                    loginPasswordFeedback = nextSecurityFeedback(
+                        SecurityOperationFeedbackKind.FAILURE,
+                        error.authFailureMessage("更新登录密码"),
+                    ),
                 )
+            }
+        }
+    }
+
+    private fun nextSecurityFeedback(
+        kind: SecurityOperationFeedbackKind,
+        message: String,
+    ): SecurityOperationFeedback = SecurityOperationFeedback(kind, message, ++securityFeedbackRevision)
+
+    private fun publishLoginPasswordFeedback(kind: SecurityOperationFeedbackKind, message: String) {
+        securityFeedbackJob?.cancel()
+        val feedback = nextSecurityFeedback(kind, message)
+        mutableState.value = mutableState.value.copy(loginPasswordFeedback = feedback)
+        val lifetime = feedback.autoDismissAfterMillis ?: return
+        securityFeedbackJob = viewModelScope.launch {
+            delay(lifetime)
+            if (mutableState.value.loginPasswordFeedback?.revision == feedback.revision) {
+                mutableState.value = mutableState.value.copy(loginPasswordFeedback = null)
             }
         }
     }
@@ -222,12 +293,27 @@ class AuthViewModel @Inject constructor(
             secureStore.saveAuthSession(refreshed)
             mutableState.value = mutableState.value.copy(session = refreshed)
             refreshed
-        }.getOrDefault(session)
+        }.getOrElse {
+            publishSecureStorageRecovery(session = session)
+            session
+        }
     }
 
     private fun isCurrentSession(expected: AuthSession): Boolean {
         val current = mutableState.value.session ?: return false
         return current.username == expected.username && current.accessToken == expected.accessToken
+    }
+
+    private fun isCurrentAccount(expectedUsername: String): Boolean =
+        securityOperationBelongsToCurrentAccount(mutableState.value.session, expectedUsername)
+
+    private fun publishSecureStorageRecovery(session: AuthSession? = null) {
+        mutableState.value = AuthUiState(
+            session = session,
+            localStorageRecovery = LocalStorageRecoveryPolicy.presentation(
+                LocalStorageFailureKind.SECURE_STORAGE_UNAVAILABLE,
+            ),
+        )
     }
 }
 
@@ -236,7 +322,7 @@ private fun Throwable.authFailureMessage(action: String): String {
     return "${action}失败：${error.userMessage()} 诊断代码：${error.diagnosticCode}。"
 }
 
-private fun registrationValidationError(username: String, password: String, inviteCode: String): String? = when {
+internal fun registrationValidationError(username: String, password: String, inviteCode: String): String? = when {
     !username.matches(Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) -> "请输入有效的邮箱账号。"
     inviteCode.isBlank() -> "请输入管理员提供的邀请码。"
     password.length < 12 ||

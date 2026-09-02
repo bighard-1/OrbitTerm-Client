@@ -13,6 +13,7 @@ import com.orbitterm.android.domain.assets.ServerAsset
 import com.orbitterm.android.domain.assets.ServerCredentials
 import com.orbitterm.android.domain.assets.CredentialVault
 import java.time.Instant
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -77,6 +78,7 @@ class AssetMutationRepository @Inject constructor(
                 accountScope = scope,
                 assetId = assetId,
                 operation = operation.name,
+                operationId = UUID.randomUUID().toString(),
                 enqueuedAtUnix = Instant.now().epochSecond,
             ),
         )

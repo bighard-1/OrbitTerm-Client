@@ -5,7 +5,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [ServerAssetEntity::class, AssetSyncMetadataEntity::class, AssetSyncOutboxEntity::class],
-    version = 8,
+    version = 11,
     exportSchema = true,
 )
 abstract class OrbitTermDatabase : RoomDatabase() {

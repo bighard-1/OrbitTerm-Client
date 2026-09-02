@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import dagger.hilt.android.qualifiers.ApplicationContext
+import com.orbitterm.android.core.SessionNetworkAvailability
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,16 +19,19 @@ import kotlinx.coroutines.flow.asStateFlow
 @Singleton
 class NetworkAvailabilityObserver @Inject constructor(
     @ApplicationContext context: Context,
-) {
+) : SessionNetworkAvailability {
     private val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
     private val mutableOnline = MutableStateFlow(connectivityManager.isValidatedOnline())
     val isOnline = mutableOnline.asStateFlow()
+    private val mutableNetworkUsable = MutableStateFlow(connectivityManager.hasUsableSessionNetwork())
+    override val isNetworkUsable = mutableNetworkUsable.asStateFlow()
 
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) = update(network)
         override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) = update(network, capabilities)
         override fun onLost(network: Network) {
             mutableOnline.value = connectivityManager.isValidatedOnline()
+            mutableNetworkUsable.value = connectivityManager.hasUsableSessionNetwork()
         }
     }
 
@@ -38,12 +42,29 @@ class NetworkAvailabilityObserver @Inject constructor(
     private fun update(network: Network, capabilities: NetworkCapabilities? = null) {
         val current = capabilities ?: connectivityManager.getNetworkCapabilities(network)
         mutableOnline.value = current?.isValidatedInternet() == true
+        mutableNetworkUsable.value = current?.isUsableSessionNetwork() == true
     }
 }
 
 private fun ConnectivityManager.isValidatedOnline(): Boolean =
     activeNetwork?.let(::getNetworkCapabilities)?.isValidatedInternet() == true
 
+private fun ConnectivityManager.hasUsableSessionNetwork(): Boolean =
+    activeNetwork?.let(::getNetworkCapabilities)?.isUsableSessionNetwork() == true
+
 private fun NetworkCapabilities.isValidatedInternet(): Boolean =
     hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
         hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+
+private fun NetworkCapabilities.isUsableSessionNetwork(): Boolean =
+    sessionNetworkUsable(
+        notSuspended = hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED),
+        hasSupportedTransport =
+            hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ||
+                hasTransport(NetworkCapabilities.TRANSPORT_VPN),
+    )
+
+internal fun sessionNetworkUsable(notSuspended: Boolean, hasSupportedTransport: Boolean): Boolean =
+    notSuspended && hasSupportedTransport

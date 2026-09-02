@@ -34,10 +34,17 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("io.ktor:ktor-client-mock:3.3.2")
 }
 
 kapt {
     arguments {
         arg("room.schemaLocation", "${rootProject.projectDir}/app/schemas")
     }
+}
+
+dependencyLocking {
+    // The test-only native HTTP fixture is part of the reviewed dependency
+    // graph; resolving it must never float independently of release CI.
+    lockAllConfigurations()
 }

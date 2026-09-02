@@ -3,6 +3,7 @@ package com.orbitterm.android.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -43,16 +44,20 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.core.content.edit
+import com.orbitterm.android.app.registrationValidationError
 
 @Composable
 fun LoginScreen(
     isLoading: Boolean,
     error: String?,
+    retryAfterSeconds: Int,
     onLogin: (String, String) -> Unit,
     onRegister: (String, String, String) -> Unit,
 ) {
@@ -69,8 +74,9 @@ fun LoginScreen(
     var termsAccepted by rememberSaveable {
         mutableStateOf(consentPreferences.getString("accepted_version", null) == ORBIT_LEGAL_TERMS_VERSION)
     }
+    val registrationError = if (isLoginMode) null else registrationValidationError(username.trim(), password, inviteCode)
     val canSubmit = termsAccepted && username.isNotBlank() && password.isNotBlank() &&
-        (isLoginMode || inviteCode.isNotBlank()) && !isLoading
+        (isLoginMode || registrationError == null) && retryAfterSeconds <= 0 && !isLoading
 
     AuthSurface {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -119,30 +125,50 @@ fun LoginScreen(
                 )
                 Text("密码至少 12 位，且包含大小写字母、数字和特殊字符。", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             }
+            if (isLoginMode && retryAfterSeconds > 0) {
+                Text(
+                    "为保护账户，请在 $retryAfterSeconds 秒后重试。",
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Checkbox(
                     checked = termsAccepted,
                     onCheckedChange = { checked ->
                         termsAccepted = checked
                         if (checked) {
-                            consentPreferences.edit().putString("accepted_version", ORBIT_LEGAL_TERMS_VERSION).apply()
+                            consentPreferences.edit { putString("accepted_version", ORBIT_LEGAL_TERMS_VERSION) }
                         } else {
-                            consentPreferences.edit().remove("accepted_version").apply()
+                            consentPreferences.edit { remove("accepted_version") }
                         }
                     },
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "已阅读并同意",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    softWrap = false,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(Modifier.weight(1f))
+                TextButton(
+                    onClick = { termsVisible = true },
+                    modifier = Modifier.semantics {
+                        contentDescription = "查看使用条款、免责声明与隐私说明"
+                    },
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                ) {
                     Text(
-                        "我已阅读并同意",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        "查看法律条款",
+                        maxLines = 1,
+                        softWrap = false,
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    TextButton(onClick = { termsVisible = true }) {
-                        Text("《使用条款、免责声明与隐私说明》", style = MaterialTheme.typography.bodySmall)
-                    }
                 }
             }
             Button(
@@ -161,7 +187,7 @@ fun LoginScreen(
     if (termsVisible) {
         AlertDialog(
             onDismissRequest = { termsVisible = false },
-            title = { Text("使用条款与免责声明") },
+            title = { Text("使用条款、免责声明与隐私说明") },
             text = {
                 Text(
                     ORBIT_LEGAL_TERMS,
@@ -172,7 +198,7 @@ fun LoginScreen(
             confirmButton = {
                 TextButton(onClick = {
                     termsAccepted = true
-                    consentPreferences.edit().putString("accepted_version", ORBIT_LEGAL_TERMS_VERSION).apply()
+                    consentPreferences.edit { putString("accepted_version", ORBIT_LEGAL_TERMS_VERSION) }
                     termsVisible = false
                 }) { Text("同意并继续") }
             },

@@ -94,6 +94,7 @@ import com.orbitterm.android.domain.settings.TerminalAppearance
 import com.orbitterm.android.domain.settings.MonitorRefreshInterval
 import com.orbitterm.android.domain.sync.SyncRequester
 import com.orbitterm.android.core.OperationScopeCoordinator
+import com.orbitterm.android.core.SessionNetworkAvailability
 import com.orbitterm.android.ui.design.OrbitConfirmationDialog
 import com.orbitterm.android.ui.design.OrbitFeedbackBanner
 import com.orbitterm.android.ui.design.OrbitFormDialog
@@ -118,6 +119,8 @@ data class TerminalSessionsUiState(
     val reconnecting: Boolean = false,
     val reconnectError: String? = null,
     val terminalNotice: String? = null,
+    val processRecoveryNotice: String? = null,
+    val isNetworkUsable: Boolean = true,
     val specialKeyUsage: Map<String, Int> = emptyMap(),
     val customTerminalKeys: List<TerminalCustomKey> = emptyList(),
 )
@@ -140,6 +143,7 @@ class TerminalSessionsViewModel @Inject constructor(
     private val syncRequests: SyncRequester,
     private val terminalKeyUsageRepository: TerminalKeyUsageRepository,
     private val operations: OperationScopeCoordinator,
+    private val networkAvailability: SessionNetworkAvailability,
 ) : ViewModel() {
     private data class TerminalKeyPreferences(
         val usage: Map<String, Int>,
@@ -154,23 +158,37 @@ class TerminalSessionsViewModel @Inject constructor(
     private val selectedModule = MutableStateFlow(SessionWorkspaceModule.Terminal)
     private val shortcutError = MutableStateFlow<String?>(null)
     private val terminalNotice = MutableStateFlow<String?>(null)
+    private val processRecoveryNotice = MutableStateFlow(
+        if (terminalSessionController.hadInterruptedSessionsAtProcessStart) {
+            "应用进程已重新启动。出于安全，先前的实时会话未自动恢复，请从服务器页重新连接。"
+        } else {
+            null
+        },
+    )
     private val reconnectState = MutableStateFlow(ReconnectState())
+    private val reconnectAvailability = combine(
+        reconnectState,
+        networkAvailability.isNetworkUsable,
+    ) { reconnect, isNetworkUsable ->
+        ReconnectAvailability(reconnect, isNetworkUsable)
+    }
     private val workspaceState = combine(
         selectedSessionId,
         selectedModule,
         shortcutError,
-        reconnectState,
+        reconnectAvailability,
         terminalNotice,
-    ) { selectedId, module, shortcutError, reconnect, notice ->
-        WorkspaceState(selectedId, module, shortcutError, reconnect, notice)
+    ) { selectedId, module, shortcutError, reconnectAvailability, notice ->
+        WorkspaceState(selectedId, module, shortcutError, reconnectAvailability, notice)
     }
     val uiState = combine(
         terminalSessionController.activeSessions,
         quickCommandRepository.customCommands,
         assetRepository.observeAssets(),
         terminalKeyPreferences,
-        workspaceState,
-    ) { sessions, customCommands, assets, keyPreferences, workspace ->
+        combine(workspaceState, processRecoveryNotice) { workspace, recoveryNotice -> workspace to recoveryNotice },
+    ) { sessions, customCommands, assets, keyPreferences, workspaceAndNotice ->
+        val (workspace, recoveryNotice) = workspaceAndNotice
         TerminalSessionsUiState(
             sessions = sessions,
             assets = assets,
@@ -178,9 +196,11 @@ class TerminalSessionsViewModel @Inject constructor(
             selectedModule = workspace.selectedModule,
             customCommands = customCommands,
             shortcutError = workspace.shortcutError,
-            reconnecting = workspace.reconnect.isRunning,
-            reconnectError = workspace.reconnect.error,
+            reconnecting = workspace.reconnectAvailability.reconnect.isRunning,
+            reconnectError = workspace.reconnectAvailability.reconnect.error,
             terminalNotice = workspace.terminalNotice,
+            processRecoveryNotice = recoveryNotice,
+            isNetworkUsable = workspace.reconnectAvailability.isNetworkUsable,
             specialKeyUsage = keyPreferences.usage,
             customTerminalKeys = keyPreferences.customKeys,
         )
@@ -260,7 +280,12 @@ class TerminalSessionsViewModel @Inject constructor(
 
     /** Keeps the existing terminal alive until a new checked terminal is fully open. */
     fun reconnect(session: ActiveTerminalSession) {
-        if (reconnectState.value.isRunning) return
+        if (!TerminalReconnectPolicy.canReconnect(networkAvailability.isNetworkUsable.value, reconnectState.value.isRunning)) {
+            if (!networkAvailability.isNetworkUsable.value) {
+                reconnectState.value = ReconnectState(error = "网络当前不可用。恢复后可手动重新连接，应用不会自动恢复会话。")
+            }
+            return
+        }
         val operation = operations.begin("ssh_reconnect", session.id) ?: return
         reconnectState.value = ReconnectState(isRunning = true)
         viewModelScope.launch {
@@ -333,6 +358,10 @@ class TerminalSessionsViewModel @Inject constructor(
         }
     }
 
+    fun dismissProcessRecoveryNotice() {
+        processRecoveryNotice.value = null
+    }
+
     fun addCustomCommand(title: String, command: String, category: String, allowedAssetIds: Set<String>) {
         val normalizedTitle = title.trim()
         val normalizedCommand = command.trim()
@@ -390,11 +419,15 @@ class TerminalSessionsViewModel @Inject constructor(
     }
 
     private data class ReconnectState(val isRunning: Boolean = false, val error: String? = null)
+    private data class ReconnectAvailability(
+        val reconnect: ReconnectState,
+        val isNetworkUsable: Boolean,
+    )
     private data class WorkspaceState(
         val selectedSessionId: String?,
         val selectedModule: SessionWorkspaceModule,
         val shortcutError: String?,
-        val reconnect: ReconnectState,
+        val reconnectAvailability: ReconnectAvailability,
         val terminalNotice: String?,
     )
 }
@@ -421,6 +454,12 @@ fun TerminalSessionsRoute(
             modifier = modifier.fillMaxSize().padding(24.dp),
             verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
         ) {
+            uiState.processRecoveryNotice?.let { notice ->
+                TerminalProcessRecoveryNotice(
+                    message = notice,
+                    onDismiss = viewModel::dismissProcessRecoveryNotice,
+                )
+            }
             Text("终端工作台", style = androidx.compose.material3.MaterialTheme.typography.headlineMedium)
             Text(
                 "暂无活动会话。请先在服务器页连接一台资产。",
@@ -464,7 +503,11 @@ fun TerminalSessionsRoute(
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     )
                     Text(
-                        "终端在线 · ${uiState.sessions.size} 个会话",
+                        terminalSessionStatusLabel(
+                            state = session.connectionState,
+                            reconnecting = uiState.reconnecting,
+                            sessionCount = uiState.sessions.size,
+                        ),
                         color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
                         style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                         maxLines = 1,
@@ -505,6 +548,7 @@ fun TerminalSessionsRoute(
                 }
                 TerminalReconnectAction(
                     reconnecting = uiState.reconnecting,
+                    isNetworkUsable = uiState.isNetworkUsable,
                     onReconnect = { viewModel.reconnect(session) },
                 )
                 if (uiState.selectedModule == SessionWorkspaceModule.Terminal) {
@@ -523,6 +567,19 @@ fun TerminalSessionsRoute(
         )
         uiState.reconnectError?.let { error ->
             TerminalReconnectFailure(error)
+        }
+        uiState.processRecoveryNotice?.let { notice ->
+            TerminalProcessRecoveryNotice(
+                message = notice,
+                onDismiss = viewModel::dismissProcessRecoveryNotice,
+            )
+        }
+        if (!uiState.isNetworkUsable) {
+            OrbitFeedbackBanner(
+                message = "网络当前不可用。恢复后可手动重连；应用不会自动恢复会话。",
+                isError = true,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
         }
         uiState.terminalNotice?.let { notice ->
             OrbitFeedbackBanner(
@@ -667,35 +724,34 @@ internal data class TerminalSpecialKey(
 )
 
 internal val terminalSpecialKeys = listOf(
-    TerminalSpecialKey("Enter", byteArrayOf(13)),
+    TerminalSpecialKey("Tab", byteArrayOf(9)),
     TerminalSpecialKey("Ctrl+C", byteArrayOf(3)),
+    TerminalSpecialKey("Esc", byteArrayOf(27)),
     TerminalSpecialKey("Ctrl+D", byteArrayOf(4)),
     TerminalSpecialKey("Ctrl+L", byteArrayOf(12)),
     TerminalSpecialKey("Ctrl+U", byteArrayOf(21)),
-    TerminalSpecialKey("Esc", byteArrayOf(27)),
-    TerminalSpecialKey("Tab", byteArrayOf(9)),
+    TerminalSpecialKey("Enter", byteArrayOf(13)),
+    TerminalSpecialKey("←", "\u001B[D".toByteArray()),
     TerminalSpecialKey("↑", "\u001B[A".toByteArray()),
     TerminalSpecialKey("↓", "\u001B[B".toByteArray()),
-    TerminalSpecialKey("←", "\u001B[D".toByteArray()),
     TerminalSpecialKey("→", "\u001B[C".toByteArray()),
-    TerminalSpecialKey("+", "+".toByteArray()),
     TerminalSpecialKey("-", "-".toByteArray()),
-    TerminalSpecialKey("*", "*".toByteArray()),
+    TerminalSpecialKey("+", "+".toByteArray()),
+    TerminalSpecialKey("×", "*".toByteArray()),
     TerminalSpecialKey("/", "/".toByteArray()),
-    TerminalSpecialKey("_", "_".toByteArray()),
-    TerminalSpecialKey("(", "(".toByteArray()),
-    TerminalSpecialKey(")", ")".toByteArray()),
-    TerminalSpecialKey("[", "[".toByteArray()),
-    TerminalSpecialKey("]", "]".toByteArray()),
-    TerminalSpecialKey("{", "{".toByteArray()),
-    TerminalSpecialKey("}", "}".toByteArray()),
-    TerminalSpecialKey("<", "<".toByteArray()),
-    TerminalSpecialKey(">", ">".toByteArray()),
+    TerminalSpecialKey("|", "|".toByteArray()),
+    TerminalSpecialKey("\\", "\\".toByteArray()),
     TerminalSpecialKey("~", "~".toByteArray()),
+    TerminalSpecialKey("=", "=".toByteArray()),
+    TerminalSpecialKey("_", "_".toByteArray()),
+    TerminalSpecialKey("$", "$".toByteArray()),
     TerminalSpecialKey("#", "#".toByteArray()),
+    TerminalSpecialKey(";", ";".toByteArray()),
+    TerminalSpecialKey(":", ":".toByteArray()),
+    TerminalSpecialKey("?", "?".toByteArray()),
 )
 
-private val terminalSymbolLabels = setOf("+", "-", "*", "/", "_", "(", ")", "[", "]", "{", "}", "<", ">", "~", "#")
+private val terminalSymbolLabels = setOf("←", "↑", "↓", "→", "-", "+", "×", "/", "|", "\\", "~", "=", "_", "$", "#", ";", ":", "?")
 
 /** Highest explicit-use count first; the base order is retained for ties. */
 internal fun orderedTerminalSpecialKeys(
@@ -757,17 +813,15 @@ private fun TerminalKeyBar(
             TerminalSpecialKey(key.label, bytes, id = "custom:${key.id}")
         }
     }
-    val orderedKeys = orderedTerminalSpecialKeys(usageCounts, terminalSpecialKeys + customSpecialKeys)
-    val fixedPrimaryLabels = listOf("Tab", "Ctrl+C", "Esc")
-    val commonKeys = fixedPrimaryLabels.mapNotNull { label -> terminalSpecialKeys.firstOrNull { it.label == label } } +
-        orderedKeys.filter { key ->
+    val orderedCustomKeys = orderedTerminalSpecialKeys(usageCounts, customSpecialKeys)
+    val commonKeys = terminalSpecialKeys.filter { it.label !in terminalSymbolLabels } +
+        orderedCustomKeys.filter { key ->
             val custom = customKeys.firstOrNull { "custom:${it.id}" == key.id }
-            key.label !in fixedPrimaryLabels &&
-                (custom?.section == TerminalCustomKeySection.Common || (custom == null && key.label !in terminalSymbolLabels))
+            custom?.section == TerminalCustomKeySection.Common
         }
-    val symbolKeys = orderedKeys.filter { key ->
+    val symbolKeys = terminalSpecialKeys.filter { it.label in terminalSymbolLabels } + orderedCustomKeys.filter { key ->
         val custom = customKeys.firstOrNull { "custom:${it.id}" == key.id }
-        custom?.section == TerminalCustomKeySection.Symbols || (custom == null && key.label in terminalSymbolLabels)
+        custom?.section == TerminalCustomKeySection.Symbols
     }
     val visibleKeys = if (symbolsVisible) symbolKeys else commonKeys
     Surface(modifier = modifier, tonalElevation = 2.dp) {
@@ -896,16 +950,47 @@ private fun TerminalCustomKeyDialog(
 @Composable
 internal fun TerminalReconnectAction(
     reconnecting: Boolean,
+    isNetworkUsable: Boolean,
     onReconnect: () -> Unit,
 ) {
     IconButton(
         onClick = onReconnect,
-        enabled = !reconnecting,
+        enabled = TerminalReconnectPolicy.canReconnect(isNetworkUsable, reconnecting),
         modifier = Modifier
             .testTag("terminal_reconnect_action")
-            .semantics { contentDescription = "重新连接当前会话" },
+            .semantics {
+                contentDescription = TerminalReconnectPolicy.accessibilityLabel(
+                    isNetworkUsable = isNetworkUsable,
+                    reconnecting = reconnecting,
+                )
+            },
     ) {
         Icon(Icons.Rounded.Refresh, contentDescription = null)
+    }
+}
+
+@Composable
+internal fun TerminalProcessRecoveryNotice(message: String, onDismiss: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .semantics { contentDescription = "会话恢复提示：$message" },
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+        color = androidx.compose.material3.MaterialTheme.colorScheme.secondaryContainer,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        ) {
+            Text(
+                text = message,
+                modifier = Modifier.weight(1f),
+                color = androidx.compose.material3.MaterialTheme.colorScheme.onSecondaryContainer,
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+            )
+            TextButton(onClick = onDismiss) { Text("知道了") }
+        }
     }
 }
 

@@ -162,13 +162,13 @@ class AssetsViewModel @Inject constructor(
     }
 
     /** A link can only prefill an editor; the user still reviews and saves it. */
-    fun openDeepLink(link: ServerDeepLink) {
+    fun openDeepLink(link: ServerDeepLink, onReviewReady: () -> Unit) {
         val scope = accountScopeController.scope.value ?: return
         val existing = uiState.value.assets.firstOrNull {
             it.host == link.host && it.port == link.port && it.username == link.username
         }
         if (existing != null) {
-            editAsset(existing.id)
+            loadAssetEditor(existing.id, onReviewReady)
             return
         }
         val id = UUID.randomUUID().toString()
@@ -183,9 +183,14 @@ class AssetsViewModel @Inject constructor(
             port = link.port.toString(),
             username = link.username,
         )
+        onReviewReady()
     }
 
     fun editAsset(id: String) {
+        loadAssetEditor(id)
+    }
+
+    private fun loadAssetEditor(id: String, onReady: () -> Unit = {}) {
         viewModelScope.launch {
             val asset = withContext(Dispatchers.IO) { assetRepository.findAsset(id) } ?: return@launch
             val credentials = withContext(Dispatchers.IO) {
@@ -195,6 +200,7 @@ class AssetsViewModel @Inject constructor(
                 withContext(Dispatchers.IO) { credentialStore.read(jump.credentialID) ?: ServerCredentials() }
             }
             editor.value = asset.toEditorState(credentials, jumpCredentials)
+            onReady()
         }
     }
 

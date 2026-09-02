@@ -1,6 +1,9 @@
 package com.orbitterm.android.app
 
 import com.orbitterm.android.core.OperationScopeCoordinator
+import com.orbitterm.android.domain.sync.PrivacySafeSyncMetrics
+import com.orbitterm.android.domain.sync.SyncDiagnosticEvent
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -92,5 +95,20 @@ class OperationScopeCoordinatorTest {
         val coordinator = OperationScopeCoordinator(AccountScopeController())
 
         assertTrue(coordinator.begin("sync", "account") == null)
+    }
+
+    @Test
+    fun `sync diagnostics do not cross account or logout boundaries`() {
+        val accounts = AccountScopeController()
+        accounts.activate("alice@example.com")
+        PrivacySafeSyncMetrics.record(SyncDiagnosticEvent.DeliveryDeferred)
+        assertEquals(1, PrivacySafeSyncMetrics.snapshot()[SyncDiagnosticEvent.DeliveryDeferred])
+
+        accounts.activate("bob@example.com")
+        assertTrue(PrivacySafeSyncMetrics.snapshot().isEmpty())
+        PrivacySafeSyncMetrics.record(SyncDiagnosticEvent.ConflictDeferred)
+
+        accounts.deactivate()
+        assertTrue(PrivacySafeSyncMetrics.snapshot().isEmpty())
     }
 }

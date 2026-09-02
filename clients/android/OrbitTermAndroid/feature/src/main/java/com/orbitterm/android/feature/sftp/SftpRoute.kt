@@ -19,7 +19,6 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.CreateNewFolder
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.UploadFile
@@ -37,7 +36,6 @@ import java.util.ArrayDeque
 import java.util.UUID
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -68,6 +66,12 @@ import com.orbitterm.android.core.SftpDirectoryEntry
 import com.orbitterm.android.feature.terminal.ActiveTerminalSession
 import com.orbitterm.android.feature.terminal.TerminalSessionController
 import com.orbitterm.android.feature.terminal.selectActiveTerminalSession
+import com.orbitterm.android.feature.presentation.OperationalContentPhase
+import com.orbitterm.android.feature.presentation.OperationalContentPresentationMapper
+import com.orbitterm.android.feature.presentation.OperationalModuleKind
+import com.orbitterm.android.feature.presentation.OperationalFailureFeedback
+import com.orbitterm.android.feature.presentation.OperationalRefreshAction
+import com.orbitterm.android.feature.presentation.OperationalTransientSuccessFeedback
 import com.orbitterm.android.core.DocumentInteractionCoordinator
 import com.orbitterm.android.core.OperationScopeCoordinator
 import com.orbitterm.android.domain.performance.RuntimeResourceBudget
@@ -76,8 +80,10 @@ import com.orbitterm.android.domain.assets.AssetRepository
 import com.orbitterm.android.domain.error.OrbitErrorCode
 import com.orbitterm.android.domain.error.orbitNativeError
 import com.orbitterm.android.ui.design.OrbitConfirmationDialog
+import com.orbitterm.android.ui.design.OrbitEmptyState
 import com.orbitterm.android.ui.design.OrbitFeedbackBanner
 import com.orbitterm.android.ui.design.OrbitFormDialog
+import com.orbitterm.android.ui.design.OrbitStatusLine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -97,6 +103,7 @@ data class SftpUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val transferMessage: String? = null,
+    val transferMessageIsError: Boolean = false,
     val transfer: SftpTransferUiState? = null,
     val activeTransferRequestId: String? = null,
     val canCancelTransfer: Boolean = false,
@@ -202,6 +209,15 @@ class SftpViewModel @Inject constructor(
         startNextTransfer()
     }
 
+    fun dismissTransferMessage(message: String) {
+        if (mutableUiState.value.transferMessage == message) {
+            mutableUiState.value = mutableUiState.value.copy(
+                transferMessage = null,
+                transferMessageIsError = false,
+            )
+        }
+    }
+
     private fun clearTransfersForSessionChange() {
         pendingTransfers.clear()
         val requestId = mutableUiState.value.activeTransferRequestId
@@ -249,6 +265,14 @@ class SftpViewModel @Inject constructor(
         val state = mutableUiState.value
         val sftpSessionId = state.sftpSessionId ?: return
         listDirectory(sftpSessionId, state.path)
+    }
+
+    fun refreshFromUser() {
+        mutableUiState.value = mutableUiState.value.copy(
+            transferMessage = null,
+            transferMessageIsError = false,
+        )
+        refresh()
     }
 
     fun openDirectory(entry: SftpDirectoryEntry) {
@@ -398,6 +422,7 @@ class SftpViewModel @Inject constructor(
             isLoading = true,
             error = null,
             transferMessage = null,
+            transferMessageIsError = false,
             transfer = SftpTransferUiState("批量删除", "正在删除 ${entries.size} 个项目…"),
         )
         viewModelScope.launch {
@@ -421,8 +446,10 @@ class SftpViewModel @Inject constructor(
                     transferMessage = if (summary.failed == 0) {
                         "批量删除完成：${summary.succeeded} 项"
                     } else {
-                        "批量删除完成：成功 ${summary.succeeded} 项，失败 ${summary.failed} 项"
+                        "批量删除未全部完成：成功 ${summary.succeeded} 项，失败 ${summary.failed} 项。"
                     },
+                    transferMessageIsError = summary.failed > 0,
+                    error = null,
                 )
             }
         }
@@ -591,6 +618,7 @@ class SftpViewModel @Inject constructor(
             isLoading = true,
             error = null,
             transferMessage = null,
+            transferMessageIsError = false,
             transfer = SftpTransferUiState(pending.label, pending.detail),
             activeTransferRequestId = requestId,
             canCancelTransfer = false,
@@ -628,6 +656,7 @@ class SftpViewModel @Inject constructor(
                         canCancelTransfer = false,
                         cancellationRequested = false,
                         transferMessage = "${pending.label}完成：${formatBytes(result.byteLength)}",
+                        transferMessageIsError = false,
                     )
                     pending.onCompleted?.invoke()
                     if (pendingTransfers.isEmpty()) refresh() else startNextTransfer()
@@ -641,6 +670,7 @@ class SftpViewModel @Inject constructor(
                             canCancelTransfer = false,
                             cancellationRequested = false,
                             transferMessage = "${pending.label}已取消",
+                            transferMessageIsError = false,
                         )
                         if (pendingTransfers.isEmpty()) refresh() else startNextTransfer()
                         return@launch
@@ -674,6 +704,7 @@ class SftpViewModel @Inject constructor(
         mutableUiState.value = mutableUiState.value.copy(
             queuedTransfers = pendingTransfers.map { SftpQueuedTransferUiState(it.id, it.label) },
             transferMessage = message ?: mutableUiState.value.transferMessage,
+            transferMessageIsError = if (message != null) false else mutableUiState.value.transferMessageIsError,
         )
     }
 
@@ -842,6 +873,7 @@ class SftpViewModel @Inject constructor(
             isLoading = true,
             error = null,
             transferMessage = null,
+            transferMessageIsError = false,
             transfer = SftpTransferUiState("删除", "正在删除目录及其内容…"),
         )
         viewModelScope.launch {
@@ -860,6 +892,7 @@ class SftpViewModel @Inject constructor(
                     mutableUiState.value = mutableUiState.value.copy(
                         transfer = null,
                         transferMessage = "目录及其内容已删除",
+                        transferMessageIsError = false,
                     )
                 }
                 is CheckedSftpMutationResult.Failure -> if (isCurrentForSession(operation, sessionId)) mutableUiState.value = mutableUiState.value.copy(
@@ -937,6 +970,7 @@ class SftpViewModel @Inject constructor(
                                     transferMessage = if (path == "/" && opened.homePath != "/") {
                                         "用户主目录不可用，已打开根目录；新建项请选择有写入权限的位置。"
                                     } else null,
+                                    transferMessageIsError = false,
                                 )
                                 return@launch
                             }
@@ -1086,7 +1120,7 @@ fun SftpRoute(
             SftpBrowser(
                 state = uiState,
                 modifier = modifier,
-                onRefresh = viewModel::refresh,
+                onRefresh = viewModel::refreshFromUser,
                 onParent = viewModel::navigateToParent,
                 onNavigatePath = viewModel::navigateToPath,
                 onDirectoryOpened = viewModel::openDirectory,
@@ -1114,6 +1148,7 @@ fun SftpRoute(
                 onCancelActiveTransfer = viewModel::cancelActiveTransfer,
                 onCancelQueuedTransfer = viewModel::cancelQueuedTransfer,
                 onResumeTransferQueue = viewModel::resumeTransferQueue,
+                onDismissTransferMessage = viewModel::dismissTransferMessage,
                 onDismissTextDocument = viewModel::dismissTextDocument,
                 onEditTextDocument = viewModel::beginEditingTextDocument,
                 onSaveTextDocument = viewModel::saveTextDocument,
@@ -1164,6 +1199,7 @@ internal fun SftpBrowser(
     onCancelActiveTransfer: () -> Unit,
     onCancelQueuedTransfer: (String) -> Unit,
     onResumeTransferQueue: () -> Unit,
+    onDismissTransferMessage: (String) -> Unit,
     onDismissTextDocument: () -> Unit,
     onEditTextDocument: () -> Unit,
     onSaveTextDocument: (String) -> Unit,
@@ -1183,6 +1219,17 @@ internal fun SftpBrowser(
     var pathEntryVisible by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     var pathDraft by androidx.compose.runtime.saveable.rememberSaveable(state.path) { androidx.compose.runtime.mutableStateOf(state.path) }
     val directoryCount = state.entries.count(SftpDirectoryEntry::isDirectory)
+    val contentPresentation = OperationalContentPresentationMapper.sftp(
+        isLoading = state.isLoading,
+        hasItems = state.entries.isNotEmpty(),
+        failureDetail = state.error,
+    )
+    val actionPresentation = OperationalContentPresentationMapper.refreshAction(
+        module = OperationalModuleKind.SFTP,
+        phase = contentPresentation.phase,
+        isRefreshing = state.isLoading,
+        hasContent = state.entries.isNotEmpty(),
+    )
     Column(modifier = modifier.fillMaxSize()) {
         Surface(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
@@ -1203,9 +1250,10 @@ internal fun SftpBrowser(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            IconButton(onClick = onRefresh) {
-                Icon(Icons.Rounded.Refresh, contentDescription = "刷新目录")
-            }
+            OperationalRefreshAction(
+                presentation = actionPresentation,
+                onRefresh = onRefresh,
+            )
             androidx.compose.foundation.layout.Box {
                 IconButton(onClick = { headerMenuExpanded = true }) {
                     Icon(Icons.Rounded.MoreVert, contentDescription = "文件操作")
@@ -1247,6 +1295,12 @@ internal fun SftpBrowser(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        OrbitStatusLine(
+            label = contentPresentation.headline,
+            isActive = contentPresentation.phase == OperationalContentPhase.READY ||
+                contentPresentation.phase == OperationalContentPhase.LOADING,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
         OutlinedTextField(
             value = pathDraft,
             onValueChange = { pathDraft = it },
@@ -1305,9 +1359,6 @@ internal fun SftpBrowser(
                 enabled = !state.isLoading && state.entries.isNotEmpty(),
                 onClick = { selectionMode = true },
             ) { Text("批量选择（${state.entries.size}）") }
-        }
-        if (state.isLoading && state.transfer == null && state.entries.isEmpty()) {
-            CircularProgressIndicator(modifier = Modifier.padding(24.dp).align(Alignment.CenterHorizontally))
         }
         state.transfer?.let { transfer ->
             val knownTotalBytes = transfer.totalBytes?.takeIf { it > 0 }
@@ -1387,18 +1438,26 @@ internal fun SftpBrowser(
             }
         }
         state.error?.let { error ->
-            OrbitFeedbackBanner(
-                message = error,
-                isError = true,
+            OperationalFailureFeedback(
+                content = contentPresentation,
+                action = actionPresentation,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
         state.transferMessage?.let { message ->
-            OrbitFeedbackBanner(
-                message = message,
-                isError = false,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
+            if (state.transferMessageIsError) {
+                OrbitFeedbackBanner(
+                    message = message,
+                    isError = true,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            } else {
+                OperationalTransientSuccessFeedback(
+                    message = message,
+                    onDismiss = onDismissTransferMessage,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
         }
         state.retryTransferLabel?.let { label ->
             TextButton(
@@ -1406,14 +1465,13 @@ internal fun SftpBrowser(
                 modifier = Modifier.padding(horizontal = 12.dp),
             ) { Text("重试$label") }
         }
-        if (!state.isLoading && state.error == null && state.entries.isEmpty()) {
-            Text(
-                "此目录为空",
-                modifier = Modifier.padding(24.dp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        if (state.entries.isEmpty() && state.transfer == null) {
+            OrbitEmptyState(
+                title = contentPresentation.headline,
+                message = contentPresentation.detail,
+                modifier = Modifier.weight(1f),
             )
-        }
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
+        } else LazyColumn(modifier = Modifier.fillMaxSize()) {
             items(state.entries, key = { entry -> "${state.path}/${entry.name}" }) { entry ->
                 Surface(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp),

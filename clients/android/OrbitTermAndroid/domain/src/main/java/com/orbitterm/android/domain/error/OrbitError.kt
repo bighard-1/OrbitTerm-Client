@@ -31,6 +31,10 @@ enum class OrbitErrorCode(val diagnosticCode: String) {
     MonitorOperationFailed("monitor_operation_failed"),
     SyncConflict("sync_conflict"),
     SyncDecryptionFailed("sync_decryption_failed"),
+    RemoteRateLimited("remote_rate_limited"),
+    RemoteServiceUnavailable("remote_service_unavailable"),
+    RemoteRequestRejected("remote_request_rejected"),
+    RemoteProtocolViolation("remote_protocol_violation"),
     RemoteServiceRejected("remote_service_rejected"),
     Unknown("unknown"),
 }
@@ -53,6 +57,8 @@ data class OrbitError(
     val code: OrbitErrorCode,
     val retryable: Boolean,
     val recovery: OrbitRecoveryAction,
+    /** Bounded server-advised delay; never derived from an error body. */
+    val retryAfterSeconds: Long? = null,
 ) {
     val diagnosticCode: String get() = code.diagnosticCode
 
@@ -76,6 +82,12 @@ data class OrbitError(
         OrbitErrorCode.MonitorOperationFailed -> "监控采样未完成，请确认 SSH 会话后重试。"
         OrbitErrorCode.SyncConflict -> "同步发现冲突，请处理冲突后再同步。"
         OrbitErrorCode.SyncDecryptionFailed -> "同步数据无法解密，请确认主密码后重试。"
+        OrbitErrorCode.RemoteRateLimited -> retryAfterSeconds
+            ?.let { "同步请求过于频繁，将在 $it 秒后重试。" }
+            ?: "同步请求过于频繁，将按服务端要求稍后重试。"
+        OrbitErrorCode.RemoteServiceUnavailable -> "同步服务暂不可用，本地数据已保留。"
+        OrbitErrorCode.RemoteRequestRejected -> "同步请求未被服务接受，请检查服务版本或配置。"
+        OrbitErrorCode.RemoteProtocolViolation -> "同步服务响应格式无效，本地数据已保留。"
         OrbitErrorCode.RemoteServiceRejected -> "服务暂未接受该请求，请稍后重试。"
         OrbitErrorCode.Unknown -> "操作失败，请稍后重试。"
     }
@@ -142,14 +154,22 @@ fun orbitNativeError(rawCode: String?, retryable: Boolean = false, detailCode: S
         .also(PrivacySafeErrorMetrics::record)
 }
 
-fun syncError(code: OrbitErrorCode): OrbitError = OrbitError(
+fun syncError(code: OrbitErrorCode, retryAfterSeconds: Long? = null): OrbitError = OrbitError(
     code = code,
-    retryable = code in setOf(OrbitErrorCode.NetworkUnavailable, OrbitErrorCode.NetworkTimeout, OrbitErrorCode.RemoteServiceRejected),
+    retryable = code in setOf(
+        OrbitErrorCode.NetworkUnavailable,
+        OrbitErrorCode.NetworkTimeout,
+        OrbitErrorCode.RemoteRateLimited,
+        OrbitErrorCode.RemoteServiceUnavailable,
+        OrbitErrorCode.RemoteServiceRejected,
+    ),
     recovery = when (code) {
         OrbitErrorCode.AuthenticationExpired -> OrbitRecoveryAction.SignInAgain
         OrbitErrorCode.SyncDecryptionFailed -> OrbitRecoveryAction.Unlock
         OrbitErrorCode.SyncConflict -> OrbitRecoveryAction.ResolveConflict
         OrbitErrorCode.NetworkUnavailable, OrbitErrorCode.NetworkTimeout -> OrbitRecoveryAction.CheckNetwork
+        OrbitErrorCode.RemoteRequestRejected, OrbitErrorCode.RemoteProtocolViolation -> OrbitRecoveryAction.ContactSupport
         else -> OrbitRecoveryAction.Retry
     },
+    retryAfterSeconds = retryAfterSeconds,
 ).also(PrivacySafeErrorMetrics::record)

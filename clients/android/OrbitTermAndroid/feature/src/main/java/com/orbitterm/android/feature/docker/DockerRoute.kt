@@ -8,14 +8,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material3.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import android.content.ClipData
-import android.content.ClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -29,9 +25,17 @@ import com.orbitterm.android.core.DockerStats
 import com.orbitterm.android.feature.terminal.ActiveTerminalSession
 import com.orbitterm.android.feature.terminal.TerminalSessionController
 import com.orbitterm.android.feature.terminal.selectActiveTerminalSession
+import com.orbitterm.android.feature.presentation.OperationalContentPhase
+import com.orbitterm.android.feature.presentation.OperationalContentPresentationMapper
+import com.orbitterm.android.feature.presentation.OperationalModuleKind
+import com.orbitterm.android.feature.presentation.OperationalFailureFeedback
+import com.orbitterm.android.feature.presentation.OperationalRefreshAction
+import com.orbitterm.android.feature.presentation.OperationalTransientSuccessFeedback
 import com.orbitterm.android.domain.performance.RuntimeResourceBudget
 import com.orbitterm.android.domain.error.OrbitError
 import com.orbitterm.android.domain.error.orbitNativeError
+import com.orbitterm.android.security.ClipboardContentKind
+import com.orbitterm.android.security.SensitiveClipboard
 import com.orbitterm.android.ui.design.OrbitConfirmationDialog
 import com.orbitterm.android.ui.design.OrbitEmptyState
 import com.orbitterm.android.ui.design.OrbitFeedbackBanner
@@ -135,6 +139,10 @@ class DockerViewModel @Inject constructor(
 
     fun dismissPendingAction() { state.value = state.value.copy(pendingAction = null) }
 
+    fun dismissNotice(message: String) {
+        if (state.value.notice == message) state.value = state.value.copy(notice = null)
+    }
+
     private fun performAction(container: DockerContainer, action: String) {
         val session = state.value.session ?: return
         if (state.value.actionContainerId != null) return
@@ -149,7 +157,7 @@ class DockerViewModel @Inject constructor(
                     state.value = state.value.copy(
                         actionContainerId = null,
                         detailContainer = state.value.detailContainer?.takeUnless { it.id == container.id },
-                        notice = "${container.name}：${action.label()}操作已提交。",
+                        notice = "${container.name}：${action.label()}操作已完成。",
                     )
                     refresh()
                 }
@@ -241,19 +249,35 @@ fun DockerRoute(modifier: Modifier = Modifier, viewModel: DockerViewModel = view
         return
     }
     val runningCount = state.containers.count(DockerContainer::isRunning)
+    val failureDetail = state.error?.let {
+        "Docker 操作失败：${it.userMessage()} 诊断代码：${it.diagnosticCode}。"
+    }
+    val contentPresentation = OperationalContentPresentationMapper.docker(
+        isLoading = state.loading,
+        hasContainers = state.containers.isNotEmpty(),
+        failureDetail = failureDetail,
+    )
+    val actionPresentation = OperationalContentPresentationMapper.refreshAction(
+        module = OperationalModuleKind.DOCKER,
+        phase = contentPresentation.phase,
+        isRefreshing = state.loading,
+        hasContent = state.containers.isNotEmpty(),
+    )
     Column(modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 2.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column {
                 Text("容器工作台", style = MaterialTheme.typography.titleSmall)
                 OrbitStatusLine(
-                    label = "${state.session.displayName} · SSH 已连接",
-                    isActive = true,
+                    label = contentPresentation.headline,
+                    isActive = contentPresentation.phase == OperationalContentPhase.READY ||
+                        contentPresentation.phase == OperationalContentPhase.LOADING,
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
-            IconButton(onClick = viewModel::refresh, enabled = !state.loading) {
-                Icon(Icons.Rounded.Refresh, contentDescription = if (state.loading) "正在刷新容器" else "刷新容器")
-            }
+            OperationalRefreshAction(
+                presentation = actionPresentation,
+                onRefresh = viewModel::refresh,
+            )
         }
         Surface(
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -263,27 +287,22 @@ fun DockerRoute(modifier: Modifier = Modifier, viewModel: DockerViewModel = view
             Text("容器 ${state.containers.size} · 运行中 $runningCount · 已停止 ${state.containers.size - runningCount}", modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp), style = MaterialTheme.typography.bodySmall)
         }
         state.error?.let {
-            OrbitFeedbackBanner(
-                message = "Docker 操作失败：${it.userMessage()} 诊断代码：${it.diagnosticCode}。",
-                isError = true,
+            OperationalFailureFeedback(
+                content = contentPresentation,
+                action = actionPresentation,
                 modifier = Modifier.padding(top = 12.dp),
             )
         }
-        state.notice?.let {
-            OrbitFeedbackBanner(
-                message = it,
-                isError = false,
+        state.notice?.let { notice ->
+            OperationalTransientSuccessFeedback(
+                message = notice,
+                onDismiss = viewModel::dismissNotice,
                 modifier = Modifier.padding(top = 12.dp),
             )
         }
-        if (!state.loading && state.containers.isEmpty()) OrbitEmptyState(
-            title = "未发现容器",
-            message = "当前已连接服务器没有可管理的 Docker 容器。",
-            modifier = Modifier.weight(1f),
-        )
-        else if (state.loading && state.containers.isEmpty()) OrbitEmptyState(
-            title = "正在读取容器",
-            message = "正在通过当前已验证 SSH 会话加载容器状态。",
+        if (state.containers.isEmpty()) OrbitEmptyState(
+            title = contentPresentation.headline,
+            message = contentPresentation.detail,
             modifier = Modifier.weight(1f),
         )
         else LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { items(state.containers, key = { it.id }) { container ->
@@ -439,8 +458,12 @@ private fun DockerDetailsDialog(
                     }
                 }
                 TextButton(onClick = {
-                    context.getSystemService(ClipboardManager::class.java)
-                        ?.setPrimaryClip(ClipData.newPlainText("Docker container ID", container.id))
+                    SensitiveClipboard.copy(
+                        context,
+                        "Docker container ID",
+                        container.id,
+                        ClipboardContentKind.ORDINARY_TEXT,
+                    )
                 }) { Text("复制容器 ID") }
             }
         },

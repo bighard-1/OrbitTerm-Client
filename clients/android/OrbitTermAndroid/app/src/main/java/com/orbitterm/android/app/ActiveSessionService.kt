@@ -87,6 +87,7 @@ class ActiveSessionService : Service() {
     }
 
     private fun notification(sessionCount: Int): Notification {
+        val text = activeSessionNotificationText(sessionCount)
         val openApp = PendingIntent.getActivity(
             this,
             0,
@@ -99,12 +100,25 @@ class ActiveSessionService : Service() {
             Intent(this, ActiveSessionService::class.java).setAction(ACTION_DISCONNECT_ALL),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        val publicVersion = Notification.Builder(this, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_warning)
+            .setContentTitle(text.publicTitle)
+            .setContentText(text.publicDetail)
+            .setCategory(Notification.CATEGORY_SERVICE)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setLocalOnly(true)
+            .build()
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_warning)
-            .setContentTitle("OrbitTerm 正在保持会话")
-            .setContentText("$sessionCount 个已验证 SSH 会话保持连接")
+            .setContentTitle(text.privateTitle)
+            .setContentText(text.privateDetail)
             .setContentIntent(openApp)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(Notification.CATEGORY_SERVICE)
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
+            .setPublicVersion(publicVersion)
+            .setLocalOnly(true)
             .addAction(Notification.Action.Builder(null, "全部断开", disconnect).build())
             .build()
     }
@@ -117,6 +131,7 @@ class ActiveSessionService : Service() {
         ).apply {
             description = "OrbitTerm 在后台保持已验证的 SSH 会话时显示。"
             setShowBadge(false)
+            lockscreenVisibility = Notification.VISIBILITY_PRIVATE
         }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }

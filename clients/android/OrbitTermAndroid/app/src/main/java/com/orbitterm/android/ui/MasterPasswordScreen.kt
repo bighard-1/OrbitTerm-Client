@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 fun MasterPasswordScreen(
     configured: Boolean,
     biometricEnabled: Boolean,
+    biometricAuthenticating: Boolean = false,
     error: String?,
     onSubmit: (String, String) -> Unit,
     onBiometricUnlock: () -> Unit,
@@ -87,12 +88,13 @@ fun MasterPasswordScreen(
             if (configured && biometricEnabled) {
                 OutlinedButton(
                     onClick = onBiometricUnlock,
+                    enabled = !biometricAuthenticating,
                     modifier = Modifier.fillMaxWidth().height(50.dp),
                     shape = RoundedCornerShape(14.dp),
                 ) {
                     Icon(Icons.Rounded.Fingerprint, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("使用生物识别解锁")
+                    Text(if (biometricAuthenticating) "正在验证…" else "使用生物识别解锁")
                 }
             }
         }

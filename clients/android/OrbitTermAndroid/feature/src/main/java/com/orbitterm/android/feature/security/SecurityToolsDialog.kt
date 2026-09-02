@@ -1,7 +1,5 @@
 package com.orbitterm.android.feature.security
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -37,6 +35,8 @@ import com.orbitterm.android.core.LocalTunnelLease
 import com.orbitterm.android.domain.assets.AssetRepository
 import com.orbitterm.android.domain.assets.ServerAsset
 import com.orbitterm.android.feature.terminal.TerminalSessionController
+import com.orbitterm.android.security.ClipboardContentKind
+import com.orbitterm.android.security.SensitiveClipboard
 import com.orbitterm.android.sync.PortablePortForwardProfile
 import com.orbitterm.android.sync.PortableSecurityLibrary
 import com.orbitterm.android.sync.PortableSshKey
@@ -156,8 +156,11 @@ fun SshKeyManagementDialog(onDismiss: () -> Unit, viewModel: SecurityToolsViewMo
                         TextButton(onClick = { selectedKey = key }) { Text("应用到资产") }
                         TextButton(onClick = {
                             if (key.publicKey.isNotBlank()) {
-                                context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(
-                                    ClipData.newPlainText("SSH public key", key.publicKey),
+                                SensitiveClipboard.copy(
+                                    context,
+                                    "SSH public key",
+                                    key.publicKey,
+                                    ClipboardContentKind.ORDINARY_TEXT,
                                 )
                             }
                         }, enabled = key.publicKey.isNotBlank()) { Text("复制公钥") }

@@ -1,9 +1,6 @@
 package com.orbitterm.android.ui
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
@@ -54,7 +51,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
@@ -80,6 +76,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import com.orbitterm.android.app.AppDestination
 import com.orbitterm.android.app.OrbitTermAppUiState
 import com.orbitterm.android.feature.assets.AssetsRoute
@@ -95,9 +92,13 @@ import com.orbitterm.android.domain.settings.TerminalThemePreference
 import com.orbitterm.android.domain.settings.MonitorRefreshInterval
 import com.orbitterm.android.app.SyncStatus
 import com.orbitterm.android.app.RecentlyDeletedUiState
+import com.orbitterm.android.app.SecurityOperationFeedback
+import com.orbitterm.android.app.SecurityOperationPresentation
 import com.orbitterm.android.sync.AssetSyncConflict
 import com.orbitterm.android.domain.deeplink.ServerDeepLink
 import com.orbitterm.android.domain.error.PrivacySafeErrorMetrics
+import com.orbitterm.android.security.ClipboardContentKind
+import com.orbitterm.android.security.SensitiveClipboard
 import com.orbitterm.android.ui.theme.appColorThemeAccent
 import com.orbitterm.android.ui.theme.appColorThemeHighlight
 import com.orbitterm.android.ui.design.OrbitConfirmationDialog
@@ -153,7 +154,9 @@ fun MainScreen(
     onLogout: () -> Unit,
     onLock: () -> Unit,
     biometricEnabled: Boolean,
-    securityError: String?,
+    biometricFeedback: SecurityOperationFeedback?,
+    loginPasswordFeedback: SecurityOperationFeedback?,
+    masterPasswordFeedback: SecurityOperationFeedback?,
     onToggleBiometric: () -> Unit,
     isChangingLoginPassword: Boolean,
     onChangeLoginPassword: (String, String, String) -> Unit,
@@ -163,6 +166,8 @@ fun MainScreen(
     onRotateMasterPassword: (String, String, String, String) -> Unit,
     syncStatus: SyncStatus,
     onRetrySync: () -> Unit,
+    onRetryBlockedSync: () -> Unit,
+    onDiscardBlockedSync: () -> Unit,
     onResolveConflict: (AssetSyncConflict, Boolean) -> Unit,
     recentlyDeletedState: RecentlyDeletedUiState,
     onLoadRecentlyDeleted: () -> Unit,
@@ -193,48 +198,24 @@ fun MainScreen(
         },
         bottomBar = {
             if (!shouldShowBottomDock(uiState.destination, uiState.hasActiveTerminalSession)) return@Scaffold
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
-                    .clip(RoundedCornerShape(28.dp)),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-                shadowElevation = 8.dp,
-            ) {
-                NavigationBar(
-                    containerColor = Color.Transparent,
-                    tonalElevation = NavigationBarDefaults.Elevation,
-                ) {
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                     AppDestination.entries.forEach { destination ->
                         NavigationBarItem(
                         selected = uiState.destination == destination,
                         onClick = { onDestinationSelected(destination) },
                         icon = {
-                            val selected = uiState.destination == destination
-                            Surface(
-                                modifier = Modifier.size(40.dp),
-                                shape = RoundedCornerShape(13.dp),
-                                color = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = destinationIcon(destination),
-                                        contentDescription = null,
-                                    )
-                                }
-                            }
+                            Icon(imageVector = destinationIcon(destination), contentDescription = null)
                         },
                         label = { Text(destinationLabel(destination)) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
                             selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = Color.Transparent,
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
                             unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                             unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         ),
                         )
                     }
-                }
             }
         },
     ) { paddingValues ->
@@ -272,7 +253,9 @@ fun MainScreen(
                 onLogout = onLogout,
                 onLock = onLock,
                 biometricEnabled = biometricEnabled,
-                securityError = securityError,
+                biometricFeedback = biometricFeedback,
+                loginPasswordFeedback = loginPasswordFeedback,
+                masterPasswordFeedback = masterPasswordFeedback,
                 onToggleBiometric = onToggleBiometric,
                 isChangingLoginPassword = isChangingLoginPassword,
                 onChangeLoginPassword = onChangeLoginPassword,
@@ -282,6 +265,8 @@ fun MainScreen(
                 onRotateMasterPassword = onRotateMasterPassword,
                 syncStatus = syncStatus,
                 onSync = onRetrySync,
+                onRetryBlockedSync = onRetryBlockedSync,
+                onDiscardBlockedSync = onDiscardBlockedSync,
                 recentlyDeletedState = recentlyDeletedState,
                 onLoadRecentlyDeleted = onLoadRecentlyDeleted,
                 onRestoreRecentlyDeleted = onRestoreRecentlyDeleted,
@@ -294,12 +279,13 @@ fun MainScreen(
     }
     val conflict = (syncStatus as? SyncStatus.Succeeded)?.outbox?.conflicts?.firstOrNull()
     conflict?.let { pending ->
+        val presentation = pending.presentation()
         AlertDialog(
             onDismissRequest = {},
-            title = { Text("同步冲突") },
-            text = { Text("冲突字段：${pending.fields.joinToString { it.label }}\n\n本地：${pending.localSummary}\n云端：${pending.remoteSummary}") },
-            confirmButton = { TextButton(onClick = { onResolveConflict(pending, true) }) { Text("保留本地") } },
-            dismissButton = { TextButton(onClick = { onResolveConflict(pending, false) }) { Text("保留云端") } },
+            title = { Text(presentation.title) },
+            text = { Text(presentation.detail) },
+            confirmButton = { TextButton(onClick = { onResolveConflict(pending, true) }) { Text(presentation.keepLocalLabel) } },
+            dismissButton = { TextButton(onClick = { onResolveConflict(pending, false) }) { Text(presentation.keepCloudLabel) } },
             shape = RoundedCornerShape(28.dp),
             containerColor = MaterialTheme.colorScheme.surface,
         )
@@ -325,7 +311,9 @@ private fun MoreScreen(
     onLogout: () -> Unit,
     onLock: () -> Unit,
     biometricEnabled: Boolean,
-    securityError: String?,
+    biometricFeedback: SecurityOperationFeedback?,
+    loginPasswordFeedback: SecurityOperationFeedback?,
+    masterPasswordFeedback: SecurityOperationFeedback?,
     onToggleBiometric: () -> Unit,
     isChangingLoginPassword: Boolean,
     onChangeLoginPassword: (String, String, String) -> Unit,
@@ -335,6 +323,8 @@ private fun MoreScreen(
     onRotateMasterPassword: (String, String, String, String) -> Unit,
     syncStatus: SyncStatus,
     onSync: () -> Unit,
+    onRetryBlockedSync: () -> Unit,
+    onDiscardBlockedSync: () -> Unit,
     recentlyDeletedState: RecentlyDeletedUiState,
     onLoadRecentlyDeleted: () -> Unit,
     onRestoreRecentlyDeleted: (String) -> Unit,
@@ -342,9 +332,15 @@ private fun MoreScreen(
     onDismissRecentlyDeletedFeedback: () -> Unit,
 ) {
     val context = LocalContext.current
+    val appVersion = remember(context) {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull().orEmpty().ifBlank { "unknown" }
+    }
     var diagnosticsCopied by remember { mutableStateOf(false) }
     var feedbackLaunchError by remember { mutableStateOf<String?>(null) }
     var switchAccountConfirmationVisible by remember { mutableStateOf(false) }
+    var logoutConfirmationVisible by remember { mutableStateOf(false) }
     var loginPasswordChangeVisible by remember { mutableStateOf(false) }
     var masterRotationVisible by remember { mutableStateOf(false) }
     var recentlyDeletedVisible by remember { mutableStateOf(false) }
@@ -354,6 +350,7 @@ private fun MoreScreen(
     var portForwardingVisible by remember { mutableStateOf(false) }
     var telnetEnableConfirmationVisible by remember { mutableStateOf(false) }
     var aboutVisible by remember { mutableStateOf(false) }
+    var discardBlockedSyncConfirmationVisible by remember { mutableStateOf(false) }
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
@@ -383,7 +380,9 @@ private fun MoreScreen(
         item {
             AccountSecuritySection(
                 biometricEnabled = biometricEnabled,
-                securityError = securityError,
+                biometricFeedback = biometricFeedback,
+                loginPasswordFeedback = loginPasswordFeedback,
+                masterPasswordFeedback = masterPasswordFeedback,
                 isChangingLoginPassword = isChangingLoginPassword,
                 isRotatingMasterPassword = isRotatingMasterPassword,
                 onToggleBiometric = onToggleBiometric,
@@ -478,7 +477,26 @@ private fun MoreScreen(
                         },
                     )
                 }
-                SettingLabel("同步与诊断", syncStatus.title())
+                SettingLabel("同步与诊断", syncStatus.presentation().detail)
+                SyncStatusFeedback(
+                    status = syncStatus,
+                    onRetry = onSync,
+                    modifier = Modifier.padding(top = 10.dp),
+                )
+                val blockedSyncCount = (syncStatus as? SyncStatus.Succeeded)?.outbox?.blocked ?: 0
+                if (blockedSyncCount > 0) {
+                    Text(
+                        "$blockedSyncCount 项本地同步变更已停止后台重试。可在检查服务设置后重新尝试，或确认不再需要后丢弃。",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = onRetryBlockedSync) { Text("重新尝试受阻项目") }
+                        TextButton(onClick = { discardBlockedSyncConfirmationVisible = true }) {
+                            Text("丢弃受阻项目")
+                        }
+                    }
+                }
                 SettingLabel("监控刷新间隔", "高级设置 · 已验证 SSH 会话")
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(MonitorRefreshInterval.entries) { candidate ->
@@ -489,13 +507,6 @@ private fun MoreScreen(
                         )
                     }
                 }
-                if (syncStatus is SyncStatus.Failed) {
-                    OrbitFeedbackBanner(
-                        message = syncStatus.message,
-                        isError = true,
-                        modifier = Modifier.padding(top = 12.dp),
-                    )
-                }
                 TextButton(
                     onClick = onSync,
                     enabled = syncStatus !is SyncStatus.Syncing,
@@ -503,7 +514,7 @@ private fun MoreScreen(
                 ) {
                     Icon(Icons.Rounded.CloudSync, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text(if (syncStatus is SyncStatus.Syncing) "正在同步…" else "立即同步")
+                    Text(if (syncStatus is SyncStatus.Syncing) "同步中…" else "立即同步")
                 }
                 SettingLabel("最近删除", "查看、恢复或永久清理云端删除记录")
                 TextButton(onClick = {
@@ -522,20 +533,18 @@ private fun MoreScreen(
                     style = MaterialTheme.typography.bodySmall,
                 )
                 TextButton(onClick = {
-                    val clipboard = context.getSystemService(ClipboardManager::class.java)
-                    clipboard?.setPrimaryClip(
-                        ClipData.newPlainText(
-                            "OrbitTerm diagnostics",
-                            diagnosticText(
-                                context = context,
-                                appTheme = preference,
-                                terminalAppearance = terminalAppearance,
-                                monitorRefreshInterval = monitorRefreshInterval,
-                                syncStatus = syncStatus,
-                            ),
+                    diagnosticsCopied = SensitiveClipboard.copy(
+                        context,
+                        "OrbitTerm diagnostics",
+                        diagnosticText(
+                            context = context,
+                            appTheme = preference,
+                            terminalAppearance = terminalAppearance,
+                            monitorRefreshInterval = monitorRefreshInterval,
+                            syncStatus = syncStatus,
                         ),
+                        ClipboardContentKind.ORDINARY_TEXT,
                     )
-                    diagnosticsCopied = clipboard != null
                 }) {
                     Icon(Icons.Rounded.BugReport, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
@@ -565,7 +574,7 @@ private fun MoreScreen(
                 SettingLabel("帮助与反馈", "联系支持并反馈问题")
                 TextButton(onClick = {
                     val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
-                        data = Uri.parse("mailto:$administratorEmail")
+                        data = "mailto:$administratorEmail".toUri()
                         putExtra(Intent.EXTRA_SUBJECT, "OrbitTerm Android 反馈")
                     }
                     val launched = runCatching { context.startActivity(emailIntent) }.isSuccess
@@ -591,7 +600,7 @@ private fun MoreScreen(
                     Spacer(Modifier.width(8.dp))
                     Text("切换账户")
                 }
-                TextButton(onClick = onLogout, modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = { logoutConfirmationVisible = true }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.width(8.dp))
                     Text("退出登录", color = MaterialTheme.colorScheme.error)
@@ -615,7 +624,7 @@ private fun MoreScreen(
     if (aboutVisible) {
         OrbitConfirmationDialog(
             title = "关于 OrbitTerm",
-            message = "原生安全远程工作台\nAndroid 版本 1.0.0-multiplatform-alpha\n\n资产凭据仅在当前账户的本机安全边界内解锁。",
+            message = "原生安全远程工作台\nAndroid 版本 $appVersion\n\n资产凭据仅在当前账户的本机安全边界内解锁。",
             confirmLabel = "完成",
             onConfirm = { aboutVisible = false },
             onDismiss = { aboutVisible = false },
@@ -634,10 +643,23 @@ private fun MoreScreen(
             destructive = true,
         )
     }
+    if (logoutConfirmationVisible) {
+        OrbitConfirmationDialog(
+            title = SecurityOperationPresentation.LOGOUT_TITLE,
+            message = SecurityOperationPresentation.LOGOUT_MESSAGE,
+            confirmLabel = SecurityOperationPresentation.LOGOUT_CONFIRM,
+            onConfirm = {
+                logoutConfirmationVisible = false
+                onLogout()
+            },
+            onDismiss = { logoutConfirmationVisible = false },
+            destructive = true,
+        )
+    }
     if (masterRotationVisible) {
         MasterPasswordRotationDialog(
             isRotating = isRotatingMasterPassword,
-            error = securityError,
+            error = masterPasswordFeedback?.takeIf { it.isError }?.message,
             onDismiss = { if (!isRotatingMasterPassword) masterRotationVisible = false },
             onConfirm = { current, next, confirmation, loginPassword ->
                 onRotateMasterPassword(current, next, confirmation, loginPassword)
@@ -647,12 +669,13 @@ private fun MoreScreen(
     if (loginPasswordChangeVisible) {
         LoginPasswordChangeDialog(
             isSubmitting = isChangingLoginPassword,
-            error = securityError,
+            error = loginPasswordFeedback?.takeIf { it.isError }?.message,
             onDismiss = { if (!isChangingLoginPassword) loginPasswordChangeVisible = false },
             onConfirm = onChangeLoginPassword,
         )
     }
     if (recentlyDeletedVisible) {
+        val recentlyDeletedPresentation = recentlyDeletedState.presentation()
         AlertDialog(
             onDismissRequest = { if (recentlyDeletedState.mutatingAssetId == null) recentlyDeletedVisible = false },
             title = { Text("最近删除") },
@@ -667,8 +690,15 @@ private fun MoreScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     when {
-                        recentlyDeletedState.isLoading -> Text("正在安全读取删除记录…")
-                        recentlyDeletedState.items.isEmpty() -> Text("最近删除为空")
+                        recentlyDeletedState.isLoading && recentlyDeletedState.items.isEmpty() -> Text(recentlyDeletedPresentation.headline)
+                        recentlyDeletedState.items.isEmpty() && recentlyDeletedState.error == null -> Column {
+                            Text(recentlyDeletedPresentation.headline, style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                recentlyDeletedPresentation.detail,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         else -> recentlyDeletedState.items.forEach { item ->
                             Surface(
                                 modifier = Modifier.fillMaxWidth(),
@@ -697,13 +727,19 @@ private fun MoreScreen(
                             }
                         }
                     }
-                    recentlyDeletedState.message?.let { OrbitFeedbackBanner(message = it, isError = false) }
-                    recentlyDeletedState.error?.let { OrbitFeedbackBanner(message = it, isError = true) }
+                    RecentlyDeletedFeedback(
+                        presentation = recentlyDeletedPresentation,
+                        successMessage = recentlyDeletedState.message,
+                        onDismissSuccess = onDismissRecentlyDeletedFeedback,
+                    )
                 }
             },
             confirmButton = {
-                TextButton(onClick = onLoadRecentlyDeleted, enabled = !recentlyDeletedState.isLoading && recentlyDeletedState.mutatingAssetId == null) {
-                    Text("刷新")
+                TextButton(
+                    onClick = onLoadRecentlyDeleted,
+                    enabled = recentlyDeletedPresentation.refreshEnabled,
+                ) {
+                    Text(recentlyDeletedPresentation.refreshLabel)
                 }
             },
             dismissButton = {
@@ -734,6 +770,19 @@ private fun MoreScreen(
             shape = RoundedCornerShape(28.dp),
         )
     }
+    if (discardBlockedSyncConfirmationVisible) {
+        OrbitConfirmationDialog(
+            title = "丢弃受阻同步项目？",
+            message = "只会移除已确认停止重试的同步请求，不会删除本机资产、可自动重试项目或待处理冲突。此操作无法撤销。",
+            confirmLabel = "确认丢弃",
+            onConfirm = {
+                discardBlockedSyncConfirmationVisible = false
+                onDiscardBlockedSync()
+            },
+            onDismiss = { discardBlockedSyncConfirmationVisible = false },
+            destructive = true,
+        )
+    }
     if (keyManagementVisible) SshKeyManagementDialog(onDismiss = { keyManagementVisible = false })
     if (portForwardingVisible) PortForwardingDialog(onDismiss = { portForwardingVisible = false })
 }
@@ -745,6 +794,7 @@ private fun OrbitCompactPageBar(
     onRetrySync: () -> Unit,
     onNavigateUp: (() -> Unit)? = null,
 ) {
+    val syncPresentation = syncStatus.presentation()
     Surface(color = MaterialTheme.colorScheme.background) {
         Row(
             modifier = Modifier
@@ -765,12 +815,12 @@ private fun OrbitCompactPageBar(
                 color = MaterialTheme.colorScheme.onBackground,
                 style = MaterialTheme.typography.titleLarge,
             )
-            when (syncStatus) {
-                SyncStatus.Syncing -> Text("同步中", style = MaterialTheme.typography.labelMedium)
-                SyncStatus.AwaitingNetwork -> Text("等待网络", style = MaterialTheme.typography.labelMedium)
-                SyncStatus.AwaitingUnlock -> Text("等待解锁", style = MaterialTheme.typography.labelMedium)
-                is SyncStatus.Failed -> TextButton(onClick = onRetrySync) { Text("重试同步") }
-                else -> Unit
+            when (syncPresentation.phase) {
+                SyncPresentationPhase.BUSY,
+                SyncPresentationPhase.WAITING -> Text(syncPresentation.headline, style = MaterialTheme.typography.labelMedium)
+                SyncPresentationPhase.FAILURE -> TextButton(onClick = onRetrySync) { Text("同步失败 · 重试") }
+                SyncPresentationPhase.IDLE,
+                SyncPresentationPhase.SUCCESS -> Unit
             }
         }
     }
@@ -935,7 +985,9 @@ private fun SettingsSectionCard(
 @Composable
 private fun AccountSecuritySection(
     biometricEnabled: Boolean,
-    securityError: String?,
+    biometricFeedback: SecurityOperationFeedback?,
+    loginPasswordFeedback: SecurityOperationFeedback?,
+    masterPasswordFeedback: SecurityOperationFeedback?,
     isChangingLoginPassword: Boolean,
     isRotatingMasterPassword: Boolean,
     onToggleBiometric: () -> Unit,
@@ -953,8 +1005,14 @@ private fun AccountSecuritySection(
             Spacer(Modifier.width(8.dp))
             Text(if (biometricEnabled) "关闭生物识别解锁" else "启用生物识别解锁")
         }
-        securityError?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        biometricFeedback?.let {
+            OrbitFeedbackBanner(message = it.message, isError = it.isError)
+        }
+        loginPasswordFeedback?.let {
+            OrbitFeedbackBanner(message = it.message, isError = it.isError)
+        }
+        masterPasswordFeedback?.let {
+            OrbitFeedbackBanner(message = it.message, isError = it.isError)
         }
         TextButton(
             onClick = onChangeLoginPasswordRequested,
@@ -1068,19 +1126,6 @@ private fun TerminalPalettePreview(theme: TerminalThemePreference) {
     )
 }
 
-private fun SyncStatus.title(): String = when (this) {
-    SyncStatus.Idle -> "等待同步"
-    SyncStatus.AwaitingNetwork -> "等待网络恢复后自动同步"
-    SyncStatus.AwaitingUnlock -> "等待解锁后安全同步"
-    SyncStatus.Syncing -> "正在同步数据"
-    is SyncStatus.Succeeded -> buildString {
-        append("已同步 $assetCount 项资产、$snippetCount 条命令片段")
-        if (outbox.delivered > 0) append("；已发布 ${outbox.delivered} 项本地变更")
-        if (outbox.deferred > 0) append("；${outbox.deferred} 项待网络恢复后重试")
-    }
-    is SyncStatus.Failed -> "同步需要处理"
-}
-
 private fun diagnosticText(
     context: android.content.Context,
     appTheme: AppThemePreference,
@@ -1093,6 +1138,10 @@ private fun diagnosticText(
         .toList()
         .sortedBy { (code, _) -> code.diagnosticCode }
         .joinToString(separator = "、") { (code, count) -> "${code.diagnosticCode}=$count" }
+    val syncMetrics = com.orbitterm.android.domain.sync.PrivacySafeSyncMetrics.snapshot()
+        .toList()
+        .sortedBy { (event, _) -> event.diagnosticCode }
+        .joinToString(separator = "、") { (event, count) -> "${event.diagnosticCode}=$count" }
     return listOf(
         "OrbitTerm Android 诊断信息",
         "版本：${packageInfo.versionName ?: "unknown"} (${Build.VERSION.SDK_INT})",
@@ -1100,8 +1149,9 @@ private fun diagnosticText(
         "应用主题：${appTheme.label()}",
         "终端：${terminalAppearance.theme.displayName} · ${terminalAppearance.fontSizeSp}sp",
         "监控刷新：${monitorRefreshInterval.seconds} 秒",
-        "同步状态：${syncStatus.title()}",
+        "同步状态：${syncStatus.presentation().headline}；${syncStatus.presentation().detail}",
         "错误指标：${errorMetrics.ifBlank { "无" }}",
+        "同步事件：${syncMetrics.ifBlank { "无" }}",
         "说明：本信息不包含账户、资产地址、主机密钥、命令、路径或凭据。",
     ).joinToString(separator = "\n")
 }

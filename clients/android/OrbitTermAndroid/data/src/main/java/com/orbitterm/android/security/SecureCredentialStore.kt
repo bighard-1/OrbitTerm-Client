@@ -62,9 +62,18 @@ class SecureCredentialStore @Inject constructor(
         check(preferences.edit().putString(AUTH_SESSION_KEY, encrypted).commit()) { "auth session write failed" }
     }
 
-    fun readAuthSession(): AuthSession? = preferences.getString(AUTH_SESSION_KEY, null)?.let { encrypted ->
-        runCatching { json.decodeFromString<AuthSession>(decrypt(encrypted).toString(Charsets.UTF_8)) }.getOrNull()
+    /**
+     * Strict startup read used by the storage health gate. A missing record is
+     * a legitimate signed-out state; an unreadable record must remain an
+     * error, otherwise a transient Keystore failure is indistinguishable from
+     * logout and can lead the user to overwrite recoverable local state.
+     */
+    fun readAuthSessionChecked(): AuthSession? = preferences.getString(AUTH_SESSION_KEY, null)?.let { encrypted ->
+        json.decodeFromString<AuthSession>(decrypt(encrypted).toString(Charsets.UTF_8))
     }
+
+    /** Best-effort reads remain available to non-UI background consumers. */
+    fun readAuthSession(): AuthSession? = runCatching(::readAuthSessionChecked).getOrNull()
 
     fun deleteAuthSession() {
         check(preferences.edit().remove(AUTH_SESSION_KEY).commit()) { "auth session delete failed" }

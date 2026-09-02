@@ -19,10 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -52,6 +49,11 @@ import com.orbitterm.android.core.tcpProbeFailurePercent
 import com.orbitterm.android.core.tcpLatencyPercentile
 import com.orbitterm.android.domain.assets.AssetRepository
 import com.orbitterm.android.feature.terminal.ActiveTerminalSession
+import com.orbitterm.android.feature.presentation.OperationalContentPhase
+import com.orbitterm.android.feature.presentation.OperationalContentPresentationMapper
+import com.orbitterm.android.feature.presentation.OperationalModuleKind
+import com.orbitterm.android.feature.presentation.OperationalFailureFeedback
+import com.orbitterm.android.feature.presentation.OperationalRefreshAction
 import com.orbitterm.android.domain.settings.MonitorRefreshInterval
 import com.orbitterm.android.domain.performance.RuntimeResourceBudget
 import com.orbitterm.android.domain.error.OrbitError
@@ -208,6 +210,21 @@ fun MonitorPanel(
     val snapshot = state.snapshot.takeIf { isCurrentSession }
     val history = state.history.takeIf { isCurrentSession }.orEmpty()
     val currentError = state.error.takeIf { isCurrentSession }
+    val failureDetail = currentError?.let {
+        "监控读取失败：${it.userMessage()} 诊断代码：${it.diagnosticCode}。"
+    }
+    val contentPresentation = OperationalContentPresentationMapper.monitor(
+        isLoading = state.loading,
+        hasData = snapshot != null,
+        isPolling = state.isPolling,
+        failureDetail = failureDetail,
+    )
+    val actionPresentation = OperationalContentPresentationMapper.refreshAction(
+        module = OperationalModuleKind.MONITOR,
+        phase = contentPresentation.phase,
+        isRefreshing = state.loading,
+        hasContent = snapshot != null,
+    )
     var processExpanded by remember(session.id) { mutableStateOf(false) }
     var processSearch by remember(session.id) { mutableStateOf("") }
     var processSort by remember(session.id) { mutableStateOf(ProcessSort.CPU) }
@@ -230,25 +247,27 @@ fun MonitorPanel(
                 Column {
                     Text("系统监控", style = MaterialTheme.typography.titleMedium)
                     OrbitStatusLine(
-                        label = if (state.isPolling) "已连接 · 每 ${refreshInterval.seconds} 秒采样" else "采样已暂停",
-                        isActive = state.isPolling,
+                        label = contentPresentation.headline,
+                        isActive = contentPresentation.phase == OperationalContentPhase.READY ||
+                            contentPresentation.phase == OperationalContentPhase.LOADING,
                         modifier = Modifier.padding(top = 4.dp),
                     )
                 }
                 Row {
-                    IconButton(onClick = { viewModel.refresh(session) }, enabled = !state.loading) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = if (state.loading) "正在刷新监控" else "刷新监控")
-                    }
+                    OperationalRefreshAction(
+                        presentation = actionPresentation,
+                        onRefresh = { viewModel.refresh(session) },
+                    )
                     TextButton(onClick = {
                         if (state.isPolling) viewModel.stopPolling(session.id) else viewModel.startPolling(session, refreshInterval)
-                    }) { Text(if (state.isPolling) "停止" else "开始") }
+                    }) { Text(OperationalContentPresentationMapper.monitorSamplingLabel(state.isPolling)) }
                 }
             }
         }
-        currentError?.let { error -> item {
-            OrbitFeedbackBanner(
-                message = "监控读取失败：${error.userMessage()} 诊断代码：${error.diagnosticCode}。",
-                isError = true,
+        currentError?.let { _ -> item {
+            OperationalFailureFeedback(
+                content = contentPresentation,
+                action = actionPresentation,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
         } }
@@ -263,8 +282,9 @@ fun MonitorPanel(
                         "CPU" to values.cpuUsagePercent.percent(),
                         "内存" to values.memoryUsedPercent.percent(),
                         "磁盘" to values.diskUsedPercent.percent(),
-                        "TCP 延迟" to (values.pingLatencyMs?.let { "${it.oneDecimal()} ms" } ?: "不可用"),
-                        "TCP失败率" to (tcpFailure?.let { "${it.oneDecimal()}%" } ?: "暂无"),
+                        "TCP 延迟" to (values.pingLatencyMs?.let {
+                            "${it.oneDecimal()} ms · 失败 ${tcpFailure?.oneDecimal() ?: "0.0"}%"
+                        } ?: "-- ms · 失败 ${tcpFailure?.oneDecimal() ?: "100.0"}%"),
                         "下载" to "${values.rxRateKbps.oneDecimal()} KB/s",
                         "上传" to "${values.txRateKbps.oneDecimal()} KB/s",
                     ),
@@ -311,11 +331,11 @@ fun MonitorPanel(
                 )
             }
         }
-        if (snapshot == null && currentError == null) {
+        if (snapshot == null) {
             item {
                 OrbitEmptyState(
-                    title = if (state.loading) "正在读取系统状态" else "暂无监控数据",
-                    message = if (state.loading) "正在通过当前已验证 SSH 会话采样。" else "启动采样后，CPU、内存、磁盘与网络信息会显示在这里。",
+                    title = contentPresentation.headline,
+                    message = contentPresentation.detail,
                     modifier = Modifier.fillParentMaxSize(),
                 )
             }

@@ -2,6 +2,7 @@ package com.orbitterm.android.core
 
 import com.orbitterm.android.domain.performance.FrameInvalidationBatcher
 import com.orbitterm.android.domain.performance.RuntimeResourceBudget
+import com.orbitterm.android.domain.performance.SyncOutboxBatchPolicy
 import com.orbitterm.android.domain.performance.TransferProgressUpdateGate
 import com.orbitterm.android.domain.performance.retainUtf8Tail
 import java.nio.charset.StandardCharsets
@@ -69,5 +70,13 @@ class RuntimeResourceBudgetTest {
     fun `monitor budget never permits sub two second polling`() {
         assertTrue(RuntimeResourceBudget.MONITOR_MIN_REFRESH_SECONDS >= 2)
         assertEquals(60, RuntimeResourceBudget.MONITOR_HISTORY_SAMPLES)
+    }
+
+    @Test
+    fun `sync outbox distinguishes failures from an unread database backlog`() {
+        assertEquals(100, RuntimeResourceBudget.SYNC_OUTBOX_MAX_OPERATIONS_PER_RUN)
+        assertFalse(SyncOutboxBatchPolicy.hasUnprocessedBacklog(attempted = 100, delivered = 98, remaining = 2))
+        assertTrue(SyncOutboxBatchPolicy.hasUnprocessedBacklog(attempted = 100, delivered = 98, remaining = 3))
+        assertFalse(SyncOutboxBatchPolicy.hasUnprocessedBacklog(attempted = 0, delivered = 0, remaining = 0))
     }
 }

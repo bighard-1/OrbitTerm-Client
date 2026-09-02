@@ -22,6 +22,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import com.orbitterm.android.domain.settings.TerminalAppearance
+import com.orbitterm.android.security.ClipboardContentKind
 import com.orbitterm.android.security.SensitiveClipboard
 import com.termux.view.TerminalRenderer
 import kotlin.math.floor
@@ -274,7 +275,12 @@ class RemoteTerminalCanvasView @JvmOverloads constructor(
             selection.end.row,
         ).orEmpty()
         if (text.isNotEmpty()) {
-            SensitiveClipboard.copy(context, "OrbitTerm terminal", text)
+            SensitiveClipboard.copy(
+                context,
+                "OrbitTerm terminal",
+                text,
+                ClipboardContentKind.TERMINAL_OUTPUT,
+            )
         }
     }
 
