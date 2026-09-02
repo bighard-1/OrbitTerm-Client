@@ -43,6 +43,18 @@ targets:
           - $(inherited)
           - $(SRCROOT)/OrbitTerm/CBridge
           - $(SRCROOT)/orbit-core/include
+        HEADER_SEARCH_PATHS[sdk=macosx*]:
+          - $(inherited)
+          - $(SRCROOT)/OrbitTerm/CBridge
+          - $(SRCROOT)/orbit-core/include
+          - $(SRCROOT)/.tooling/freerdp-macos/install/freerdp/include/freerdp3
+          - $(SRCROOT)/.tooling/freerdp-macos/install/freerdp/include/winpr3
+        LIBRARY_SEARCH_PATHS[sdk=macosx*]:
+          - $(inherited)
+          - $(SRCROOT)/.tooling/freerdp-macos/install/freerdp/lib
+        LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]:
+          - $(inherited)
+          - '@executable_path/../Frameworks'
         SUPPORTED_PLATFORMS: iphonesimulator iphoneos macosx
         TARGETED_DEVICE_FAMILY: "1,2"
         ENABLE_HARDENED_RUNTIME: YES
@@ -58,6 +70,9 @@ targets:
           OTHER_LDFLAGS[sdk=macosx*]:
             - $(inherited)
             - $(SRCROOT)/orbit-core/target/aarch64-apple-darwin/debug/liborbit_core.a
+            - -lfreerdp3
+            - -lfreerdp-client3
+            - -lwinpr3
           OTHER_LDFLAGS[sdk=iphonesimulator*]:
             - $(inherited)
             - $(SRCROOT)/orbit-core/target/aarch64-apple-ios-sim/debug/liborbit_core.a
@@ -69,6 +84,9 @@ targets:
           OTHER_LDFLAGS[sdk=macosx*]:
             - $(inherited)
             - $(SRCROOT)/orbit-core/target/aarch64-apple-darwin/release/liborbit_core.a
+            - -lfreerdp3
+            - -lfreerdp-client3
+            - -lwinpr3
           OTHER_LDFLAGS[sdk=iphonesimulator*]:
             - $(inherited)
             - $(SRCROOT)/orbit-core/target/aarch64-apple-ios-sim/release/liborbit_core.a
@@ -93,6 +111,12 @@ targets:
           - Core/DeepLinkManager.swift
           - Core/SyncPullRecoveryPolicy.swift
           - Core/SyncConfigCipherMigrationPolicy.swift
+          - Core/NetworkModels.swift
+          - Core/NetworkService.swift
+          - Core/DiagnosticsManager.swift
+          - Core/SyncRequestIdentity.swift
+          - Core/SyncQueueRecoveryPolicy.swift
+          - Core/SyncHTTPResponsePolicy.swift
           - Core/OfficialServiceTLSPinningPolicy.swift
           - Core/OperationOwner.swift
           - Core/WorkspacePresentationCoordinator.swift
@@ -106,6 +130,7 @@ targets:
           - Core/ApplicationOperationLifecyclePolicy.swift
           - Core/DiagnosticsPrivacy.swift
           - Core/SecureClipboard.swift
+          - Core/CredentialVault.swift
           - Core/ServerCredentials.swift
           - Core/ServerModels.swift
           - Core/JumpHostConfiguration.swift
@@ -140,10 +165,22 @@ targets:
           - $(inherited)
           - $(SRCROOT)/OrbitTerm/CBridge
           - $(SRCROOT)/orbit-core/include
+          - $(SRCROOT)/.tooling/freerdp-macos/install/freerdp/include/freerdp3
+          - $(SRCROOT)/.tooling/freerdp-macos/install/freerdp/include/winpr3
+        LIBRARY_SEARCH_PATHS:
+          - $(inherited)
+          - $(SRCROOT)/.tooling/freerdp-macos/install/freerdp/lib
+        LD_RUNPATH_SEARCH_PATHS:
+          - $(inherited)
+          - $(SRCROOT)/.tooling/freerdp-macos/install/freerdp/lib
+          - $(SRCROOT)/.tooling/freerdp-macos/install/openssl/lib
         SWIFT_VERSION: 5.0
         OTHER_LDFLAGS[sdk=macosx*]:
           - $(inherited)
           - $(SRCROOT)/orbit-core/target/aarch64-apple-darwin/debug/liborbit_core.a
+          - -lfreerdp3
+          - -lfreerdp-client3
+          - -lwinpr3
 
   OrbitTermiOSUITests:
     type: bundle.ui-testing

@@ -12,7 +12,7 @@ static int require(int condition, const char* message) {
 int main(void) {
     int failures = 0;
     char version[64] = { 0 };
-    failures += require(orbit_rdp_abi_version() == 1u, "ABI version must remain pinned");
+    failures += require(orbit_rdp_abi_version() == 2u, "ABI version must remain pinned");
     failures += require(
         strcmp(orbit_rdp_expected_freerdp_version(), "3.26.0") == 0,
         "FreeRDP version must remain pinned"
@@ -22,6 +22,14 @@ int main(void) {
         "audited runtime should be discoverable"
     );
     failures += require(strcmp(version, "3.26.0") == 0, "runtime version must match manifest");
+    failures += require(
+        orbit_rdp_runtime_prepare() == ORBIT_RDP_OK,
+        "audited crypto runtime should initialize before a worker starts"
+    );
+    failures += require(
+        orbit_rdp_classify_error(0) == ORBIT_RDP_FAILURE_UNKNOWN,
+        "zero error must not be misreported as authentication or network failure"
+    );
 
     orbit_rdp_session* session = NULL;
     orbit_rdp_session_options invalid = { 0 };
@@ -36,15 +44,18 @@ int main(void) {
         .port = 3389,
         .desktop_width = 1440,
         .desktop_height = 900,
-        .require_nla = 1
+        .require_nla = 1,
+        .username = "test-user",
+        .password = "test-password",
+        .domain = ""
     };
     failures += require(
         orbit_rdp_session_create(&valid, &session) == ORBIT_RDP_OK && session != NULL,
         "valid session options should create an isolated handle"
     );
     failures += require(
-        orbit_rdp_session_start(session) == ORBIT_RDP_NOT_IMPLEMENTED,
-        "unfinished transport must never report a successful connection"
+        orbit_rdp_session_set_callbacks(session, NULL, NULL, NULL, NULL) == ORBIT_RDP_OK,
+        "callbacks should be configurable before start"
     );
     failures += require(orbit_rdp_session_stop(session) == ORBIT_RDP_OK, "stop must be idempotent");
     orbit_rdp_session_free(session);

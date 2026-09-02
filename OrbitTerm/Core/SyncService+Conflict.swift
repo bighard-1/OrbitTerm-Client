@@ -100,8 +100,8 @@ extension SyncService {
         switch networkError {
         case .unexpectedStatus(404):
             return true
-        case let .server(message):
-            return message.contains("不存在") || message.contains("not found")
+        case .httpStatus(404, _):
+            return true
         default:
             return false
         }
@@ -472,15 +472,14 @@ extension SyncService {
     func isConflict(_ error: Error) -> Bool {
         if let net = error as? NetworkService.NetworkError {
             switch net {
-            case let .server(message):
-                return message.contains("版本冲突") || message.lowercased().contains("conflict")
             case let .unexpectedStatus(code):
                 return code == 409
+            case .httpStatus(409, _):
+                return true
             default:
                 return false
             }
         }
-        let msg = error.localizedDescription.lowercased()
-        return msg.contains("409") || msg.contains("冲突") || msg.contains("conflict")
+        return false
     }
 }

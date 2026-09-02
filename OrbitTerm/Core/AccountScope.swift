@@ -29,3 +29,17 @@ struct AccountScope: Hashable, Sendable {
         "\(baseName)-\(storageIdentifier).\(pathExtension)"
     }
 }
+
+/// Fail-closed ownership rule for upgrading one legacy unscoped document.
+/// The reservation stores only an opaque account namespace and remains in
+/// place until the new scoped document and its credentials are both durable.
+enum AccountMigrationReservationPolicy {
+    static func canResume(
+        migrationCompleted: Bool,
+        reservedOwner: String?,
+        requestingScope: String
+    ) -> Bool {
+        guard !migrationCompleted, !requestingScope.isEmpty else { return false }
+        return reservedOwner == nil || reservedOwner == requestingScope
+    }
+}

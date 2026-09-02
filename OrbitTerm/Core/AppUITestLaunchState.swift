@@ -9,6 +9,9 @@ enum AppUITestLaunchState: Equatable {
     case unauthenticated
     case authenticatedLocked
     case authenticatedUnlocked
+    case operationalStates
+    case syncRecoveryStates
+    case accountSecurityStates
     #endif
 
     static var current: Self {
@@ -35,6 +38,12 @@ enum AppUITestLaunchState: Equatable {
             return .authenticatedLocked
         case "authenticated_unlocked":
             return .authenticatedUnlocked
+        case "operational_states":
+            return .operationalStates
+        case "sync_recovery_states":
+            return .syncRecoveryStates
+        case "account_security_states":
+            return .accountSecurityStates
         default:
             return .standard
         }

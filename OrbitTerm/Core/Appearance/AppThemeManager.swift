@@ -42,6 +42,7 @@ final class AppThemeManager: ObservableObject {
 enum WorkstationShortcutAction: String, CaseIterable, Identifiable, Codable {
     case addServer, newTab, closeTab, focusServerSearch, refreshCurrentTool
     case refreshMonitor, focusSFTPPath, goToSFTPParent, disconnectSession, settings, showHelp
+    case selectTerminalPane1, selectTerminalPane2, selectTerminalPane3, selectTerminalPane4
 
     var id: String { rawValue }
     var title: String {
@@ -51,6 +52,8 @@ enum WorkstationShortcutAction: String, CaseIterable, Identifiable, Codable {
         case .refreshMonitor: "立即刷新监控"; case .focusSFTPPath: "聚焦 SFTP 路径"
         case .goToSFTPParent: "返回 SFTP 上级目录"; case .disconnectSession: "断开当前会话"
         case .settings: "打开设置"; case .showHelp: "显示快捷键说明"
+        case .selectTerminalPane1: "切换到分屏 1"; case .selectTerminalPane2: "切换到分屏 2"
+        case .selectTerminalPane3: "切换到分屏 3"; case .selectTerminalPane4: "切换到分屏 4"
         }
     }
     var defaultShortcut: WorkstationShortcut {
@@ -60,6 +63,10 @@ enum WorkstationShortcutAction: String, CaseIterable, Identifiable, Codable {
         case .refreshMonitor: .command("r", shift: true); case .focusSFTPPath: .command("f", shift: true)
         case .goToSFTPParent: .command("["); case .disconnectSession: .command("w", shift: true)
         case .settings: .command(","); case .showHelp: .command("?")
+        case .selectTerminalPane1: .command("1", shift: true)
+        case .selectTerminalPane2: .command("2", shift: true)
+        case .selectTerminalPane3: .command("3", shift: true)
+        case .selectTerminalPane4: .command("4", shift: true)
         }
     }
 }

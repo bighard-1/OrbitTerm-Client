@@ -28,4 +28,38 @@ final class AccountScopeTests: XCTestCase {
     func testBlankAccountCannotCreateStorageNamespace() {
         XCTAssertNil(AccountScope(username: "  \n "))
     }
+
+    func testLegacyMigrationReservationCanOnlyResumeForItsOpaqueOwner() throws {
+        let first = try XCTUnwrap(AccountScope(username: "first@example.invalid"))
+        let second = try XCTUnwrap(AccountScope(username: "second@example.invalid"))
+
+        XCTAssertTrue(
+            AccountMigrationReservationPolicy.canResume(
+                migrationCompleted: false,
+                reservedOwner: nil,
+                requestingScope: first.storageIdentifier
+            )
+        )
+        XCTAssertTrue(
+            AccountMigrationReservationPolicy.canResume(
+                migrationCompleted: false,
+                reservedOwner: first.storageIdentifier,
+                requestingScope: first.storageIdentifier
+            )
+        )
+        XCTAssertFalse(
+            AccountMigrationReservationPolicy.canResume(
+                migrationCompleted: false,
+                reservedOwner: first.storageIdentifier,
+                requestingScope: second.storageIdentifier
+            )
+        )
+        XCTAssertFalse(
+            AccountMigrationReservationPolicy.canResume(
+                migrationCompleted: true,
+                reservedOwner: first.storageIdentifier,
+                requestingScope: first.storageIdentifier
+            )
+        )
+    }
 }

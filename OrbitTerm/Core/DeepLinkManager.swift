@@ -26,6 +26,17 @@ struct DeepLinkIntent: Identifiable, Equatable {
     }
 }
 
+enum DeepLinkReviewPolicy {
+    static func shouldConsumePendingIntent(
+        isAuthenticated: Bool,
+        isUnlocked: Bool,
+        pendingIntentID: UUID?,
+        activeReviewID: UUID?
+    ) -> Bool {
+        isAuthenticated && isUnlocked && pendingIntentID != nil && pendingIntentID == activeReviewID
+    }
+}
+
 @MainActor
 final class DeepLinkManager: ObservableObject {
     static let shared = DeepLinkManager()
@@ -57,6 +68,7 @@ final class DeepLinkManager: ObservableObject {
 
     private func parseSSH(url: URL) -> DeepLinkIntent? {
         guard let comp = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              comp.password == nil,
               let host = safeHost(comp.host) else {
             return nil
         }
@@ -88,6 +100,7 @@ final class DeepLinkManager: ObservableObject {
         guard route == "connect" || route.isEmpty else { return nil }
 
         let query = Dictionary((comp.queryItems ?? []).map { ($0.name.lowercased(), $0.value ?? "") }, uniquingKeysWith: { first, _ in first })
+        guard credentialQueryKeys.isDisjoint(with: Set(query.keys)) else { return nil }
 
         guard let host = safeHost(query["host"] ?? comp.host) else { return nil }
 
@@ -102,7 +115,13 @@ final class DeepLinkManager: ObservableObject {
         let port = query["port"].flatMap(parsePort) ?? (query["port"] == nil ? 22 : 0)
         guard (1...65535).contains(port) else { return nil }
 
-        let name = safeDisplayName(query["name"])
+        let name: String?
+        if let rawName = query["name"] {
+            guard let validatedName = safeDisplayName(rawName) else { return nil }
+            name = validatedName
+        } else {
+            name = nil
+        }
         return DeepLinkIntent(
             host: host,
             port: port,
@@ -112,26 +131,27 @@ final class DeepLinkManager: ObservableObject {
     }
 
     private func safeHost(_ raw: String?) -> String? {
-        guard let value = safeField(raw, rejectsWhitespace: true), !value.isEmpty else {
+        guard let value = safeField(raw, rejectsWhitespace: true, maxLength: 253), !value.isEmpty else {
             return nil
         }
         return value
     }
 
     private func safeUsername(_ raw: String?) -> String? {
-        guard let value = safeField(raw, rejectsWhitespace: true), !value.isEmpty else {
+        guard let value = safeField(raw, rejectsWhitespace: true, maxLength: 128), !value.isEmpty else {
             return nil
         }
         return value
     }
 
     private func safeDisplayName(_ raw: String?) -> String? {
-        safeField(raw, rejectsWhitespace: false)
+        safeField(raw, rejectsWhitespace: false, maxLength: 80)
     }
 
-    private func safeField(_ raw: String?, rejectsWhitespace: Bool) -> String? {
+    private func safeField(_ raw: String?, rejectsWhitespace: Bool, maxLength: Int) -> String? {
         guard let raw else { return nil }
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard value.count <= maxLength else { return nil }
         guard value.rangeOfCharacter(from: .controlCharacters) == nil else {
             return nil
         }
@@ -148,5 +168,9 @@ final class DeepLinkManager: ObservableObject {
             return nil
         }
         return port
+    }
+
+    private var credentialQueryKeys: Set<String> {
+        ["password", "passphrase", "privatekey", "private_key", "token", "accesstoken", "access_token"]
     }
 }

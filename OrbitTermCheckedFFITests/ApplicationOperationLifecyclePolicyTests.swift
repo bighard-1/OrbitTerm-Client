@@ -135,4 +135,94 @@ final class ApplicationOperationLifecyclePolicyTests: XCTestCase {
             )
         }
     }
+
+    func testMobileBackgroundLockRequiresAuthenticatedConfiguredAccount() {
+        XCTAssertTrue(
+            MobileAutoLockPolicy.shouldLockOnBackground(
+                isAuthenticated: true,
+                hasMasterPassword: true
+            )
+        )
+        XCTAssertFalse(
+            MobileAutoLockPolicy.shouldLockOnBackground(
+                isAuthenticated: false,
+                hasMasterPassword: true
+            )
+        )
+        XCTAssertFalse(
+            MobileAutoLockPolicy.shouldLockOnBackground(
+                isAuthenticated: true,
+                hasMasterPassword: false
+            )
+        )
+    }
+
+    func testSessionReconnectRequiresUsableRouteAndExplicitIdleState() {
+        XCTAssertTrue(
+            SessionReconnectPolicy.canReconnect(isNetworkUsable: true, reconnecting: false)
+        )
+        XCTAssertFalse(
+            SessionReconnectPolicy.canReconnect(isNetworkUsable: false, reconnecting: false)
+        )
+        XCTAssertFalse(
+            SessionReconnectPolicy.canReconnect(isNetworkUsable: true, reconnecting: true)
+        )
+        XCTAssertEqual(
+            SessionReconnectPolicy.accessibilityLabel(isNetworkUsable: false, reconnecting: false),
+            "等待网络恢复后重新连接"
+        )
+    }
+
+    func testLiveSessionRecoveryMarkerPersistsOnlyAConsumableBoolean() throws {
+        let suite = "ApplicationOperationLifecyclePolicyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let marker = LiveSessionRecoveryMarker(defaults: defaults)
+
+        XCTAssertFalse(marker.consumeInterruptedProcessMarker())
+        marker.markLiveSessionsPresent()
+        XCTAssertTrue(marker.consumeInterruptedProcessMarker())
+        XCTAssertFalse(marker.consumeInterruptedProcessMarker())
+    }
+
+    func testCredentialMigrationLeaseCannotCrossAccountOrProcessBoundary() {
+        var owner = OperationOwner()
+        let firstScope = OperationScope.account("scope-a")
+        let secondScope = OperationScope.account("scope-b")
+        let firstLease = owner.begin(scope: firstScope)
+
+        XCTAssertTrue(owner.owns(firstLease, scope: firstScope))
+        _ = owner.begin(scope: secondScope)
+        XCTAssertFalse(owner.owns(firstLease, scope: firstScope))
+
+        let freshProcessOwner = OperationOwner()
+        XCTAssertFalse(freshProcessOwner.owns(firstLease, scope: firstScope))
+    }
+
+    func testKeychainAccessFailureNeverBecomesSignedOutPresentation() {
+        let presentation = LocalStorageRecoveryPolicy.keychainFailure(
+            .unhandled(-34018)
+        )
+
+        XCTAssertEqual(presentation.kind, .secureStorageUnavailable)
+        XCTAssertEqual(presentation.actionLabel, "重新检查")
+        XCTAssertTrue(presentation.message.contains("不会将此情况视为退出登录"))
+    }
+
+    func testSQLiteFailuresHaveDistinctNonDestructiveRecoveryStates() {
+        XCTAssertEqual(LocalStorageRecoveryPolicy.sqliteFailureKind(code: 11), .databaseCorrupted)
+        XCTAssertEqual(LocalStorageRecoveryPolicy.sqliteFailureKind(code: 13), .storageFull)
+        XCTAssertEqual(LocalStorageRecoveryPolicy.sqliteFailureKind(code: 14), .databaseUnavailable)
+
+        for kind in [
+            LocalStorageFailureKind.databaseCorrupted,
+            .storageFull,
+            .databaseUnavailable,
+            .migrationInterrupted
+        ] {
+            let presentation = LocalStorageRecoveryPolicy.presentation(for: kind)
+            XCTAssertFalse(presentation.message.isEmpty)
+            XCTAssertEqual(presentation.actionLabel, "重新检查")
+        }
+    }
 }

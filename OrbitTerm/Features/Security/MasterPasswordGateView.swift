@@ -17,6 +17,7 @@ struct MasterPasswordGateView: View {
     @State private var isBiometricAuthenticating = false
     @State private var isShowingAccountSwitchConfirmation = false
     @State private var biometricEnabled: Bool = false
+    @State private var automaticBiometricAttemptedWhileActive = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -84,7 +85,7 @@ struct MasterPasswordGateView: View {
                             } label: {
                                 HStack(alignment: .center, spacing: 8) {
                                     Image(systemName: BiometricAuthService.shared.biometricIconName)
-                                    Text(isBiometricAuthenticating ? "验证中..." : "使用生物识别解锁")
+                                    Text(isBiometricAuthenticating ? SecurityOperationPresentation.biometricBusy : "使用生物识别解锁")
                                         .lineLimit(2)
                                         .multilineTextAlignment(.center)
                                         .fixedSize(horizontal: false, vertical: true)
@@ -119,16 +120,23 @@ struct MasterPasswordGateView: View {
             if newValue != .active {
                 clearSensitiveInputs()
             }
+            if newValue == .background {
+                automaticBiometricAttemptedWhileActive = false
+            } else if newValue == .active {
+                startAutomaticBiometricUnlockIfNeeded()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .orbitTermClearTransientSensitiveInput)) { _ in
             clearSensitiveInputs()
         }
         .onAppear {
             biometricEnabled = BiometricAuthService.shared.isEnabled(for: session.username)
-            Task { await attemptBiometricUnlock(manual: false) }
+            startAutomaticBiometricUnlockIfNeeded()
         }
         .onChange(of: session.username) { _, username in
             biometricEnabled = BiometricAuthService.shared.isEnabled(for: username)
+            automaticBiometricAttemptedWhileActive = false
+            startAutomaticBiometricUnlockIfNeeded()
         }
 #if os(macOS)
         .confirmationDialog(
@@ -180,13 +188,6 @@ struct MasterPasswordGateView: View {
         let span = PerformanceSignpost.begin(.unlock)
         defer { span.finish() }
         if session.verifyMasterPassword(masterPassword) {
-            if biometricEnabled {
-                do {
-                    try BiometricAuthService.shared.enroll(masterPassword: masterPassword, accountID: session.username)
-                } catch {
-                    setMessage("提示: 生物识别注册失败，请稍后在设置中重试", kind: .warning)
-                }
-            }
             setMessage("成功: 主密码验证通过", kind: .success)
             clearSensitiveInputs()
         } else {
@@ -211,9 +212,6 @@ struct MasterPasswordGateView: View {
         do {
             _ = try orbitManager.encrypt(password: masterPassword, data: "master-password-check")
             try session.setupMasterPassword(masterPassword)
-            if biometricEnabled {
-                try? BiometricAuthService.shared.enroll(masterPassword: masterPassword, accountID: session.username)
-            }
             setMessage("成功: 主密码已设置并通过 Rust 加密自检", kind: .success)
             clearSensitiveInputs()
         } catch {
@@ -235,7 +233,13 @@ struct MasterPasswordGateView: View {
 
     private func attemptBiometricUnlock(manual: Bool) async {
         guard session.hasMasterPassword, biometricEnabled else { return }
-        guard BiometricAuthService.shared.isBiometricAvailable else { return }
+        guard BiometricAuthService.shared.isBiometricAvailable else {
+            BiometricAuthService.shared.setEnabled(false, for: session.username)
+            biometricEnabled = false
+            setMessage(SecurityOperationPresentation.biometricUnavailable, kind: .warning)
+            return
+        }
+        guard scenePhase == .active else { return }
         guard !isBiometricAuthenticating else { return }
 
         let span = PerformanceSignpost.begin(.unlock)
@@ -248,16 +252,36 @@ struct MasterPasswordGateView: View {
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
 
-        let ok = await BiometricAuthService.shared.authenticate(accountID: session.username) {
+        let outcome = await BiometricAuthService.shared.authenticate(accountID: session.username) {
             session.readMasterPassword()
         }
-        if ok {
+        switch outcome {
+        case .success:
             session.markUnlockedByBiometric()
-            setMessage("成功: 已通过生物识别解锁", kind: .success)
-        } else if manual {
-            setMessage("失败: 生物识别验证失败，请使用主密码", kind: .danger)
-            triggerShake()
+            setMessage(SecurityOperationPresentation.biometricUnlockSuccess, kind: .success)
+        case let .failure(failure):
+            if failure == .invalidated || failure == .unavailable {
+                BiometricAuthService.shared.setEnabled(false, for: session.username)
+                biometricEnabled = false
+            }
+            guard let feedback = SecurityOperationPresentation.biometricFailure(failure) else { return }
+            if manual || failure == .invalidated || failure == .lockedOut || failure == .unavailable {
+                setMessage(
+                    feedback.message,
+                    kind: feedback.kind == .failure ? .danger : .warning
+                )
+                if feedback.kind == .failure { triggerShake() }
+            }
         }
+    }
+
+    private func startAutomaticBiometricUnlockIfNeeded() {
+        guard scenePhase == .active,
+              !automaticBiometricAttemptedWhileActive,
+              session.hasMasterPassword,
+              biometricEnabled else { return }
+        automaticBiometricAttemptedWhileActive = true
+        Task { await attemptBiometricUnlock(manual: false) }
     }
 
     private func setMessage(_ text: String, kind: SecurityStatusKind) {

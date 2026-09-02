@@ -73,23 +73,24 @@ final class BiometricAuthService: ObservableObject {
         return readSalt(scope: scope) != nil && hasProtectedDerivedKeyItem(scope: scope)
     }
 
-    func validateBiometricOnly() async -> Bool {
-        guard isBiometricAvailable else { return false }
+    func validateBiometricOnly() async -> BiometricAuthenticationOutcome {
+        guard isBiometricAvailable else { return .failure(.unavailable) }
         let context = LAContext()
         context.localizedFallbackTitle = ""
         context.localizedCancelTitle = "取消"
         do {
-            return try await context.evaluatePolicy(
+            let passed = try await context.evaluatePolicy(
                 .deviceOwnerAuthenticationWithBiometrics,
                 localizedReason: "启用生物识别解锁 OrbitTerm"
             )
+            return passed ? .success : .failure(.failed)
         } catch {
             if let laError = error as? LAError {
                 logger.error("[BIO] validate-only failed code=\(laError.code.rawValue, privacy: .private(mask: .hash))")
             } else {
                 logger.error("[BIO] validate-only failed")
             }
-            return false
+            return .failure(Self.lifecycleFailure(for: error))
         }
     }
 
@@ -117,11 +118,18 @@ final class BiometricAuthService: ObservableObject {
         setEnabled(true, for: accountID)
     }
 
-    func authenticate(accountID: String, masterPasswordProvider: () -> String?) async -> Bool {
-        guard isBiometricAvailable else { return false }
-        guard let scope = AccountScope(username: accountID),
-              isEnabled(for: accountID),
-              hasEnrollment(for: accountID) else { return false }
+    func authenticate(
+        accountID: String,
+        masterPasswordProvider: () -> String?
+    ) async -> BiometricAuthenticationOutcome {
+        guard isBiometricAvailable else { return .failure(.unavailable) }
+        guard let scope = AccountScope(username: accountID), isEnabled(for: accountID) else {
+            return .failure(.unavailable)
+        }
+        guard hasEnrollment(for: accountID) else {
+            setEnabled(false, for: accountID)
+            return .failure(.invalidated)
+        }
 
         let context = LAContext()
         context.localizedFallbackTitle = "使用主密码"
@@ -132,42 +140,56 @@ final class BiometricAuthService: ObservableObject {
                 .deviceOwnerAuthenticationWithBiometrics,
                 localizedReason: "验证身份以解锁 OrbitTerm"
             )
-            guard ok else { return false }
+            guard ok else { return .failure(.failed) }
         } catch {
             if let laError = error as? LAError {
                 logger.error("[BIO] evaluatePolicy failed code=\(laError.code.rawValue, privacy: .private(mask: .hash))")
             } else {
                 logger.error("[BIO] evaluatePolicy failed")
             }
-            return false
+            return .failure(Self.lifecycleFailure(for: error))
         }
 
-        guard let salt = readSalt(scope: scope) else { return false }
-        guard var master = masterPasswordProvider(), !master.isEmpty else { return false }
-        var enrolled = readProtectedDerivedKey(context: context, scope: scope)
-        if enrolled == nil {
-            // 自愈：如果生物识别通过但受保护条目异常，使用当前主密码重建一次并重读。
-            do {
-                try enroll(masterPassword: master, accountID: accountID)
-                enrolled = readProtectedDerivedKey(context: context, scope: scope)
-                logger.notice("[BIO] protected key self-healed by re-enroll")
-            } catch {
-                logger.error("[BIO] self-heal enroll failed")
-            }
+        guard let salt = readSalt(scope: scope) else {
+            setEnabled(false, for: accountID)
+            return .failure(.invalidated)
         }
-        guard let enrolled else {
-            logger.error("[BIO] read protected key failed after successful evaluatePolicy")
-            return false
+        guard var master = masterPasswordProvider(), !master.isEmpty else {
+            setEnabled(false, for: accountID)
+            return .failure(.invalidated)
         }
-
         defer { SecurityPrimitives.secureZero(&master) }
+        guard let enrolled = readProtectedDerivedKey(context: context, scope: scope) else {
+            logger.error("[BIO] read protected key failed after successful evaluatePolicy")
+            setEnabled(false, for: accountID)
+            return .failure(.invalidated)
+        }
+
         var localDerived = (try? deriveArgon2id(password: master, salt: salt)) ?? Data()
         defer { SecurityPrimitives.secureZero(&localDerived) }
 
         transientDerivedKey = localDerived
-        let passed = (localDerived == enrolled)
+        let passed = localDerived == enrolled
         clearSensitiveCache()
-        return passed
+        if !passed {
+            setEnabled(false, for: accountID)
+            return .failure(.invalidated)
+        }
+        return .success
+    }
+
+    private static func lifecycleFailure(for error: Error) -> BiometricLifecycleFailure {
+        guard let laError = error as? LAError else { return .failed }
+        switch laError.code {
+        case .userCancel, .userFallback, .systemCancel, .appCancel:
+            return .cancelled
+        case .biometryLockout:
+            return .lockedOut
+        case .biometryNotAvailable, .biometryNotEnrolled, .passcodeNotSet:
+            return .unavailable
+        default:
+            return .failed
+        }
     }
 
     func clearSensitiveCache() {

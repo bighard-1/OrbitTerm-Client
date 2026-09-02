@@ -17,19 +17,19 @@ struct WorkstationSessionContextBar: View {
             Spacer(minLength: 8)
 
 #if os(macOS)
-            if session.isConnected, !session.isTelnetSession {
+            if session.isConnected, session.server.transport == .ssh {
                 splitMenu
             }
             Button(action: onToggleTerminalFullscreen) {
                 Label(
-                    isTerminalFullscreen ? "退出全屏" : "终端全屏",
+                    fullscreenLabel,
                     systemImage: isTerminalFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"
                 )
                 .labelStyle(.iconOnly)
             }
             .buttonStyle(.borderless)
-            .help(isTerminalFullscreen ? "退出终端全屏" : "终端全屏")
-            .accessibilityLabel(isTerminalFullscreen ? "退出终端全屏" : "终端全屏")
+            .help(fullscreenLabel)
+            .accessibilityLabel(fullscreenLabel)
 #endif
         }
         .padding(.horizontal, 12)
@@ -40,11 +40,12 @@ struct WorkstationSessionContextBar: View {
     }
 
     private var presentation: ConnectionPresentation {
-        ConnectionPresentationAdapter.checkedSSH(
-            hasVerifiedSessionLease: session.verifiedSessionLease != nil,
-            hasTerminalChannel: session.terminalChannelID != nil,
-            isSessionUsable: session.isConnected
-        )
+        session.connectionPresentation
+    }
+
+    private var fullscreenLabel: String {
+        let workspace = session.server.transport == .rdp ? "远程桌面" : "终端"
+        return isTerminalFullscreen ? "退出\(workspace)全屏" : "\(workspace)全屏"
     }
 
 #if os(macOS)

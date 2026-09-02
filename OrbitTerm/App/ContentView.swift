@@ -26,6 +26,7 @@ struct ContentView: View {
     @ObservedObject private var sessionManager = SessionManager.shared
     @StateObject private var snippetStore = SnippetStore.shared
     @StateObject private var deepLinkManager = DeepLinkManager.shared
+    @StateObject private var localStorageIssues = LocalStorageIssueCenter.shared
     @State private var isAutoSyncRunning = false
     @State private var lastAutoSyncAt: Date = .distantPast
     @State private var autoSyncTask: Task<Void, Never>?
@@ -39,15 +40,47 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if !session.isAuthenticated {
+            if session.isCheckingLocalStorage {
+                LocalStorageCheckingView()
+                    .accessibilityIdentifier("orbit.root.storage-checking")
+            } else if let recovery = session.localStorageRecovery {
+                LocalStorageRecoveryView(presentation: recovery) {
+                    session.retryLocalStorageAccess()
+                }
+                .accessibilityIdentifier("orbit.root.storage-recovery")
+            } else if !session.isAuthenticated {
                 AuthView()
                     .accessibilityIdentifier("orbit.root.auth")
             } else if !session.isUnlocked {
                 MasterPasswordGateView()
                     .accessibilityIdentifier("orbit.root.locked")
             } else {
+                #if !ORBITTERM_PUBLIC_RELEASE
+                if AppUITestLaunchState.current == .operationalStates {
+                    OperationalStateUITestHarnessView()
+                        .accessibilityIdentifier("orbit.root.operational-states")
+                } else if AppUITestLaunchState.current == .syncRecoveryStates {
+                    SyncRecoveryStateUITestHarnessView()
+                        .accessibilityIdentifier("orbit.root.sync-recovery-states")
+                } else if AppUITestLaunchState.current == .accountSecurityStates {
+                    AccountSecurityStateUITestHarnessView()
+                        .accessibilityIdentifier("orbit.root.account-security-states")
+                } else {
+                    MainShellView()
+                        .accessibilityIdentifier("orbit.root.workspace")
+                }
+                #else
                 MainShellView()
                     .accessibilityIdentifier("orbit.root.workspace")
+                #endif
+            }
+        }
+        .safeAreaInset(edge: .top) {
+            if session.localStorageRecovery == nil,
+               let issue = localStorageIssues.syncQueueIssue {
+                LocalStorageQueueRecoveryBanner(presentation: issue) {
+                    SyncQueue.shared.retryStorageAccess()
+                }
             }
         }
         .task(id: autoSyncTaskKey) {
@@ -114,24 +147,20 @@ struct ContentView: View {
         .frame(minWidth: 980, minHeight: 700)
         #endif
         .alert(
-            "检测到同步冲突",
+            SyncConflictPresentation.title,
             isPresented: Binding(
                 get: { syncService.pendingConflictPrompt != nil },
-                set: { shown in
-                    if !shown, syncService.pendingConflictPrompt != nil {
-                        syncService.chooseConflict(.keepCloud)
-                    }
-                }
+                // A conflict is a data-selection decision. Never turn an
+                // implicit dismissal into "keep cloud"; require one of the
+                // two explicit actions below, matching Android.
+                set: { _ in }
             ),
             presenting: syncService.pendingConflictPrompt
         ) { prompt in
-            Button("保留本地修改") {
+            Button(SyncConflictPresentation.keepLocalLabel) {
                 syncService.chooseConflict(.keepLocal)
             }
-            Button("保留云端修改") {
-                syncService.chooseConflict(.keepCloud)
-            }
-            Button("取消", role: .cancel) {
+            Button(SyncConflictPresentation.keepCloudLabel) {
                 syncService.chooseConflict(.keepCloud)
             }
         } message: { prompt in
@@ -139,10 +168,10 @@ struct ContentView: View {
             Text("""
             冲突字段：\(fields)
 
-            本地修改：
+            \(SyncConflictPresentation.localSectionTitle)：
             \(prompt.localSummary)
 
-            云端修改：
+            \(SyncConflictPresentation.cloudSectionTitle)：
             \(prompt.cloudSummary)
             """)
         }
@@ -344,6 +373,304 @@ struct ContentView: View {
     }
 }
 
+private struct LocalStorageCheckingView: View {
+    var body: some View {
+        VStack(spacing: 14) {
+            ProgressView()
+            Text("正在安全检查本地数据")
+                .font(.headline)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.secondary.opacity(0.04))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct LocalStorageRecoveryView: View {
+    let presentation: LocalStorageRecoveryPresentation
+    let retry: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "externaldrive.badge.exclamationmark")
+                .font(.system(size: 34, weight: .medium))
+                .foregroundStyle(Color.accentColor)
+                .accessibilityHidden(true)
+            Text(presentation.title)
+                .font(.title2.weight(.semibold))
+                .multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
+            Text(presentation.message)
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button(presentation.actionLabel, action: retry)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .accessibilityHint("重新验证本地数据库和系统钥匙串是否可用")
+            Text("如果问题持续存在，请保留当前应用数据并联系管理员。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(28)
+        .frame(maxWidth: 520, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
+        .background(Color.secondary.opacity(0.04))
+    }
+}
+
+private struct LocalStorageQueueRecoveryBanner: View {
+    let presentation: LocalStorageRecoveryPresentation
+    let retry: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "externaldrive.badge.exclamationmark")
+                .foregroundStyle(.orange)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(presentation.title).font(.subheadline.weight(.semibold))
+                Text(presentation.message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            Button(presentation.actionLabel, action: retry)
+                .buttonStyle(.bordered)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.regularMaterial)
+        .accessibilityElement(children: .contain)
+    }
+}
+
+#if !ORBITTERM_PUBLIC_RELEASE
+private struct OperationalStateUITestHarnessView: View {
+    @State private var showsTransientSuccess = true
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    fixture(
+                        title: "监控读取失败",
+                        detail: "监控请求超时。",
+                        module: .monitor
+                    )
+                    fixture(
+                        title: "SFTP 操作失败",
+                        detail: "目录读取超时。",
+                        module: .sftp
+                    )
+                    fixture(
+                        title: "Docker 操作失败",
+                        detail: "容器读取超时。",
+                        module: .docker
+                    )
+                    let busy = OperationalContentPresentationMapper.refreshAction(
+                        module: .monitor,
+                        phase: .ready,
+                        isRefreshing: true,
+                        hasContent: true
+                    )
+                    OperationalRefreshButton(presentation: busy) {}
+                    if showsTransientSuccess {
+                        OperationalTransientSuccessBanner(message: "容器操作已完成。")
+                    }
+                }
+                .padding(16)
+            }
+            .navigationTitle("操作状态回归")
+        }
+        .task {
+            guard let delay = OperationalFeedbackPolicy.lifetime(kind: .success).autoDismissAfterNanoseconds else {
+                return
+            }
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled else { return }
+            showsTransientSuccess = false
+        }
+    }
+
+    @ViewBuilder
+    private func fixture(
+        title: String,
+        detail: String,
+        module: OperationalModuleKind
+    ) -> some View {
+        let content = OperationalContentPresentation(
+            phase: .failed,
+            headline: title,
+            detail: detail
+        )
+        let action = OperationalContentPresentationMapper.refreshAction(
+            module: module,
+            phase: content.phase,
+            isRefreshing: false,
+            hasContent: true
+        )
+        VStack(alignment: .leading, spacing: 8) {
+            Text(content.headline)
+                .font(.headline)
+            OperationalFailureBanner(
+                content: content,
+                action: action,
+                accessibilityPrefix: title
+            )
+            OperationalRefreshButton(presentation: action) {}
+        }
+        .themedReadableSurface()
+    }
+}
+
+private struct SyncRecoveryStateUITestHarnessView: View {
+    @State private var showsQueuedSuccess = true
+
+    private let partialFailure = SyncPresentationState.afterCompletedPull(
+        detail: "资产同步完成",
+        auxiliaryFailureDetails: ["1 项等待网络恢复后重试"]
+    )
+    private let recentlyDeletedFailure = RecentlyDeletedPresentationMapper.make(
+        isLoading: false,
+        itemCount: 2,
+        failureDetail: "无法加载最近删除，请检查网络或登录状态。",
+        isMutating: false
+    )
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    syncStatus(SyncPresentationState.make(.awaitingNetwork, detail: "网络恢复后自动同步"))
+                    syncStatus(SyncPresentationState.make(.awaitingUnlock, detail: "解锁后继续安全同步"))
+                    syncStatus(partialFailure)
+                    Button("重试同步") {}
+                        .buttonStyle(.bordered)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(SyncConflictPresentation.title)
+                            .font(.headline)
+                        Button(SyncConflictPresentation.keepLocalLabel) {}
+                        Button(SyncConflictPresentation.keepCloudLabel) {}
+                    }
+                    .padding(12)
+                    .themedReadableSurface()
+
+                    Label(
+                        [recentlyDeletedFailure.detail, recentlyDeletedFailure.staleContentMessage]
+                            .compactMap { $0 }
+                            .joined(separator: " "),
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.caption)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .securityStatusStyle(.danger)
+                    Button(recentlyDeletedFailure.refreshLabel) {}
+                        .accessibilityLabel("重试最近删除")
+                    if showsQueuedSuccess {
+                        OperationalTransientSuccessBanner(message: "恢复已加入后台队列，联网后自动完成。")
+                    }
+                }
+                .padding(16)
+            }
+            .navigationTitle("同步与恢复状态回归")
+        }
+        .task {
+            guard let delay = OperationalFeedbackPolicy.lifetime(kind: .success).autoDismissAfterNanoseconds else {
+                return
+            }
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled else { return }
+            showsQueuedSuccess = false
+        }
+    }
+
+    @ViewBuilder
+    private func syncStatus(_ presentation: SyncPresentationState) -> some View {
+        Label(
+            "\(presentation.headline)：\(presentation.detail)",
+            systemImage: presentation.phase == .failed ? "icloud.slash" : "icloud"
+        )
+        .font(.caption)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .securityStatusStyle(presentation.phase == .failed ? .danger : .warning)
+    }
+}
+
+private struct AccountSecurityStateUITestHarnessView: View {
+    @State private var showsLoginSuccess = true
+    @State private var showsLogoutConfirmation = false
+
+    private let loginSuccess = SecurityOperationFeedback(
+        kind: .success,
+        message: SecurityOperationPresentation.loginPasswordSuccess
+    )
+    private let masterRecovery = SecurityOperationFeedback(
+        kind: .recoveryRequired,
+        message: "云端主密码已轮换，但本机更新待完成；请勿退出应用并重试。"
+    )
+    private let biometricRecovery = SecurityOperationFeedback(
+        kind: .recoveryRequired,
+        message: SecurityOperationPresentation.biometricInvalidated
+    )
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if showsLoginSuccess {
+                        feedback(loginSuccess)
+                    }
+                    feedback(masterRecovery)
+                    feedback(biometricRecovery)
+                    Button(SecurityOperationPresentation.loginPasswordBusy) {}
+                        .buttonStyle(.borderedProminent)
+                        .disabled(true)
+                    Button(SecurityOperationPresentation.masterPasswordBusy) {}
+                        .buttonStyle(.borderedProminent)
+                        .disabled(true)
+                    Button(SecurityOperationPresentation.biometricBusy) {}
+                        .buttonStyle(.bordered)
+                        .disabled(true)
+                    Button(SecurityOperationPresentation.logoutConfirm, role: .destructive) {
+                        showsLogoutConfirmation = true
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(16)
+            }
+            .navigationTitle("账户安全状态回归")
+        }
+        .alert(SecurityOperationPresentation.logoutTitle, isPresented: $showsLogoutConfirmation) {
+            Button(SecurityOperationPresentation.logoutConfirm, role: .destructive) {}
+            Button("取消", role: ButtonRole.cancel) {}
+        } message: {
+            Text(SecurityOperationPresentation.logoutMessage)
+        }
+        .task {
+            guard let delay = loginSuccess.autoDismissAfterNanoseconds else { return }
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled else { return }
+            showsLoginSuccess = false
+        }
+    }
+
+    @ViewBuilder
+    private func feedback(_ feedback: SecurityOperationFeedback) -> some View {
+        Label(
+            feedback.message,
+            systemImage: feedback.isFailure ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+        )
+        .font(.caption)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .securityStatusStyle(feedback.isFailure ? .danger : .success)
+    }
+}
+#endif
+
 private struct MainShellView: View {
 
     @EnvironmentObject private var session: AppSession
@@ -360,6 +687,8 @@ private struct MainShellView: View {
     @State private var selectedTab: MobileShellTab = .servers
     @State private var showingDeepLinkAddServer = false
     @State private var deepLinkPrefill: ServerAddPrefill?
+    @State private var deepLinkEditingServer: ServerEntry?
+    @State private var activeDeepLinkIntentID: UUID?
 
     var body: some View {
         Group {
@@ -430,8 +759,12 @@ private struct MainShellView: View {
             .applyKeyboardDismissToolbar(enabled: selectedTab != .session)
             #endif
         }
-        .sheet(isPresented: $showingDeepLinkAddServer) {
-            AddServerView(store: serverStore, prefill: deepLinkPrefill) { server in
+        .sheet(isPresented: $showingDeepLinkAddServer, onDismiss: finishDeepLinkReview) {
+            AddServerView(
+                store: serverStore,
+                editingServer: deepLinkEditingServer,
+                prefill: deepLinkPrefill
+            ) { server in
                 serverStore.select(server)
                 sessionManager.quickOpenServer = server
                 sessionManager.openTab(for: server, autoConnect: true)
@@ -568,22 +901,39 @@ private struct MainShellView: View {
     private func processDeepLinkIfNeeded() {
         guard session.isAuthenticated, session.isUnlocked else { return }
         guard let intent = deepLinkManager.pendingIntent else { return }
+        guard !showingDeepLinkAddServer else { return }
 
         if let existing = serverStore.servers.first(where: {
             $0.host == intent.host && $0.port == intent.port && $0.username == intent.username
         }) {
-            serverStore.select(existing)
-            sessionManager.quickOpenServer = existing
-            sessionManager.openTab(for: existing, autoConnect: true)
-            session.showTransientStatus("已识别现有资产，正在连接 \(existing.name)")
-            deepLinkManager.consumePendingIntent()
+            deepLinkPrefill = nil
+            deepLinkEditingServer = existing
+            activeDeepLinkIntentID = intent.id
+            showingDeepLinkAddServer = true
+            session.showTransientStatus("已识别现有资产，请确认后保存并连接")
             return
         }
 
+        deepLinkEditingServer = nil
         deepLinkPrefill = intent.prefill
+        activeDeepLinkIntentID = intent.id
         showingDeepLinkAddServer = true
         session.showTransientStatus("已解析 SSH 链接，请确认后保存并连接")
-        deepLinkManager.consumePendingIntent()
+    }
+
+    private func finishDeepLinkReview() {
+        if DeepLinkReviewPolicy.shouldConsumePendingIntent(
+            isAuthenticated: session.isAuthenticated,
+            isUnlocked: session.isUnlocked,
+            pendingIntentID: deepLinkManager.pendingIntent?.id,
+            activeReviewID: activeDeepLinkIntentID
+        ) {
+            deepLinkManager.consumePendingIntent()
+        }
+        activeDeepLinkIntentID = nil
+        deepLinkEditingServer = nil
+        deepLinkPrefill = nil
+        processDeepLinkIfNeeded()
     }
 
 }

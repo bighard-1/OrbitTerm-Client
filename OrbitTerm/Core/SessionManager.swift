@@ -40,6 +40,7 @@ final class SessionManager: ObservableObject {
     @Published var quickOpenServer: ServerEntry?
     @Published private(set) var checkedHostKeyRoute: CheckedHostKeyPresentationRoute?
     @Published private(set) var telnetRiskRoute: TelnetRiskPresentationRoute?
+    @Published private(set) var interruptedSessionRecoveryPending = false
 
     let monitorService: MonitorService
     private let workspacePresentation = WorkspacePresentationCoordinator<WorkspaceSession>()
@@ -62,6 +63,8 @@ final class SessionManager: ObservableObject {
     private var auxiliaryRefreshTask: Task<Void, Never>?
     private var auxiliaryRefreshOwner = OperationOwner()
     private var auxiliaryRefreshesAreActive = true
+    private let liveSessionRecoveryMarker = LiveSessionRecoveryMarker()
+    private var connectionLossCleanupTasks: [UUID: Task<Void, Never>] = [:]
 
     private init(
         connectionSecurityPolicy: ConnectionSecurityPolicy = .applicationDefault,
@@ -107,6 +110,7 @@ final class SessionManager: ObservableObject {
                 self.handleConnectionLost(baseSessionID: baseID)
             }
         }
+        interruptedSessionRecoveryPending = liveSessionRecoveryMarker.consumeInterruptedProcessMarker()
     }
 
     var tabs: [WorkspaceSession] { workspacePresentation.tabs }
@@ -114,6 +118,10 @@ final class SessionManager: ObservableObject {
     var activeTabID: UUID? { workspacePresentation.activeTabID }
 
     var activeSession: WorkspaceSession? { workspacePresentation.activeSession }
+
+    func dismissInterruptedSessionRecoveryNotice() {
+        interruptedSessionRecoveryPending = false
+    }
 
 
     var requiresCheckedConnection: Bool {
@@ -330,6 +338,7 @@ final class SessionManager: ObservableObject {
             sessionByBaseID.removeValue(forKey: baseID)
         }
         telnetClients.removeValue(forKey: tab.id)
+        refreshLiveSessionRecoveryMarker()
         if removedWasActive {
             scheduleAuxiliaryRefreshTransition(
                 suspending: nil,
@@ -482,10 +491,20 @@ final class SessionManager: ObservableObject {
     }
 
     func connect(session: WorkspaceSession) async {
-        guard session.server.transport.supportsTerminalWorkspace else {
-            session.terminalStatus = "需要远程桌面"
+        await awaitConnectionLossCleanup(for: session.id)
+        guard ApplicationNetworkAvailability.shared.isNetworkUsable else {
             session.isConnected = false
-            session.appendTerminal("[rdp] 此资产已安全同步；当前 Apple 版本尚未接入 RDP 工作区，不会将其误作 SSH 连接")
+            session.updateConnectionState(.disconnected, detail: "等待网络恢复后重连")
+            session.appendTerminal("[network] 当前没有可用网络；网络恢复后请手动重新连接")
+            return
+        }
+        if session.server.transport.requiresRemoteDesktopWorkspace {
+#if os(macOS)
+            await connectRemoteDesktop(session: session)
+#else
+            session.updateConnectionState(.blocked, detail: "当前平台尚未开放远程桌面")
+            session.isConnected = false
+#endif
             return
         }
 
@@ -518,11 +537,55 @@ final class SessionManager: ObservableObject {
         await connectChecked(session: session)
     }
 
+#if os(macOS)
+    private func connectRemoteDesktop(session: WorkspaceSession) async {
+        session.isConnected = false
+        session.updateConnectionState(.connecting, detail: "正在连接远程桌面…")
+        session.remoteDesktopController.onUpdate = { [weak session] update in
+            guard let session else { return }
+            switch update.phase {
+            case .starting:
+                session.updateConnectionState(.connecting, detail: "正在准备远程桌面…")
+                session.isConnected = false
+            case .authenticating:
+                session.updateConnectionState(.connecting, detail: "正在验证远程桌面凭据…")
+                session.isConnected = false
+            case .awaitingUserDecision:
+                session.updateConnectionState(.awaitingHostKeyDecision, detail: "等待证书确认")
+                session.isConnected = false
+            case .connected:
+                session.updateConnectionState(.connected, detail: "远程桌面已连接")
+                session.isConnected = true
+                self.refreshLiveSessionRecoveryMarker()
+            case .reconnecting:
+                session.updateConnectionState(.reconnecting, detail: "正在重新连接远程桌面…")
+                session.isConnected = false
+            case .disconnected:
+                session.updateConnectionState(.disconnected, detail: "远程桌面已断开")
+                session.isConnected = false
+            case .failed:
+                session.updateConnectionState(.failed, detail: "远程桌面连接失败")
+                session.isConnected = false
+            case .closed:
+                session.updateConnectionState(.idle, detail: "未连接")
+                session.isConnected = false
+            }
+        }
+        do {
+            try await session.remoteDesktopController.connect(to: session.server)
+            refreshLiveSessionRecoveryMarker()
+        } catch {
+            session.updateConnectionState(.failed, detail: "远程桌面连接失败")
+            session.isConnected = false
+        }
+    }
+#endif
+
     #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
     private func connectLegacyInternal(session: WorkspaceSession) async {
         guard let credentials = try? credentialVault.read(for: session.server.credentialID),
               !credentials.isEmpty else {
-            session.terminalStatus = "连接失败"
+            session.updateConnectionState(.failed, detail: "连接失败")
             session.appendTerminal("[error] 凭据不存在或已损坏，请重新保存服务器凭据")
             session.isConnected = false
             return
@@ -535,7 +598,7 @@ final class SessionManager: ObservableObject {
             await disconnect(session: session)
         }
 
-        session.terminalStatus = "连接中..."
+        session.updateConnectionState(.connecting, detail: "正在建立 SSH 连接…")
         session.appendTerminal("[ssh] 正在连接 \(session.server.username)@\(session.server.endpointText)")
         guard let baseID = await terminalService.openSSHSession(
             host: session.server.host,
@@ -546,14 +609,14 @@ final class SessionManager: ObservableObject {
             privateKeyPassphrase: credentials.privateKeyPassphrase,
             allowPasswordFallback: session.server.allowPasswordFallback
         ) else {
-            session.terminalStatus = "连接失败"
+            session.updateConnectionState(.failed, detail: "连接失败")
             session.appendTerminal("[error] SSH 连接失败，请检查主机、端口、用户名或凭据")
             session.isConnected = false
             return
         }
 
-        session.terminalStatus = "终端在线"
-        session.isConnected = true
+        session.updateConnectionState(.openingTerminal, detail: "安全连接已建立，正在打开终端")
+        session.isConnected = false
         session.appendTerminal("[ok] SSH 握手成功")
         if let oldBase = session.baseSessionID, oldBase != baseID {
             sessionByBaseID.removeValue(forKey: oldBase)
@@ -574,8 +637,11 @@ final class SessionManager: ObservableObject {
         if let terminalID = await terminalService.openPTY(sessionOrChannelID: baseID, cols: 120, rows: 36) {
             session.terminalChannelID = terminalID
             session.terminalChannelIDs = [terminalID]
+            session.isConnected = true
+            session.updateConnectionState(.connected, detail: "终端已连接")
             session.appendTerminal("[pty] 交互终端已建立")
         } else {
+            session.updateConnectionState(.failed, detail: "终端打开失败")
             session.appendTerminal("[pty] 交互终端建立失败，SFTP/Docker/监控将继续尝试")
         }
 
@@ -595,13 +661,13 @@ final class SessionManager: ObservableObject {
 
     private func connectChecked(session: WorkspaceSession) async {
         guard checkedHostKeyRoute == nil else {
-            session.terminalStatus = "等待其他身份确认完成"
+            session.updateConnectionState(.awaitingHostKeyDecision, detail: "等待其他身份确认完成")
             session.isConnected = false
             session.appendTerminal("[checked] 当前已有服务器身份确认流程，未启动第二个连接")
             return
         }
         guard let port = UInt16(exactly: session.server.port), port > 0 else {
-            session.terminalStatus = "连接失败"
+            session.updateConnectionState(.failed, detail: "连接参数无效")
             session.isConnected = false
             session.appendTerminal("[checked] 连接参数无效")
             return
@@ -611,7 +677,7 @@ final class SessionManager: ObservableObject {
             guard session.server.hasDistinctCredentialIDs,
                   jumpHost.isValid,
                   let jumpPort = UInt16(exactly: jumpHost.port) else {
-                session.terminalStatus = "跳板机配置无效"
+                session.updateConnectionState(.failed, detail: "跳板机配置无效")
                 session.isConnected = false
                 session.appendTerminal("[checked] 跳板机主机、端口或用户名无效，未尝试直连")
                 return
@@ -636,7 +702,7 @@ final class SessionManager: ObservableObject {
             await disconnect(session: session)
         }
 
-        session.terminalStatus = "正在验证服务器身份..."
+        session.updateConnectionState(.connecting, detail: "正在验证服务器身份…")
         session.isConnected = false
         session.appendTerminal("[checked] 正在建立已验证 SSH 连接")
 
@@ -698,29 +764,29 @@ final class SessionManager: ObservableObject {
         case .pending:
             break
         case .awaitingUserDecision:
-            session.terminalStatus = "等待服务器身份确认"
+            session.updateConnectionState(.awaitingHostKeyDecision, detail: "等待服务器身份确认")
         case let .connected(lease):
             installCheckedLease(lease, on: session, terminalConnected: true)
             checkedHostKeyRoute = nil
         case let .terminalOpenFailed(lease, _):
             installCheckedLease(lease, on: session, terminalConnected: false)
             let recovery = OperationRecoveryMapper.connection(outcome)
-            session.terminalStatus = recovery?.title ?? "终端未能打开"
+            session.updateConnectionState(.failed, detail: recovery?.title ?? "终端未能打开")
             session.appendTerminal("[checked] \(recovery?.message ?? "终端未能打开")")
             checkedHostKeyRoute = nil
         case .blocked:
             let recovery = OperationRecoveryMapper.connection(outcome)
-            session.terminalStatus = recovery?.title ?? "服务器身份已阻断"
+            session.updateConnectionState(.blocked, detail: recovery?.title ?? "服务器身份已阻断")
             session.isConnected = false
             session.appendTerminal("[checked] \(recovery?.message ?? "服务器身份校验已阻断连接")")
         case let .failed(failure):
             let recovery = OperationRecoveryMapper.connection(failure)
-            session.terminalStatus = recovery.title
+            session.updateConnectionState(.failed, detail: recovery.title)
             session.isConnected = false
             session.appendTerminal("[checked] \(recovery.message)")
         case .cancelled:
             let recovery = OperationRecoveryMapper.connection(outcome)
-            session.terminalStatus = recovery?.title ?? "操作已取消"
+            session.updateConnectionState(.cancelled, detail: recovery?.title ?? "操作已取消")
             session.isConnected = false
             session.appendTerminal("[checked] \(recovery?.message ?? "操作已取消")")
             checkedHostKeyRoute = nil
@@ -744,11 +810,12 @@ final class SessionManager: ObservableObject {
         session.terminalSplitCount = 0
         session.isConnected = terminalConnected
         if terminalConnected {
-            session.terminalStatus = "终端在线（已验证）"
+            session.updateConnectionState(.connected, detail: "终端已连接并验证")
             if let terminalChannelID = lease.terminalChannelID?.ffiValue {
                 terminalService.beginFirstFrameMeasurement(channelID: terminalChannelID)
             }
             session.appendTerminal("[ok] 已验证 SSH 与终端通道建立成功")
+            liveSessionRecoveryMarker.markLiveSessionsPresent()
             session.appendTerminal("[checked] 正在从已验证会话启动 SFTP、监控与 Docker；Batch 仍禁用")
             Task { [weak self, weak session] in
                 guard let self, let session else { return }
@@ -784,7 +851,7 @@ final class SessionManager: ObservableObject {
     }
 
     private func rejectDisabledTelnet(session: WorkspaceSession) {
-        session.terminalStatus = "Telnet 已禁用"
+        session.updateConnectionState(.blocked, detail: "Telnet 已禁用")
         session.isConnected = false
         session.appendTerminal("[security] Telnet 默认关闭，请先在设置中了解明文传输风险并手动启用")
     }
@@ -794,11 +861,11 @@ final class SessionManager: ObservableObject {
         target: TelnetTargetIdentity
     ) {
         guard telnetRiskRoute == nil else {
-            session.terminalStatus = "等待其他 Telnet 确认完成"
+            session.updateConnectionState(.awaitingHostKeyDecision, detail: "等待其他 Telnet 确认完成")
             session.isConnected = false
             return
         }
-        session.terminalStatus = "等待 Telnet 风险确认"
+        session.updateConnectionState(.awaitingHostKeyDecision, detail: "等待 Telnet 风险确认")
         session.isConnected = false
         session.appendTerminal("[security] Telnet 将以明文传输登录信息和终端内容，连接前需要确认")
         telnetRiskRoute = TelnetRiskPresentationRoute(
@@ -834,7 +901,7 @@ final class SessionManager: ObservableObject {
         guard let route = telnetRiskRoute else { return }
         telnetRiskRoute = nil
         guard let session = tabs.first(where: { $0.id == route.workspaceID }) else { return }
-        session.terminalStatus = "已取消 Telnet 连接"
+        session.updateConnectionState(.cancelled, detail: "已取消 Telnet 连接")
         session.isConnected = false
         session.appendTerminal("[security] 用户未确认明文 Telnet 风险，未发起连接")
     }
@@ -844,13 +911,13 @@ final class SessionManager: ObservableObject {
         cancelTelnetRiskConfirmation()
         for session in tabs where session.server.transport == .telnet {
             await disconnect(session: session)
-            session.terminalStatus = "Telnet 已禁用"
+            session.updateConnectionState(.blocked, detail: "Telnet 已禁用")
             session.appendTerminal("[security] Telnet 已关闭，现有明文会话已断开")
         }
     }
 
     private func connectTelnet(session: WorkspaceSession) async {
-        session.terminalStatus = "连接中..."
+        session.updateConnectionState(.connecting, detail: "正在建立 Telnet 连接…")
         session.appendTerminal("[telnet] 正在连接 \(session.server.username)@\(session.server.endpointText)")
         session.isConnected = false
 
@@ -887,21 +954,23 @@ final class SessionManager: ObservableObject {
                     await self.terminalService.feedVirtualChannel(channelID: virtualChannelID, data: data)
                 }
             },
-            onState: { [weak session] (state: TelnetClient.State) in
+            onState: { [weak self, weak session] (state: TelnetClient.State) in
                 guard let session else { return }
                 Task { @MainActor in
                     switch state {
                     case .connecting:
-                        session.terminalStatus = "连接中..."
+                        session.updateConnectionState(.connecting, detail: "正在建立 Telnet 连接…")
                     case .connected:
-                        session.terminalStatus = "终端在线"
+                        session.updateConnectionState(.connected, detail: "Telnet 终端已连接")
                     case .closed:
-                        session.terminalStatus = "连接已断开"
+                        session.updateConnectionState(.disconnected, detail: "Telnet 连接已断开")
                         session.isConnected = false
+                        self?.refreshLiveSessionRecoveryMarker()
                     case let .failed(msg):
-                        session.terminalStatus = "连接失败"
+                        session.updateConnectionState(.failed, detail: "Telnet 连接失败")
                         session.appendTerminal("[telnet] 连接异常: \(msg)")
                         session.isConnected = false
+                        self?.refreshLiveSessionRecoveryMarker()
                     case .idle:
                         break
                     }
@@ -911,7 +980,7 @@ final class SessionManager: ObservableObject {
 
         guard ok else {
             await terminalService.unbindAndClose(channelID: virtualChannelID)
-            session.terminalStatus = "连接失败"
+            session.updateConnectionState(.failed, detail: "Telnet 连接失败")
             session.appendTerminal("[telnet] 连接失败")
             return
         }
@@ -921,8 +990,9 @@ final class SessionManager: ObservableObject {
         session.terminalChannelIDs = [virtualChannelID]
         session.activeTerminalPaneIndex = 0
         session.isConnected = true
-        session.terminalStatus = "终端在线"
+        session.updateConnectionState(.connected, detail: "Telnet 终端已连接")
         session.appendTerminal("[ok] Telnet 通道已建立")
+        liveSessionRecoveryMarker.markLiveSessionsPresent()
         if autoLogin.isEnabled {
             session.appendTerminal("[telnet] 已启用 \(session.server.networkDeviceProfile.displayName) 自动登录模板")
         } else {
@@ -1114,9 +1184,51 @@ final class SessionManager: ObservableObject {
             return
         }
 
+        let terminalChannelIDs = session.terminalChannelIDs.isEmpty
+            ? (session.terminalChannelID.map { [$0] } ?? [])
+            : session.terminalChannelIDs
+        let monitorPanelID = session.activeMonitorPanelID
+        sessionByBaseID.removeValue(forKey: baseSessionID)
+        session.terminalChannelIDs = []
+        session.terminalChannelID = nil
+        session.baseSessionID = nil
+        session.verifiedSessionLease = nil
+        session.activeMonitorPanelID = nil
         session.isConnected = false
-        session.terminalStatus = "连接已断开，点击重连"
+        session.updateConnectionState(.disconnected, detail: "连接已断开，点击重连")
         session.appendTerminal("[ssh] 连接已断开（心跳超时），请点击“连接”重试")
+        refreshLiveSessionRecoveryMarker()
+
+        // Clear presentation ownership before awaiting native teardown. Any
+        // late output now has no channel to target, while a user-requested
+        // reconnect is serialized behind this cleanup instead of racing it.
+        let sessionID = session.id
+        connectionLossCleanupTasks[sessionID] = Task { [weak self, weak session] in
+            guard let self, let session else { return }
+            for channelID in terminalChannelIDs {
+                await terminalService.unbindAndClose(channelID: channelID)
+            }
+            await session.disconnectSFTP()
+            await session.disconnectDocker()
+            if let monitorPanelID {
+                await monitorService.disconnect(monitorPanelID)
+            }
+            await terminalService.closeSSHSession(baseSessionID: baseSessionID)
+            connectionLossCleanupTasks.removeValue(forKey: sessionID)
+        }
+    }
+
+    private func awaitConnectionLossCleanup(for sessionID: UUID) async {
+        guard let cleanup = connectionLossCleanupTasks.removeValue(forKey: sessionID) else { return }
+        await cleanup.value
+    }
+
+    private func refreshLiveSessionRecoveryMarker() {
+        if tabs.contains(where: { $0.isConnected }) {
+            liveSessionRecoveryMarker.markLiveSessionsPresent()
+        } else {
+            liveSessionRecoveryMarker.clearLiveSessions()
+        }
     }
 
     private func syncSFTPPathIfNeeded(session: WorkspaceSession, submittedCommands: [String]) async {
@@ -1154,12 +1266,22 @@ final class SessionManager: ObservableObject {
     }
 
     func disconnect(session: WorkspaceSession) async {
+        await awaitConnectionLossCleanup(for: session.id)
         if checkedHostKeyRoute?.workspaceID == session.id {
             _ = checkedHostKeyRoute?.orchestrator.cancel()
             checkedHostKeyRoute = nil
         }
         if telnetRiskRoute?.workspaceID == session.id {
             telnetRiskRoute = nil
+        }
+        if session.server.transport == .rdp {
+#if os(macOS)
+            await session.remoteDesktopController.disconnect()
+#endif
+            session.isConnected = false
+            session.updateConnectionState(.idle, detail: "未连接")
+            refreshLiveSessionRecoveryMarker()
+            return
         }
         if session.server.transport == .telnet {
             if let client = telnetClients[session.id] {
@@ -1173,7 +1295,8 @@ final class SessionManager: ObservableObject {
             session.terminalChannelIDs = []
             session.terminalChannelID = nil
             session.isConnected = false
-            session.terminalStatus = "未连接"
+            session.updateConnectionState(.idle, detail: "未连接")
+            refreshLiveSessionRecoveryMarker()
             return
         }
         let ids = session.terminalChannelIDs.isEmpty ? (session.terminalChannelID.map { [$0] } ?? []) : session.terminalChannelIDs
@@ -1191,6 +1314,7 @@ final class SessionManager: ObservableObject {
         session.verifiedSessionLease = nil
         session.activeMonitorPanelID = nil
         session.isConnected = false
-        session.terminalStatus = "未连接"
+        session.updateConnectionState(.idle, detail: "未连接")
+        refreshLiveSessionRecoveryMarker()
     }
 }

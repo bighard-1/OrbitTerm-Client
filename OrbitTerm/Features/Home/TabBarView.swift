@@ -106,5 +106,7 @@ private struct TabBarItemView: View {
         }
     }
 
-    private func status(for tab: WorkspaceSession) -> ConnectionPresentation { ConnectionPresentationAdapter.checkedSSH(hasVerifiedSessionLease: tab.verifiedSessionLease != nil, hasTerminalChannel: tab.terminalChannelID != nil, isSessionUsable: tab.isConnected) }
+    private func status(for tab: WorkspaceSession) -> ConnectionPresentation {
+        tab.connectionPresentation
+    }
 }

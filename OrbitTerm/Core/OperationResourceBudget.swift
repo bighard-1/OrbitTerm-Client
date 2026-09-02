@@ -23,6 +23,18 @@ enum OperationResourceBudget {
     static let syncMaximumConcurrentDeliveries = 1
     static let syncIncrementalPageSize = 100
 
+    static func shouldYieldSyncDelivery(completedInSlice: Int) -> Bool {
+        completedInSlice >= syncIncrementalPageSize
+    }
+
+    static func permitsSyncContinuation(
+        hasMore: Bool,
+        networkAvailable: Bool,
+        authenticationMatchesExpectedAccount: Bool
+    ) -> Bool {
+        hasMore && networkAvailable && authenticationMatchesExpectedAccount
+    }
+
     static func permitsSyncDelivery(activeDeliveries: Int) -> Bool {
         activeDeliveries < syncMaximumConcurrentDeliveries
     }

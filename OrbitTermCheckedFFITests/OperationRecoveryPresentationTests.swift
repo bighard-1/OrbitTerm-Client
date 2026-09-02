@@ -30,6 +30,15 @@ final class OperationRecoveryPresentationTests: XCTestCase {
         XCTAssertFalse(value.message.contains("@"))
     }
 
+    func testPermanentHTTPRejectionDoesNotOfferBlindRetry() {
+        let value = OperationRecoveryMapper.sync(.requestRejected)
+
+        XCTAssertEqual(value.code, .requestRejected)
+        XCTAssertEqual(value.diagnosticCode, "sync.requestRejected")
+        XCTAssertFalse(value.actions.contains(.retry))
+        XCTAssertTrue(value.actions.contains(.reviewServiceConfiguration))
+    }
+
     func testCheckedServicesPreserveRecoverySemanticsByTypedFailure() {
         XCTAssertEqual(
             OperationRecoveryMapper.sftp(.requiresVerifiedSession).actions,

@@ -16,6 +16,7 @@ extension SyncService {
         forceFullInventory: Bool = false
     ) async -> Bool {
         guard store.isActiveAccount(accountID) else { return false }
+        updateSyncPresentation(.syncing, detail: "正在同步加密数据")
         let span = PerformanceSignpost.begin(.syncRoundTrip)
         defer { span.finish() }
         let completed: Bool
@@ -72,12 +73,16 @@ extension SyncService {
         }
         if completed {
             clearSyncRecoveryPresentation()
-            _ = await synchronizeSshKeyLibrary(
+            var auxiliaryFailureDetails: [String] = []
+            let keyLibrarySynchronized = await synchronizeSshKeyLibrary(
                 token: token,
                 masterPassword: masterPassword,
                 accountID: accountID,
                 store: store
             )
+            if !keyLibrarySynchronized {
+                auxiliaryFailureDetails.append("SSH 密钥库同步暂不可用，本机变更已安全保留")
+            }
             do {
                 try PortForwardProfileStore.shared.activate(username: accountID)
                 try await PortForwardProfileStore.shared.synchronize(
@@ -89,6 +94,7 @@ extension SyncService {
                 )
             } catch {
                 lastSyncMessage = "资产已同步；端口映射配置将在下次重试"
+                auxiliaryFailureDetails.append("端口映射配置将在下次重试")
             }
             await attemptConfigCipherMigrationIfNeeded(
                 token: token,
@@ -96,6 +102,14 @@ extension SyncService {
                 accountID: accountID,
                 store: store,
                 isExplicitFullSync: forceFullInventory
+            )
+            let completionPresentation = SyncPresentationState.afterCompletedPull(
+                detail: lastSyncMessage,
+                auxiliaryFailureDetails: auxiliaryFailureDetails
+            )
+            updateSyncPresentation(
+                completionPresentation.phase,
+                detail: completionPresentation.detail
             )
         }
         return completed

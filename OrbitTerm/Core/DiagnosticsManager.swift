@@ -18,6 +18,7 @@ final class DiagnosticsManager: ObservableObject {
 
     @Published private(set) var entries: [DiagnosticEntry] = []
     @Published private(set) var retryInFlightCount: Int = 0
+    @Published private(set) var syncEventCounts: [SyncDiagnosticEvent: Int] = [:]
     private var exportCleanupTasks: [URL: Task<Void, Never>] = [:]
 
     private(set) var activeAccountScope: AccountScope?
@@ -32,6 +33,7 @@ final class DiagnosticsManager: ObservableObject {
         discardAllExports()
         entries = []
         retryInFlightCount = 0
+        syncEventCounts = [:]
         activeAccountScope = nextScope
     }
 
@@ -39,6 +41,7 @@ final class DiagnosticsManager: ObservableObject {
         discardAllExports()
         entries = []
         retryInFlightCount = 0
+        syncEventCounts = [:]
         activeAccountScope = nil
     }
 
@@ -52,6 +55,10 @@ final class DiagnosticsManager: ObservableObject {
 
     func endRetry() {
         retryInFlightCount = max(0, retryInFlightCount - 1)
+    }
+
+    func recordSyncEvent(_ event: SyncDiagnosticEvent) {
+        syncEventCounts[event, default: 0] += 1
     }
 
     func record(
@@ -91,7 +98,11 @@ final class DiagnosticsManager: ObservableObject {
                 failure: item.failure
             )
         }
-        return lines.joined(separator: "\n")
+        let syncLines = SyncDiagnosticEvent.allCases.compactMap { event -> String? in
+            guard let count = syncEventCounts[event], count > 0 else { return nil }
+            return DiagnosticsPrivacy.syncEventExportLine(event, count: count)
+        }
+        return (lines + syncLines).joined(separator: "\n")
     }
 
     func exportToTempFile() throws -> URL {

@@ -24,7 +24,7 @@ final class RemoteDesktopAdapterTests: XCTestCase {
 
     func testNativeRuntimeProbeUsesPinnedABIAndVersion() {
         let runtime = FreeRDPRuntimeProbe.current()
-        XCTAssertEqual(runtime.abiVersion, 1)
+        XCTAssertEqual(runtime.abiVersion, 2)
         XCTAssertEqual(runtime.expectedVersion, "3.26.0")
 
         switch runtime.status {

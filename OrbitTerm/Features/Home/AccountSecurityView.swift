@@ -13,14 +13,16 @@ struct AccountSecurityView: View {
     @State private var newPassword = ""
     @State private var confirmation = ""
     @State private var isSubmitting = false
-    @State private var feedback = ""
+    @State private var loginPasswordFeedback: SecurityOperationFeedback?
+    @State private var loginFeedbackDismissTask: Task<Void, Never>?
 
     @State private var currentMasterPassword = ""
     @State private var newMasterPassword = ""
     @State private var masterPasswordConfirmation = ""
     @State private var masterPasswordLoginConfirmation = ""
     @State private var isRotatingMasterPassword = false
-    @State private var masterPasswordFeedback = ""
+    @State private var masterPasswordFeedback: SecurityOperationFeedback?
+    @State private var masterFeedbackDismissTask: Task<Void, Never>?
     @State private var securityTask: Task<Void, Never>?
     @State private var securityOwner = PageOperationOwner()
     @State private var showDiagnostics = false
@@ -55,7 +57,11 @@ struct AccountSecurityView: View {
             cancelSecurityOperation(.accountLocked)
             clearTransientPasswords()
         }
-        .onDisappear { cancelSecurityOperation(.pageDisappeared) }
+        .onDisappear {
+            cancelSecurityOperation(.pageDisappeared)
+            loginFeedbackDismissTask?.cancel()
+            masterFeedbackDismissTask?.cancel()
+        }
         .onChange(of: session.username) { _, _ in cancelSecurityOperation(.accountChanged) }
         .onChange(of: session.isAuthenticated) { _, authenticated in
             if !authenticated { cancelSecurityOperation(.accountSignedOut) }
@@ -120,10 +126,10 @@ struct AccountSecurityView: View {
                         .foregroundStyle(.red)
                 }
 
-                if !feedback.isEmpty {
-                    Text(feedback)
+                if let loginPasswordFeedback {
+                    Text(loginPasswordFeedback.message)
                         .font(.caption)
-                        .foregroundStyle(feedback.hasPrefix("已") ? .green : .red)
+                        .foregroundStyle(loginPasswordFeedback.isFailure ? .red : .green)
                 }
 
                 Button(isSubmitting ? "正在更新…" : "更新登录密码") {
@@ -167,10 +173,10 @@ struct AccountSecurityView: View {
                     .disabled(!canRotateMasterPassword)
                 }
 
-                if !masterPasswordFeedback.isEmpty {
-                    Text(masterPasswordFeedback)
+                if let masterPasswordFeedback {
+                    Text(masterPasswordFeedback.message)
                         .font(.caption)
-                        .foregroundStyle(masterPasswordFeedback.hasPrefix("已") ? .green : .red)
+                        .foregroundStyle(masterPasswordFeedback.isFailure ? .red : .green)
                 }
             }
         }
@@ -279,10 +285,10 @@ struct AccountSecurityView: View {
                     .foregroundStyle(SecuritySemanticPalette().warning.color)
             }
 
-            if !feedback.isEmpty {
-                Text(feedback)
+            if let loginPasswordFeedback {
+                Text(loginPasswordFeedback.message)
                     .font(.caption)
-                    .foregroundStyle(feedback.hasPrefix("已") ? SecuritySemanticPalette().success.color : SecuritySemanticPalette().danger.color)
+                    .foregroundStyle(loginPasswordFeedback.isFailure ? SecuritySemanticPalette().danger.color : SecuritySemanticPalette().success.color)
             }
 
             HStack {
@@ -338,10 +344,10 @@ struct AccountSecurityView: View {
                 }
             }
 
-            if !masterPasswordFeedback.isEmpty {
-                Text(masterPasswordFeedback)
+            if let masterPasswordFeedback {
+                Text(masterPasswordFeedback.message)
                     .font(.caption)
-                    .foregroundStyle(masterPasswordFeedback.hasPrefix("已") ? SecuritySemanticPalette().success.color : SecuritySemanticPalette().danger.color)
+                    .foregroundStyle(masterPasswordFeedback.isFailure ? SecuritySemanticPalette().danger.color : SecuritySemanticPalette().success.color)
             }
         }
     }
@@ -419,9 +425,13 @@ struct AccountSecurityView: View {
             isSubmitting = false
             isRotatingMasterPassword = false
             if wasRotatingMasterPassword {
-                masterPasswordFeedback = "主密码轮换请求超时；本地恢复状态已保留，请检查网络后重试。"
+                setMasterPasswordFeedback(
+                    .init(kind: .recoveryRequired, message: "主密码轮换请求超时；本地恢复状态已保留，请检查网络后重试。")
+                )
             } else {
-                feedback = "请求超时，请检查网络后重试。"
+                setLoginPasswordFeedback(
+                    .init(kind: .failure, message: "请求超时，请检查网络后重试。")
+                )
             }
             securityTask = nil
             return
@@ -436,6 +446,8 @@ struct AccountSecurityView: View {
         securityTask = nil
         isSubmitting = false
         isRotatingMasterPassword = false
+        loginPasswordFeedback = nil
+        masterPasswordFeedback = nil
         clearTransientPasswords()
     }
 
@@ -447,17 +459,24 @@ struct AccountSecurityView: View {
         guard accepts(lease, scope: scope) else { return }
         guard canSubmit else { return }
         isSubmitting = true
-        feedback = ""
+        loginFeedbackDismissTask?.cancel()
+        loginPasswordFeedback = nil
         defer { if accepts(lease, scope: scope) { isSubmitting = false } }
 
         do {
-            let result = try await NetworkService.shared.changePassword(
-                currentPassword: currentPassword,
-                newPassword: newPassword
-            )
+            let currentPasswordSnapshot = currentPassword
+            let newPasswordSnapshot = newPassword
+            let result = try await PageOperationTimeout.perform(timeout: PageOperationTimeout.authentication) {
+                try await NetworkService.shared.changePassword(
+                    currentPassword: currentPasswordSnapshot,
+                    newPassword: newPasswordSnapshot
+                )
+            }
             guard accepts(lease, scope: scope) else { return }
             guard !result.accessTokenValue.isEmpty else {
-                feedback = "服务未返回有效登录令牌，请重新登录。"
+                setLoginPasswordFeedback(
+                    .init(kind: .recoveryRequired, message: "服务未返回有效登录令牌，请重新登录。")
+                )
                 return
             }
             try session.persistLogin(
@@ -468,10 +487,12 @@ struct AccountSecurityView: View {
             currentPassword = ""
             newPassword = ""
             confirmation = ""
-            feedback = "已更新登录密码；其他设备需要重新登录。"
+            setLoginPasswordFeedback(
+                .init(kind: .success, message: SecurityOperationPresentation.loginPasswordSuccess)
+            )
         } catch {
             guard accepts(lease, scope: scope) else { return }
-            feedback = error.localizedDescription
+            setLoginPasswordFeedback(.init(kind: .failure, message: error.localizedDescription))
         }
     }
 
@@ -479,34 +500,69 @@ struct AccountSecurityView: View {
         guard accepts(lease, scope: scope) else { return }
         guard canRotateMasterPassword else { return }
         isRotatingMasterPassword = true
-        masterPasswordFeedback = ""
+        masterFeedbackDismissTask?.cancel()
+        masterPasswordFeedback = nil
         defer { if accepts(lease, scope: scope) { isRotatingMasterPassword = false } }
 
         do {
-            try await MasterPasswordRotationService.shared.rotate(
-                currentMasterPassword: currentMasterPassword,
-                newMasterPassword: newMasterPassword,
-                currentLoginPassword: masterPasswordLoginConfirmation,
-                session: session
-            )
+            let currentMasterPasswordSnapshot = currentMasterPassword
+            let newMasterPasswordSnapshot = newMasterPassword
+            let loginPasswordSnapshot = masterPasswordLoginConfirmation
+            try await PageOperationTimeout.perform(timeout: PageOperationTimeout.assetMutation) {
+                try await MasterPasswordRotationService.shared.rotate(
+                    currentMasterPassword: currentMasterPasswordSnapshot,
+                    newMasterPassword: newMasterPasswordSnapshot,
+                    currentLoginPassword: loginPasswordSnapshot,
+                    session: session
+                )
+            }
             guard accepts(lease, scope: scope) else { return }
             currentMasterPassword = ""
             newMasterPassword = ""
             masterPasswordConfirmation = ""
             masterPasswordLoginConfirmation = ""
-            masterPasswordFeedback = "已完成主密码轮换；其他设备需要重新登录并使用新主密码解锁。"
+            setMasterPasswordFeedback(
+                .init(kind: .success, message: SecurityOperationPresentation.masterPasswordSuccess)
+            )
         } catch {
             guard accepts(lease, scope: scope) else { return }
-            masterPasswordFeedback = error.localizedDescription
+            setMasterPasswordFeedback(.init(kind: .failure, message: error.localizedDescription))
         }
     }
 
     private func finishPendingMasterPasswordCommit() {
+        guard securityTask == nil, !isRotatingMasterPassword else { return }
+        isRotatingMasterPassword = true
+        defer { isRotatingMasterPassword = false }
         do {
             try MasterPasswordRotationService.shared.finishPendingLocalCommit(session: session)
-            masterPasswordFeedback = "已完成本地主密码更新。"
+            setMasterPasswordFeedback(
+                .init(kind: .success, message: SecurityOperationPresentation.localCommitSuccess)
+            )
         } catch {
-            masterPasswordFeedback = error.localizedDescription
+            setMasterPasswordFeedback(.init(kind: .recoveryRequired, message: error.localizedDescription))
+        }
+    }
+
+    private func setLoginPasswordFeedback(_ feedback: SecurityOperationFeedback) {
+        loginFeedbackDismissTask?.cancel()
+        loginPasswordFeedback = feedback
+        guard let delay = feedback.autoDismissAfterNanoseconds else { return }
+        loginFeedbackDismissTask = Task {
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled, loginPasswordFeedback == feedback else { return }
+            loginPasswordFeedback = nil
+        }
+    }
+
+    private func setMasterPasswordFeedback(_ feedback: SecurityOperationFeedback) {
+        masterFeedbackDismissTask?.cancel()
+        masterPasswordFeedback = feedback
+        guard let delay = feedback.autoDismissAfterNanoseconds else { return }
+        masterFeedbackDismissTask = Task {
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled, masterPasswordFeedback == feedback else { return }
+            masterPasswordFeedback = nil
         }
     }
 }

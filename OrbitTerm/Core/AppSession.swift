@@ -15,6 +15,8 @@ final class AppSession: ObservableObject {
     @Published var transientStatus: String = ""
     @Published private(set) var masterPasswordPersistenceError: String?
     @Published private(set) var authRevision: Int = 0
+    @Published private(set) var isCheckingLocalStorage: Bool = false
+    @Published private(set) var localStorageRecovery: LocalStorageRecoveryPresentation?
 
     private let keychain: KeychainManager
 
@@ -63,37 +65,60 @@ final class AppSession: ObservableObject {
             isAuthenticated = true
             isUnlocked = true
             username = "ui-test@example.invalid"
+        case .operationalStates, .syncRecoveryStates, .accountSecurityStates:
+            isAuthenticated = true
+            isUnlocked = true
+            username = "ui-test@example.invalid"
         }
         authRevision = 1
     }
     #endif
 
     func loadAuthState() {
+        isCheckingLocalStorage = true
+        defer { isCheckingLocalStorage = false }
         do {
             let token = try keychain.readString(service: tokenService, account: tokenAccount)
+            let storedUsername = try keychain.readString(service: tokenService, account: usernameAccount)
             isAuthenticated = !(token?.isEmpty ?? true)
-            username = (try? keychain.readString(service: tokenService, account: usernameAccount)) ?? ""
+            username = storedUsername ?? ""
             if !isAuthenticated {
                 isUnlocked = false
                 username = ""
             } else {
                 migrateLegacyMasterPasswordIfNeeded()
             }
+            localStorageRecovery = nil
+            authRevision += 1
+        } catch let error as KeychainManager.KeychainError {
+            // Preserve the last known account state. A protected-storage fault
+            // is not a logout and must not authorize replacement credentials.
+            isUnlocked = false
+            localStorageRecovery = LocalStorageRecoveryPolicy.keychainFailure(error)
             authRevision += 1
         } catch {
-            isAuthenticated = false
             isUnlocked = false
-            username = ""
+            localStorageRecovery = LocalStorageRecoveryPolicy.presentation(for: .secureStorageUnavailable)
             authRevision += 1
         }
     }
 
+    func retryLocalStorageAccess() {
+        loadAuthState()
+    }
+
     func persistLogin(accessToken: String, refreshToken: String?, username: String) throws {
-        try keychain.saveString(accessToken, service: tokenService, account: tokenAccount)
-        if let refreshToken, !refreshToken.isEmpty {
-            try keychain.saveString(refreshToken, service: tokenService, account: refreshTokenAccount)
+        do {
+            try keychain.saveString(accessToken, service: tokenService, account: tokenAccount)
+            if let refreshToken, !refreshToken.isEmpty {
+                try keychain.saveString(refreshToken, service: tokenService, account: refreshTokenAccount)
+            }
+            try keychain.saveString(username, service: tokenService, account: usernameAccount)
+        } catch let error as KeychainManager.KeychainError {
+            localStorageRecovery = LocalStorageRecoveryPolicy.keychainFailure(error)
+            throw error
         }
-        try keychain.saveString(username, service: tokenService, account: usernameAccount)
+        localStorageRecovery = nil
         self.username = username
         isAuthenticated = true
         migrateLegacyMasterPasswordIfNeeded()
@@ -101,20 +126,40 @@ final class AppSession: ObservableObject {
     }
 
     func readToken() -> String? {
-        try? keychain.readString(service: tokenService, account: tokenAccount)
+        do {
+            return try keychain.readString(service: tokenService, account: tokenAccount)
+        } catch {
+            recordLocalStorageAccessFailure(error)
+            return nil
+        }
     }
 
     func readRefreshToken() -> String? {
-        try? keychain.readString(service: tokenService, account: refreshTokenAccount)
+        do {
+            return try keychain.readString(service: tokenService, account: refreshTokenAccount)
+        } catch {
+            recordLocalStorageAccessFailure(error)
+            return nil
+        }
     }
 
     func updateAccessToken(_ token: String) {
-        try? keychain.saveString(token, service: tokenService, account: tokenAccount)
+        do {
+            try keychain.saveString(token, service: tokenService, account: tokenAccount)
+            localStorageRecovery = nil
+        } catch {
+            recordLocalStorageAccessFailure(error)
+        }
         authRevision += 1
     }
 
     func updateRefreshToken(_ token: String) {
-        try? keychain.saveString(token, service: tokenService, account: refreshTokenAccount)
+        do {
+            try keychain.saveString(token, service: tokenService, account: refreshTokenAccount)
+            localStorageRecovery = nil
+        } catch {
+            recordLocalStorageAccessFailure(error)
+        }
         authRevision += 1
     }
 
@@ -127,9 +172,21 @@ final class AppSession: ObservableObject {
             // required for biometric unlock after the same account signs in
             // again, cannot be decrypted without the local wrap key / user
             // presence, and is never made available to a different account.
+        } catch let error as KeychainManager.KeychainError {
+            // Logout is only complete after the durable token deletion. Keep
+            // the account locked and surface recovery instead of pretending
+            // that credentials no longer exist.
+            isUnlocked = false
+            localStorageRecovery = LocalStorageRecoveryPolicy.keychainFailure(error)
+            authRevision += 1
+            return
         } catch {
-            // 忽略删除异常，仍执行本地状态重置。
+            isUnlocked = false
+            localStorageRecovery = LocalStorageRecoveryPolicy.presentation(for: .secureStorageUnavailable)
+            authRevision += 1
+            return
         }
+        localStorageRecovery = nil
         isAuthenticated = false
         isUnlocked = false
         username = ""
@@ -138,8 +195,15 @@ final class AppSession: ObservableObject {
 
     var hasMasterPassword: Bool {
         guard let passwordVerifierAccount else { return false }
-        let existing = (try? keychain.readString(service: passwordService, account: passwordVerifierAccount)) ?? nil
-        return !(existing?.isEmpty ?? true)
+        do {
+            let existing = try keychain.readString(service: passwordService, account: passwordVerifierAccount)
+            return !(existing?.isEmpty ?? true)
+        } catch {
+            recordLocalStorageAccessFailure(error)
+            // Fail closed: never offer setup while an existing verifier may
+            // merely be temporarily inaccessible.
+            return true
+        }
     }
 
     func setupMasterPassword(_ value: String) throws {
@@ -151,8 +215,16 @@ final class AppSession: ObservableObject {
     // Validation intentionally has no persistence side effect. Password
     // rotation uses it before preparing a new local keychain record.
     func validateMasterPassword(_ input: String) -> Bool {
-        guard let passwordVerifierAccount,
-              let record = (try? keychain.readString(service: passwordService, account: passwordVerifierAccount)) ?? nil else {
+        guard let passwordVerifierAccount else { return false }
+        let record: String
+        do {
+            guard let stored = try keychain.readString(
+                service: passwordService,
+                account: passwordVerifierAccount
+            ) else { return false }
+            record = stored
+        } catch {
+            recordLocalStorageAccessFailure(error)
             return false
         }
         return matchesMasterPassword(input, record: record)
@@ -282,11 +354,29 @@ final class AppSession: ObservableObject {
     }
 
     func readMasterPassword() -> String? {
-        guard let passwordBlobAccount,
-              let blob = (try? keychain.readString(service: passwordService, account: passwordBlobAccount)) ?? nil else {
+        guard let passwordBlobAccount else { return nil }
+        let blob: String
+        do {
+            guard let stored = try keychain.readString(
+                service: passwordService,
+                account: passwordBlobAccount
+            ) else { return nil }
+            blob = stored
+        } catch {
+            recordLocalStorageAccessFailure(error)
             return nil
         }
         return try? decryptMasterPasswordFromStorage(blob)
+    }
+
+    private func recordLocalStorageAccessFailure(_ error: Error) {
+        isUnlocked = false
+        if let keychainError = error as? KeychainManager.KeychainError {
+            localStorageRecovery = LocalStorageRecoveryPolicy.keychainFailure(keychainError)
+        } else {
+            localStorageRecovery = LocalStorageRecoveryPolicy.presentation(for: .secureStorageUnavailable)
+        }
+        authRevision += 1
     }
 
     func showTransientStatus(_ message: String, duration: TimeInterval = 2.8) {
@@ -309,7 +399,10 @@ final class AppSession: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                if self.hasMasterPassword {
+                if MobileAutoLockPolicy.shouldLockOnBackground(
+                    isAuthenticated: self.isAuthenticated,
+                    hasMasterPassword: self.hasMasterPassword
+                ) {
                     self.isUnlocked = false
                 }
             }

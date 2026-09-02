@@ -1,5 +1,4 @@
 import XCTest
-@testable import OrbitTermCheckedFFITests
 
 final class TerminalInputDispatchPolicyTests: XCTestCase {
     func testPrintableInputCanCoalesce() {

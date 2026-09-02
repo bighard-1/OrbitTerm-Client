@@ -40,6 +40,15 @@ enum DiagnosticFailureKind: String, Codable, Sendable {
     }
 }
 
+/// Aggregate-only sync lifecycle events. Values are fixed at compile time and
+/// can never contain an account, asset, request identity, endpoint, or error.
+enum SyncDiagnosticEvent: String, Codable, CaseIterable, Sendable {
+    case unknownResultQueued = "unknown_result_queued"
+    case deliveryDeferred = "delivery_deferred"
+    case deliveryBlocked = "delivery_blocked"
+    case idempotentReplayConfirmed = "idempotent_replay_confirmed"
+}
+
 enum DiagnosticsPrivacy {
     static func exportLine(
         timestamp: String,
@@ -53,6 +62,10 @@ enum DiagnosticsPrivacy {
         let code = statusCode.map(String.init) ?? "-"
         let failureValue = failure?.rawValue ?? "-"
         return "[\(timestamp)] method=\(method) endpoint=\(endpoint.rawValue) status=\(code) latency_ms=\(latencyMs) attempt=\(attempt) failure=\(failureValue)"
+    }
+
+    static func syncEventExportLine(_ event: SyncDiagnosticEvent, count: Int) -> String {
+        "sync_event=\(event.rawValue) count=\(max(0, count))"
     }
 }
 

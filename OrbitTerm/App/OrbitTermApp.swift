@@ -13,6 +13,8 @@ struct WorkstationShortcutActions {
     let closeActiveTab: () -> Void
     let canCloseActiveTab: Bool
     let activateTab: (Int) -> Void
+    let activateTerminalPane: (Int) -> Void
+    let terminalPaneCount: Int
     let focusServerSearch: () -> Void
     let refreshCurrentTool: () -> Void
     let canRefreshCurrentTool: Bool
@@ -116,6 +118,21 @@ private struct WorkstationMenuCommands: Commands {
             Button("断开当前会话…") { actions?.disconnectActiveSession() }
                 .keyboardShortcut(preferences.shortcut(for: .disconnectSession).keyEquivalent, modifiers: preferences.shortcut(for: .disconnectSession).modifiers)
                 .disabled(actions?.canDisconnectActiveSession != true)
+
+            Divider()
+
+            Button("切换到分屏 1") { actions?.activateTerminalPane(0) }
+                .keyboardShortcut(preferences.shortcut(for: .selectTerminalPane1).keyEquivalent, modifiers: preferences.shortcut(for: .selectTerminalPane1).modifiers)
+                .disabled((actions?.terminalPaneCount ?? 0) < 1)
+            Button("切换到分屏 2") { actions?.activateTerminalPane(1) }
+                .keyboardShortcut(preferences.shortcut(for: .selectTerminalPane2).keyEquivalent, modifiers: preferences.shortcut(for: .selectTerminalPane2).modifiers)
+                .disabled((actions?.terminalPaneCount ?? 0) < 2)
+            Button("切换到分屏 3") { actions?.activateTerminalPane(2) }
+                .keyboardShortcut(preferences.shortcut(for: .selectTerminalPane3).keyEquivalent, modifiers: preferences.shortcut(for: .selectTerminalPane3).modifiers)
+                .disabled((actions?.terminalPaneCount ?? 0) < 3)
+            Button("切换到分屏 4") { actions?.activateTerminalPane(3) }
+                .keyboardShortcut(preferences.shortcut(for: .selectTerminalPane4).keyEquivalent, modifiers: preferences.shortcut(for: .selectTerminalPane4).modifiers)
+                .disabled((actions?.terminalPaneCount ?? 0) < 4)
         }
 
         CommandGroup(replacing: .appSettings) {

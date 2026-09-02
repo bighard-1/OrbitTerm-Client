@@ -93,6 +93,8 @@ final class AppThemeTests: XCTestCase {
             WorkstationShortcutAction.allCases.map(preferences.shortcut(for:)).count,
             WorkstationShortcutAction.allCases.count
         )
+        XCTAssertEqual(preferences.shortcut(for: .selectTerminalPane1), .command("1", shift: true))
+        XCTAssertEqual(preferences.shortcut(for: .selectTerminalPane4), .command("4", shift: true))
         XCTAssertEqual(preferences.assign(.command("g", shift: true), to: .focusServerSearch), .accepted)
         XCTAssertEqual(preferences.shortcut(for: .focusServerSearch), .command("g", shift: true))
         XCTAssertEqual(

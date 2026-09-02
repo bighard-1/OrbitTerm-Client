@@ -2,17 +2,14 @@ import SwiftUI
 
 struct WorkstationAssetSidebarView: View {
     @Environment(\.appThemePalette) private var palette
-    @EnvironmentObject private var session: AppSession
     @ObservedObject var serverStore: ServerStore
     @ObservedObject var sessionManager: SessionManager
-    @ObservedObject var syncService: SyncService
     @Binding var searchText: String
     let searchFocusRequest: Int
     // Empty means no group has been explicitly expanded. Search temporarily
     // expands matching groups without changing the user's disclosure state.
     @State private var expandedGroups: Set<String> = []
     @State private var hoveredServerID: UUID?
-    @State private var isSynchronizing = false
     @FocusState private var isSearchFocused: Bool
     let onCollapse: () -> Void
     let onAddServer: () -> Void
@@ -22,7 +19,6 @@ struct WorkstationAssetSidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            activeEndpoint
             header
 
             if serverStore.servers.isEmpty {
@@ -99,8 +95,6 @@ struct WorkstationAssetSidebarView: View {
                     sessionManager.quickOpenServer = selected
                 }
             }
-
-            syncStatusFooter
         }
         .background(
             LinearGradient(
@@ -112,37 +106,6 @@ struct WorkstationAssetSidebarView: View {
         .task(id: searchFocusRequest) {
             guard searchFocusRequest > 0 else { return }
             isSearchFocused = true
-        }
-    }
-
-    @ViewBuilder
-    private var activeEndpoint: some View {
-        if let active = sessionManager.activeSession, active.isConnected {
-            HStack(spacing: 6) {
-                Text("当前资产 IP")
-                    .font(.caption)
-                    .foregroundStyle(palette.textSecondary.color)
-                Text(active.server.host)
-                    .font(.caption.monospaced().weight(.medium))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 4)
-                Button {
-                    _ = SecureClipboard.copy(active.server.host, kind: .ordinaryText)
-                } label: {
-                    Label("复制", systemImage: "doc.on.doc")
-                        .labelStyle(.iconOnly)
-                }
-                .buttonStyle(.borderless)
-                .help("复制当前已连接资产 IP")
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(palette.surfaceGlassStrong.color)
-            .overlay(alignment: .bottom) {
-                Rectangle().fill(palette.divider.color).frame(height: 1)
-            }
-            .accessibilityElement(children: .contain)
         }
     }
 
@@ -164,80 +127,6 @@ struct WorkstationAssetSidebarView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-    }
-
-    private var syncStatusFooter: some View {
-        HStack(spacing: 6) {
-            Image(systemName: syncStatusMessage.contains("失败") ? "arrow.triangle.2.circlepath.circle.fill" : "checkmark.icloud.fill")
-                .font(.caption)
-            Text(syncStatusMessage)
-                .lineLimit(2)
-            Spacer(minLength: 4)
-            Button {
-                startImmediateSynchronization()
-            } label: {
-                if isSynchronizing {
-                    ProgressView()
-                        .controlSize(.mini)
-                } else {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.caption.weight(.semibold))
-                }
-            }
-            .buttonStyle(.borderless)
-            .disabled(isSynchronizing || !session.isUnlocked)
-            .help("立即双向同步")
-            .accessibilityLabel("立即双向同步")
-        }
-        .font(.caption2)
-        .foregroundStyle(
-            syncStatusMessage.contains("失败")
-                ? SecuritySemanticPalette().warning.color
-                : palette.textSecondary.color
-        )
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(palette.surfaceGlassStrong.color)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(palette.divider.color)
-                .frame(height: 1)
-        }
-        .help(syncStatusMessage)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("同步状态：\(syncStatusMessage)")
-        .fixedSize(horizontal: false, vertical: true)
-        .layoutPriority(1)
-    }
-
-    private func startImmediateSynchronization() {
-        guard !isSynchronizing else { return }
-        guard let token = session.readToken(),
-              let masterPassword = session.readMasterPassword() else {
-            syncService.setSyncRecoveryPresentation(
-                session.isAuthenticated
-                    ? OperationRecoveryMapper.syncMasterPasswordUnavailable()
-                    : OperationRecoveryMapper.syncTokenUnavailable()
-            )
-            return
-        }
-        isSynchronizing = true
-        Task {
-            defer { isSynchronizing = false }
-            await syncService.reconcileAssetInventory(
-                token: token,
-                masterPassword: masterPassword,
-                store: serverStore,
-                accountID: session.username
-            )
-            await syncService.refreshInventoryDiagnostic(token: token, store: serverStore)
-        }
-    }
-
-    private var syncStatusMessage: String {
-        let message = syncService.lastSyncMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        return message.isEmpty ? "尚未同步" : message
     }
 
     private func serverRow(_ server: ServerEntry) -> some View {
@@ -289,7 +178,7 @@ struct WorkstationAssetSidebarView: View {
             onOpenServer(server)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(server.name)，\(server.endpointText)，\(sessionForServer(server).map { ConnectionPresentationAdapter.checkedSSH(hasVerifiedSessionLease: $0.verifiedSessionLease != nil, hasTerminalChannel: $0.terminalChannelID != nil, isSessionUsable: $0.isConnected).label } ?? "未连接")")
+        .accessibilityLabel("\(server.name)，\(server.endpointText)，\(sessionForServer(server)?.connectionPresentation.label ?? "未连接")")
         .accessibilityHint("单击选中，双击打开并连接此服务器")
         .listRowBackground(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -346,6 +235,91 @@ struct WorkstationAssetSidebarView: View {
     }
 }
 
+/// A workstation-level status bar. It intentionally lives outside the asset
+/// sidebar so collapsing the server browser never hides account sync state or
+/// the explicit synchronization action.
+struct WorkstationPersistentSyncStatusView: View {
+    @Environment(\.appThemePalette) private var palette
+    @EnvironmentObject private var session: AppSession
+    @ObservedObject var serverStore: ServerStore
+    @ObservedObject var syncService: SyncService
+    @State private var isSynchronizing = false
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: syncStatusMessage.contains("失败")
+                  ? "arrow.triangle.2.circlepath.circle.fill"
+                  : "checkmark.icloud.fill")
+                .font(.caption)
+            Text("同步状态")
+                .fontWeight(.semibold)
+            Text(syncStatusMessage)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .layoutPriority(1)
+            Button {
+                startImmediateSynchronization()
+            } label: {
+                if isSynchronizing {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.caption.weight(.semibold))
+                }
+            }
+            .buttonStyle(.borderless)
+            .disabled(isSynchronizing || !session.isUnlocked)
+            .help("立即双向同步")
+            .accessibilityLabel("立即双向同步")
+            Spacer(minLength: 8)
+        }
+        .font(.caption2)
+        .foregroundStyle(
+            syncStatusMessage.contains("失败")
+                ? SecuritySemanticPalette().warning.color
+                : palette.textSecondary.color
+        )
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+        .background(palette.surfaceGlassStrong.color)
+        .overlay(alignment: .top) {
+            Rectangle().fill(palette.divider.color).frame(height: 1)
+        }
+        .help(syncStatusMessage)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("同步状态：\(syncStatusMessage)")
+    }
+
+    private func startImmediateSynchronization() {
+        guard !isSynchronizing else { return }
+        guard let token = session.readToken(),
+              let masterPassword = session.readMasterPassword() else {
+            syncService.setSyncRecoveryPresentation(
+                session.isAuthenticated
+                    ? OperationRecoveryMapper.syncMasterPasswordUnavailable()
+                    : OperationRecoveryMapper.syncTokenUnavailable()
+            )
+            return
+        }
+        isSynchronizing = true
+        Task {
+            defer { isSynchronizing = false }
+            await syncService.reconcileAssetInventory(
+                token: token,
+                masterPassword: masterPassword,
+                store: serverStore,
+                accountID: session.username
+            )
+            await syncService.refreshInventoryDiagnostic(token: token, store: serverStore)
+        }
+    }
+
+    private var syncStatusMessage: String {
+        let message = syncService.lastSyncMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        return message.isEmpty ? "尚未同步" : message
+    }
+}
+
 struct WorkstationLeftRailView: View {
     let onExpand: () -> Void
 
@@ -384,7 +358,7 @@ private struct ObservedServerConnectionBadge: View {
         ConnectionStatusBadge(presentation: presentation)
     }
 
-    private var presentation: ConnectionPresentation { ConnectionPresentationAdapter.checkedSSH(hasVerifiedSessionLease: session.verifiedSessionLease != nil, hasTerminalChannel: session.terminalChannelID != nil, isSessionUsable: session.isConnected) }
+    private var presentation: ConnectionPresentation { session.connectionPresentation }
 }
 
 private struct ServerConnectionText: View {
@@ -407,5 +381,5 @@ private struct ObservedServerConnectionText: View {
             .font(.caption)
     }
 
-    private var presentation: ConnectionPresentation { ConnectionPresentationAdapter.checkedSSH(hasVerifiedSessionLease: session.verifiedSessionLease != nil, hasTerminalChannel: session.terminalChannelID != nil, isSessionUsable: session.isConnected) }
+    private var presentation: ConnectionPresentation { session.connectionPresentation }
 }

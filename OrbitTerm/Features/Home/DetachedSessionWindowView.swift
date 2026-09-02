@@ -13,7 +13,7 @@ struct DetachedSessionWindowView: View {
                         Text(session.server.name)
                             .font(.headline)
                         Spacer()
-                        Text(session.terminalStatus)
+                        Text(session.connectionPresentation.label)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

@@ -47,19 +47,15 @@ struct SyncQueueItem: Codable, Identifiable {
 }
 
 actor SyncQueueStore {
-    private let db: OpaquePointer?
+    private var db: OpaquePointer?
     private let queueDBURL: URL
+    private var lastFailureCode: Int32?
 
     init(fileURL: URL) {
         self.queueDBURL = fileURL
-        try? FileManager.default.createDirectory(
-            at: fileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        var raw: OpaquePointer?
-        sqlite3_open(fileURL.path, &raw)
-        db = raw
-        Self.createTableIfNeeded(db: raw)
+        let result = Self.openDatabase(fileURL: fileURL)
+        self.db = result.database
+        self.lastFailureCode = result.failureCode
     }
 
     deinit {
@@ -68,10 +64,20 @@ actor SyncQueueStore {
         }
     }
 
-    func append(_ item: SyncQueueItem) {
-        guard let db else { return }
-        _ = execute(db, sql: "BEGIN IMMEDIATE TRANSACTION;")
-        defer { _ = execute(db, sql: "COMMIT;") }
+    @discardableResult
+    func append(_ item: SyncQueueItem) -> Bool {
+        guard let db else {
+            lastFailureCode = lastFailureCode ?? SQLITE_CANTOPEN
+            return false
+        }
+        guard execute(db, sql: "BEGIN IMMEDIATE TRANSACTION;") else {
+            lastFailureCode = sqlite3_extended_errcode(db)
+            return false
+        }
+        var shouldCommit = false
+        defer {
+            _ = execute(db, sql: shouldCommit ? "COMMIT;" : "ROLLBACK;")
+        }
 
         let sql = """
         INSERT OR IGNORE INTO sync_queue
@@ -79,7 +85,10 @@ actor SyncQueueStore {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
         """
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            lastFailureCode = sqlite3_extended_errcode(db)
+            return false
+        }
         defer { sqlite3_finalize(stmt) }
 
         let payloadData = (try? JSONEncoder().encode(item.operation)) ?? Data()
@@ -97,7 +106,29 @@ actor SyncQueueStore {
         } else {
             sqlite3_bind_null(stmt, 9)
         }
-        _ = sqlite3_step(stmt)
+        guard sqlite3_step(stmt) == SQLITE_DONE else {
+            lastFailureCode = sqlite3_extended_errcode(db)
+            return false
+        }
+        shouldCommit = true
+        lastFailureCode = nil
+        return true
+    }
+
+    func healthFailureCode() -> Int32? {
+        lastFailureCode
+    }
+
+    /// Reopens in place after the user fixes disk or protected-storage state.
+    /// The database file is never deleted, renamed, or destructively rebuilt.
+    func reopen() -> Int32? {
+        if let db {
+            sqlite3_close(db)
+        }
+        let result = Self.openDatabase(fileURL: queueDBURL)
+        db = result.database
+        lastFailureCode = result.failureCode
+        return result.failureCode
     }
 
     func remove(id: UUID) {
@@ -139,6 +170,7 @@ actor SyncQueueStore {
         SELECT id, account_identifier, request_hash, payload_json, created_at, updated_at, attempt_count, next_retry_at, last_error
         FROM sync_queue
         WHERE account_identifier = ?
+          AND (last_error IS NULL OR last_error NOT LIKE 'blocked:%')
         ORDER BY created_at ASC
         LIMIT 1;
         """
@@ -176,6 +208,47 @@ actor SyncQueueStore {
         )
     }
 
+    func blockedCount(accountIdentifier: String) -> Int {
+        guard let db else { return 0 }
+        let sql = "SELECT COUNT(*) FROM sync_queue WHERE account_identifier = ? AND last_error LIKE 'blocked:%';"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return 0 }
+        defer { sqlite3_finalize(stmt) }
+        bindText(accountIdentifier, stmt: stmt, index: 1)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        return Int(sqlite3_column_int(stmt, 0))
+    }
+
+    @discardableResult
+    func retryBlocked(accountIdentifier: String, now: Date = Date()) -> Int {
+        guard let db else { return 0 }
+        let sql = """
+        UPDATE sync_queue
+        SET updated_at = ?, next_retry_at = ?, last_error = NULL, attempt_count = 0
+        WHERE account_identifier = ? AND last_error LIKE 'blocked:%';
+        """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return 0 }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_double(stmt, 1, now.timeIntervalSince1970)
+        sqlite3_bind_double(stmt, 2, now.timeIntervalSince1970)
+        bindText(accountIdentifier, stmt: stmt, index: 3)
+        guard sqlite3_step(stmt) == SQLITE_DONE else { return 0 }
+        return Int(sqlite3_changes(db))
+    }
+
+    @discardableResult
+    func discardBlocked(accountIdentifier: String) -> Int {
+        guard let db else { return 0 }
+        let sql = "DELETE FROM sync_queue WHERE account_identifier = ? AND last_error LIKE 'blocked:%';"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return 0 }
+        defer { sqlite3_finalize(stmt) }
+        bindText(accountIdentifier, stmt: stmt, index: 1)
+        guard sqlite3_step(stmt) == SQLITE_DONE else { return 0 }
+        return Int(sqlite3_changes(db))
+    }
+
     private static func decodeOperation(_ data: Data) -> SyncQueueOperation? {
         if let operation = try? JSONDecoder().decode(SyncQueueOperation.self, from: data) {
             return operation
@@ -187,8 +260,36 @@ actor SyncQueueStore {
         return nil
     }
 
-    private static func createTableIfNeeded(db: OpaquePointer?) {
-        guard let db else { return }
+    private static func openDatabase(fileURL: URL) -> (database: OpaquePointer?, failureCode: Int32?) {
+        do {
+            try FileManager.default.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        } catch {
+            return (nil, SQLITE_CANTOPEN)
+        }
+        var raw: OpaquePointer?
+        let openStatus = sqlite3_open_v2(
+            fileURL.path,
+            &raw,
+            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
+            nil
+        )
+        guard openStatus == SQLITE_OK, let raw else {
+            let code = raw.map(sqlite3_extended_errcode) ?? openStatus
+            if let raw { sqlite3_close(raw) }
+            return (nil, code)
+        }
+        guard createTableIfNeeded(db: raw), quickCheck(db: raw) else {
+            let code = sqlite3_extended_errcode(raw)
+            sqlite3_close(raw)
+            return (nil, code == SQLITE_OK ? SQLITE_CORRUPT : code)
+        }
+        return (raw, nil)
+    }
+
+    private static func createTableIfNeeded(db: OpaquePointer) -> Bool {
         let sql = """
         CREATE TABLE IF NOT EXISTS sync_queue (
             id TEXT PRIMARY KEY NOT NULL,
@@ -202,9 +303,25 @@ actor SyncQueueStore {
             last_error TEXT NULL
         );
         """
-        _ = sqlite3_exec(db, sql, nil, nil, nil)
+        guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else { return false }
         _ = sqlite3_exec(db, "ALTER TABLE sync_queue ADD COLUMN account_identifier TEXT NULL;", nil, nil, nil)
-        _ = sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS sync_queue_account_created ON sync_queue(account_identifier, created_at);", nil, nil, nil)
+        return sqlite3_exec(
+            db,
+            "CREATE INDEX IF NOT EXISTS sync_queue_account_created ON sync_queue(account_identifier, created_at);",
+            nil,
+            nil,
+            nil
+        ) == SQLITE_OK
+    }
+
+    private static func quickCheck(db: OpaquePointer) -> Bool {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA quick_check(1);", -1, &stmt, nil) == SQLITE_OK,
+              let stmt else { return false }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW,
+              let result = sqlite3_column_text(stmt, 0) else { return false }
+        return String(cString: result) == "ok"
     }
 
     private func execute(_ db: OpaquePointer, sql: String) -> Bool {
@@ -240,19 +357,42 @@ final class SyncQueue {
     private var wakeGeneration: UUID?
     private var processingOwner = OperationOwner()
     private var authContextProvider: (() -> SyncQueueAuthContext?)?
+    private let retryClock = RetryClockGuard()
 
     private let store: SyncQueueStore
 
     private init() {
         let dbURL = Self.queueDBURL()
         self.store = SyncQueueStore(fileURL: dbURL)
+        Task { [store] in
+            if let code = await store.healthFailureCode() {
+                await MainActor.run {
+                    LocalStorageIssueCenter.shared.reportSyncQueueFailure(code: code)
+                }
+            }
+        }
         migrateLegacyJSONIfNeeded()
         startMonitor()
     }
 
     func setAuthContextProvider(_ provider: @escaping () -> SyncQueueAuthContext?) {
         stateQueue.sync {
+            let previousAccount = authContextProvider?()?.accountIdentifier
             authContextProvider = provider
+            let nextAccount = provider()?.accountIdentifier
+            if SyncQueueAccountTransitionPolicy.invalidatesCurrentDelivery(
+                previous: previousAccount,
+                next: nextAccount
+            ) {
+                // Account replacement is itself a security boundary. Do not
+                // rely on the caller having suspended the old queue first.
+                processingOwner.invalidate()
+                processingTask?.cancel()
+                processingTask = nil
+                wakeTask?.cancel()
+                wakeTask = nil
+                wakeGeneration = nil
+            }
         }
         triggerProcessing(reason: "token_provider_updated")
     }
@@ -273,6 +413,41 @@ final class SyncQueue {
 
     func resumeProcessing() {
         triggerProcessing(reason: "operation_lifecycle_resumed")
+    }
+
+    func retryStorageAccess() {
+        Task { [weak self, store] in
+            guard let self else { return }
+            if let code = await store.reopen() {
+                await MainActor.run {
+                    LocalStorageIssueCenter.shared.reportSyncQueueFailure(code: code)
+                }
+                return
+            }
+            await MainActor.run {
+                LocalStorageIssueCenter.shared.clearSyncQueueFailure()
+            }
+            self.triggerProcessing(reason: "storage_recovered")
+        }
+    }
+
+    func blockedCount(accountID: String) async -> Int {
+        guard let scope = AccountScope(username: accountID) else { return 0 }
+        return await store.blockedCount(accountIdentifier: scope.storageIdentifier)
+    }
+
+    @discardableResult
+    func retryBlocked(accountID: String) async -> Int {
+        guard let scope = AccountScope(username: accountID) else { return 0 }
+        let count = await store.retryBlocked(accountIdentifier: scope.storageIdentifier)
+        if count > 0 { triggerProcessing(reason: "user_retried_blocked") }
+        return count
+    }
+
+    @discardableResult
+    func discardBlocked(accountID: String) async -> Int {
+        guard let scope = AccountScope(username: accountID) else { return 0 }
+        return await store.discardBlocked(accountIdentifier: scope.storageIdentifier)
     }
 
     func enqueueUpload(payload: UploadConfigRequest, accountID: String, reason: String?) async {
@@ -302,7 +477,22 @@ final class SyncQueue {
             nextRetryAt: Date(),
             lastError: reason
         )
-        await store.append(item)
+        guard await store.append(item) else {
+            logger.error("[SYNCQ] durable enqueue failed")
+            let code = await store.healthFailureCode() ?? SQLITE_IOERR
+            await MainActor.run {
+                LocalStorageIssueCenter.shared.reportSyncQueueFailure(code: code)
+            }
+            return
+        }
+        if ["sync.networkUnavailable", "sync.timedOut", "sync.serviceUnavailable"].contains(reason) {
+            await MainActor.run {
+                DiagnosticsManager.shared.recordSyncEvent(.unknownResultQueued)
+            }
+        }
+        await MainActor.run {
+            LocalStorageIssueCenter.shared.clearSyncQueueFailure()
+        }
         logger.debug("[SYNCQ] enqueue id=\(item.id.uuidString, privacy: .private(mask: .hash))")
         triggerProcessing(reason: "enqueue")
     }
@@ -338,14 +528,25 @@ final class SyncQueue {
             let lease = processingOwner.begin(scope: .account(accountIdentifier))
             processingTask = Task(priority: .utility) { [weak self] in
                 guard let self else { return }
-                await self.processLoop(
+                let shouldContinue = await self.processLoop(
                     reason: reason,
                     accountIdentifier: accountIdentifier,
                     lease: lease
                 )
-                self.stateQueue.sync {
-                    guard self.ownsProcessingLease(lease, accountIdentifier: accountIdentifier) else { return }
+                let mayContinue = self.stateQueue.sync { () -> Bool in
+                    guard self.ownsProcessingLease(lease, accountIdentifier: accountIdentifier) else { return false }
                     self.processingTask = nil
+                    let auth = self.authContextProvider?()
+                    return OperationResourceBudget.permitsSyncContinuation(
+                        hasMore: shouldContinue,
+                        networkAvailable: self.isNetworkReachable,
+                        authenticationMatchesExpectedAccount: auth?.accountIdentifier == accountIdentifier &&
+                            !(auth?.token.isEmpty ?? true)
+                    )
+                }
+                if mayContinue {
+                    await Task.yield()
+                    self.triggerProcessing(reason: "bounded_slice")
                 }
             }
         }
@@ -355,29 +556,31 @@ final class SyncQueue {
         reason: String,
         accountIdentifier: String,
         lease: OperationLease
-    ) async {
+    ) async -> Bool {
+        var completedInSlice = 0
         logger.debug("[SYNCQ] process start reason=\(reason, privacy: .private(mask: .hash))")
         while !Task.isCancelled {
-            guard ownsProcessingLease(lease, accountIdentifier: accountIdentifier) else { return }
-            guard isNetworkUp else { return }
+            guard ownsProcessingLease(lease, accountIdentifier: accountIdentifier) else { return false }
+            guard isNetworkUp else { return false }
             guard let auth = currentAuthContext(),
                   !auth.token.isEmpty,
                   auth.accountIdentifier == accountIdentifier else {
                 logger.debug("[SYNCQ] process paused: token unavailable")
-                return
+                return false
             }
             guard let head = await store.firstItem(accountIdentifier: accountIdentifier) else {
                 logger.debug("[SYNCQ] queue empty")
-                return
+                return false
             }
 
-            if head.nextRetryAt > Date() {
+            let retryNow = retryClock.trustedNow()
+            if head.nextRetryAt > retryNow {
                 scheduleWake(
                     at: head.nextRetryAt,
                     processingLease: lease,
                     accountIdentifier: accountIdentifier
                 )
-                return
+                return false
             }
 
             do {
@@ -385,36 +588,73 @@ final class SyncQueue {
                 guard !Task.isCancelled,
                       ownsProcessingLease(lease, accountIdentifier: accountIdentifier),
                       currentAuthContext()?.accountIdentifier == accountIdentifier else {
-                    return
+                    return false
                 }
                 await store.remove(id: head.id)
+                if head.attemptCount > 0 {
+                    await MainActor.run {
+                        DiagnosticsManager.shared.recordSyncEvent(.idempotentReplayConfirmed)
+                    }
+                }
+                completedInSlice += 1
                 logger.debug("[SYNCQ] sent id=\(head.id.uuidString, privacy: .private(mask: .hash))")
+                if OperationResourceBudget.shouldYieldSyncDelivery(completedInSlice: completedInSlice) {
+                    logger.debug("[SYNCQ] yielding after bounded delivery slice")
+                    return true
+                }
             } catch {
                 guard !Task.isCancelled,
                       ownsProcessingLease(lease, accountIdentifier: accountIdentifier),
                       currentAuthContext()?.accountIdentifier == accountIdentifier else {
-                    return
+                    return false
                 }
                 if let net = error as? NetworkService.NetworkError,
                    case .unauthorized = net {
                     logger.debug("[SYNCQ] paused: auth expired")
-                    return
+                    return false
                 }
+                let diagnosticCode = OperationRecoveryMapper.sync(error).diagnosticCode
+                let disposition = SyncQueueRecoveryPolicy.disposition(
+                    for: diagnosticCode,
+                    attemptCount: head.attemptCount + 1
+                )
                 var failed = head
                 failed.attemptCount += 1
-                failed.updatedAt = Date()
-                failed.lastError = OperationRecoveryMapper.sync(error).diagnosticCode
-                failed.nextRetryAt = Date().addingTimeInterval(Self.backoffSeconds(for: failed.attemptCount))
-                await store.update(failed)
-                logger.debug("[SYNCQ] retry id=\(failed.id.uuidString, privacy: .private(mask: .hash)) attempt=\(failed.attemptCount)")
-                scheduleWake(
-                    at: failed.nextRetryAt,
-                    processingLease: lease,
-                    accountIdentifier: accountIdentifier
+                let failureTime = retryClock.trustedNow()
+                failed.updatedAt = failureTime
+                failed.lastError = SyncQueueRecoveryPolicy.persistedError(
+                    diagnosticCode: diagnosticCode,
+                    disposition: disposition
                 )
-                return
+                let serverRetryAfter = (error as? NetworkService.NetworkError)?.retryAfterSeconds
+                let automaticRetryDelay = SyncQueueRecoveryPolicy.effectiveRetryDelay(
+                    defaultBackoff: Self.backoffSeconds(for: failed.attemptCount),
+                    serverSuggested: serverRetryAfter
+                )
+                failed.nextRetryAt = disposition == .automaticRetry
+                    ? failureTime.addingTimeInterval(automaticRetryDelay)
+                    : failureTime
+                await store.update(failed)
+                await MainActor.run {
+                    DiagnosticsManager.shared.recordSyncEvent(.deliveryDeferred)
+                    if disposition == .blocked {
+                        DiagnosticsManager.shared.recordSyncEvent(.deliveryBlocked)
+                    }
+                }
+                if disposition == .automaticRetry {
+                    logger.debug("[SYNCQ] retry id=\(failed.id.uuidString, privacy: .private(mask: .hash)) attempt=\(failed.attemptCount)")
+                    scheduleWake(
+                        at: failed.nextRetryAt,
+                        processingLease: lease,
+                        accountIdentifier: accountIdentifier
+                    )
+                } else {
+                    logger.debug("[SYNCQ] delivery paused by recovery policy")
+                }
+                return disposition == .blocked
             }
         }
+        return false
     }
 
     private func send(_ operation: SyncQueueOperation, token: String) async throws {
@@ -445,7 +685,7 @@ final class SyncQueue {
 
         let task = Task(priority: .utility) { [weak self] in
             guard let self else { return }
-            let sleepNanos = max(0, date.timeIntervalSinceNow) * 1_000_000_000
+            let sleepNanos = max(0, date.timeIntervalSince(self.retryClock.trustedNow())) * 1_000_000_000
             if sleepNanos > 0 {
                 do {
                     try await Task.sleep(nanoseconds: UInt64(sleepNanos))
@@ -520,6 +760,7 @@ final class SyncQueue {
         }
 
         Task {
+            var migrationSucceeded = true
             for item in items {
                 let operation = SyncQueueOperation.upload(item.payload)
                 let hash = Self.requestHash(operation, accountIdentifier: "legacy-unassigned")
@@ -534,9 +775,16 @@ final class SyncQueue {
                     nextRetryAt: item.nextRetryAt,
                     lastError: item.lastError
                 )
-                await store.append(migrated)
+                guard await store.append(migrated) else {
+                    migrationSucceeded = false
+                    break
+                }
             }
-            try? FileManager.default.removeItem(at: legacyURL)
+            if migrationSucceeded {
+                // The JSON source remains the recovery copy until every row
+                // has been durably committed or deduplicated by SQLite.
+                try? FileManager.default.removeItem(at: legacyURL)
+            }
         }
     }
 

@@ -18,7 +18,8 @@ final class WorkspaceSession: ObservableObject, Identifiable {
     let server: ServerEntry
 
     @Published var terminalLines: [TerminalLineEntry]
-    @Published var terminalStatus: String
+    @Published private(set) var terminalStatus: String
+    @Published private(set) var connectionPhase: ConnectionPresentationPhase
     @Published var activeMonitorPanelID: UUID?
     @Published var isConnected: Bool
     @Published var terminalChannelID: UInt64?
@@ -29,17 +30,24 @@ final class WorkspaceSession: ObservableObject, Identifiable {
     @Published var terminalSplitCount: Int
     @Published var terminalChannelIDs: [UInt64]
     @Published var activeTerminalPaneIndex: Int
+    /// Incremented by keyboard navigation so the selected native terminal view
+    /// can become first responder even when the pane was already selected.
+    @Published var terminalPaneFocusRequest: Int
     @Published var isTelnetSession: Bool
     @Published var verifiedSessionLease: VerifiedWorkspaceSession?
 
     let sftpManager: SFTPManager
     let dockerService: DockerService
+#if os(macOS)
+    let remoteDesktopController: RemoteDesktopSessionController
+#endif
 
     init(server: ServerEntry) {
         self.id = UUID()
         self.server = server
         self.terminalLines = [TerminalLineEntry(text: "欢迎使用 OrbitTerm 工作站")]
         self.terminalStatus = "未连接"
+        self.connectionPhase = .idle
         self.activeMonitorPanelID = nil
         self.isConnected = false
         self.terminalChannelID = nil
@@ -50,10 +58,14 @@ final class WorkspaceSession: ObservableObject, Identifiable {
         self.terminalSplitCount = 0
         self.terminalChannelIDs = []
         self.activeTerminalPaneIndex = 0
+        self.terminalPaneFocusRequest = 0
         self.isTelnetSession = server.transport == .telnet
         self.verifiedSessionLease = nil
         self.sftpManager = SFTPManager()
         self.dockerService = DockerService()
+#if os(macOS)
+        self.remoteDesktopController = RemoteDesktopSessionController()
+#endif
     }
 
     func appendTerminal(_ line: String) {
@@ -70,6 +82,30 @@ final class WorkspaceSession: ObservableObject, Identifiable {
         if terminalLines.count > 1200 {
             terminalLines.removeFirst(terminalLines.count - 1200)
         }
+    }
+
+    var connectionPresentation: ConnectionPresentation {
+#if os(macOS)
+        if server.transport == .rdp {
+            return ConnectionPresentationAdapter.remoteDesktop(
+                phase: remoteDesktopController.phase
+            )
+        }
+#endif
+        return ConnectionPresentationAdapter.terminal(
+            hasVerifiedSessionLease: verifiedSessionLease != nil,
+            hasTerminalChannel: terminalChannelID != nil,
+            isSessionUsable: isConnected,
+            requiresVerifiedLease: server.transport == .ssh,
+            phase: connectionPhase
+        )
+    }
+
+    /// Stores a typed lifecycle phase separately from diagnostic detail so UI
+    /// labels never infer connection truth from localized free-form text.
+    func updateConnectionState(_ phase: ConnectionPresentationPhase, detail: String) {
+        connectionPhase = phase
+        terminalStatus = detail
     }
 
     func captureTypedBytes(_ bytes: [UInt8]) -> [String] {

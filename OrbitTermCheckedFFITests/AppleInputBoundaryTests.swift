@@ -66,6 +66,49 @@ final class AppleInputBoundaryTests: XCTestCase {
         XCTAssertNil(manager.pendingIntent)
     }
 
+    func testDeepLinksRejectEmbeddedCredentialsAndOversizedFields() {
+        let manager = DeepLinkManager.shared
+        manager.consumePendingIntent()
+
+        manager.handle(url: URL(string: "ssh://ops:secret@example.com")!)
+        XCTAssertNil(manager.pendingIntent)
+
+        manager.handle(url: URL(string: "orbitterm://connect?host=db.example&password=secret")!)
+        XCTAssertNil(manager.pendingIntent)
+
+        let oversizedName = String(repeating: "n", count: 81)
+        manager.handle(url: URL(string: "orbitterm://connect?host=db.example&name=\(oversizedName)")!)
+        XCTAssertNil(manager.pendingIntent)
+    }
+
+    func testLockedOrReplacedReviewDoesNotConsumePendingDeepLink() {
+        let pending = UUID()
+        XCTAssertFalse(
+            DeepLinkReviewPolicy.shouldConsumePendingIntent(
+                isAuthenticated: true,
+                isUnlocked: false,
+                pendingIntentID: pending,
+                activeReviewID: pending
+            )
+        )
+        XCTAssertFalse(
+            DeepLinkReviewPolicy.shouldConsumePendingIntent(
+                isAuthenticated: true,
+                isUnlocked: true,
+                pendingIntentID: UUID(),
+                activeReviewID: pending
+            )
+        )
+        XCTAssertTrue(
+            DeepLinkReviewPolicy.shouldConsumePendingIntent(
+                isAuthenticated: true,
+                isUnlocked: true,
+                pendingIntentID: pending,
+                activeReviewID: pending
+            )
+        )
+    }
+
     func testShellPathResolverNormalizesRelativeHomeAndParentPaths() {
         XCTAssertEqual(
             ShellPathResolver.resolve(command: "cd ../logs/./today", currentPath: "/srv/app/cache", username: "deploy"),

@@ -63,4 +63,19 @@ final class DiagnosticsPrivacyTests: XCTestCase {
             )
         )
     }
+
+    func testSyncEventExportContainsOnlyAllowListedAggregateFields() {
+        let line = DiagnosticsPrivacy.syncEventExportLine(.idempotentReplayConfirmed, count: 3)
+
+        XCTAssertEqual(line, "sync_event=idempotent_replay_confirmed count=3")
+        XCTAssertFalse(line.contains("account"))
+        XCTAssertFalse(line.contains("asset"))
+        XCTAssertFalse(line.contains("request"))
+        XCTAssertFalse(line.contains("secret"))
+
+        XCTAssertEqual(
+            DiagnosticsPrivacy.syncEventExportLine(.deliveryBlocked, count: 2),
+            "sync_event=delivery_blocked count=2"
+        )
+    }
 }

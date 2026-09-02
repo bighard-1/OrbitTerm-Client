@@ -41,7 +41,7 @@ struct AddServerAuthSection: View {
                             .font(.caption2)
                             .foregroundStyle(palette.textSecondary.color)
                     } else if transport == .rdp {
-                        Text("RDP 资产已参与端到端加密同步；当前 Apple 版本仅保留配置，尚未开放连接入口。")
+                        Text("RDP 资产支持端到端加密同步；连接时由内置 FreeRDP 会话安全读取钥匙串凭据。")
                             .font(.caption2)
                             .foregroundStyle(palette.textSecondary.color)
                     }
@@ -86,7 +86,7 @@ struct AddServerAuthSection: View {
                     .font(.caption)
                     .foregroundStyle(palette.textSecondary.color)
             } else {
-                Text("RDP 凭据继续存储在系统钥匙串并参与加密同步；不会被终端、SFTP、Docker 或监控模块读取。")
+                Text("RDP 凭据仅在发起远程桌面会话时从系统钥匙串临时读取；不会交给终端、SFTP、Docker 或监控模块。")
                     .font(.caption)
                     .foregroundStyle(palette.textSecondary.color)
             }
@@ -94,13 +94,10 @@ struct AddServerAuthSection: View {
     }
 
     private var availableTransports: [ServerTransportProtocol] {
-        if transport == .rdp {
-            return [.rdp]
-        }
         if telnetEnabled || transport == .telnet {
-            return [.ssh, .telnet]
+            return [.ssh, .rdp, .telnet]
         }
-        return [.ssh]
+        return [.ssh, .rdp]
     }
 
     private var telnetProfileSection: some View {

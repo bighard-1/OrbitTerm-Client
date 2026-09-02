@@ -17,6 +17,7 @@ struct SFTPBrowserView: View {
     @State private var batchDownloadGeneration = UUID()
     @State private var documentOperationGeneration = UUID()
     @State private var showDocumentDiscardConfirmation = false
+    @State private var hiddenOperationStatusText: String?
 
 #if os(iOS)
     @State private var shareURLs: [URL] = []
@@ -70,6 +71,16 @@ struct SFTPBrowserView: View {
             }
             #endif
             await autoBindActiveSessionIfNeeded()
+        }
+        .task(id: effectiveManager.statusText) {
+            hiddenOperationStatusText = nil
+            guard operationStatusShouldBePresented, !operationStatusIsFailure,
+                  let delay = OperationalFeedbackPolicy.lifetime(kind: .success).autoDismissAfterNanoseconds else {
+                return
+            }
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled else { return }
+            hiddenOperationStatusText = effectiveManager.statusText
         }
         .onDisappear {
             cancelBatchDownload()
@@ -168,27 +179,36 @@ struct SFTPBrowserView: View {
                 .padding(.vertical, 8)
                 breadcrumbBar
                 summaryBar
+                Label(
+                    operationalPresentation.headline,
+                    systemImage: operationalPresentation.phase == .failed
+                        ? "exclamationmark.triangle.fill"
+                        : "circle.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(operationalPresentation.phase == .failed ? Color.red : palette.textSecondary.color)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+                .accessibilityLabel("SFTP：\(operationalPresentation.headline)。\(operationalPresentation.detail)")
                 if shouldShowOperationStatus {
-                    Label(
-                        effectiveManager.statusText,
-                        systemImage: operationStatusIsFailure ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
-                    )
-                    .font(.caption)
-                    .foregroundStyle(operationStatusIsFailure ? Color.red : palette.accentPrimary.color)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(
-                        (operationStatusIsFailure ? Color.red : palette.accentPrimary.color).opacity(0.10),
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    )
+                    Group {
+                        if operationStatusIsFailure {
+                            OperationalFailureBanner(
+                                content: operationalPresentation,
+                                action: operationalActionPresentation,
+                                accessibilityPrefix: "SFTP"
+                            )
+                        } else {
+                            OperationalTransientSuccessBanner(message: effectiveManager.statusText)
+                        }
+                    }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 6)
-                    .accessibilityLabel("SFTP 操作结果：\(effectiveManager.statusText)")
                 }
 
                 if effectiveManager.isLoading && effectiveManager.items.isEmpty {
-                    ProgressView("加载中...")
+                    ProgressView(operationalPresentation.headline)
                         .tint(palette.accentPrimary.color)
                         .foregroundStyle(palette.textPrimary.color)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -237,7 +257,7 @@ struct SFTPBrowserView: View {
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button("刷新") {
+                OperationalRefreshButton(presentation: operationalActionPresentation) {
                     Task {
                         try? await effectiveManager.refresh()
                         batchState.clearSelection()
@@ -345,12 +365,43 @@ struct SFTPBrowserView: View {
 
     private var operationStatusIsFailure: Bool {
         let text = effectiveManager.statusText
-        return text.contains("失败") || text.contains("不可写") || text.contains("权限")
+        return text.contains("失败")
+            || text.contains("不可写")
+            || text.contains("权限不足")
+            || text.contains("没有权限")
+            || text.contains("拒绝")
+    }
+
+    private var operationalPresentation: OperationalContentPresentation {
+        let failureDetail = effectiveManager.recoveryPresentation?.message
+            ?? (operationStatusIsFailure ? effectiveManager.statusText : nil)
+        return OperationalContentPresentationMapper.sftp(
+            isLoading: effectiveManager.isLoading,
+            hasItems: !effectiveManager.items.isEmpty,
+            failureDetail: failureDetail
+        )
+    }
+
+    private var operationalActionPresentation: OperationalActionPresentation {
+        OperationalContentPresentationMapper.refreshAction(
+            module: .sftp,
+            phase: operationalPresentation.phase,
+            isRefreshing: effectiveManager.isLoading,
+            hasContent: !effectiveManager.items.isEmpty
+        )
     }
 
     private var shouldShowOperationStatus: Bool {
+        operationStatusShouldBePresented && hiddenOperationStatusText != effectiveManager.statusText
+    }
+
+    private var operationStatusShouldBePresented: Bool {
         let text = effectiveManager.statusText
-        return text.contains("已创建") || text.contains("新建") || text.contains("同名") || operationStatusIsFailure
+        return text.contains("已创建")
+            || text.contains("新建")
+            || text.contains("同名")
+            || operationStatusIsFailure
+            || operationalPresentation.phase == .failed
     }
 
     private func navigateToPath() {

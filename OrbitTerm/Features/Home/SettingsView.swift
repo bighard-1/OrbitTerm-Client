@@ -135,7 +135,8 @@ struct SettingsView: View {
 #endif
     @EnvironmentObject private var syncService: SyncService
     @State private var showDiagnostics = false
-    @State private var biometricStatus: String = ""
+    @State private var biometricFeedback: SecurityOperationFeedback?
+    @State private var biometricFeedbackDismissTask: Task<Void, Never>?
     @AppStorage(TerminalThemeManager.storageKey) private var terminalThemeID: String = TerminalThemeManager.defaultThemeID
     @AppStorage(TerminalThemeManager.followsApplicationThemeStorageKey) private var terminalFollowsApplicationTheme = false
     @State private var biometricEnabled: Bool = false
@@ -143,8 +144,12 @@ struct SettingsView: View {
     @AppStorage(TelnetAccessPolicy.enabledStorageKey) private var telnetEnabled: Bool = false
     @AppStorage("orbitterm.monitor.realtime.interval") private var monitorInterval: Double = 1.0
     @AppStorage(MonitorRefreshPreference.storageKey) private var monitorAutoRefreshEnabled = true
+#if os(macOS)
     @AppStorage("orbitterm.monitor.history.range") private var monitorHistoryRange = "10 分钟"
+#endif
     @State private var showTelnetEnableConfirmation = false
+    @State private var blockedSyncQueueCount = 0
+    @State private var showDiscardBlockedSyncConfirmation = false
 #if os(iOS)
 #endif
 
@@ -243,12 +248,14 @@ struct SettingsView: View {
 
             Section("系统监控") {
                 Toggle("自动刷新资源趋势", isOn: $monitorAutoRefreshEnabled)
+#if os(macOS)
                 Picker("趋势时间范围", selection: $monitorHistoryRange) {
                     Text("实时").tag("实时")
                     Text("5 分钟").tag("5 分钟")
                     Text("10 分钟").tag("10 分钟")
                 }
                 .pickerStyle(.segmented)
+#endif
             }
 
 #if os(macOS)
@@ -274,6 +281,18 @@ struct SettingsView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
+                }
+                if blockedSyncQueueCount > 0 {
+                    Text("\(blockedSyncQueueCount) 项本地同步变更已停止后台重试。请先检查同步服务设置，再选择重新尝试；确认不再需要时也可丢弃。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("重新尝试受阻项目") {
+                        Task { await retryBlockedSyncQueue() }
+                    }
+                    Button("丢弃受阻项目", role: .destructive) {
+                        showDiscardBlockedSyncConfirmation = true
+                    }
                 }
                 NavigationLink {
                     RecentlyDeletedView()
@@ -305,10 +324,10 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                if !biometricStatus.isEmpty {
-                    Text(biometricStatus)
+                if let biometricFeedback {
+                    Text(biometricFeedback.message)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(biometricFeedback.isFailure ? .red : .green)
                 }
             }
 
@@ -364,6 +383,17 @@ struct SettingsView: View {
         } message: {
             Text("Telnet 会以明文传输登录信息和终端内容。仅应连接隔离内网、VPN 内的受信旧设备；SSH 失败时 OrbitTerm 不会自动切换到 Telnet。")
         }
+        .alert("丢弃受阻同步项目？", isPresented: $showDiscardBlockedSyncConfirmation) {
+            Button("取消", role: .cancel) {}
+            Button("确认丢弃", role: .destructive) {
+                Task { await discardBlockedSyncQueue() }
+            }
+        } message: {
+            Text("只会移除已确认停止重试的同步请求，不会删除本机资产或可自动重试项目。此操作无法撤销。")
+        }
+        .task(id: syncService.lastSyncMessage) {
+            await refreshBlockedSyncQueueCount()
+        }
         .onChange(of: monitorAutoRefreshEnabled) { _, enabled in
             Task {
                 await SessionManager.shared.monitorService.applyAutoRefreshPreference(enabled)
@@ -372,6 +402,30 @@ struct SettingsView: View {
         .onAppear {
             biometricEnabled = BiometricAuthService.shared.isEnabled(for: session.username)
         }
+        .onDisappear {
+            biometricFeedbackDismissTask?.cancel()
+        }
+    }
+
+    @MainActor
+    private func refreshBlockedSyncQueueCount() async {
+        guard !session.username.isEmpty else {
+            blockedSyncQueueCount = 0
+            return
+        }
+        blockedSyncQueueCount = await SyncQueue.shared.blockedCount(accountID: session.username)
+    }
+
+    @MainActor
+    private func retryBlockedSyncQueue() async {
+        _ = await SyncQueue.shared.retryBlocked(accountID: session.username)
+        await refreshBlockedSyncQueueCount()
+    }
+
+    @MainActor
+    private func discardBlockedSyncQueue() async {
+        _ = await SyncQueue.shared.discardBlocked(accountID: session.username)
+        await refreshBlockedSyncQueueCount()
     }
 
     /// Loading the Settings screen must never authenticate the user. Only a
@@ -385,7 +439,9 @@ struct SettingsView: View {
                 } else {
                     BiometricAuthService.shared.setEnabled(false, for: session.username)
                     biometricEnabled = false
-                    biometricStatus = "已关闭生物识别解锁"
+                    setBiometricFeedback(
+                        .init(kind: .success, message: SecurityOperationPresentation.biometricDisabledSuccess)
+                    )
                 }
             }
         )
@@ -408,25 +464,32 @@ struct SettingsView: View {
     @MainActor
     private func validateBiometricImmediately() async {
         guard session.hasMasterPassword else {
-            biometricStatus = "请先设置并验证主密码后再启用生物识别"
+            setBiometricFeedback(.init(kind: .failure, message: "请先设置并验证主密码后再启用生物识别。"))
             biometricEnabled = false
             return
         }
         guard BiometricAuthService.shared.isBiometricAvailable else {
-            biometricStatus = "当前设备不可用 Face ID / Touch ID"
+            setBiometricFeedback(
+                .init(kind: .recoveryRequired, message: SecurityOperationPresentation.biometricUnavailable)
+            )
             biometricEnabled = false
             return
         }
 
-        let passed = await BiometricAuthService.shared.validateBiometricOnly()
-        guard passed else {
-            biometricStatus = "生物识别验证失败，已自动关闭"
+        let validation = await BiometricAuthService.shared.validateBiometricOnly()
+        guard validation == .success else {
             biometricEnabled = false
+            if case let .failure(failure) = validation,
+               let feedback = SecurityOperationPresentation.biometricFailure(failure) {
+                setBiometricFeedback(feedback)
+            }
             return
         }
 
         guard let pwd = session.readMasterPassword(), !pwd.isEmpty else {
-            biometricStatus = "无法读取主密码，请先锁定后重新用主密码解锁，再启用生物识别"
+            setBiometricFeedback(
+                .init(kind: .recoveryRequired, message: SecurityOperationPresentation.biometricInvalidated)
+            )
             biometricEnabled = false
             return
         }
@@ -434,13 +497,29 @@ struct SettingsView: View {
         do {
             try BiometricAuthService.shared.enroll(masterPassword: pwd, accountID: session.username)
         } catch {
-            biometricStatus = "生物识别初始化失败：\(error.localizedDescription)"
+            setBiometricFeedback(
+                .init(kind: .recoveryRequired, message: SecurityOperationPresentation.biometricInvalidated)
+            )
             biometricEnabled = false
             return
         }
 
         BiometricAuthService.shared.setEnabled(true, for: session.username)
-        biometricStatus = "生物识别已启用并验证成功"
+        biometricEnabled = true
+        setBiometricFeedback(
+            .init(kind: .success, message: SecurityOperationPresentation.biometricEnabledSuccess)
+        )
+    }
+
+    private func setBiometricFeedback(_ feedback: SecurityOperationFeedback) {
+        biometricFeedbackDismissTask?.cancel()
+        biometricFeedback = feedback
+        guard let delay = feedback.autoDismissAfterNanoseconds else { return }
+        biometricFeedbackDismissTask = Task {
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled, biometricFeedback == feedback else { return }
+            biometricFeedback = nil
+        }
     }
 
 #if os(macOS)

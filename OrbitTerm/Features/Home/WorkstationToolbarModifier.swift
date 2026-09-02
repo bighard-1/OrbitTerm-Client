@@ -114,7 +114,7 @@ struct WorkstationTopBar: View {
                     .help("网络重试中")
             }
 
-            Spacer(minLength: 12)
+            Spacer(minLength: 8)
 
             HStack(spacing: 8) {
                 Button("添加服务器") { showingAddServer = true }
@@ -200,8 +200,14 @@ struct WorkstationOverviewBand: View {
     @Environment(\.appThemePalette) private var palette
 
     var body: some View {
-        HStack(spacing: 0) {
-            if let activeSession {
+        HStack(spacing: 8) {
+            RemoteEndpointMonitorCard(
+                host: activeSession?.isConnected == true ? activeSession?.server.host : nil
+            )
+            .frame(width: 176)
+
+            Group {
+                if let activeSession {
                 WorkstationMonitorOverviewStrip(
                     active: activeSession,
                     monitorService: monitorService,
@@ -211,13 +217,15 @@ struct WorkstationOverviewBand: View {
                     onStartCheckedMonitoring: onStartCheckedMonitoring
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Label("连接服务器后显示系统概览", systemImage: "waveform.path.ecg")
-                    .font(.caption)
-                    .foregroundStyle(palette.textSecondary.color)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityLabel("系统概览，连接服务器后可用")
+                } else {
+                    Label("连接服务器后显示系统概览", systemImage: "waveform.path.ecg")
+                        .font(.caption)
+                        .foregroundStyle(palette.textSecondary.color)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityLabel("系统概览，连接服务器后可用")
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.leading, 12)
         .padding(.trailing, 12)
@@ -281,9 +289,9 @@ private struct WorkstationTopBarButtonStyle: ButtonStyle {
     }
 }
 
-private struct RemoteEndpointToolbarLabel: View {
+private struct RemoteEndpointMonitorCard: View {
     @Environment(\.appThemePalette) private var palette
-    let host: String
+    let host: String?
 
     var body: some View {
         HStack(spacing: 5) {
@@ -297,30 +305,34 @@ private struct RemoteEndpointToolbarLabel: View {
                 .fill(palette.borderGlass.color)
                 .frame(width: 1, height: 13)
             Button {
+                guard let host else { return }
                 _ = SecureClipboard.copy(host, kind: .ordinaryText)
             } label: {
                 Image(systemName: "doc.on.doc")
                     .font(.caption.weight(.semibold))
             }
             .buttonStyle(.plain)
+            .disabled(host == nil)
             .foregroundStyle(palette.textSecondary.color)
             .help("复制完整远程地址")
             .accessibilityLabel("复制远程地址")
         }
         .foregroundStyle(palette.textPrimary.color)
-        .padding(.leading, 9)
-        .padding(.trailing, 7)
-        .padding(.vertical, 5)
-        .background(palette.surfaceGlass.color, in: Capsule())
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, minHeight: 50, maxHeight: 50, alignment: .leading)
+        .background(palette.surfaceGlass.color, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
-            Capsule().stroke(palette.borderGlass.color, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(palette.borderGlass.color, lineWidth: 1)
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("当前终端远程地址：\(host)")
+        .accessibilityLabel("当前终端远程地址：\(host ?? "未连接")")
     }
 
     private var displayHost: String {
-        host.contains(":") && host.count > 22
+        guard let host else { return "未连接" }
+        return host.contains(":") && host.count > 22
             ? "\(host.prefix(10))…\(host.suffix(8))"
             : host
     }

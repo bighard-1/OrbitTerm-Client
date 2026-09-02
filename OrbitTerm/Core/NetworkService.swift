@@ -19,21 +19,51 @@ final class NetworkService: NSObject {
     private let tokenAccount = "jwt_token"
     private let refreshTokenAccount = "jwt_refresh_token"
     private let refreshCoordinator = RefreshCoordinator()
+    private let sessionConfiguration: URLSessionConfiguration
+    private let retrySleeper: (UInt64) async throws -> Void
     /// App composition injects the account-scoped recorder. The static fallback
     /// only covers pre-composition calls during process bootstrap.
     private var diagnosticsManager: DiagnosticsManager?
 
     private lazy var session: URLSession = {
+        URLSession(configuration: sessionConfiguration, delegate: self, delegateQueue: nil)
+    }()
+
+    private override init() {
         let config = URLSessionConfiguration.default
         config.waitsForConnectivity = true
         config.timeoutIntervalForRequest = 15
         config.timeoutIntervalForResource = 15
-        return URLSession(configuration: config, delegate: self, delegateQueue: nil)
-    }()
-
-    private override init() {
+        sessionConfiguration = config
+        retrySleeper = { try await Task.sleep(nanoseconds: $0) }
         super.init()
     }
+
+#if DEBUG
+    /// Test-only seam for deterministic URLSession fault injection. Release
+    /// builds expose no alternate transport or retry clock.
+    init(
+        testingSessionConfiguration configuration: URLSessionConfiguration,
+        retrySleeper: @escaping (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) }
+    ) {
+        sessionConfiguration = configuration
+        self.retrySleeper = retrySleeper
+        super.init()
+    }
+
+    /// Sends a synthetic, content-free mutation through the production request
+    /// builder so tests can verify header stability across native retries.
+    func performFaultInjectionProbe(idempotencyKey: String) async throws {
+        _ = try await send(
+            path: "/api/v1/test/fault-probe",
+            method: "POST",
+            body: FaultInjectionProbeBody(marker: "fixture"),
+            token: nil,
+            idempotencyKey: idempotencyKey,
+            responseType: EmptyResponseData.self
+        )
+    }
+#endif
 
     func configureDiagnostics(_ diagnostics: DiagnosticsManager) {
         diagnosticsManager = diagnostics
@@ -46,6 +76,7 @@ final class NetworkService: NSObject {
         case customEndpointApprovalRequired
         case server(String)
         case unexpectedStatus(Int)
+        case httpStatus(Int, retryAfterSeconds: TimeInterval?)
         case unauthorized(String?)
         case decodeFailed
 
@@ -63,6 +94,11 @@ final class NetworkService: NSObject {
                 return "服务端错误: \(message)"
             case let .unexpectedStatus(code):
                 return "HTTP 状态异常: \(code)"
+            case let .httpStatus(code, retryAfterSeconds):
+                if let retryAfterSeconds {
+                    return "HTTP 状态异常: \(code)，请在 \(Int(retryAfterSeconds)) 秒后重试"
+                }
+                return "HTTP 状态异常: \(code)"
             case let .unauthorized(message):
                 if let message, !message.isEmpty {
                     return "未授权: \(message)"
@@ -71,6 +107,11 @@ final class NetworkService: NSObject {
             case .decodeFailed:
                 return "响应解析失败"
             }
+        }
+
+        var retryAfterSeconds: TimeInterval? {
+            guard case let .httpStatus(_, retryAfterSeconds) = self else { return nil }
+            return retryAfterSeconds
         }
     }
 
@@ -159,6 +200,8 @@ final class NetworkService: NSObject {
             switch networkError {
             case let .unexpectedStatus(code):
                 return code == 408 || code == 429 || (500 ... 599).contains(code)
+            case let .httpStatus(code, _):
+                return SyncHTTPResponsePolicy.disposition(statusCode: code) == .retryable
             default:
                 return false
             }
@@ -240,6 +283,7 @@ final class NetworkService: NSObject {
             path: "/api/v1/config/upload",
             method: "POST",
             body: payload,
+            idempotencyKey: SyncRequestIdentity.upload(payload),
             responseType: UploadConfigData.self
         )
     }
@@ -282,6 +326,7 @@ final class NetworkService: NSObject {
             path: "/api/v1/config/assets/\(assetID.uuidString)/delete",
             method: "POST",
             body: request,
+            idempotencyKey: SyncRequestIdentity.mutation(request),
             responseType: UploadConfigData.self
         )
     }
@@ -291,6 +336,7 @@ final class NetworkService: NSObject {
             path: "/api/v1/config/assets/\(assetID.uuidString)/restore",
             method: "POST",
             body: request,
+            idempotencyKey: SyncRequestIdentity.mutation(request),
             responseType: UploadConfigData.self
         )
     }
@@ -300,6 +346,7 @@ final class NetworkService: NSObject {
             path: "/api/v1/config/assets/\(assetID.uuidString)/purge",
             method: "POST",
             body: request,
+            idempotencyKey: SyncRequestIdentity.mutation(request),
             responseType: UploadConfigData.self
         )
     }
@@ -324,6 +371,7 @@ final class NetworkService: NSObject {
         path: String,
         method: String,
         body: Req,
+        idempotencyKey: String? = nil,
         responseType: Resp.Type
     ) async throws -> Resp {
         let token = try readAccessToken()
@@ -333,6 +381,7 @@ final class NetworkService: NSObject {
                 method: method,
                 body: body,
                 token: token,
+                idempotencyKey: idempotencyKey,
                 responseType: responseType
             )
         } catch let error as NetworkError {
@@ -343,6 +392,7 @@ final class NetworkService: NSObject {
                 method: method,
                 body: body,
                 token: refreshed,
+                idempotencyKey: idempotencyKey,
                 responseType: responseType
             )
         }
@@ -392,6 +442,7 @@ final class NetworkService: NSObject {
         method: String,
         body: Req,
         token: String?,
+        idempotencyKey: String? = nil,
         responseType: Resp.Type
     ) async throws -> Resp {
         let baseURL = try resolvedBaseURL()
@@ -405,6 +456,9 @@ final class NetworkService: NSObject {
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         if let token {
             request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        if let idempotencyKey {
+            request.addValue(idempotencyKey, forHTTPHeaderField: SyncRequestIdentity.header)
         }
         request.httpBody = try JSONEncoder().encode(body)
 
@@ -424,12 +478,9 @@ final class NetworkService: NSObject {
         }
         if !(200 ... 299).contains(httpResp.statusCode) {
             if httpResp.statusCode == 401 {
-                throw NetworkError.unauthorized(envelope?.error)
+                throw NetworkError.unauthorized(nil)
             }
-            if let message = envelope?.error {
-                throw NetworkError.server(message)
-            }
-            throw NetworkError.unexpectedStatus(httpResp.statusCode)
+            throw httpStatusError(httpResp)
         }
 
         guard let parsed = envelope,
@@ -454,9 +505,8 @@ final class NetworkService: NSObject {
             request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
-        let (data, httpResp, latencyMs, attempts) = try await executeRequest(request)
+        let (_, httpResp, latencyMs, attempts) = try await executeRequest(request)
         let requestURLString = request.url?.absoluteString ?? path
-        let envelope = try? JSONDecoder().decode(APIEnvelope<EmptyResponseData>.self, from: data)
         await MainActor.run {
             (self.diagnosticsManager ?? DiagnosticsManager.shared).record(
                 method: method,
@@ -469,12 +519,9 @@ final class NetworkService: NSObject {
         }
         guard (200 ... 299).contains(httpResp.statusCode) else {
             if httpResp.statusCode == 401 {
-                throw NetworkError.unauthorized(envelope?.error)
+                throw NetworkError.unauthorized(nil)
             }
-            if let message = envelope?.error {
-                throw NetworkError.server(message)
-            }
-            throw NetworkError.unexpectedStatus(httpResp.statusCode)
+            throw httpStatusError(httpResp)
         }
     }
 
@@ -513,12 +560,9 @@ final class NetworkService: NSObject {
         }
         if !(200 ... 299).contains(httpResp.statusCode) {
             if httpResp.statusCode == 401 {
-                throw NetworkError.unauthorized(envelope?.error)
+                throw NetworkError.unauthorized(nil)
             }
-            if let message = envelope?.error {
-                throw NetworkError.server(message)
-            }
-            throw NetworkError.unexpectedStatus(httpResp.statusCode)
+            throw httpStatusError(httpResp)
         }
 
         guard let parsed = envelope,
@@ -600,9 +644,11 @@ final class NetworkService: NSObject {
                 }
                 let latency = Int(Date().timeIntervalSince(start) * 1000)
 
-                if (500 ... 599).contains(httpResp.statusCode), attempt < maxAttempts {
-                    await MainActor.run { (self.diagnosticsManager ?? DiagnosticsManager.shared).beginRetry() }
-                    defer { Task { @MainActor in (self.diagnosticsManager ?? DiagnosticsManager.shared).endRetry() } }
+                let recovery = SyncHTTPResponsePolicy.disposition(statusCode: httpResp.statusCode)
+                let retryAfter = SyncHTTPResponsePolicy.retryAfterSeconds(
+                    httpResp.value(forHTTPHeaderField: "Retry-After")
+                )
+                if recovery == .retryable, retryAfter == nil, attempt < maxAttempts {
                     await MainActor.run {
                         (self.diagnosticsManager ?? DiagnosticsManager.shared).record(
                             method: request.httpMethod ?? "GET",
@@ -613,14 +659,14 @@ final class NetworkService: NSObject {
                             attempt: attempt
                         )
                     }
-                    try? await Task.sleep(nanoseconds: retryBackoffNanos(for: attempt))
+                    try await sleepBeforeRetry(retryBackoffNanos(for: attempt))
                     continue
                 }
                 return (data, httpResp, latency, attempt)
             } catch {
                 lastError = error
                 let latency = Int(Date().timeIntervalSince(start) * 1000)
-                let isTimeout = isTimeoutError(error)
+                let isRetriableTransportFailure = Self.isRetriableNetworkError(error)
                 await MainActor.run {
                     (self.diagnosticsManager ?? DiagnosticsManager.shared).record(
                         method: request.httpMethod ?? "GET",
@@ -631,11 +677,9 @@ final class NetworkService: NSObject {
                         attempt: attempt
                     )
                 }
-                guard isTimeout, attempt < maxAttempts else { throw error }
-                await MainActor.run { (self.diagnosticsManager ?? DiagnosticsManager.shared).beginRetry() }
-                defer { Task { @MainActor in (self.diagnosticsManager ?? DiagnosticsManager.shared).endRetry() } }
-                logger.debug("[NET] timeout retry attempt=\(attempt)")
-                try? await Task.sleep(nanoseconds: retryBackoffNanos(for: attempt))
+                guard isRetriableTransportFailure, attempt < maxAttempts else { throw error }
+                logger.debug("[NET] transport retry attempt=\(attempt)")
+                try await sleepBeforeRetry(retryBackoffNanos(for: attempt))
             }
         }
         throw lastError ?? NetworkError.unexpectedStatus(-1)
@@ -649,12 +693,32 @@ final class NetworkService: NSObject {
         }
     }
 
-    private func isTimeoutError(_ error: Error) -> Bool {
-        if let url = error as? URLError {
-            return url.code == .timedOut
+    /// Makes retry presentation a balanced lexical operation. Cancellation or
+    /// a throwing test clock cannot leave the toolbar in a stale retry state.
+    private func sleepBeforeRetry(_ nanoseconds: UInt64) async throws {
+        await MainActor.run {
+            (self.diagnosticsManager ?? DiagnosticsManager.shared).beginRetry()
         }
-        let ns = error as NSError
-        return ns.domain == NSURLErrorDomain && ns.code == NSURLErrorTimedOut
+        do {
+            try await retrySleeper(nanoseconds)
+        } catch {
+            await MainActor.run {
+                (self.diagnosticsManager ?? DiagnosticsManager.shared).endRetry()
+            }
+            throw error
+        }
+        await MainActor.run {
+            (self.diagnosticsManager ?? DiagnosticsManager.shared).endRetry()
+        }
+    }
+
+    private func httpStatusError(_ response: HTTPURLResponse) -> NetworkError {
+        NetworkError.httpStatus(
+            response.statusCode,
+            retryAfterSeconds: SyncHTTPResponsePolicy.retryAfterSeconds(
+                response.value(forHTTPHeaderField: "Retry-After")
+            )
+        )
     }
 
     private func readAccessToken() throws -> String {
@@ -698,6 +762,12 @@ final class NetworkService: NSObject {
     }
 }
 
+#if DEBUG
+private struct FaultInjectionProbeBody: Encodable {
+    let marker: String
+}
+#endif
+
 extension NetworkService.NetworkError: SyncRecoveryClassifiable {
     var syncRecoveryFailure: SyncRecoveryNetworkFailure {
         switch self {
@@ -707,6 +777,17 @@ extension NetworkService.NetworkError: SyncRecoveryClassifiable {
             return .serviceConfigurationInvalid
         case .server, .unexpectedStatus:
             return .serviceUnavailable
+        case let .httpStatus(statusCode, _):
+            switch SyncHTTPResponsePolicy.disposition(statusCode: statusCode) {
+            case .authenticationExpired:
+                return .authenticationExpired
+            case .retryable:
+                return statusCode == 408 ? .timedOut : .serviceUnavailable
+            case .permanentRejection:
+                return .requestRejected
+            case .protocolViolation:
+                return .protocolViolation
+            }
         case .decodeFailed:
             return .protocolViolation
         }

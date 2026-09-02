@@ -107,11 +107,17 @@ struct MainWorkstationView: View {
                             }
                         }
                     }
-                    // The three workspace columns own the remaining height.  A
-                    // detail panel in the right column must never be allowed to
-                    // grow the whole workstation and squeeze the sidebar footer
-                    // or terminal pre-input bar out of view.
+                    // The three workspace columns own the remaining height. A
+                    // detail panel in the right column must never grow the
+                    // workstation or squeeze the terminal pre-input bar and
+                    // independent synchronization status bar out of view.
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    if !isTerminalFullscreen {
+                        WorkstationPersistentSyncStatusView(
+                            serverStore: serverStore,
+                            syncService: syncService
+                        )
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -209,7 +215,7 @@ struct MainWorkstationView: View {
         func shortcut(_ action: WorkstationShortcutAction) -> String {
             shortcutPreferences.shortcut(for: action).displayString
         }
-        return "\(shortcut(.addServer)) 添加服务器\n\(shortcut(.newTab)) 新建标签 · \(shortcut(.closeTab)) 关闭标签\n⌘1–⌘9 切换标签\n\(shortcut(.focusServerSearch)) 聚焦服务器搜索\n\(shortcut(.refreshCurrentTool)) 刷新当前 SFTP 或 Docker 工具 · \(shortcut(.refreshMonitor)) 立即刷新监控\n\(shortcut(.focusSFTPPath)) 聚焦 SFTP 路径 · \(shortcut(.goToSFTPParent)) 返回上级目录\n\(shortcut(.disconnectSession)) 断开当前会话\n\(shortcut(.settings)) 打开设置"
+        return "\(shortcut(.addServer)) 添加服务器\n\(shortcut(.newTab)) 新建标签 · \(shortcut(.closeTab)) 关闭标签\n⌘1–⌘9 切换资产会话\n\(shortcut(.selectTerminalPane1))–\(shortcut(.selectTerminalPane4)) 切换终端分屏 1–4\n\(shortcut(.focusServerSearch)) 聚焦服务器搜索\n\(shortcut(.refreshCurrentTool)) 刷新当前 SFTP 或 Docker 工具 · \(shortcut(.refreshMonitor)) 立即刷新监控\n\(shortcut(.focusSFTPPath)) 聚焦 SFTP 路径 · \(shortcut(.goToSFTPParent)) 返回上级目录\n\(shortcut(.disconnectSession)) 断开当前会话\n\(shortcut(.settings)) 打开设置"
     }
 
     private var workstationShortcutStateKey: String {
@@ -232,6 +238,9 @@ struct MainWorkstationView: View {
         let canUseSFTP = active?.terminalSplitCount == 0 && active?.sftpManager.isConnected == true
         let canRefreshDocker = active?.dockerService.isConnected == true
         let canRefreshMonitor = active?.activeMonitorPanelID != nil
+        let terminalPaneCount = active.map {
+            max($0.terminalChannelIDs.count, $0.terminalChannelID == nil ? 0 : 1)
+        } ?? 0
 
         return WorkstationShortcutActions(
             addServer: { showingAddServer = true },
@@ -244,6 +253,13 @@ struct MainWorkstationView: View {
             closeActiveTab: { sessionManager.closeActiveTab() },
             canCloseActiveTab: active != nil,
             activateTab: { sessionManager.activateIndex($0) },
+            activateTerminalPane: { index in
+                guard let active else { return }
+                guard index >= 0, index < terminalPaneCount else { return }
+                active.activeTerminalPaneIndex = index
+                active.terminalPaneFocusRequest &+= 1
+            },
+            terminalPaneCount: terminalPaneCount,
             focusServerSearch: { serverSearchFocusRequest += 1 },
             refreshCurrentTool: { refreshCurrentTool() },
             canRefreshCurrentTool: {
@@ -343,7 +359,6 @@ struct MainWorkstationView: View {
         WorkstationAssetSidebarView(
             serverStore: serverStore,
             sessionManager: sessionManager,
-            syncService: syncService,
             searchText: $leftSearchText,
             searchFocusRequest: {
                 #if os(macOS)
@@ -419,11 +434,24 @@ struct MainWorkstationView: View {
             ThemedDivider()
 
             if let active = sessionManager.activeSession {
+#if os(macOS)
+                if active.server.transport == .rdp {
+                    RemoteDesktopWorkspaceView(controller: active.remoteDesktopController)
+                        .padding(12)
+                } else {
+                    TerminalSessionPane(
+                        session: active,
+                        sessionManager: sessionManager
+                    )
+                    .padding(12)
+                }
+#else
                 TerminalSessionPane(
                     session: active,
                     sessionManager: sessionManager
                 )
                 .padding(12)
+#endif
             } else {
                 ContentUnavailableView(
                     "暂无会话",

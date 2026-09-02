@@ -9,9 +9,11 @@ final class ServerStore: ObservableObject {
 
     private let legacyDefaultsKey = "orbitterm.servers.v1"
     private let legacyMigrationFlagKey = "orbitterm.servers.account-scope-migrated.v1"
+    private let legacyMigrationOwnerKey = "orbitterm.servers.account-scope-migration-owner.v1"
     private let migrationFlagKey = "orbitterm.credentials.migrated.v1"
     private let vault = CredentialVault.shared
     private var accountScope: AccountScope?
+    private var credentialMigrationOwner = OperationOwner()
 
     init() {}
 
@@ -24,12 +26,14 @@ final class ServerStore: ObservableObject {
         }
         guard accountScope != scope else { return }
 
+        credentialMigrationOwner.invalidate()
         accountScope = scope
         DeletedServerRegistry.shared.activate(scope: scope)
         load(scope: scope)
     }
 
     func deactivateAccount() {
+        credentialMigrationOwner.invalidate()
         accountScope = nil
         servers = []
         selectedServerID = nil
@@ -307,14 +311,34 @@ final class ServerStore: ObservableObject {
            let decoded = try? JSONDecoder().decode([ServerEntry].self, from: data) {
             servers = decoded
             selectedServerID = decoded.first?.id
-            migrateLegacyCredentialsIfNeeded(decoded)
+            let ownsInterruptedLegacyMigration =
+                UserDefaults.standard.string(forKey: legacyMigrationOwnerKey) == scope.storageIdentifier
+            let recoveryEntries: [ServerEntry]
+            if ownsInterruptedLegacyMigration,
+               let legacyData = UserDefaults.standard.data(forKey: legacyDefaultsKey),
+               let legacyEntries = try? JSONDecoder().decode([ServerEntry].self, from: legacyData) {
+                let activeIDs = Set(decoded.map(\.id))
+                recoveryEntries = legacyEntries.filter { activeIDs.contains($0.id) }
+            } else {
+                recoveryEntries = decoded
+            }
+            migrateLegacyCredentialsIfNeeded(
+                recoveryEntries,
+                scope: scope,
+                commitsLegacyCache: ownsInterruptedLegacyMigration
+            )
             return
         }
 
         // A legacy cache predates account scoping. It may only be claimed once,
         // by the first still-authenticated account that opens the upgraded app.
         // Subsequent accounts always start empty and pull their own cloud state.
-        guard !UserDefaults.standard.bool(forKey: legacyMigrationFlagKey),
+        let reservedOwner = UserDefaults.standard.string(forKey: legacyMigrationOwnerKey)
+        guard AccountMigrationReservationPolicy.canResume(
+                migrationCompleted: UserDefaults.standard.bool(forKey: legacyMigrationFlagKey),
+                reservedOwner: reservedOwner,
+                requestingScope: scope.storageIdentifier
+              ),
               let data = UserDefaults.standard.data(forKey: legacyDefaultsKey),
               let decoded = try? JSONDecoder().decode([ServerEntry].self, from: data) else {
             servers = []
@@ -322,45 +346,75 @@ final class ServerStore: ObservableObject {
             return
         }
 
+        // Reserve the unscoped source for exactly one opaque account before
+        // any asynchronous Keychain write. If the process dies, only the same
+        // authenticated account can resume the migration.
+        UserDefaults.standard.set(scope.storageIdentifier, forKey: legacyMigrationOwnerKey)
         servers = decoded
         selectedServerID = decoded.first?.id
-        persist()
-        UserDefaults.standard.set(true, forKey: legacyMigrationFlagKey)
-        migrateLegacyCredentialsIfNeeded(decoded)
+        migrateLegacyCredentialsIfNeeded(decoded, scope: scope, commitsLegacyCache: true)
     }
 
-    private func migrateLegacyCredentialsIfNeeded(_ entries: [ServerEntry]) {
-        let requiresMigration = !UserDefaults.standard.bool(forKey: migrationFlagKey) ||
+    private func migrateLegacyCredentialsIfNeeded(
+        _ entries: [ServerEntry],
+        scope: AccountScope,
+        commitsLegacyCache: Bool
+    ) {
+        let requiresMigration = commitsLegacyCache ||
+            !UserDefaults.standard.bool(forKey: migrationFlagKey) ||
             entries.contains(where: { ($0.legacyPassword?.isEmpty == false) || ($0.legacyPrivateKeyContent?.isEmpty == false) })
         guard requiresMigration else { return }
+        let lease = credentialMigrationOwner.begin(scope: .account(scope.storageIdentifier))
 
         Task(priority: .background) { [weak self] in
             guard let self else { return }
             var migratedAny = false
             for entry in entries {
+                guard self.credentialMigrationOwner.owns(
+                    lease,
+                    scope: .account(scope.storageIdentifier)
+                ), self.accountScope == scope else { return }
                 let legacyPassword = entry.legacyPassword?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 let legacyPrivateKey = entry.legacyPrivateKeyContent?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if !legacyPassword.isEmpty || !legacyPrivateKey.isEmpty {
                     let creds = ServerCredentials(password: legacyPassword, privateKeyContent: legacyPrivateKey)
-                    try? self.vault.save(creds, for: entry.credentialID)
+                    do {
+                        try self.vault.save(creds, for: entry.credentialID)
+                    } catch {
+                        // Keep the legacy source intact. A later activation can
+                        // retry; a partial Keychain failure must never be
+                        // recorded as a completed migration.
+                        return
+                    }
                     migratedAny = true
                 }
+                await Task.yield()
             }
 
+            guard self.credentialMigrationOwner.owns(
+                lease,
+                scope: .account(scope.storageIdentifier)
+            ), self.accountScope == scope else { return }
+            if migratedAny || commitsLegacyCache {
+                guard self.persist() else { return }
+            }
             UserDefaults.standard.set(true, forKey: self.migrationFlagKey)
-            if migratedAny {
+            if commitsLegacyCache {
+                UserDefaults.standard.set(true, forKey: self.legacyMigrationFlagKey)
                 UserDefaults.standard.removeObject(forKey: self.legacyDefaultsKey)
-                self.persist()
+                UserDefaults.standard.removeObject(forKey: self.legacyMigrationOwnerKey)
             }
         }
     }
 
-    private func persist() {
+    @discardableResult
+    private func persist() -> Bool {
         guard let scope = accountScope,
               let encoded = try? JSONEncoder().encode(servers) else {
-            return
+            return false
         }
         UserDefaults.standard.set(encoded, forKey: scope.storageKey("orbitterm.servers.v2"))
+        return true
     }
 
     private func deleteCredentials(for server: ServerEntry) {

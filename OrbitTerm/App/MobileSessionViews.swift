@@ -8,6 +8,7 @@ struct MobileSessionView: View {
     @EnvironmentObject private var appSession: AppSession
     @ObservedObject private var manager = SessionManager.shared
     @StateObject private var snippetStore = SnippetStore.shared
+    @StateObject private var networkAvailability = ApplicationNetworkAvailability.shared
     @State private var selectedModule: MobileSessionModule = .terminal
     @State private var terminalViewportCommand: TerminalViewportCommand?
     @AppStorage("orbitterm.mobile.terminal-key-usage.v1") private var terminalKeyUsageData: String = ""
@@ -21,7 +22,17 @@ struct MobileSessionView: View {
         .init(label: "→", bytes: [27, 91, 67])
     ]
 
-    private let terminalSymbols = ["+", "-", "*", "/", "_", "(", ")", "[", "]", "{", "}", "<", ">", "~", "#"]
+    private let terminalSymbols: [MobileTerminalKey] = [
+        .init(label: "←", bytes: [27, 91, 68]), .init(label: "↑", bytes: [27, 91, 65]),
+        .init(label: "↓", bytes: [27, 91, 66]), .init(label: "→", bytes: [27, 91, 67]),
+        .init(label: "-", bytes: [45]), .init(label: "+", bytes: [43]),
+        .init(label: "×", bytes: [42]), .init(label: "/", bytes: [47]),
+        .init(label: "|", bytes: [124]), .init(label: "\\", bytes: [92]),
+        .init(label: "~", bytes: [126]), .init(label: "=", bytes: [61]),
+        .init(label: "_", bytes: [95]), .init(label: "$", bytes: [36]),
+        .init(label: "#", bytes: [35]), .init(label: ";", bytes: [59]),
+        .init(label: ":", bytes: [58]), .init(label: "?", bytes: [63]),
+    ]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,11 +40,22 @@ struct MobileSessionView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     modulePicker
 
+                    if manager.interruptedSessionRecoveryPending {
+                        sessionRecoveryNotice
+                    }
+
+                    if !networkAvailability.isNetworkUsable {
+                        networkUnavailableNotice
+                    }
+
                     sessionModuleContent(for: active)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else {
                 VStack(spacing: 14) {
+                    if manager.interruptedSessionRecoveryPending {
+                        sessionRecoveryNotice
+                    }
                     Image(systemName: "terminal")
                         .font(.system(size: 42))
                         .foregroundStyle(.secondary)
@@ -68,7 +90,7 @@ struct MobileSessionView: View {
                     VStack(spacing: 0) {
                         Text(active.server.name)
                             .font(.subheadline.weight(.semibold))
-                        Text(active.terminalStatus)
+                        Text(active.connectionPresentation.label)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -109,7 +131,18 @@ struct MobileSessionView: View {
                         } label: {
                             Image(systemName: "arrow.clockwise")
                         }
-                        .accessibilityLabel("重新连接")
+                        .disabled(
+                            !SessionReconnectPolicy.canReconnect(
+                                isNetworkUsable: networkAvailability.isNetworkUsable,
+                                reconnecting: connectionOperationIsActive(active)
+                            )
+                        )
+                        .accessibilityLabel(
+                            SessionReconnectPolicy.accessibilityLabel(
+                                isNetworkUsable: networkAvailability.isNetworkUsable,
+                                reconnecting: connectionOperationIsActive(active)
+                            )
+                        )
                         if selectedModule == .terminal {
                             Button {
                                 terminalViewportCommand = .latest()
@@ -134,6 +167,45 @@ struct MobileSessionView: View {
         }
     }
 
+    private func connectionOperationIsActive(_ session: WorkspaceSession) -> Bool {
+        switch session.connectionPresentation.phase {
+        case .connecting, .reconnecting, .openingTerminal, .awaitingHostKeyDecision:
+            true
+        default:
+            false
+        }
+    }
+
+    private var sessionRecoveryNotice: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "arrow.triangle.2.circlepath.circle")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            Text("应用进程已重新启动。出于安全，先前的实时会话未自动恢复，请从服务器页重新连接。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button("知道了") {
+                manager.dismissInterruptedSessionRecoveryNotice()
+            }
+            .font(.caption.weight(.semibold))
+        }
+        .padding(12)
+        .background(.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
+        .padding(.horizontal, 12)
+    }
+
+    private var networkUnavailableNotice: some View {
+        Label("网络当前不可用。恢复后可手动重连；应用不会自动恢复会话。", systemImage: "network.slash")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
+            .padding(.horizontal, 12)
+            .accessibilityLabel("网络当前不可用。等待网络恢复后手动重新连接。")
+    }
+
     private func mobileQuickCommandsPanel(for session: WorkspaceSession) -> some View {
         List {
             Section {
@@ -147,9 +219,7 @@ struct MobileSessionView: View {
                 }
             }
             Section("常用符号（按使用频率排序）") {
-                ForEach(orderedTerminalKeys(terminalSymbols.map {
-                    MobileTerminalKey(label: $0, bytes: Array($0.utf8))
-                })) { key in
+                ForEach(orderedTerminalKeys(terminalSymbols)) { key in
                     quickActionRow(key.label, bytes: key.bytes, session: session)
                 }
             }
@@ -279,6 +349,7 @@ struct MobileMoreView: View {
     @State private var showSettings = false
     @State private var showAccountCenter = false
     @State private var showSwitchAccountConfirmation = false
+    @State private var showLogoutConfirmation = false
     @State private var showKeyManagement = false
     @State private var showPortForwarding = false
     @State private var showBatchCommands = false
@@ -291,7 +362,7 @@ struct MobileMoreView: View {
                     MobilePersonalCenterHeader(
                         accountName: displayableAccountName,
                         accessibilityAccountName: session.username,
-                        syncMessage: syncService.lastSyncMessage
+                        syncPresentation: syncService.syncPresentation
                     )
 
                     MobilePersonalCenterCard(
@@ -392,7 +463,7 @@ struct MobileMoreView: View {
                             systemImage: "rectangle.portrait.and.arrow.right",
                             role: .destructive
                         ) {
-                            AccountSessionActions.leaveCurrentAccount(session: session, serverStore: serverStore)
+                            showLogoutConfirmation = true
                         }
                     }
                 }
@@ -435,6 +506,14 @@ struct MobileMoreView: View {
         } message: {
             Text("将断开当前所有会话并返回登录页。本机资产、片段和待同步操作会继续按原账号隔离保存。")
         }
+        .alert(SecurityOperationPresentation.logoutTitle, isPresented: $showLogoutConfirmation) {
+            Button(SecurityOperationPresentation.logoutConfirm, role: .destructive) {
+                AccountSessionActions.leaveCurrentAccount(session: session, serverStore: serverStore)
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text(SecurityOperationPresentation.logoutMessage)
+        }
     }
 
     /// Lets exceptionally long email addresses wrap at their natural separators
@@ -449,7 +528,7 @@ struct MobileMoreView: View {
 private struct MobilePersonalCenterHeader: View {
     let accountName: String
     let accessibilityAccountName: String
-    let syncMessage: String
+    let syncPresentation: SyncPresentationState
     @Environment(\.appThemePalette) private var palette
 
     var body: some View {
@@ -473,7 +552,7 @@ private struct MobilePersonalCenterHeader: View {
                     .foregroundStyle(palette.textPrimary.color)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
-                Label(syncMessage, systemImage: "checkmark.icloud")
+                Label(syncPresentation.headline, systemImage: syncPresentation.phase == .failed ? "icloud.slash" : "checkmark.icloud")
                     .font(.caption)
                     .foregroundStyle(palette.textSecondary.color)
                     .lineLimit(2)
@@ -483,7 +562,7 @@ private struct MobilePersonalCenterHeader: View {
         .padding(18)
         .modifier(ThemedGlassSurface())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("个人中心，当前账户 \(accessibilityAccountName)。同步状态：\(syncMessage)")
+        .accessibilityLabel("个人中心，当前账户 \(accessibilityAccountName)。同步状态：\(syncPresentation.headline)。\(syncPresentation.detail)")
     }
 }
 
@@ -746,7 +825,7 @@ private struct MobileSSHKeyManagementView: View {
                 passphrase: "",
                 assetIDs: []
             )
-            UIPasteboard.general.string = pair.publicKey
+            _ = SecureClipboard.copy(pair.publicKey, kind: .ordinaryText)
             status = "Ed25519 密钥已生成并安全保存，公钥已复制，可部署到目标服务器。"
             synchronizeLibrary()
         } catch {
@@ -756,7 +835,10 @@ private struct MobileSSHKeyManagementView: View {
 
     private func copyPublicKey(_ key: SshKeySyncWire) {
         do {
-            UIPasteboard.general.string = try RustFFI.publicKey(privateKey: key.privateKey, passphrase: key.passphrase)
+            _ = SecureClipboard.copy(
+                try RustFFI.publicKey(privateKey: key.privateKey, passphrase: key.passphrase),
+                kind: .ordinaryText
+            )
             status = "公钥已复制，可安全部署到目标服务器的 authorized_keys。"
         } catch {
             status = "无法从私钥派生公钥，请检查私钥口令。"
@@ -1009,12 +1091,31 @@ private struct MobilePortForwardingView: View {
 }
 
 private struct MobileAboutView: View {
+    private var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
+    }
+
+    private var build: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "未知"
+    }
+
     var body: some View {
-        ContentUnavailableView(
-            "OrbitTerm",
-            systemImage: "terminal",
-            description: Text("面向多设备资产管理和安全远程会话的客户端。")
-        )
+        List {
+            Section {
+                Label("OrbitTerm", systemImage: "terminal")
+                    .font(.title3.weight(.semibold))
+                Text("原生安全远程工作台")
+                    .foregroundStyle(.secondary)
+            }
+            Section("版本") {
+                LabeledContent("iOS 版本", value: version)
+                LabeledContent("构建", value: build)
+            }
+            Section("安全边界") {
+                Text("资产凭据仅在当前账户的本机安全边界内解锁。")
+            }
+        }
+        .listStyle(.insetGrouped)
         .navigationTitle("关于")
         .navigationBarTitleDisplayMode(.inline)
     }

@@ -18,11 +18,6 @@ struct AuthView: View {
     @State private var message: String = ""
     @State private var messageKind: AuthStatusKind = .success
     @State private var shakeOffset: CGFloat = 0
-    @State private var hiddenTapCount: Int = 0
-    @State private var showServerConfigAlert: Bool = false
-    @State private var showServerConfirmAlert: Bool = false
-    @State private var customServerAddress: String = ""
-    @State private var pendingServerAddress: String = ""
     @State private var submitTask: Task<Void, Never>?
     @State private var submitOwner = PageOperationOwner()
     @State private var acceptedTerms = AuthTermsConsentStore.hasAcceptedCurrentVersion
@@ -111,29 +106,9 @@ struct AuthView: View {
                     }
                 }
             }
-            .overlay(alignment: .topLeading) {
-                hiddenTrigger
-            }
-            .alert("后端地址设置", isPresented: $showServerConfigAlert) {
-                TextField("HTTPS 服务地址", text: $customServerAddress)
-                Button("下一步") { prepareServerAddressConfirmation() }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("隐藏菜单：仅用于调试或临时切换后端地址。")
-            }
-            .alert("安全确认", isPresented: $showServerConfirmAlert) {
-                Button("确认切换", role: .destructive) {
-                    do {
-                        try network.updateApprovedCustomBaseURL(pendingServerAddress)
-                        setMessage("成功: 服务地址已更新", kind: .success)
-                    } catch {
-                        setMessage("失败: \(error.localizedDescription)", kind: .failure)
-                    }
-                }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("自托管服务域名：\(network.customEndpointHost(pendingServerAddress) ?? "未知")\n\n自定义后端将接收登录与加密同步请求。请仅在确认其来源、TLS 证书和运维责任可信时启用。")
-            }
+            .modifier(DevelopmentEndpointControls(network: network) { text, kind in
+                setMessage(text, kind: kind)
+            })
             .sheet(isPresented: $showTerms) {
                 NavigationStack {
                     ScrollView {
@@ -142,7 +117,7 @@ struct AuthView: View {
                             .padding(20)
                             .textSelection(.enabled)
                     }
-                    .navigationTitle("使用条款与免责声明")
+                    .navigationTitle("使用条款、免责声明与隐私说明")
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
                             Button("同意并继续") {
@@ -162,8 +137,6 @@ struct AuthView: View {
             .onReceive(NotificationCenter.default.publisher(for: .orbitTermClearTransientSensitiveInput)) { _ in
                 password = ""
                 inviteCode = ""
-                pendingServerAddress = ""
-                customServerAddress = ""
             }
             .onDisappear {
                 cancelSubmit(.pageDisappeared)
@@ -209,7 +182,7 @@ struct AuthView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
                 Button {
                     if acceptedTerms {
                         acceptedTerms = false
@@ -224,21 +197,25 @@ struct AuthView: View {
                         .foregroundStyle(acceptedTerms ? palette.accentPrimary.color : palette.textSecondary.color)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(acceptedTerms ? "已同意使用条款与免责声明" : "尚未同意使用条款与免责声明")
+                .frame(minWidth: 44, minHeight: 44)
+                .accessibilityLabel(acceptedTerms ? "已同意使用条款、免责声明与隐私说明" : "尚未同意使用条款、免责声明与隐私说明")
 
-                HStack(spacing: 0) {
-                    Text("我已阅读并同意")
-                        .foregroundStyle(palette.textSecondary.color)
-                    Button("《使用条款、免责声明与隐私说明》") {
-                        showTerms = true
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(palette.accentPrimary.color)
+                Text("已阅读并同意")
+                    .foregroundStyle(palette.textSecondary.color)
+                    .fixedSize(horizontal: true, vertical: false)
+
+                Spacer(minLength: 4)
+
+                Button("查看法律条款") {
+                    showTerms = true
                 }
-                        .font(.footnote)
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                .buttonStyle(.plain)
+                .foregroundStyle(palette.accentPrimary.color)
+                .fixedSize(horizontal: true, vertical: false)
+                .accessibilityLabel("查看使用条款、免责声明与隐私说明")
             }
+            .font(.footnote)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             if cooldownRemaining > 0 {
                 Text("登录尝试过于频繁，请在 \(cooldownRemaining) 秒后重试。")
@@ -266,35 +243,6 @@ struct AuthView: View {
         if !message.isEmpty {
             AuthStatusBanner(message: message, kind: messageKind, shakeOffset: shakeOffset)
         }
-    }
-
-    private var hiddenTrigger: some View {
-        ZStack {
-            Image(systemName: "circle.fill")
-                .font(.system(size: 8))
-                .foregroundStyle(.clear)
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    hiddenTapCount += 1
-                    if hiddenTapCount >= 5 {
-                        hiddenTapCount = 0
-                        customServerAddress = ""
-                        showServerConfigAlert = true
-                    }
-                }
-#if os(macOS)
-            Button("") {
-                customServerAddress = ""
-                showServerConfigAlert = true
-            }
-            .keyboardShortcut("s", modifiers: [.command, .option])
-            .opacity(0.001)
-            .frame(width: 1, height: 1)
-#endif
-        }
-        .padding(.leading, 6)
-        .padding(.top, 6)
     }
 
     private func startSubmit() {
@@ -395,26 +343,103 @@ struct AuthView: View {
         }
     }
 
+    private func setMessage(_ text: String, kind: AuthStatusKind) {
+        message = text
+        messageKind = kind
+    }
+}
+
+#if ORBITTERM_PUBLIC_RELEASE
+private struct DevelopmentEndpointControls: ViewModifier {
+    let network: NetworkService
+    let report: (String, AuthStatusKind) -> Void
+
+    func body(content: Content) -> some View { content }
+}
+#else
+private struct DevelopmentEndpointControls: ViewModifier {
+    let network: NetworkService
+    let report: (String, AuthStatusKind) -> Void
+    @State private var hiddenTapCount = 0
+    @State private var showServerConfigAlert = false
+    @State private var showServerConfirmAlert = false
+    @State private var customServerAddress = ""
+    @State private var pendingServerAddress = ""
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .topLeading) { hiddenTrigger }
+            .alert("后端地址设置", isPresented: $showServerConfigAlert) {
+                TextField("HTTPS 服务地址", text: $customServerAddress)
+                Button("下一步") { prepareServerAddressConfirmation() }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("隐藏菜单：仅用于调试或临时切换后端地址。")
+            }
+            .alert("安全确认", isPresented: $showServerConfirmAlert) {
+                Button("确认切换", role: .destructive) {
+                    do {
+                        try network.updateApprovedCustomBaseURL(pendingServerAddress)
+                        report("成功: 服务地址已更新", .success)
+                    } catch {
+                        report("失败: \(error.localizedDescription)", .failure)
+                    }
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("自托管服务域名：\(network.customEndpointHost(pendingServerAddress) ?? "未知")\n\n自定义后端将接收登录与加密同步请求。请仅在确认其来源、TLS 证书和运维责任可信时启用。")
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .orbitTermClearTransientSensitiveInput)) { _ in
+                pendingServerAddress = ""
+                customServerAddress = ""
+            }
+    }
+
+    private var hiddenTrigger: some View {
+        ZStack {
+            Image(systemName: "circle.fill")
+                .font(.system(size: 8))
+                .foregroundStyle(.clear)
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    hiddenTapCount += 1
+                    if hiddenTapCount >= 5 {
+                        hiddenTapCount = 0
+                        customServerAddress = ""
+                        showServerConfigAlert = true
+                    }
+                }
+#if os(macOS)
+            Button("") {
+                customServerAddress = ""
+                showServerConfigAlert = true
+            }
+            .keyboardShortcut("s", modifiers: [.command, .option])
+            .opacity(0.001)
+            .frame(width: 1, height: 1)
+#endif
+        }
+        .padding(.leading, 6)
+        .padding(.top, 6)
+    }
+
     private func prepareServerAddressConfirmation() {
         do {
             let normalized = try network.validatedBaseURLString(customServerAddress)
             pendingServerAddress = normalized
             if network.isDefaultEndpoint(normalized) {
                 try network.updateBaseURL(normalized)
-                setMessage("成功: 服务地址已更新", kind: .success)
+                report("成功: 服务地址已更新", .success)
                 return
             }
             showServerConfirmAlert = true
         } catch {
-            setMessage("失败: \(error.localizedDescription)", kind: .failure)
+            report("失败: \(error.localizedDescription)", .failure)
         }
     }
-
-    private func setMessage(_ text: String, kind: AuthStatusKind) {
-        message = text
-        messageKind = kind
-    }
 }
+#endif
 
 private enum AuthTermsConsentStore {
     static let version = "2026-08-22"

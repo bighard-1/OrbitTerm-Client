@@ -11,6 +11,8 @@ final class ClipboardSecurityPolicyTests: XCTestCase {
         XCTAssertTrue(ClipboardContentKind.hostKeyFingerprint.canCopy)
         XCTAssertNotNil(ClipboardContentKind.terminalOutput.expiryNanoseconds)
         XCTAssertNotNil(ClipboardContentKind.hostKeyFingerprint.expiryNanoseconds)
+        XCTAssertTrue(ClipboardContentKind.terminalOutput.suppressesSystemPreview)
+        XCTAssertFalse(ClipboardContentKind.terminalOutput.allowsCrossDeviceSharing)
     }
 
     func testCredentialsAndPrivateKeysAreRejected() {
@@ -18,5 +20,26 @@ final class ClipboardSecurityPolicyTests: XCTestCase {
         XCTAssertFalse(ClipboardContentKind.privateKey.canCopy)
         XCTAssertNil(ClipboardContentKind.credential.expiryNanoseconds)
         XCTAssertNil(ClipboardContentKind.privateKey.expiryNanoseconds)
+    }
+
+    func testSensitiveCoverIsShownOutsideActiveSceneOrDuringCapture() {
+        XCTAssertFalse(
+            SensitiveScreenVisibilityPolicy.shouldCover(
+                isSceneActive: true,
+                isScreenCaptured: false
+            )
+        )
+        XCTAssertTrue(
+            SensitiveScreenVisibilityPolicy.shouldCover(
+                isSceneActive: false,
+                isScreenCaptured: false
+            )
+        )
+        XCTAssertTrue(
+            SensitiveScreenVisibilityPolicy.shouldCover(
+                isSceneActive: true,
+                isScreenCaptured: true
+            )
+        )
     }
 }

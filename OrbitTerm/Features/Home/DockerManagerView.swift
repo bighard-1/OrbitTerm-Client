@@ -36,6 +36,15 @@ struct DockerManagerView: View {
         .task {
             await autoBindActiveSessionIfNeeded()
         }
+        .task(id: effectiveService.operationNotice) {
+            guard let message = effectiveService.operationNotice,
+                  let delay = OperationalFeedbackPolicy.lifetime(kind: .success).autoDismissAfterNanoseconds else {
+                return
+            }
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled else { return }
+            effectiveService.dismissOperationNotice(message)
+        }
         .alert("编辑容器名称", isPresented: Binding(
             get: { renameDraft.isPresented },
             set: { shown in
@@ -215,41 +224,79 @@ struct DockerManagerView: View {
     }
 
     private var containerList: some View {
-        List {
+        let presentation = OperationalContentPresentationMapper.docker(
+            isLoading: effectiveService.isLoading || effectiveService.isScanning,
+            hasContainers: !effectiveService.cards.isEmpty,
+            failureDetail: effectiveService.recoveryPresentation?.message
+        )
+        let actionPresentation = OperationalContentPresentationMapper.refreshAction(
+            module: .docker,
+            phase: presentation.phase,
+            isRefreshing: effectiveService.isLoading || effectiveService.isScanning,
+            hasContent: !effectiveService.cards.isEmpty
+        )
+        return List {
+            if presentation.phase == .failed, !effectiveService.cards.isEmpty {
+                Section {
+                    OperationalFailureBanner(
+                        content: presentation,
+                        action: actionPresentation,
+                        accessibilityPrefix: "Docker"
+                    )
+                }
+            }
+            if let notice = effectiveService.operationNotice {
+                Section {
+                    OperationalTransientSuccessBanner(message: notice)
+                }
+            }
             Section {
-                ForEach(effectiveService.cards) { card in
-                    NavigationLink(destination: DockerLogStreamView(service: effectiveService, container: card)) {
-                        DockerCardView(card: card)
+                if effectiveService.cards.isEmpty {
+                    ContentUnavailableView {
+                        Label(
+                            presentation.headline,
+                            systemImage: presentation.phase == .failed
+                                ? "exclamationmark.triangle.fill"
+                                : "shippingbox"
+                        )
+                    } description: {
+                        Text(presentation.detail)
                     }
-                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
-                    .listRowBackground(palette.surfaceReadable.color)
-                    .contextMenu {
-                        Button("查看详情") {
-                            inspectingContainer = card
+                } else {
+                    ForEach(effectiveService.cards) { card in
+                        NavigationLink(destination: DockerLogStreamView(service: effectiveService, container: card)) {
+                            DockerCardView(card: card)
                         }
-                        Button("查看日志") {
-                            logContainer = card
-                        }
-                        Button("复制容器 ID") {
-                            TerminalPlatformSupport.copyToClipboard(Data(card.id.utf8), kind: .ordinaryText)
-                        }
-                        Divider()
-                        ForEach(card.availableActions, id: \.self) { action in
-                            Button(action.label, role: action.isDestructive ? .destructive : nil) {
-                                Task { await effectiveService.performAction(containerID: card.id, action: action) }
+                        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                        .listRowBackground(palette.surfaceReadable.color)
+                        .contextMenu {
+                            Button("查看详情") {
+                                inspectingContainer = card
                             }
-                        }
-                        if effectiveService.isRenameUpdateAvailable {
-                            Button("编辑") {
-                                renameDraft.begin(card)
+                            Button("查看日志") {
+                                logContainer = card
                             }
-                            Button("高级编辑") {
-                                updateDraft.reset()
-                                editingContainer = card
+                            Button("复制容器 ID") {
+                                TerminalPlatformSupport.copyToClipboard(Data(card.id.utf8), kind: .ordinaryText)
                             }
-                        } else {
-                            Button("重命名与更新将在安全接口完成后启用") {}
-                                .disabled(true)
+                            Divider()
+                            ForEach(card.availableActions, id: \.self) { action in
+                                Button(action.label, role: action.isDestructive ? .destructive : nil) {
+                                    Task { await effectiveService.performAction(containerID: card.id, action: action) }
+                                }
+                            }
+                            if effectiveService.isRenameUpdateAvailable {
+                                Button("编辑") {
+                                    renameDraft.begin(card)
+                                }
+                                Button("高级编辑") {
+                                    updateDraft.reset()
+                                    editingContainer = card
+                                }
+                            } else {
+                                Button("重命名与更新将在安全接口完成后启用") {}
+                                    .disabled(true)
+                            }
                         }
                     }
                 }
@@ -258,9 +305,9 @@ struct DockerManagerView: View {
                     Text("容器列表")
                         .font(.subheadline.weight(.semibold))
                     Spacer()
-                    Text(effectiveService.statusText)
+                    Text(presentation.headline)
                         .font(.caption)
-                        .foregroundStyle(palette.textSecondary.color)
+                        .foregroundStyle(presentation.phase == .failed ? security.danger.color : palette.textSecondary.color)
                 }
                 .padding(.vertical, 2)
             }
@@ -274,7 +321,7 @@ struct DockerManagerView: View {
         .background(palette.surfaceReadable.color)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button("刷新") {
+                OperationalRefreshButton(presentation: actionPresentation) {
                     Task { try? await effectiveService.refreshNow() }
                 }
             }

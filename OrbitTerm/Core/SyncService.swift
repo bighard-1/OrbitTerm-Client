@@ -6,6 +6,7 @@ final class SyncService: ObservableObject {
     static let shared = SyncService()
 
     @Published var lastSyncMessage: String = "尚未同步"
+    @Published private(set) var syncPresentation: SyncPresentationState = .idle
     /// Typed, redacted recovery state for the most recent failed sync.  The
     /// UI must use this instead of parsing `lastSyncMessage`.
     @Published private(set) var lastRecoveryPresentation: OperationRecoveryPresentation?
@@ -95,6 +96,7 @@ final class SyncService: ObservableObject {
         lastRecoveryPresentation = nil
         lastInventoryDiagnostic = ""
         lastSyncMessage = "尚未同步"
+        syncPresentation = .idle
     }
 
     func shouldAttemptV2Migration(for scope: AccountScope, now: Date = Date()) -> Bool {
@@ -132,10 +134,16 @@ final class SyncService: ObservableObject {
         guard presentation.domain == .sync else { return }
         lastRecoveryPresentation = presentation
         lastSyncMessage = "\(presentation.title)：\(presentation.message)"
+        let phase: SyncPresentationPhase = presentation.actions.contains(.unlock) ? .awaitingUnlock : .failed
+        updateSyncPresentation(phase, detail: lastSyncMessage)
     }
 
     func clearSyncRecoveryPresentation() {
         lastRecoveryPresentation = nil
+    }
+
+    func updateSyncPresentation(_ phase: SyncPresentationPhase, detail: String) {
+        syncPresentation = SyncPresentationState.make(phase, detail: detail)
     }
 
     func refreshInventoryDiagnostic(token: String, store: ServerStore) async {
@@ -187,10 +195,12 @@ final class SyncService: ObservableObject {
         guard !servers.isEmpty else {
             setPendingLocalAssetRecoveryIDs([])
             lastSyncMessage = "本地暂无可发布资产"
+            updateSyncPresentation(.succeeded, detail: lastSyncMessage)
             return
         }
 
         lastSyncMessage = "正在发布本地资产到云端..."
+        updateSyncPresentation(.syncing, detail: lastSyncMessage)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         var published = 0
@@ -243,6 +253,7 @@ final class SyncService: ObservableObject {
         lastSyncMessage = skipped == 0
             ? "已提交 \(published) 项本地资产到云端"
             : "已提交 \(published) 项，\(skipped) 项未能发布，请检查凭据或网络后重试"
+        updateSyncPresentation(skipped == 0 ? .succeeded : .failed, detail: lastSyncMessage)
     }
 
     /// Explicit user-triggered reconciliation. It pulls a full inventory first,
@@ -295,6 +306,7 @@ final class SyncService: ObservableObject {
             lastSyncMessage = unresolvedIDs.isEmpty
                 ? "双向同步完成：已验证云端资产 \(verified) 项"
                 : "双向同步未完成：已验证 \(verified) 项，\(unresolvedIDs.count) 项待重试"
+            updateSyncPresentation(unresolvedIDs.isEmpty ? .succeeded : .failed, detail: lastSyncMessage)
         } catch {
             // Do not claim that a queued or accepted upload reached the server
             // until a pull from the same authenticated account confirms it.
@@ -368,6 +380,7 @@ final class SyncService: ObservableObject {
                         reason: OperationRecoveryMapper.sync(error).diagnosticCode
                     )
                     lastSyncMessage = "网络波动，已加入后台同步队列"
+                    updateSyncPresentation(.awaitingNetwork, detail: lastSyncMessage)
                     return true
                 }
                 if let net = error as? NetworkService.NetworkError,

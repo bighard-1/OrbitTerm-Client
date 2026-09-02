@@ -117,6 +117,7 @@ final class DockerService: ObservableObject {
     @Published var dockerEnvironmentMissing: Bool = false
     @Published var statusText: String = "未连接"
     @Published private(set) var checkedError: CheckedDockerServiceError?
+    @Published private(set) var operationNotice: String?
 
     private let logger = Logger(subsystem: "com.orbitterm.app", category: "docker")
     private var connectionMode: ConnectionSecurityPolicy = .applicationDefault
@@ -251,6 +252,7 @@ final class DockerService: ObservableObject {
     }
 
     func disconnect() async {
+        operationNotice = nil
         if connectionMode.requiresCheckedNetwork {
             checkedRefreshOwner.invalidate()
             checkedInteractiveOwner.invalidate()
@@ -382,6 +384,7 @@ final class DockerService: ObservableObject {
     }
 
     func performAction(containerID: String, action: DockerAction) async {
+        operationNotice = nil
         if connectionMode.requiresCheckedNetwork {
             guard let binding = checkedBinding else {
                 handleCheckedFailure(.requiresVerifiedSession)
@@ -398,6 +401,7 @@ final class DockerService: ObservableObject {
                     action: checkedAction
                 )
                 try await refreshNow()
+                operationNotice = "\(action.label)操作已完成。"
             } catch let error as CheckedDockerServiceError {
                 handleCheckedFailure(error)
             } catch {
@@ -416,10 +420,15 @@ final class DockerService: ObservableObject {
                 }
             }
             try await refreshNow()
+            operationNotice = "\(action.label)操作已完成。"
         } catch {
             statusText = "操作失败: \(error.localizedDescription)"
         }
         #endif
+    }
+
+    func dismissOperationNotice(_ message: String) {
+        if operationNotice == message { operationNotice = nil }
     }
 
     func fetchLogs(containerID: String, tailLines: UInt32 = 300) async throws -> String {
@@ -665,6 +674,7 @@ final class DockerService: ObservableObject {
         _ error: CheckedDockerServiceError,
         disconnect: Bool = true
     ) {
+        operationNotice = nil
         checkedError = error
         isScanning = false
         statusText = error.userMessage

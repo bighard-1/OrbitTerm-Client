@@ -95,6 +95,45 @@ final class OperationResourceBudgetStressTests: XCTestCase {
         assertCompletedWithinDeadline(since: startedAt)
     }
 
+    func testSyncDeliveryYieldsAtConfiguredSliceBoundary() {
+        let boundary = OperationResourceBudget.syncIncrementalPageSize
+
+        XCTAssertFalse(OperationResourceBudget.shouldYieldSyncDelivery(completedInSlice: boundary - 1))
+        XCTAssertTrue(OperationResourceBudget.shouldYieldSyncDelivery(completedInSlice: boundary))
+        XCTAssertTrue(OperationResourceBudget.shouldYieldSyncDelivery(completedInSlice: boundary * 10))
+    }
+
+    func testSyncContinuationStopsAfterNetworkLossLockOrAccountSwitch() {
+        XCTAssertTrue(
+            OperationResourceBudget.permitsSyncContinuation(
+                hasMore: true,
+                networkAvailable: true,
+                authenticationMatchesExpectedAccount: true
+            )
+        )
+        XCTAssertFalse(
+            OperationResourceBudget.permitsSyncContinuation(
+                hasMore: true,
+                networkAvailable: false,
+                authenticationMatchesExpectedAccount: true
+            )
+        )
+        XCTAssertFalse(
+            OperationResourceBudget.permitsSyncContinuation(
+                hasMore: true,
+                networkAvailable: true,
+                authenticationMatchesExpectedAccount: false
+            )
+        )
+        XCTAssertFalse(
+            OperationResourceBudget.permitsSyncContinuation(
+                hasMore: false,
+                networkAvailable: true,
+                authenticationMatchesExpectedAccount: true
+            )
+        )
+    }
+
     private func assertCompletedWithinDeadline(
         since startedAt: Date,
         file: StaticString = #filePath,

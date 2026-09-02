@@ -118,6 +118,59 @@ struct SecurityStatusStyle: ViewModifier {
     @Environment(\.securitySemanticPalette) private var security
     func body(content: Content) -> some View { let status = security.presentation(for: kind); content.foregroundStyle(status.color.color).padding(.horizontal, 12).padding(.vertical, 10).background(status.color.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous)).overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(status.color.color.opacity(0.35))) }
 }
+
+struct OperationalRefreshButton: View {
+    let presentation: OperationalActionPresentation
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                if presentation.showsRefreshProgress {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                Text(presentation.refreshLabel)
+            }
+        }
+        .disabled(!presentation.refreshEnabled)
+        .accessibilityLabel(presentation.refreshAccessibilityLabel)
+    }
+}
+
+struct OperationalFailureBanner: View {
+    let content: OperationalContentPresentation
+    let action: OperationalActionPresentation
+    let accessibilityPrefix: String
+
+    private var message: String {
+        [content.detail, action.staleContentMessage]
+            .compactMap { $0 }
+            .joined(separator: " ")
+    }
+
+    var body: some View {
+        if content.phase == .failed {
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .securityStatusStyle(.danger)
+                .accessibilityLabel("\(accessibilityPrefix)：\(message)")
+        }
+    }
+}
+
+struct OperationalTransientSuccessBanner: View {
+    let message: String
+
+    var body: some View {
+        Label(message, systemImage: "checkmark.circle.fill")
+            .font(.caption)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .securityStatusStyle(.success)
+            .accessibilityLabel("成功：\(message)")
+    }
+}
 extension View {
     func themedGlassSurface() -> some View { modifier(ThemedGlassSurface()) }
     func themedReadableSurface() -> some View { modifier(ThemedReadableSurface()) }

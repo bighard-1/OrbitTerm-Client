@@ -417,7 +417,7 @@ struct QuickKeySetupSheet: View {
             )
             try vault.save(updatedCreds, for: server.credentialID)
             if session.isAuthenticated && session.isUnlocked {
-                try? SshKeySyncStore.shared.upsertPrivateKey(
+                _ = try? SshKeySyncStore.shared.upsertPrivateKey(
                     name: "\(server.name) SSH 密钥",
                     privateKey: updatedCreds.privateKeyContent,
                     passphrase: updatedCreds.privateKeyPassphrase,

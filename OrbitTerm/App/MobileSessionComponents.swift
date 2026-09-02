@@ -38,37 +38,90 @@ struct MobileMonitorPanel: View {
     @State private var processSort: MobileProcessSort = .cpu
     @State private var processMonitorExpanded = false
     @State private var isRefreshingProcesses = false
+    @State private var isRefreshingMonitor = false
     @State private var processError: String?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
                 if let panel = manager.monitorService.panel(id: session.activeMonitorPanelID) {
-                    Text(panel.status)
-                        .font(.caption)
-                        .foregroundStyle(manager.monitorService.checkedErrors[panel.id] != nil ? security.danger.color : (panel.isRunning ? security.success.color : palette.textSecondary.color))
+                    let recovery = manager.monitorService.recoveryPresentation(for: panel.id)
+                    let contentPresentation = OperationalContentPresentationMapper.monitor(
+                        isLoading: panel.isRunning && panel.points.isEmpty,
+                        hasData: !panel.points.isEmpty,
+                        isPolling: panel.isRunning,
+                        failureDetail: recovery?.message
+                    )
+                    let actionPresentation = OperationalContentPresentationMapper.refreshAction(
+                        module: .monitor,
+                        phase: contentPresentation.phase,
+                        isRefreshing: isRefreshingMonitor,
+                        hasContent: !panel.points.isEmpty
+                    )
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("系统监控")
+                                .font(.subheadline.weight(.semibold))
+                            Text(contentPresentation.headline)
+                                .font(.caption)
+                                .foregroundStyle(contentPresentation.phase == .failed ? security.danger.color : (panel.isRunning ? security.success.color : palette.textSecondary.color))
+                        }
+                        Spacer()
+                        OperationalRefreshButton(presentation: actionPresentation) {
+                            guard !isRefreshingMonitor else { return }
+                            Task {
+                                isRefreshingMonitor = true
+                                defer { isRefreshingMonitor = false }
+                                await manager.monitorService.refreshMonitoring(panel.id)
+                            }
+                        }
+                        Button(OperationalContentPresentationMapper.monitorSamplingLabel(isPolling: panel.isRunning)) {
+                            Task {
+                                if panel.isRunning {
+                                    await manager.monitorService.suspendMonitoring(panel.id)
+                                } else {
+                                    await manager.monitorService.resumeMonitoring(panel.id)
+                                }
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .padding(.horizontal, 12)
+                    if contentPresentation.phase == .failed, !panel.points.isEmpty {
+                        OperationalFailureBanner(
+                            content: contentPresentation,
+                            action: actionPresentation,
+                            accessibilityPrefix: "监控"
+                        )
                         .padding(.horizontal, 12)
+                    }
                     if let last = panel.points.last {
                         let recentLatency = Array(panel.points.suffix(20)).map(\.pingLatencyMs)
                         let probeFailure = TCPLatencySamplePolicy.statistics(samples: recentLatency).failurePercent
-                        HStack(spacing: 10) {
-                            MobileMonitorMetricCard("CPU", String(format: "%.1f%%", last.cpuUsage))
-                            MobileMonitorMetricCard("内存", String(format: "%.1f%%", last.memUsedPercent))
-                            MobileMonitorMetricCard("磁盘", String(format: "%.1f%%", last.diskUsedPercent))
-                            MobileMonitorMetricCard(
-                                "TCP 延迟",
-                                last.pingLatencyMs.map {
-                                    String(format: "%.0f ms · 失败 %.0f%%", $0, probeFailure ?? 0)
-                                } ?? String(format: "-- ms · 失败 %.0f%%", probeFailure ?? 100)
-                            )
-                            MobileMonitorMetricCard("下载", String(format: "%.1f KB/s", last.rxRateKBps))
-                            MobileMonitorMetricCard("上传", String(format: "%.1f KB/s", last.txRateKBps))
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 10) {
+                                MobileMonitorMetricCard("CPU", String(format: "%.1f%%", last.cpuUsage))
+                                MobileMonitorMetricCard("内存", String(format: "%.1f%%", last.memUsedPercent))
+                                MobileMonitorMetricCard("磁盘", String(format: "%.1f%%", last.diskUsedPercent))
+                                MobileMonitorMetricCard(
+                                    "TCP 延迟",
+                                    last.pingLatencyMs.map {
+                                        String(format: "%.0f ms · 失败 %.0f%%", $0, probeFailure ?? 0)
+                                    } ?? String(format: "-- ms · 失败 %.0f%%", probeFailure ?? 100)
+                                )
+                                MobileMonitorMetricCard("下载", String(format: "%.1f KB/s", last.rxRateKBps))
+                                MobileMonitorMetricCard("上传", String(format: "%.1f KB/s", last.txRateKBps))
+                            }
                         }
                         .padding(.horizontal, 12)
                         monitorMiniCharts(panel)
                         mobileProcessMonitor
                     } else {
-                        ContentUnavailableView("暂无监控数据", systemImage: "waveform.path.ecg")
+                        ContentUnavailableView {
+                            Label(contentPresentation.headline, systemImage: "waveform.path.ecg")
+                        } description: {
+                            Text(contentPresentation.detail)
+                        }
                     }
                 } else {
                     ContentUnavailableView {
@@ -202,12 +255,24 @@ struct MobileMonitorPanel: View {
     @ViewBuilder
     private func monitorMiniCharts(_ panel: MonitorPanelState) -> some View {
         let points = Array(panel.points.suffix(300))
+        let latencyStatistics = TCPLatencySamplePolicy.statistics(samples: Array(panel.points.suffix(20)).map(\.pingLatencyMs))
 #if canImport(Charts)
         VStack(spacing: 8) {
             miniChart(title: "CPU(5分钟)", points: points, value: { $0.cpuUsage }, unit: "%")
             miniChart(title: "内存(5分钟)", points: points, value: { $0.memUsedPercent }, unit: "%")
             miniChart(title: "磁盘(5分钟)", points: points, value: { $0.diskUsedPercent }, unit: "%")
-            miniChart(title: "延迟(5分钟)", points: points, value: { $0.pingLatencyMs ?? 0 }, unit: "ms")
+            miniChart(
+                title: "延迟(5分钟)",
+                points: points,
+                value: { $0.pingLatencyMs ?? 0 },
+                unit: "ms",
+                detail: String(
+                    format: "P50 %.1f · P95 %.1f · 失败 %.1f%%",
+                    latencyStatistics.p50Milliseconds ?? 0,
+                    latencyStatistics.p95Milliseconds ?? 0,
+                    latencyStatistics.failurePercent ?? 0
+                )
+            )
             miniChart(title: "下载(5分钟)", points: points, value: { $0.rxRateKBps }, unit: "KB/s")
             miniChart(title: "上传(5分钟)", points: points, value: { $0.txRateKBps }, unit: "KB/s")
         }
@@ -222,7 +287,8 @@ struct MobileMonitorPanel: View {
         title: String,
         points: [MonitorPoint],
         value: @escaping (MonitorPoint) -> Double,
-        unit: String
+        unit: String,
+        detail: String? = nil
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -230,7 +296,7 @@ struct MobileMonitorPanel: View {
                     .font(.caption2)
                     .foregroundStyle(palette.textSecondary.color)
                 Spacer()
-                Text(String(format: "%.1f %@", value(points.last ?? MonitorPoint(time: .now, cpuUsage: 0, memUsedPercent: 0, diskUsedPercent: 0, pingLatencyMs: 0, rxRateKBps: 0, txRateKBps: 0)), unit))
+                Text(detail ?? String(format: "%.1f %@", value(points.last ?? MonitorPoint(time: .now, cpuUsage: 0, memUsedPercent: 0, diskUsedPercent: 0, pingLatencyMs: 0, rxRateKBps: 0, txRateKBps: 0)), unit))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(palette.textSecondary.color)
             }
@@ -281,6 +347,7 @@ private struct MobileMonitorMetricCard: View {
                 .font(.caption.monospacedDigit())
         }
         .padding(8)
+        .frame(minWidth: 92, alignment: .leading)
         .foregroundStyle(palette.textPrimary.color)
         .background(palette.surfaceGlassStrong.color, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }

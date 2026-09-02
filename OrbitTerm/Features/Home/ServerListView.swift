@@ -20,8 +20,6 @@ struct ServerListView: View {
     @State private var searchText = ""
     @State private var showingBulkAdd = false
     @State private var isSynchronizing = false
-    @State private var armedConnectionServerID: UUID?
-    @State private var connectionArmTask: Task<Void, Never>?
     var onConnectRequested: ((ServerEntry) -> Void)?
 
     var body: some View {
@@ -53,7 +51,7 @@ struct ServerListView: View {
                                         if batchMode {
                                             toggleBatchSelection(server.id)
                                         } else {
-                                            handlePrimaryAssetTap(server)
+                                            connect(server)
                                         }
                                     } label: {
                                         VStack(alignment: .leading, spacing: 2) {
@@ -68,22 +66,11 @@ struct ServerListView: View {
                                             Text("\(server.username)@\(server.endpointText)")
                                                 .font(.caption)
                                                 .foregroundStyle(palette.textSecondary.color)
-                                            if armedConnectionServerID == server.id, !isServerConnected(server) {
-                                                Label("再次点击以连接", systemImage: "hand.tap")
-                                                    .font(.caption2.weight(.semibold))
-                                                    .foregroundStyle(palette.accentPrimary.color)
-                                            }
                                         }
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                     }
                                     .buttonStyle(.plain)
-                                    .accessibilityHint(
-                                        batchMode
-                                            ? "切换批量选择状态"
-                                            : armedConnectionServerID == server.id
-                                                ? "再次点击将建立远程连接"
-                                                : "点击一次准备连接，再次点击确认；也可向右轻扫后选择连接"
-                                    )
+                                    .accessibilityHint(batchMode ? "切换批量选择状态" : "建立远程连接")
                                     .contextMenu {
                                         Button("连接") {
                                             connect(server)
@@ -296,15 +283,10 @@ struct ServerListView: View {
             }
         } message: {
             if let server = pendingDeleteServer {
-                Text("将删除资产“\(server.name)”，此操作不可撤销。")
+                Text("将资产“\(server.name)”移入最近删除，并移除本机凭据。保留期内可在个人中心恢复。")
             } else {
-                Text("此操作不可撤销。")
+                Text("资产将移入最近删除，并移除本机凭据。")
             }
-        }
-        .onDisappear {
-            connectionArmTask?.cancel()
-            connectionArmTask = nil
-            armedConnectionServerID = nil
         }
         .alert("确认删除分组", isPresented: Binding(
             get: { pendingDeleteGroup != nil },
@@ -322,7 +304,7 @@ struct ServerListView: View {
             if let group = pendingDeleteGroup {
                 Text("将删除分组“\(group)”及其下全部资产。")
             } else {
-                Text("此操作不可撤销。")
+                Text("分组下的资产将移入最近删除，并移除本机凭据。")
             }
         }
     }
@@ -365,30 +347,10 @@ struct ServerListView: View {
     }
 
     private func connect(_ server: ServerEntry) {
-        connectionArmTask?.cancel()
-        connectionArmTask = nil
-        armedConnectionServerID = nil
         store.select(server)
         sessionManager.quickOpenServer = server
         onConnectRequested?(server)
         session.showTransientStatus("已选择 \(server.name)，请在连接页发起连接")
-    }
-
-    private func handlePrimaryAssetTap(_ server: ServerEntry) {
-        if isServerConnected(server) || armedConnectionServerID == server.id {
-            connect(server)
-            return
-        }
-
-        connectionArmTask?.cancel()
-        armedConnectionServerID = server.id
-        session.showTransientStatus("再次点击“\(server.name)”即可连接；也可向右轻扫后选择连接")
-        connectionArmTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(3))
-            guard !Task.isCancelled, armedConnectionServerID == server.id else { return }
-            armedConnectionServerID = nil
-            connectionArmTask = nil
-        }
     }
 
     private func deleteSelectedServers() {

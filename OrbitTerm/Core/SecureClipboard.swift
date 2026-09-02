@@ -33,6 +33,23 @@ enum ClipboardContentKind: Sendable {
             true
         }
     }
+
+    var suppressesSystemPreview: Bool {
+        expiryNanoseconds != nil
+    }
+
+    var allowsCrossDeviceSharing: Bool {
+        expiryNanoseconds == nil
+    }
+}
+
+/// Pure visibility rule shared with the application cover and the checked
+/// policy tests. Keeping it free of UIKit/AppKit state makes regressions
+/// deterministic on the macOS test runner.
+enum SensitiveScreenVisibilityPolicy {
+    static func shouldCover(isSceneActive: Bool, isScreenCaptured: Bool) -> Bool {
+        !isSceneActive || isScreenCaptured
+    }
 }
 
 @MainActor
@@ -62,19 +79,30 @@ enum SecureClipboard {
     @discardableResult
     static func copy(_ content: Data, kind: ClipboardContentKind) -> Bool {
         guard kind.canCopy else { return false }
-        ClipboardSecurityNotice.shared.show(for: kind)
 
 #if canImport(AppKit)
         let board = NSPasteboard.general
         board.clearContents()
         guard board.setData(content, forType: .string) else { return false }
+        ClipboardSecurityNotice.shared.show(for: kind)
         let revision = board.changeCount
         scheduleClear(kind: kind, matchesRevision: { board.changeCount == revision }) {
             board.clearContents()
         }
 #elseif canImport(UIKit)
         let board = UIPasteboard.general
-        board.setData(content, forPasteboardType: "public.utf8-plain-text")
+        var options: [UIPasteboard.OptionsKey: Any] = [:]
+        if let expiry = kind.expiryNanoseconds {
+            options[.localOnly] = true
+            options[.expirationDate] = Date(
+                timeIntervalSinceNow: TimeInterval(expiry) / 1_000_000_000
+            )
+        }
+        board.setItems(
+            [["public.utf8-plain-text": content]],
+            options: options
+        )
+        ClipboardSecurityNotice.shared.show(for: kind)
         let revision = board.changeCount
         scheduleClear(kind: kind, matchesRevision: { board.changeCount == revision }) {
             board.items = []

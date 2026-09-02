@@ -268,12 +268,12 @@ struct WorkstationMonitorOverviewStrip: View {
         .font(.caption2)
         .padding(.horizontal, 4)
         .padding(.vertical, 3)
+        .frame(maxWidth: .infinity, minHeight: 50, maxHeight: 50, alignment: .leading)
         .background(palette.surfaceGlass.color, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(palette.borderGlass.color, lineWidth: 1)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(metric.title)，当前 \(metric.value)，最近变化")
     }

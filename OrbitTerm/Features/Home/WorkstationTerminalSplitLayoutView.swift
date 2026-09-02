@@ -69,6 +69,9 @@ struct WorkstationTerminalSplitLayoutView: View {
             },
             searchText: searchText,
             searchCommand: searchCommand,
+            focusRequest: session.activeTerminalPaneIndex == index
+                ? session.terminalPaneFocusRequest
+                : 0,
             onSearchFeedback: onSearchFeedback
         )
         .id("terminal-pane-\(session.id.uuidString)-\(index)-\(paneChannelID ?? 0)")

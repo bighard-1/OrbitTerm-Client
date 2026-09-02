@@ -28,6 +28,7 @@ struct SwiftTermTerminalView: View {
     let searchText: String
     let searchCommand: TerminalSearchCommand?
     let viewportCommand: TerminalViewportCommand?
+    let focusRequest: Int
     let onSearchFeedback: (Bool, TerminalSearchAction) -> Void
     @AppStorage(TerminalThemeManager.storageKey) private var terminalThemeID: String = TerminalThemeManager.defaultThemeID
     @AppStorage(TerminalThemeManager.followsApplicationThemeStorageKey) private var terminalFollowsApplicationTheme = false
@@ -41,6 +42,7 @@ struct SwiftTermTerminalView: View {
         searchText: String,
         searchCommand: TerminalSearchCommand?,
         viewportCommand: TerminalViewportCommand? = nil,
+        focusRequest: Int = 0,
         onSearchFeedback: @escaping (Bool, TerminalSearchAction) -> Void
     ) {
         self.channelID = channelID
@@ -49,6 +51,7 @@ struct SwiftTermTerminalView: View {
         self.searchText = searchText
         self.searchCommand = searchCommand
         self.viewportCommand = viewportCommand
+        self.focusRequest = focusRequest
         self.onSearchFeedback = onSearchFeedback
     }
 
@@ -69,6 +72,7 @@ struct SwiftTermTerminalView: View {
                     searchText: searchText,
                     searchCommand: searchCommand,
                     viewportCommand: viewportCommand,
+                    focusRequest: focusRequest,
                     onSearchFeedback: onSearchFeedback
                 )
             } else {
@@ -99,6 +103,7 @@ private struct TerminalRepresentable: PlatformRepresentable {
     let searchText: String
     let searchCommand: TerminalSearchCommand?
     let viewportCommand: TerminalViewportCommand?
+    let focusRequest: Int
     let onSearchFeedback: (Bool, TerminalSearchAction) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -125,7 +130,8 @@ private struct TerminalRepresentable: PlatformRepresentable {
             fontSize: fontSize,
             searchText: searchText,
             searchCommand: searchCommand,
-            viewportCommand: viewportCommand
+            viewportCommand: viewportCommand,
+            focusRequest: focusRequest
         )
     }
 #else
@@ -152,7 +158,8 @@ private struct TerminalRepresentable: PlatformRepresentable {
             fontSize: fontSize,
             searchText: searchText,
             searchCommand: searchCommand,
-            viewportCommand: viewportCommand
+            viewportCommand: viewportCommand,
+            focusRequest: focusRequest
         )
     }
 #endif
@@ -184,6 +191,7 @@ private struct TerminalRepresentable: PlatformRepresentable {
         private var appliedThemeID: String?
         private var lastSearchCommandID: UUID?
         private var lastViewportCommandID: UUID?
+        private var lastFocusRequest = 0
         private var renderEscapeFilter = TerminalRenderEscapeFilter()
 
         init(
@@ -227,7 +235,8 @@ private struct TerminalRepresentable: PlatformRepresentable {
                 fontSize: fontSize,
                 searchText: "",
                 searchCommand: nil,
-                viewportCommand: nil
+                viewportCommand: nil,
+                focusRequest: 0
             )
         }
 
@@ -238,7 +247,8 @@ private struct TerminalRepresentable: PlatformRepresentable {
             fontSize: Double,
             searchText: String,
             searchCommand: TerminalSearchCommand?,
-            viewportCommand: TerminalViewportCommand?
+            viewportCommand: TerminalViewportCommand?,
+            focusRequest: Int
         ) {
             terminalView = view
             applyThemeIfNeeded(theme, to: view)
@@ -271,6 +281,18 @@ private struct TerminalRepresentable: PlatformRepresentable {
 
             applySearchCommandIfNeeded(searchText: searchText, searchCommand: searchCommand, view: view)
             applyViewportCommandIfNeeded(viewportCommand, view: view)
+            applyFocusRequestIfNeeded(focusRequest, view: view)
+        }
+
+        private func applyFocusRequestIfNeeded(_ request: Int, view: TerminalView) {
+#if os(macOS)
+            guard request > 0, request != lastFocusRequest else { return }
+            lastFocusRequest = request
+            DispatchQueue.main.async { [weak view] in
+                guard let view else { return }
+                view.window?.makeFirstResponder(view)
+            }
+#endif
         }
 
         private func applyViewportCommandIfNeeded(_ command: TerminalViewportCommand?, view: TerminalView) {

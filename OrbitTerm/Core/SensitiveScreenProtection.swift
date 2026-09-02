@@ -36,6 +36,21 @@ final class SensitiveScreenProtection: ObservableObject {
                 }
             }
         )
+        observers.append(
+            NotificationCenter.default.addObserver(
+                forName: UIApplication.userDidTakeScreenshotNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                // iOS offers no supported way to block a user-initiated
+                // screenshot. Wipe transient secrets immediately afterwards
+                // so they cannot remain exposed when the app is revisited.
+                NotificationCenter.default.post(
+                    name: .orbitTermClearTransientSensitiveInput,
+                    object: nil
+                )
+            }
+        )
 #endif
     }
 
@@ -95,7 +110,10 @@ private struct SensitiveScreenProtectionModifier: ViewModifier {
             .background(SensitiveWindowConfiguration().frame(width: 0, height: 0))
 #endif
             .overlay {
-                if scenePhase != .active || protection.isScreenCaptured {
+                if SensitiveScreenVisibilityPolicy.shouldCover(
+                    isSceneActive: scenePhase == .active,
+                    isScreenCaptured: protection.isScreenCaptured
+                ) {
                     SensitiveContentCover()
                         .transition(.opacity)
                 }

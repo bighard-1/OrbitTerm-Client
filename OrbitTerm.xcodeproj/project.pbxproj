@@ -15,6 +15,7 @@
 		018ABE369CBC10D75F294011 /* SFTPBrowserEditState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39F14E3A78611D6EDB41479C /* SFTPBrowserEditState.swift */; };
 		02457149F76999462EA3AA7A /* ShellSyntaxHighlighterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC7FD6608AE3F86AC45A7A36 /* ShellSyntaxHighlighterTests.swift */; };
 		029B82DBC50E882E35669E9D /* SFTPThemeSemantics.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF348DE95064576B85DADD2 /* SFTPThemeSemantics.swift */; };
+		02C6BA42DAC106A0BD1F1530 /* SyncRequestIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63DE4B7AB2A58ACE26E58A5E /* SyncRequestIdentity.swift */; };
 		0320B97B45B66026720898DB /* WorkspaceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83D32D4C054B4202BC9A24A0 /* WorkspaceSession.swift */; };
 		045F7DD65D20E9E33C231508 /* AppAccessibilityPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A32DEC690F6560E85051181 /* AppAccessibilityPresentation.swift */; };
 		058A678711CF9EA48DF7D86E /* AssetQuickKeySetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DA03126726F8585CE9F3B82 /* AssetQuickKeySetupSheet.swift */; };
@@ -32,6 +33,7 @@
 		0C53A11AB29E2F2D0D0B54DD /* AppThemeID.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94D7A799EA22C8D6916F2C8C /* AppThemeID.swift */; };
 		0C85D9659374297F5DE445CB /* SyncIdentityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0FAA4130AD937FDB99259DB /* SyncIdentityService.swift */; };
 		0C8860823748DBA9A0199B21 /* OperationRecoveryPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBBD4156F827335BB72AAE3F /* OperationRecoveryPresentationTests.swift */; };
+		0CD4D4DDC049D36A9B8B5704 /* SyncHTTPResponsePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F43D18AEED1C6A73ABB7FEE /* SyncHTTPResponsePolicy.swift */; };
 		0D314F89527BCF70437EF140 /* DockerThemeSemantics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533982FC35543354786D195E /* DockerThemeSemantics.swift */; };
 		0FB5017B8FEC159FD019C07F /* DevicePerformanceSLO.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7028EE39201622835F829776 /* DevicePerformanceSLO.swift */; };
 		0FD297BBBDD76E0DD9DF4E9F /* KeychainDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3283D7558028E2BB3A5C9AC /* KeychainDataStore.swift */; };
@@ -76,9 +78,11 @@
 		2838E005BA0A477696E846F7 /* AssetDetailThemeSemantics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7523280FF81ED3A80729122 /* AssetDetailThemeSemantics.swift */; };
 		28AE8531E7ADB862080A2502 /* DiagnosticsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6BA478CCB76C4787B9E87D9 /* DiagnosticsManager.swift */; };
 		28E672FDA0369A2F602203CA /* SwiftTermPlatformSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D7F211EB934A0D5BCE2885D /* SwiftTermPlatformSupport.swift */; };
+		29028BA8A64FBE878EDB16B0 /* RemoteDesktopWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3595FCE91244876C1C8F3DD2 /* RemoteDesktopWorkspaceView.swift */; };
 		29174213C6883CAD5BACE7E9 /* HeaderForwardingCompileCheck.c in Sources */ = {isa = PBXBuildFile; fileRef = 7713E6E04A40DA1BC5D07D1A /* HeaderForwardingCompileCheck.c */; };
 		29E092287DEB4689A02D04C9 /* DockerCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94CA85B4AEBF74F59E325CD1 /* DockerCardView.swift */; };
 		29EFC7F3658B10F765D16B9D /* AddServerFooter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0491AEADC0D897DA27ADC4C5 /* AddServerFooter.swift */; };
+		2A77B7D0AD362D331DB0878B /* SyncRequestIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD8735F617A690186895C697 /* SyncRequestIdentityTests.swift */; };
 		2B23DC6986FDD1918543F546 /* RemoteDesktopAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9F5BD6067FB45DFCB094B4 /* RemoteDesktopAdapter.swift */; };
 		2CA5B48AA4D2BD5DCB98EFE8 /* JumpHostConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD1994CA24F0AC79461C7E9C /* JumpHostConfiguration.swift */; };
 		2D5178B315D93BEBDDCE09EC /* AddServerAuthSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36296E55AE0C9150AC8BB729 /* AddServerAuthSection.swift */; };
@@ -117,12 +121,14 @@
 		3ABD1233A5CA04AD81D0A177 /* FreeRDPFrameBufferView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34967533FAB34C7B2D0FF823 /* FreeRDPFrameBufferView.swift */; };
 		3B7743B9F34714A141D9DD66 /* AssetDetailThemeSemantics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7523280FF81ED3A80729122 /* AssetDetailThemeSemantics.swift */; };
 		3BB412787D76B6A8436ED0DD /* MobileSessionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA44539F264985D253A45D92 /* MobileSessionViews.swift */; };
+		3BC30BD8951F139309F608AB /* NetworkModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4AE5E8FEC909FFBA6B236E /* NetworkModels.swift */; };
 		3C1DC23B3976040613F88C1B /* PerformanceSignpost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09502274F23E2F81A76402EA /* PerformanceSignpost.swift */; };
 		3CBBCA430C39BB5D72595613 /* SyncPullRecoveryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC432D7167B38CF9C7D4660B /* SyncPullRecoveryPolicy.swift */; };
 		3D85D3A635000A45A703B805 /* SFTPActivityShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A8CF8B6134CC76C9376A2B /* SFTPActivityShareSheet.swift */; };
 		3DA37901A4E63DF0BEF2FA20 /* OrbitCoreCheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98B23E2A2CD42FFDD3EF8330 /* OrbitCoreCheckedFFIClient.swift */; };
 		3DBFDFBCF613C85F01A8B88D /* MonitorService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F14341CBA2F36F648BF5800 /* MonitorService.swift */; };
 		3DF2B2E217DCEA2F3AFC0C92 /* HostKeyTrustViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B7DA78E6B914CF622EA1AB6 /* HostKeyTrustViews.swift */; };
+		3E1B002932114F1C8308AE78 /* SyncHTTPResponsePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F43D18AEED1C6A73ABB7FEE /* SyncHTTPResponsePolicy.swift */; };
 		3EB358FDB9CB766FA7A12C44 /* SnippetAssetScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49A82DE81A0B407B463AD4AF /* SnippetAssetScope.swift */; };
 		3EDC640F7AF5C5F46A1B7F89 /* SFTPThemeSemantics.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF348DE95064576B85DADD2 /* SFTPThemeSemantics.swift */; };
 		3EFC8F882A170FAC6D81264D /* SFTPManager+Transfers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56D3F03810DC065AADA6A2C2 /* SFTPManager+Transfers.swift */; };
@@ -154,10 +160,12 @@
 		4BC40FE93C339A62EC76D69F /* HostKeyPresentationSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E98B77FA2367EC90E7474B58 /* HostKeyPresentationSnapshot.swift */; };
 		4BE2C888269F03A09DF8109E /* AppUITestLaunchState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 810250A658CB9CD789D4C81F /* AppUITestLaunchState.swift */; };
 		4BF46732D599F8312DFBDB30 /* DockerThemeSemantics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533982FC35543354786D195E /* DockerThemeSemantics.swift */; };
+		4C2A219C309466C0232721F6 /* DiagnosticsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6BA478CCB76C4787B9E87D9 /* DiagnosticsManager.swift */; };
 		4C573A2DE05CB691D7AA27A4 /* OrbitCoreCheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98B23E2A2CD42FFDD3EF8330 /* OrbitCoreCheckedFFIClient.swift */; };
 		4CD2FBADD45B339184BA8BF3 /* AppThemeID.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94D7A799EA22C8D6916F2C8C /* AppThemeID.swift */; };
 		4D8E8455AF03DE1A4A42911A /* WorkstationToolbarModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CAC2E9B1546BFD66A6161FF /* WorkstationToolbarModifier.swift */; };
 		4EFA73C26542323B8F1818C0 /* SyncService+Synchronization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0197FADECAE6D8AC5EFEE8C5 /* SyncService+Synchronization.swift */; };
+		4FE0DB2BEB6C91A311D208F5 /* NetworkServiceFaultInjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79FEF13075C7CADC3ADBE67B /* NetworkServiceFaultInjectionTests.swift */; };
 		5212877D1742D0E62BF5BF0A /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 5C0FE5421C2C7F89752C7FBD /* SwiftTerm */; };
 		528562FF18CF1DF45221B0E7 /* WorkstationLayoutMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91CF5B57FA41C8FB507E27B6 /* WorkstationLayoutMetrics.swift */; };
 		52FCAA84026D316FC64704FC /* DetachedSessionWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79C98A67B69AA654CC5A6B77 /* DetachedSessionWindowView.swift */; };
@@ -182,6 +190,7 @@
 		5B517D9960F3AE3AA540E5F4 /* SFTPBatchOperationFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0745CC8E9FCDB47926A280 /* SFTPBatchOperationFormatter.swift */; };
 		5BAA624D9CBB114A3C91E165 /* TelnetAccessPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDB1034B7939B68118FACF98 /* TelnetAccessPolicy.swift */; };
 		5C144C6F938F96E9A34F819F /* View+InputPolish.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */; };
+		5C64BA28161B3AD7D46F41A5 /* SyncRequestIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63DE4B7AB2A58ACE26E58A5E /* SyncRequestIdentity.swift */; };
 		5CD76ACDD9BEF9D839843476 /* CredentialInputHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 442AD4AADE13BA0E4204549B /* CredentialInputHelpers.swift */; };
 		5CD7DEFB5603F280E3F85C28 /* MonitorSystemInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1AE9D38C2788923B752E7F1 /* MonitorSystemInfo.swift */; };
 		5D96C914A888A7B30A93B1AF /* AddServerValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B73F5D9381F2705029E0D544 /* AddServerValidation.swift */; };
@@ -197,6 +206,7 @@
 		607FF897165AAB0B017E61AD /* SFTPActivityShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A8CF8B6134CC76C9376A2B /* SFTPActivityShareSheet.swift */; };
 		61BFC3FD1801C09266473767 /* TelnetClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0DB0DE0CCDDA52D06A792C /* TelnetClient.swift */; };
 		61FC5899344CFC55A694F90C /* OrbitCoreCheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98B23E2A2CD42FFDD3EF8330 /* OrbitCoreCheckedFFIClient.swift */; };
+		62109A743FBC497B4EDF23D7 /* SyncHTTPResponsePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 721D8951EDEB7762B7EFB69B /* SyncHTTPResponsePolicyTests.swift */; };
 		62211B7D8D433B30B17D23DC /* CheckedMonitorServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E49E88C1F1C415A4EA97DE /* CheckedMonitorServiceTests.swift */; };
 		625724DE31C8A620A3E8175A /* WorkstationTerminalSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 690770EDC7E1AC93C9D9BDFD /* WorkstationTerminalSearchOverlay.swift */; };
 		62E109460DA9F74DD9B86A24 /* CheckedMonitorSnapshotService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B716472EFB5C05C3C8596133 /* CheckedMonitorSnapshotService.swift */; };
@@ -232,6 +242,7 @@
 		6E0107D6FA5E91F706B50D9C /* MobileSessionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA44539F264985D253A45D92 /* MobileSessionViews.swift */; };
 		6F40C26A2620AF05AF43BA11 /* RemoteDesktopAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9F5BD6067FB45DFCB094B4 /* RemoteDesktopAdapter.swift */; };
 		71231D79008DB61E9CE40F61 /* SnippetVariableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA7AD58C1A1CED310B6875EE /* SnippetVariableResolver.swift */; };
+		72912534A53C71DFA0BEA8F6 /* RemoteDesktopSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D2FF1CA87581E584F09299 /* RemoteDesktopSessionController.swift */; };
 		73CDC379BC442FF95AFD2F14 /* DockerLogPresentationBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26E77A87BB17AB8BB22FBE05 /* DockerLogPresentationBuffer.swift */; };
 		749429BFF654F1AB265411AF /* View+InputPolish.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D20A08173AB8233A253AF7 /* View+InputPolish.swift */; };
 		74D4EA900D47574F606649DB /* DockerLogPresentationBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26E77A87BB17AB8BB22FBE05 /* DockerLogPresentationBuffer.swift */; };
@@ -245,6 +256,7 @@
 		770A52F2023C7ED94E32F7D3 /* SyncMetadataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D39A4AEB90905AF3505A2948 /* SyncMetadataStore.swift */; };
 		770AE109C5B32B014662ABFD /* AddServerFormComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95D8066857521151FF1854B9 /* AddServerFormComponents.swift */; };
 		774AEC150F44DF342DFCC77F /* RecentlyDeletedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E32DBAB1DC7E1D140A221B7E /* RecentlyDeletedView.swift */; };
+		7837A73731890DDD7480CB8D /* CredentialVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 190E90A490AB0BEFD1B5F1EA /* CredentialVault.swift */; };
 		783A87571BE91B3744CEEF83 /* SyncPullRecoveryPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBA4D64E2874ED0C905BBF3D /* SyncPullRecoveryPolicyTests.swift */; };
 		784B42089BADB5FA04EE5A2C /* OrbitCoreCheckedFFILiveFunctions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9767CC31B2E380BC77CA4295 /* OrbitCoreCheckedFFILiveFunctions.swift */; };
 		791C864C97C94860BC072BA1 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DC29E7DEA20362E09F501D3 /* AppSession.swift */; };
@@ -259,6 +271,7 @@
 		7C666A92C422C5BFDF2054B0 /* SFTPManager+Directory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9575AA7E205CF09F7CE38E07 /* SFTPManager+Directory.swift */; };
 		7C977D075E101CF4239514D8 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 9C72235D0D53A8B38F2E0FA5 /* SwiftTerm */; };
 		7D5FF7EA50EA584F52E7380E /* AccountSessionActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54F1E6C40147A48D73110C5F /* AccountSessionActions.swift */; };
+		7EDBF80F70DE9E68E8ED9AA8 /* SyncQueueRecoveryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 263AC0DF1CE1D37EB706BD09 /* SyncQueueRecoveryPolicy.swift */; };
 		7F38D279C57A1E4693BDA47D /* WorkstationTerminalSessionPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3DE23E2FB664A118F6B8646 /* WorkstationTerminalSessionPane.swift */; };
 		7F996E7D9810AEABC9BE7BCA /* SwiftTermTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAFDE71AA1A69539BB2EA7CD /* SwiftTermTerminalView.swift */; };
 		7FCB8139DD2ED49F66B8E215 /* SyncPullRecoveryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC432D7167B38CF9C7D4660B /* SyncPullRecoveryPolicy.swift */; };
@@ -273,6 +286,7 @@
 		848D3B050BB8EBB582EB0B72 /* CheckedFFIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9D64379CFB1DF22B325FB09 /* CheckedFFIClient.swift */; };
 		84DCCEEBB105C8E4BB112AD3 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DC29E7DEA20362E09F501D3 /* AppSession.swift */; };
 		8502184A1E660FCADEEC31E3 /* TerminalRenderEscapeFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CDA09138D12C60748CCF5EC /* TerminalRenderEscapeFilter.swift */; };
+		8533102B9F5615CCEEE0AFB2 /* SyncQueueRecoveryPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5721164D1A76869B12844DC6 /* SyncQueueRecoveryPolicyTests.swift */; };
 		85652ACC0968D7AF4EF480CD /* SFTPBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF8482667CCEAB37877728A8 /* SFTPBrowserView.swift */; };
 		85C885B99FB84BE5EAAE9F91 /* DockerManagerDrafts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D45567695C4B41D14FEEBBDA /* DockerManagerDrafts.swift */; };
 		875E84D50E1D56A200A5CBA1 /* WorkstationMonitorCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24CD1624F5A719FD6E790B98 /* WorkstationMonitorCardView.swift */; };
@@ -305,6 +319,7 @@
 		96E09D4124DD6D872620222F /* WorkstationMonitorDetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0406A2602C8DCBFAD157B5E5 /* WorkstationMonitorDetailViews.swift */; };
 		97604EE161A467F8769E5FC3 /* OperationResourceBudgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03CCFF611E40A538EB361595 /* OperationResourceBudgetTests.swift */; };
 		97B2C94619452615B3E0F174 /* AppThemeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82919D674337CEDD0480F21B /* AppThemeManager.swift */; };
+		98685C8EA53E2DE567946C29 /* RemoteDesktopSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D2FF1CA87581E584F09299 /* RemoteDesktopSessionController.swift */; };
 		989FD56E3407A0AFEF49C1A0 /* CheckedFFIKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 735C5043134DAC338A430C10 /* CheckedFFIKind.swift */; };
 		9B0F0B374F2C7C7BB4014906 /* DiagnosticsExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38CC52AC1F19BBC544F8D872 /* DiagnosticsExportView.swift */; };
 		9C22346C922E947A2F2BB050 /* MonitorThemeSemantics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ED00230D30C220DF33E79C8 /* MonitorThemeSemantics.swift */; };
@@ -387,8 +402,11 @@
 		BE4858738744054E796DD43A /* CheckedFFIPayloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = 656C4A6BCB0AD2479795FBDB /* CheckedFFIPayloads.swift */; };
 		BF54983EE60094BC16369D96 /* AddServerDraftBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F75E6C28523DF8A209339F6B /* AddServerDraftBuilder.swift */; };
 		C0C636CC4ECB08DD7B0A2590 /* OperationResourceBudget.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC937B797931679C4553F2AF /* OperationResourceBudget.swift */; };
+		C11820FCD9D4947F4FFB36D7 /* RemoteDesktopSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D2FF1CA87581E584F09299 /* RemoteDesktopSessionController.swift */; };
 		C14D1CDECA137AC382C024A9 /* TerminalInputDispatchPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F85C8B0484386E4BE3FF869B /* TerminalInputDispatchPolicy.swift */; };
+		C18A67341074A85E7C9234AF /* SyncHTTPResponsePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F43D18AEED1C6A73ABB7FEE /* SyncHTTPResponsePolicy.swift */; };
 		C225AD8DF6492AFDB01E726D /* CheckedTerminalConnectionOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04892B3FCBDC216B7013CF35 /* CheckedTerminalConnectionOrchestrator.swift */; };
+		C231D53C77445F8B82BC21C9 /* NetworkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */; };
 		C366A32CC05E89AA5FA38DDD /* OrbitCStringResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF296C0F924480DD21047D08 /* OrbitCStringResult.swift */; };
 		C3DFDCCCC8EBE087463610E0 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C7BDE123FD4A34D40AB63132 /* PrivacyInfo.xcprivacy */; };
 		C3F661036F847112CA11C87D /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20EA2AC1C67C6744ECBB46BD /* AuthView.swift */; };
@@ -399,6 +417,7 @@
 		C6B24EA3036A9D202689C262 /* MasterPasswordRotationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06DA37BAF41E86E707C8281D /* MasterPasswordRotationService.swift */; };
 		C6DEAAC6CE1A21FA792CF650 /* AppThemeComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D02DC967D1A5F8ADF3D80DA /* AppThemeComponents.swift */; };
 		C6F2005F28D369E4F5E76893 /* SecureClipboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44C44D1771B1537B7D07F4FE /* SecureClipboard.swift */; };
+		C81719AFC8E23B8CA05D79D4 /* SyncRequestIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63DE4B7AB2A58ACE26E58A5E /* SyncRequestIdentity.swift */; };
 		C81D9C828DDD4151085FCA46 /* SFTPBrowserBatchState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E248AF3D4742AFECB5DCCEEA /* SFTPBrowserBatchState.swift */; };
 		C8702A5799FF5E8FDC9B1096 /* SnippetEditorDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB25A1786CA7328B371EC1EA /* SnippetEditorDraft.swift */; };
 		C8BA9AE00EA7B0C10628037B /* AddServerValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B73F5D9381F2705029E0D544 /* AddServerValidation.swift */; };
@@ -428,6 +447,7 @@
 		D73945F35D103F36900752C6 /* DockerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B49A5D57724B8383BD06C96 /* DockerService.swift */; };
 		D7582594F04FB2E4C5812CCC /* FileSizeFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9727DF6BCB4A2DC3FFF9644E /* FileSizeFormatter.swift */; };
 		D928E5B6B947E41A9108CB67 /* AddServerSilentSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C055C50647B75B71C5C81DA /* AddServerSilentSync.swift */; };
+		D92BADE3C86224CAB73D6EC4 /* RemoteDesktopWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3595FCE91244876C1C8F3DD2 /* RemoteDesktopWorkspaceView.swift */; };
 		D98B808B10D87A41A77D49CF /* DockerLogPresentationBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26E77A87BB17AB8BB22FBE05 /* DockerLogPresentationBuffer.swift */; };
 		DA03ABEB5754E7E8BC42E676 /* WorkstationDockerCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BF8175E63892D99108F4789 /* WorkstationDockerCardView.swift */; };
 		DA7C1B7C577C21A3A10BEC73 /* CheckedSFTPServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C91C966272BB497962A031F /* CheckedSFTPServiceTests.swift */; };
@@ -469,6 +489,7 @@
 		EDC2544D65E20FECF0C80D25 /* DiagnosticsPrivacy.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADAE88D2E6BE55CFEF81BB3D /* DiagnosticsPrivacy.swift */; };
 		EF43DE3737F749EF46B8E1AE /* TelnetAccessPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDB1034B7939B68118FACF98 /* TelnetAccessPolicy.swift */; };
 		EFED4745678E56EB1D29BDEE /* MonitorDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEF1B8EB20CEE14349EB99A4 /* MonitorDashboardView.swift */; };
+		EFF656946DE8D7A1F297587E /* SyncQueueRecoveryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 263AC0DF1CE1D37EB706BD09 /* SyncQueueRecoveryPolicy.swift */; };
 		F00107DFCF29A67E80F20F95 /* ShellSyntaxHighlighter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAB5939382050BD82F11FBC6 /* ShellSyntaxHighlighter.swift */; };
 		F036D8E4BC7DB4056FEB1C5B /* SecuritySemanticPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD9277EE82AFEAD57C3D1F5E /* SecuritySemanticPalette.swift */; };
 		F0A286E19B302EF01E31B105 /* CheckedFFIIDs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EBA9ADD7B50F769A714D880 /* CheckedFFIIDs.swift */; };
@@ -486,6 +507,7 @@
 		FA5E044F14A579FEE3D4F1BA /* HostKeyPresentationSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E98B77FA2367EC90E7474B58 /* HostKeyPresentationSnapshot.swift */; };
 		FBA0C2E21905742915FF9E3E /* CheckedConnectionMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 328F84C5034D50790C4E2250 /* CheckedConnectionMode.swift */; };
 		FBAA1C6A14A37B5022F9D8CF /* AssetManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04FFDB29556DE5419BEB4E78 /* AssetManagerView.swift */; };
+		FC6F293B361266CB2E4F0D4E /* SyncQueueRecoveryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 263AC0DF1CE1D37EB706BD09 /* SyncQueueRecoveryPolicy.swift */; };
 		FCA07310BDE5A8CD20DF6C9C /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA155A9F65638E6194ADA93 /* KeychainManager.swift */; };
 		FCF23D982451D4A34FA66976 /* MonitorPollingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DAB223E842154D2614BEFDB /* MonitorPollingPolicy.swift */; };
 		FD0C6A4F574BFACD94B54770 /* MonitorStatsPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB6B5AD58F8D1496F4973531 /* MonitorStatsPayload.swift */; };
@@ -550,6 +572,7 @@
 		23CDE6AF8E0550184AC99A12 /* BatchCommandRunnerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchCommandRunnerView.swift; sourceTree = "<group>"; };
 		24CD1624F5A719FD6E790B98 /* WorkstationMonitorCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationMonitorCardView.swift; sourceTree = "<group>"; };
 		25D2EEFD7E78AFA3733A254C /* CheckedFFIFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIFixtures.swift; sourceTree = "<group>"; };
+		263AC0DF1CE1D37EB706BD09 /* SyncQueueRecoveryPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncQueueRecoveryPolicy.swift; sourceTree = "<group>"; };
 		26E77A87BB17AB8BB22FBE05 /* DockerLogPresentationBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerLogPresentationBuffer.swift; sourceTree = "<group>"; };
 		2A32DEC690F6560E85051181 /* AppAccessibilityPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAccessibilityPresentation.swift; sourceTree = "<group>"; };
 		2D7F211EB934A0D5BCE2885D /* SwiftTermPlatformSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftTermPlatformSupport.swift; sourceTree = "<group>"; };
@@ -560,6 +583,7 @@
 		33EF6481439C305953E69B86 /* WorkstationTerminalDropUploadModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalDropUploadModifier.swift; sourceTree = "<group>"; };
 		34967533FAB34C7B2D0FF823 /* FreeRDPFrameBufferView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreeRDPFrameBufferView.swift; sourceTree = "<group>"; };
 		359499CAC2D38DDAD3001AB2 /* OrbitTerm.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OrbitTerm.entitlements; sourceTree = "<group>"; };
+		3595FCE91244876C1C8F3DD2 /* RemoteDesktopWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDesktopWorkspaceView.swift; sourceTree = "<group>"; };
 		36296E55AE0C9150AC8BB729 /* AddServerAuthSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerAuthSection.swift; sourceTree = "<group>"; };
 		36B93DE418463A03FD5EE836 /* WorkspaceToolCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceToolCoordinatorTests.swift; sourceTree = "<group>"; };
 		381EB860DD822B532F60A2E4 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -569,6 +593,7 @@
 		3D1FF33B328795D45C135045 /* CheckedFFITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFITests.swift; sourceTree = "<group>"; };
 		3E350EEBEDEBFBF07726ECA4 /* NetworkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkService.swift; sourceTree = "<group>"; };
 		3ED00230D30C220DF33E79C8 /* MonitorThemeSemantics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorThemeSemantics.swift; sourceTree = "<group>"; };
+		3F43D18AEED1C6A73ABB7FEE /* SyncHTTPResponsePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncHTTPResponsePolicy.swift; sourceTree = "<group>"; };
 		403D0958371C1A8C3391BAA9 /* WorkstationTerminalSessionChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSessionChrome.swift; sourceTree = "<group>"; };
 		442AD4AADE13BA0E4204549B /* CredentialInputHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialInputHelpers.swift; sourceTree = "<group>"; };
 		44C44D1771B1537B7D07F4FE /* SecureClipboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureClipboard.swift; sourceTree = "<group>"; };
@@ -591,6 +616,7 @@
 		5638CE51CA4357175EE32953 /* AccountScopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountScopeTests.swift; sourceTree = "<group>"; };
 		56BF32292E4CB4F2E77CD669 /* AddServerInitialState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddServerInitialState.swift; sourceTree = "<group>"; };
 		56D3F03810DC065AADA6A2C2 /* SFTPManager+Transfers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+Transfers.swift"; sourceTree = "<group>"; };
+		5721164D1A76869B12844DC6 /* SyncQueueRecoveryPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncQueueRecoveryPolicyTests.swift; sourceTree = "<group>"; };
 		5786DEF9086A4B29A2F0FEA2 /* CheckedDockerServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedDockerServiceTests.swift; sourceTree = "<group>"; };
 		5A37A7CD3B58D296A9E3AF54 /* DockerLogStreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerLogStreamView.swift; sourceTree = "<group>"; };
 		5AC978D1EC79B620DDE63FDA /* SyncConfigCipherMigrationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncConfigCipherMigrationPolicy.swift; sourceTree = "<group>"; };
@@ -601,6 +627,7 @@
 		61D05FDE086817AEB654082D /* RustFFI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RustFFI.swift; sourceTree = "<group>"; };
 		62574FF79DCC3A178EE8FDEC /* OrbitTerm.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OrbitTerm.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		62847EC28220849324529ECF /* TabBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabBarView.swift; sourceTree = "<group>"; };
+		63DE4B7AB2A58ACE26E58A5E /* SyncRequestIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncRequestIdentity.swift; sourceTree = "<group>"; };
 		656C4A6BCB0AD2479795FBDB /* CheckedFFIPayloads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIPayloads.swift; sourceTree = "<group>"; };
 		68491EC7758CFEB5CA5F61CE /* orbit_remote_desktop.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = orbit_remote_desktop.h; sourceTree = "<group>"; };
 		690770EDC7E1AC93C9D9BDFD /* WorkstationTerminalSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSearchOverlay.swift; sourceTree = "<group>"; };
@@ -612,6 +639,7 @@
 		6F14590EDF4A6FC7DBBEED60 /* OrbitTermiOSUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = OrbitTermiOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7028EE39201622835F829776 /* DevicePerformanceSLO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicePerformanceSLO.swift; sourceTree = "<group>"; };
 		7156371597A178C490DF8ABD /* DockerManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockerManagerView.swift; sourceTree = "<group>"; };
+		721D8951EDEB7762B7EFB69B /* SyncHTTPResponsePolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncHTTPResponsePolicyTests.swift; sourceTree = "<group>"; };
 		735C5043134DAC338A430C10 /* CheckedFFIKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedFFIKind.swift; sourceTree = "<group>"; };
 		745FBDA528F6B4F8EA9D4467 /* WorkstationSheetsAndAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationSheetsAndAlerts.swift; sourceTree = "<group>"; };
 		74A76D7C5B67B09C44C7B10B /* OrbitTermiOSUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitTermiOSUITests.swift; sourceTree = "<group>"; };
@@ -622,6 +650,7 @@
 		783FF132F1CA3C0639576C0F /* CheckedSFTPConnectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedSFTPConnectionService.swift; sourceTree = "<group>"; };
 		78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterPasswordGateView.swift; sourceTree = "<group>"; };
 		79C98A67B69AA654CC5A6B77 /* DetachedSessionWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedSessionWindowView.swift; sourceTree = "<group>"; };
+		79FEF13075C7CADC3ADBE67B /* NetworkServiceFaultInjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkServiceFaultInjectionTests.swift; sourceTree = "<group>"; };
 		7B74BC2A072244011E0AF309 /* SFTPManager+Mock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SFTPManager+Mock.swift"; sourceTree = "<group>"; };
 		7C203E05922D6C73653ECD6A /* orbit_remote_desktop.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = orbit_remote_desktop.c; sourceTree = "<group>"; };
 		7CDA09138D12C60748CCF5EC /* TerminalRenderEscapeFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRenderEscapeFilter.swift; sourceTree = "<group>"; };
@@ -675,6 +704,7 @@
 		A1AE9D38C2788923B752E7F1 /* MonitorSystemInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorSystemInfo.swift; sourceTree = "<group>"; };
 		A3DE23E2FB664A118F6B8646 /* WorkstationTerminalSessionPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkstationTerminalSessionPane.swift; sourceTree = "<group>"; };
 		A55B22461DFC93EC23BD2C81 /* OperationResourceBudgetStressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationResourceBudgetStressTests.swift; sourceTree = "<group>"; };
+		A5D2FF1CA87581E584F09299 /* RemoteDesktopSessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDesktopSessionController.swift; sourceTree = "<group>"; };
 		A622FE572935B57F21E6515A /* OrbitTerm.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = OrbitTerm.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A6F5A3407984B279EF080673 /* SFTPBrowserComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBrowserComponents.swift; sourceTree = "<group>"; };
 		A780B78BD56BAD6B05BC3378 /* MonitorTargetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorTargetStore.swift; sourceTree = "<group>"; };
@@ -749,6 +779,7 @@
 		FC7FD6608AE3F86AC45A7A36 /* ShellSyntaxHighlighterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellSyntaxHighlighterTests.swift; sourceTree = "<group>"; };
 		FCB1DE8E3CF85E07339D49FF /* AccountSecurityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSecurityView.swift; sourceTree = "<group>"; };
 		FD1994CA24F0AC79461C7E9C /* JumpHostConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JumpHostConfiguration.swift; sourceTree = "<group>"; };
+		FD8735F617A690186895C697 /* SyncRequestIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncRequestIdentityTests.swift; sourceTree = "<group>"; };
 		FDF348DE95064576B85DADD2 /* SFTPThemeSemantics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPThemeSemantics.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -837,11 +868,14 @@
 				49A82DE81A0B407B463AD4AF /* SnippetAssetScope.swift */,
 				9A91FAC92F6EEB51AACE1DEB /* SnippetStore.swift */,
 				5AC978D1EC79B620DDE63FDA /* SyncConfigCipherMigrationPolicy.swift */,
+				3F43D18AEED1C6A73ABB7FEE /* SyncHTTPResponsePolicy.swift */,
 				E0FAA4130AD937FDB99259DB /* SyncIdentityService.swift */,
 				D39A4AEB90905AF3505A2948 /* SyncMetadataStore.swift */,
 				995C008B81C1BCF2CC6B5122 /* SyncModels.swift */,
 				CC432D7167B38CF9C7D4660B /* SyncPullRecoveryPolicy.swift */,
 				33E248A5FD3DD7C8F896ECA2 /* SyncQueue.swift */,
+				263AC0DF1CE1D37EB706BD09 /* SyncQueueRecoveryPolicy.swift */,
+				63DE4B7AB2A58ACE26E58A5E /* SyncRequestIdentity.swift */,
 				C3E0EFB34CACD29FEB53B377 /* SyncService.swift */,
 				461FDC634D076E7A0DF2798A /* SyncService+Conflict.swift */,
 				0197FADECAE6D8AC5EFEE8C5 /* SyncService+Synchronization.swift */,
@@ -899,6 +933,7 @@
 				16F52E3B6E83F077783BEC22 /* MainWorkstationView.swift */,
 				DEF1B8EB20CEE14349EB99A4 /* MonitorDashboardView.swift */,
 				E32DBAB1DC7E1D140A221B7E /* RecentlyDeletedView.swift */,
+				3595FCE91244876C1C8F3DD2 /* RemoteDesktopWorkspaceView.swift */,
 				21BA8750BFF4212C103320E8 /* ServerListView.swift */,
 				10B229BED0B0F3176FF87E7A /* SettingsView.swift */,
 				17A8CF8B6134CC76C9376A2B /* SFTPActivityShareSheet.swift */,
@@ -1020,6 +1055,7 @@
 				808FFAC757EB9FA079E2E5F8 /* HostKeyTrustPresentationTests.swift */,
 				8967AE81F6B71DCBAA90E585 /* JumpHostConfigurationTests.swift */,
 				8DBCBF20FBDCB52274842C5D /* KeychainDataStoreTests.swift */,
+				79FEF13075C7CADC3ADBE67B /* NetworkServiceFaultInjectionTests.swift */,
 				22279E2C442482FE01B1BF36 /* OfficialServiceTLSPinningPolicyTests.swift */,
 				036531D24C4C02DC88281F6C /* OperationOwnerTests.swift */,
 				DBBD4156F827335BB72AAE3F /* OperationRecoveryPresentationTests.swift */,
@@ -1031,7 +1067,10 @@
 				FC7FD6608AE3F86AC45A7A36 /* ShellSyntaxHighlighterTests.swift */,
 				60D4D8AF8B15F9B660BC1E13 /* SnippetAssetScopeTests.swift */,
 				ED2A704E53D6A2DABB2DC26F /* SyncConfigCipherMigrationPolicyTests.swift */,
+				721D8951EDEB7762B7EFB69B /* SyncHTTPResponsePolicyTests.swift */,
 				FBA4D64E2874ED0C905BBF3D /* SyncPullRecoveryPolicyTests.swift */,
+				5721164D1A76869B12844DC6 /* SyncQueueRecoveryPolicyTests.swift */,
+				FD8735F617A690186895C697 /* SyncRequestIdentityTests.swift */,
 				FC1976CD3FBAA98751C994BE /* TelnetAccessPolicyTests.swift */,
 				059E0679B2C1FC2F7251B28D /* TerminalInputDispatchPolicyTests.swift */,
 				69ABC9043C869E78633E9DF7 /* TerminalRenderEscapeFilterTests.swift */,
@@ -1125,6 +1164,7 @@
 			children = (
 				34967533FAB34C7B2D0FF823 /* FreeRDPFrameBufferView.swift */,
 				CF9F5BD6067FB45DFCB094B4 /* RemoteDesktopAdapter.swift */,
+				A5D2FF1CA87581E584F09299 /* RemoteDesktopSessionController.swift */,
 			);
 			path = RemoteDesktop;
 			sourceTree = "<group>";
@@ -1418,9 +1458,11 @@
 				3202E3E6FE3CDFDAC16A2C44 /* ConnectionPresentation.swift in Sources */,
 				67D9205F7F42053F42EE4727 /* ConnectionPresentationAdapter.swift in Sources */,
 				D20B91FF4CDD65340CC410C3 /* ConnectionPresentationTests.swift in Sources */,
+				7837A73731890DDD7480CB8D /* CredentialVault.swift in Sources */,
 				39F10BB5E78FB38D4D7688F9 /* DeepLinkManager.swift in Sources */,
 				0FB5017B8FEC159FD019C07F /* DevicePerformanceSLO.swift in Sources */,
 				E3FE20D153067E5A21E18591 /* DevicePerformanceSLOTests.swift in Sources */,
+				4C2A219C309466C0232721F6 /* DiagnosticsManager.swift in Sources */,
 				8ECCDE83EA4B4D9ED6A3C927 /* DiagnosticsPrivacy.swift in Sources */,
 				D20D46CB627C4025CE318000 /* DiagnosticsPrivacyTests.swift in Sources */,
 				74D4EA900D47574F606649DB /* DockerLogPresentationBuffer.swift in Sources */,
@@ -1439,6 +1481,9 @@
 				FCA07310BDE5A8CD20DF6C9C /* KeychainManager.swift in Sources */,
 				5CD7DEFB5603F280E3F85C28 /* MonitorSystemInfo.swift in Sources */,
 				8E8868F92DAC015D8A48696C /* MonitorThemeSemantics.swift in Sources */,
+				3BC30BD8951F139309F608AB /* NetworkModels.swift in Sources */,
+				C231D53C77445F8B82BC21C9 /* NetworkService.swift in Sources */,
+				4FE0DB2BEB6C91A311D208F5 /* NetworkServiceFaultInjectionTests.swift in Sources */,
 				57613416D7D03121FBAE5668 /* OfficialServiceTLSPinningPolicy.swift in Sources */,
 				122B0D82B63601F273E9BF77 /* OfficialServiceTLSPinningPolicyTests.swift in Sources */,
 				8299F7BD3A57AE00080BC812 /* OperationOwner.swift in Sources */,
@@ -1454,6 +1499,7 @@
 				3C1DC23B3976040613F88C1B /* PerformanceSignpost.swift in Sources */,
 				2B23DC6986FDD1918543F546 /* RemoteDesktopAdapter.swift in Sources */,
 				6D800DCC1A7C4FE7D8C1A3DE /* RemoteDesktopAdapterTests.swift in Sources */,
+				72912534A53C71DFA0BEA8F6 /* RemoteDesktopSessionController.swift in Sources */,
 				3EDC640F7AF5C5F46A1B7F89 /* SFTPThemeSemantics.swift in Sources */,
 				48CD66B653668D2865B48306 /* ScriptedCheckedFFIClient.swift in Sources */,
 				66F42DD280736EE1C21B58F1 /* SecureClipboard.swift in Sources */,
@@ -1468,8 +1514,14 @@
 				79E13E4BB4B0DC98C196C7B5 /* SnippetVariableResolver.swift in Sources */,
 				E731F801257CBD5DBE2AE2FB /* SyncConfigCipherMigrationPolicy.swift in Sources */,
 				B62E44EBC6CC0A2EDCECE2B5 /* SyncConfigCipherMigrationPolicyTests.swift in Sources */,
+				3E1B002932114F1C8308AE78 /* SyncHTTPResponsePolicy.swift in Sources */,
+				62109A743FBC497B4EDF23D7 /* SyncHTTPResponsePolicyTests.swift in Sources */,
 				3CBBCA430C39BB5D72595613 /* SyncPullRecoveryPolicy.swift in Sources */,
 				783A87571BE91B3744CEEF83 /* SyncPullRecoveryPolicyTests.swift in Sources */,
+				FC6F293B361266CB2E4F0D4E /* SyncQueueRecoveryPolicy.swift in Sources */,
+				8533102B9F5615CCEEE0AFB2 /* SyncQueueRecoveryPolicyTests.swift in Sources */,
+				02C6BA42DAC106A0BD1F1530 /* SyncRequestIdentity.swift in Sources */,
+				2A77B7D0AD362D331DB0878B /* SyncRequestIdentityTests.swift in Sources */,
 				5BAA624D9CBB114A3C91E165 /* TelnetAccessPolicy.swift in Sources */,
 				B51FDE8C38374BC39208498C /* TelnetAccessPolicyTests.swift in Sources */,
 				ED4AD3D87E2754B1E46EB33F /* TerminalChunkBuffer.swift in Sources */,
@@ -1594,6 +1646,8 @@
 				68CB03F0F01413CFFC7B53E5 /* PerformanceSignpost.swift in Sources */,
 				774AEC150F44DF342DFCC77F /* RecentlyDeletedView.swift in Sources */,
 				C47F2E7333D815A9E7F806B7 /* RemoteDesktopAdapter.swift in Sources */,
+				98685C8EA53E2DE567946C29 /* RemoteDesktopSessionController.swift in Sources */,
+				29028BA8A64FBE878EDB16B0 /* RemoteDesktopWorkspaceView.swift in Sources */,
 				6599D89B9C262F7D2644455D /* RustFFI.swift in Sources */,
 				3D85D3A635000A45A703B805 /* SFTPActivityShareSheet.swift in Sources */,
 				05B3FCDA5DDEC076BAF0EDAC /* SFTPBatchDownloader.swift in Sources */,
@@ -1635,11 +1689,14 @@
 				28E672FDA0369A2F602203CA /* SwiftTermPlatformSupport.swift in Sources */,
 				7F996E7D9810AEABC9BE7BCA /* SwiftTermTerminalView.swift in Sources */,
 				1E40AD4CBEC2BBF146A05652 /* SyncConfigCipherMigrationPolicy.swift in Sources */,
+				0CD4D4DDC049D36A9B8B5704 /* SyncHTTPResponsePolicy.swift in Sources */,
 				0C85D9659374297F5DE445CB /* SyncIdentityService.swift in Sources */,
 				770A52F2023C7ED94E32F7D3 /* SyncMetadataStore.swift in Sources */,
 				88B80DB3BB5EEA60FC61FE79 /* SyncModels.swift in Sources */,
 				A2F0DCBEFBB6B6D1F720E341 /* SyncPullRecoveryPolicy.swift in Sources */,
 				AE07E73A7CFE5A5C07F11398 /* SyncQueue.swift in Sources */,
+				7EDBF80F70DE9E68E8ED9AA8 /* SyncQueueRecoveryPolicy.swift in Sources */,
+				C81719AFC8E23B8CA05D79D4 /* SyncRequestIdentity.swift in Sources */,
 				AB525E4A7F9569C290984ADF /* SyncService+Conflict.swift in Sources */,
 				BBD2CFB53FFF17C11D1B9597 /* SyncService+Synchronization.swift in Sources */,
 				A39C5F36E325D6D11857435F /* SyncService.swift in Sources */,
@@ -1801,6 +1858,8 @@
 				40EDB7F425B26322ABBE7348 /* PerformanceSignpost.swift in Sources */,
 				CFADA57AD98ECD0453997B3C /* RecentlyDeletedView.swift in Sources */,
 				6F40C26A2620AF05AF43BA11 /* RemoteDesktopAdapter.swift in Sources */,
+				C11820FCD9D4947F4FFB36D7 /* RemoteDesktopSessionController.swift in Sources */,
+				D92BADE3C86224CAB73D6EC4 /* RemoteDesktopWorkspaceView.swift in Sources */,
 				B92B5BA15DD3A98E6CD8DDB6 /* RustFFI.swift in Sources */,
 				607FF897165AAB0B017E61AD /* SFTPActivityShareSheet.swift in Sources */,
 				A0155143734296B0E0EEC4BC /* SFTPBatchDownloader.swift in Sources */,
@@ -1842,11 +1901,14 @@
 				DBE8AE5DD2A5774DA24CB2D4 /* SwiftTermPlatformSupport.swift in Sources */,
 				390B44D1B24945CC4EBAB4C1 /* SwiftTermTerminalView.swift in Sources */,
 				CF9B77537B71653AAAFFEFA0 /* SyncConfigCipherMigrationPolicy.swift in Sources */,
+				C18A67341074A85E7C9234AF /* SyncHTTPResponsePolicy.swift in Sources */,
 				A6FAF4E1A4CC4519CEBD9E38 /* SyncIdentityService.swift in Sources */,
 				0746A780CA9CCC691B347D4F /* SyncMetadataStore.swift in Sources */,
 				16BA0EEF9A6CF0B76D52DC1F /* SyncModels.swift in Sources */,
 				7FCB8139DD2ED49F66B8E215 /* SyncPullRecoveryPolicy.swift in Sources */,
 				6DD9A2057FBD4F0745ECA5B1 /* SyncQueue.swift in Sources */,
+				EFF656946DE8D7A1F297587E /* SyncQueueRecoveryPolicy.swift in Sources */,
+				5C64BA28161B3AD7D46F41A5 /* SyncRequestIdentity.swift in Sources */,
 				D1A2D596F0D5A82272EE761E /* SyncService+Conflict.swift in Sources */,
 				4EFA73C26542323B8F1818C0 /* SyncService+Synchronization.swift in Sources */,
 				8BDBD2BE0DADEEF7F7E2AAAF /* SyncService.swift in Sources */,
@@ -1938,10 +2000,25 @@
 					"$(SRCROOT)/OrbitTerm/CBridge",
 					"$(SRCROOT)/orbit-core/include",
 				);
+				"HEADER_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/OrbitTerm/CBridge",
+					"$(SRCROOT)/orbit-core/include",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/freerdp/include/freerdp3",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/freerdp/include/winpr3",
+				);
 				INFOPLIST_FILE = OrbitTerm/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/freerdp/lib",
 				);
 				"ONLY_ACTIVE_ARCH[sdk=iphoneos*]" = YES;
 				"ONLY_ACTIVE_ARCH[sdk=iphonesimulator*]" = YES;
@@ -1957,6 +2034,9 @@
 				"OTHER_LDFLAGS[sdk=macosx*]" = (
 					"$(inherited)",
 					"$(SRCROOT)/orbit-core/target/aarch64-apple-darwin/debug/liborbit_core.a",
+					"-lfreerdp3",
+					"-lfreerdp-client3",
+					"-lwinpr3",
 				);
 				PRODUCT_NAME = OrbitTerm;
 				SDKROOT = macosx;
@@ -1981,10 +2061,25 @@
 					"$(SRCROOT)/OrbitTerm/CBridge",
 					"$(SRCROOT)/orbit-core/include",
 				);
+				"HEADER_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/OrbitTerm/CBridge",
+					"$(SRCROOT)/orbit-core/include",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/freerdp/include/freerdp3",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/freerdp/include/winpr3",
+				);
 				INFOPLIST_FILE = OrbitTerm/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/freerdp/lib",
 				);
 				"ONLY_ACTIVE_ARCH[sdk=iphoneos*]" = YES;
 				"ONLY_ACTIVE_ARCH[sdk=iphonesimulator*]" = YES;
@@ -2000,6 +2095,9 @@
 				"OTHER_LDFLAGS[sdk=macosx*]" = (
 					"$(inherited)",
 					"$(SRCROOT)/orbit-core/target/aarch64-apple-darwin/release/liborbit_core.a",
+					"-lfreerdp3",
+					"-lfreerdp-client3",
+					"-lwinpr3",
 				);
 				PRODUCT_NAME = OrbitTerm;
 				SDKROOT = macosx;
@@ -2022,16 +2120,25 @@
 					"$(inherited)",
 					"$(SRCROOT)/OrbitTerm/CBridge",
 					"$(SRCROOT)/orbit-core/include",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/freerdp/include/freerdp3",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/freerdp/include/winpr3",
 				);
 				INFOPLIST_FILE = OrbitTerm/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
-					"@executable_path/../Frameworks",
-					"@loader_path/../Frameworks",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/freerdp/lib",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/openssl/lib",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/freerdp/lib",
 				);
 				"OTHER_LDFLAGS[sdk=macosx*]" = (
 					"$(inherited)",
 					"$(SRCROOT)/orbit-core/target/aarch64-apple-darwin/debug/liborbit_core.a",
+					"-lfreerdp3",
+					"-lfreerdp-client3",
+					"-lwinpr3",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.orbitterm.checkedffi.tests;
 				PRODUCT_MODULE_NAME = OrbitTermCheckedFFITests;
@@ -2078,10 +2185,25 @@
 					"$(SRCROOT)/OrbitTerm/CBridge",
 					"$(SRCROOT)/orbit-core/include",
 				);
+				"HEADER_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/OrbitTerm/CBridge",
+					"$(SRCROOT)/orbit-core/include",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/freerdp/include/freerdp3",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/freerdp/include/winpr3",
+				);
 				INFOPLIST_FILE = OrbitTerm/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/freerdp/lib",
 				);
 				"ONLY_ACTIVE_ARCH[sdk=iphoneos*]" = YES;
 				"ONLY_ACTIVE_ARCH[sdk=iphonesimulator*]" = YES;
@@ -2097,6 +2219,9 @@
 				"OTHER_LDFLAGS[sdk=macosx*]" = (
 					"$(inherited)",
 					"$(SRCROOT)/orbit-core/target/aarch64-apple-darwin/debug/liborbit_core.a",
+					"-lfreerdp3",
+					"-lfreerdp-client3",
+					"-lwinpr3",
 				);
 				PRODUCT_NAME = OrbitTerm;
 				SDKROOT = iphoneos;
@@ -2249,16 +2374,25 @@
 					"$(inherited)",
 					"$(SRCROOT)/OrbitTerm/CBridge",
 					"$(SRCROOT)/orbit-core/include",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/freerdp/include/freerdp3",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/freerdp/include/winpr3",
 				);
 				INFOPLIST_FILE = OrbitTerm/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
-					"@executable_path/../Frameworks",
-					"@loader_path/../Frameworks",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/freerdp/lib",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/openssl/lib",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/freerdp/lib",
 				);
 				"OTHER_LDFLAGS[sdk=macosx*]" = (
 					"$(inherited)",
 					"$(SRCROOT)/orbit-core/target/aarch64-apple-darwin/debug/liborbit_core.a",
+					"-lfreerdp3",
+					"-lfreerdp-client3",
+					"-lwinpr3",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.orbitterm.checkedffi.tests;
 				PRODUCT_MODULE_NAME = OrbitTermCheckedFFITests;
@@ -2305,10 +2439,25 @@
 					"$(SRCROOT)/OrbitTerm/CBridge",
 					"$(SRCROOT)/orbit-core/include",
 				);
+				"HEADER_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/OrbitTerm/CBridge",
+					"$(SRCROOT)/orbit-core/include",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/freerdp/include/freerdp3",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/freerdp/include/winpr3",
+				);
 				INFOPLIST_FILE = OrbitTerm/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/.tooling/freerdp-macos/install/freerdp/lib",
 				);
 				"ONLY_ACTIVE_ARCH[sdk=iphoneos*]" = YES;
 				"ONLY_ACTIVE_ARCH[sdk=iphonesimulator*]" = YES;
@@ -2324,6 +2473,9 @@
 				"OTHER_LDFLAGS[sdk=macosx*]" = (
 					"$(inherited)",
 					"$(SRCROOT)/orbit-core/target/aarch64-apple-darwin/release/liborbit_core.a",
+					"-lfreerdp3",
+					"-lfreerdp-client3",
+					"-lwinpr3",
 				);
 				PRODUCT_NAME = OrbitTerm;
 				SDKROOT = iphoneos;

@@ -9,7 +9,17 @@ struct RecentlyDeletedView: View {
     @State private var isLoading = false
     @State private var operatingID: String?
     @State private var errorMessage: String?
+    @State private var successMessage: String?
     @State private var pendingPurge: RecentlyDeletedAsset?
+
+    private var presentation: RecentlyDeletedPresentation {
+        RecentlyDeletedPresentationMapper.make(
+            isLoading: isLoading,
+            itemCount: items.count,
+            failureDetail: errorMessage,
+            isMutating: operatingID != nil
+        )
+    }
 
     var body: some View {
         ZStack {
@@ -19,20 +29,40 @@ struct RecentlyDeletedView: View {
                 if isLoading && items.isEmpty {
                     HStack {
                         Spacer()
-                        ProgressView("正在读取最近删除...")
+                        ProgressView(presentation.headline)
                         Spacer()
                     }
                     .listRowBackground(Color.clear)
-                } else if items.isEmpty {
+                } else if items.isEmpty && errorMessage == nil {
                     ContentUnavailableView(
-                        "最近删除为空",
+                        presentation.headline,
                         systemImage: "trash",
-                        description: Text("删除的云端资产会在保留期内显示在这里")
+                        description: Text(presentation.detail)
                     )
                 } else {
                     ForEach(items) { item in
                         deletedRow(item)
                     }
+                }
+                if presentation.phase == .failed {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label(
+                            [presentation.detail, presentation.staleContentMessage]
+                                .compactMap { $0 }
+                                .joined(separator: " "),
+                            systemImage: "exclamationmark.triangle.fill"
+                        )
+                        .font(.caption)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .securityStatusStyle(.danger)
+                        Button("重试") { Task { await reload() } }
+                            .buttonStyle(.bordered)
+                    }
+                    .listRowBackground(Color.clear)
+                }
+                if let successMessage {
+                    OperationalTransientSuccessBanner(message: successMessage)
+                        .listRowBackground(Color.clear)
                 }
             }
             .scrollContentBackground(.hidden)
@@ -47,20 +77,21 @@ struct RecentlyDeletedView: View {
                 Button {
                     Task { await reload() }
                 } label: {
-                    Label("刷新", systemImage: "arrow.clockwise")
+                    Label(presentation.refreshLabel, systemImage: "arrow.clockwise")
                 }
-                .disabled(isLoading)
+                .disabled(!presentation.refreshEnabled)
             }
         }
         .task { await reload() }
         .refreshable { await reload() }
-        .alert("操作失败", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("知道了", role: .cancel) { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "未知错误")
+        .task(id: successMessage) {
+            guard successMessage != nil,
+                  let delay = OperationalFeedbackPolicy.lifetime(kind: .success).autoDismissAfterNanoseconds else {
+                return
+            }
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled else { return }
+            successMessage = nil
         }
         .confirmationDialog(
             "永久删除后无法恢复",
@@ -140,6 +171,8 @@ struct RecentlyDeletedView: View {
             return
         }
 
+        errorMessage = nil
+        successMessage = nil
         isLoading = true
         defer {
             SecurityPrimitives.secureZero(&masterPassword)
@@ -151,13 +184,15 @@ struct RecentlyDeletedView: View {
                 accountID: session.username
             )
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = "无法加载最近删除，请检查网络或登录状态。"
         }
     }
 
     @MainActor
     private func restore(_ item: RecentlyDeletedAsset) async {
         guard operatingID == nil else { return }
+        errorMessage = nil
+        successMessage = nil
         operatingID = item.id
         defer { operatingID = nil }
         do {
@@ -166,27 +201,45 @@ struct RecentlyDeletedView: View {
                 store: store,
                 accountID: session.username
             )
-            if case .completed = outcome {
-                items.removeAll { $0.id == item.id }
+            items.removeAll { $0.id == item.id }
+            let queued: Bool
+            switch outcome {
+            case .completed: queued = false
+            case .queued: queued = true
             }
+            successMessage = RecentlyDeletedPresentationMapper.successMessage(
+                action: "恢复",
+                queued: queued
+            )
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = "操作未完成，请检查网络、登录状态和主密码。"
         }
     }
 
     @MainActor
     private func purge(_ item: RecentlyDeletedAsset) async {
         guard operatingID == nil else { return }
+        errorMessage = nil
+        successMessage = nil
         operatingID = item.id
         defer { operatingID = nil }
         do {
             let outcome = try await syncService.purgeRecentlyDeleted(item, accountID: session.username)
+            let queued: Bool
             switch outcome {
-            case .completed, .queued:
+            case .completed:
+                queued = false
+                items.removeAll { $0.id == item.id }
+            case .queued:
+                queued = true
                 items.removeAll { $0.id == item.id }
             }
+            successMessage = RecentlyDeletedPresentationMapper.successMessage(
+                action: "永久删除",
+                queued: queued
+            )
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = "操作未完成，请检查网络、登录状态和主密码。"
         }
     }
 }
