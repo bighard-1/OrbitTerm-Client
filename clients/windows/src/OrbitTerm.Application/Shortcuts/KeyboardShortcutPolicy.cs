@@ -31,6 +31,10 @@ public enum AppShortcutAction
     SelectWorkspaceTab7,
     SelectWorkspaceTab8,
     SelectWorkspaceTab9,
+    SelectTerminalPane1,
+    SelectTerminalPane2,
+    SelectTerminalPane3,
+    SelectTerminalPane4,
 }
 
 public sealed record KeyboardShortcutGesture(string Key, ShortcutModifiers Modifiers)
@@ -84,6 +88,10 @@ public static class KeyboardShortcutCatalog
         Define(AppShortcutAction.SelectWorkspaceTab7, "切换到标签 7", "标签切换", "Number7", ShortcutModifiers.Control),
         Define(AppShortcutAction.SelectWorkspaceTab8, "切换到标签 8", "标签切换", "Number8", ShortcutModifiers.Control),
         Define(AppShortcutAction.SelectWorkspaceTab9, "切换到标签 9", "标签切换", "Number9", ShortcutModifiers.Control),
+        Define(AppShortcutAction.SelectTerminalPane1, "切换到分屏 1", "分屏切换", "Number1", ShortcutModifiers.Alt),
+        Define(AppShortcutAction.SelectTerminalPane2, "切换到分屏 2", "分屏切换", "Number2", ShortcutModifiers.Alt),
+        Define(AppShortcutAction.SelectTerminalPane3, "切换到分屏 3", "分屏切换", "Number3", ShortcutModifiers.Alt),
+        Define(AppShortcutAction.SelectTerminalPane4, "切换到分屏 4", "分屏切换", "Number4", ShortcutModifiers.Alt),
     ];
 
     public static Dictionary<AppShortcutAction, KeyboardShortcutGesture?> CreateDefaults() =>

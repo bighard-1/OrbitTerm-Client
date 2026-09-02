@@ -13,6 +13,7 @@
             <RowDefinition x:Name="TitleBarRow" Height="36" />
             <RowDefinition x:Name="MonitorOverviewRow" Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
             <ColumnDefinition x:Name="AssetSidebarColumn" Width="300" MinWidth="0" />
@@ -346,8 +347,39 @@
                 Grid.ColumnSpan="3"
                 BorderThickness="0"
                 Background="{StaticResource OrbitWorkbenchBrush}">
-            <Grid Padding="12,2,12,5" ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                <Grid ColumnDefinitions="*,*,*,*,*,*" ColumnSpacing="6">
+            <Grid Padding="12,2,12,5" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                <Border Padding="9,4"
+                        MinWidth="176"
+                        VerticalAlignment="Stretch"
+                        Background="{StaticResource OrbitMetricBrush}"
+                        BorderBrush="{StaticResource OrbitPanelStrokeBrush}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource OrbitCardCornerRadius}">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
+                        <TextBlock Text="当前资产 IP" FontSize="12"
+                                   Foreground="{StaticResource OrbitMutedTextBrush}"
+                                   VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding CurrentConnectedHost, FallbackValue=未连接}"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center" />
+                        <Button x:Name="CurrentHostCopyButton"
+                                Grid.Column="2"
+                                Click="CopyCurrentHostClick"
+                                Padding="5,2"
+                                MinHeight="24"
+                                ToolTipService.ToolTip="复制当前资产 IP"
+                                AutomationProperties.Name="复制当前资产 IP">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <FontIcon x:Name="CurrentHostCopyGlyph" Glyph="&#xE8C8;" FontSize="12" />
+                                <TextBlock x:Name="CurrentHostCopyFeedback" Text="复制" FontSize="12" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </Border>
+                <Grid Grid.Column="1" ColumnDefinitions="*,*,*,*,*,*" ColumnSpacing="6">
                     <ContentControl Grid.Column="0"
                                     HorizontalContentAlignment="Stretch"
                                     Content="{Binding CpuMonitorTrend}"
@@ -373,7 +405,7 @@
                                     Content="{Binding LatencyMonitorTrend}"
                                     ContentTemplate="{StaticResource MonitorMetricCardTemplate}" />
                 </Grid>
-                <Button Grid.Column="1"
+                <Button Grid.Column="2"
                         Content="详情"
                         Width="54"
                         MinHeight="28"
@@ -419,31 +451,9 @@
                 BorderBrush="{StaticResource OrbitPanelStrokeBrush}"
                 BorderThickness="0,0,1,0">
             <Grid Padding="10"
-                  RowDefinitions="Auto,Auto,Auto,*,Auto"
+                  RowDefinitions="Auto,Auto,*"
                   RowSpacing="10">
-                <Border Padding="9,6"
-                        Background="{StaticResource OrbitMetricBrush}"
-                        BorderBrush="{StaticResource OrbitPanelStrokeBrush}"
-                        BorderThickness="1"
-                        CornerRadius="{StaticResource OrbitCornerRadius}">
-                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
-                        <TextBlock Text="当前资产 IP" FontSize="12"
-                                   Foreground="{StaticResource OrbitMutedTextBrush}"
-                                   VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="1" Text="{Binding CurrentConnectedHost, FallbackValue=未连接}" FontSize="12" FontWeight="SemiBold"
-                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                        <Button x:Name="CurrentHostCopyButton" Grid.Column="2"
-                                Click="CopyCurrentHostClick" Padding="5,2" MinHeight="24"
-                                ToolTipService.ToolTip="复制当前资产 IP"
-                                AutomationProperties.Name="复制当前资产 IP">
-                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                <FontIcon x:Name="CurrentHostCopyGlyph" Glyph="&#xE8C8;" FontSize="12" />
-                                <TextBlock x:Name="CurrentHostCopyFeedback" Text="复制" FontSize="12" />
-                            </StackPanel>
-                        </Button>
-                    </Grid>
-                </Border>
-                <Grid Grid.Row="1" ColumnDefinitions="*,Auto"
+                <Grid ColumnDefinitions="*,Auto"
                       RowDefinitions="Auto,Auto"
                       RowSpacing="3">
                     <TextBlock Text="服务器"
@@ -458,7 +468,7 @@
                     </Button>
                 </Grid>
 
-                <StackPanel Grid.Row="2" Spacing="7">
+                <StackPanel Grid.Row="1" Spacing="7">
                     <Grid ColumnDefinitions="*,Auto,Auto,Auto"
                           ColumnSpacing="4">
                         <TextBlock Text="资产库"
@@ -487,7 +497,7 @@
                              AutomationProperties.Name="搜索服务器资产" />
                 </StackPanel>
 
-                <ScrollViewer Grid.Row="3"
+                <ScrollViewer Grid.Row="2"
                               VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Spacing="10" Padding="0,0,8,0">
@@ -603,37 +613,41 @@
 
                     </StackPanel>
                 </ScrollViewer>
+            </Grid>
+        </Border>
 
-                <Border x:Name="SynchronizationStatusFooter"
-                        Grid.Row="4"
-                        HorizontalAlignment="Stretch"
-                        Padding="2,8,2,0"
-                        Background="{StaticResource OrbitPanelBrush}"
-                        BorderBrush="{StaticResource OrbitPanelStrokeBrush}"
-                        BorderThickness="0,1,0,0">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                        <StackPanel Spacing="1">
-                            <TextBlock Text="同步状态"
-                                       FontSize="12"
-                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                            <TextBlock Text="{Binding AssetSynchronizationStatus}"
-                                       FontSize="12"
-                                       Foreground="{StaticResource OrbitMutedTextBrush}"
-                                       TextTrimming="CharacterEllipsis"
-                                       ToolTipService.ToolTip="{Binding AccountStatus}"
-                                       AutomationProperties.HelpText="{Binding AccountStatus}"
-                                       AutomationProperties.LiveSetting="Polite" />
-                        </StackPanel>
-                        <Button Grid.Column="1"
-                                Style="{StaticResource OrbitIconButtonStyle}"
-                                IsEnabled="{Binding IsAccountUnlocked}"
-                                Click="SynchronizeAccountClick"
-                                ToolTipService.ToolTip="立即双向同步"
-                                AutomationProperties.Name="立即双向同步">
-                            <FontIcon Glyph="&#xE895;" FontSize="13" />
-                        </Button>
-                    </Grid>
-                </Border>
+        <Border x:Name="SynchronizationStatusFooter"
+                Grid.Row="3"
+                Grid.ColumnSpan="3"
+                HorizontalAlignment="Stretch"
+                Padding="12,4"
+                Background="{StaticResource OrbitPanelBrush}"
+                BorderBrush="{StaticResource OrbitPanelStrokeBrush}"
+                BorderThickness="0,1,0,0">
+            <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="7">
+                <TextBlock Text="同步状态"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                           VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1"
+                           Text="{Binding AssetSynchronizationStatus}"
+                           MaxWidth="720"
+                           FontSize="12"
+                           Foreground="{StaticResource OrbitMutedTextBrush}"
+                           TextTrimming="CharacterEllipsis"
+                           ToolTipService.ToolTip="{Binding AccountStatus}"
+                           AutomationProperties.HelpText="{Binding AccountStatus}"
+                           AutomationProperties.LiveSetting="Polite"
+                           VerticalAlignment="Center" />
+                <Button Grid.Column="2"
+                        Style="{StaticResource OrbitIconButtonStyle}"
+                        IsEnabled="{Binding IsAccountUnlocked}"
+                        Click="SynchronizeAccountClick"
+                        ToolTipService.ToolTip="立即双向同步"
+                        AutomationProperties.Name="立即双向同步">
+                    <FontIcon Glyph="&#xE895;" FontSize="13" />
+                </Button>
             </Grid>
         </Border>
 

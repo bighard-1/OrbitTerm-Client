@@ -1016,6 +1016,7 @@ public sealed partial class MainWindow : Window
             TitleBarRow.Height = new GridLength(36);
             MonitorOverviewBand.Visibility = Visibility.Visible;
             MonitorOverviewRow.Height = GridLength.Auto;
+            SynchronizationStatusFooter.Visibility = Visibility.Visible;
             AssetSidebar.Visibility = assetSidebarVisibilityBeforeTerminalFullscreen;
             ToolInspector.Visibility = toolInspectorVisibilityBeforeTerminalFullscreen;
             AssetSidebarColumn.Width = assetSidebarWidthBeforeTerminalFullscreen;
@@ -2091,10 +2092,41 @@ public sealed partial class MainWindow : Window
                 if (ViewModel.IsTerminalOpen) ToggleTerminalFullscreen();
                 break;
             default:
-                var index = (int)action - (int)AppShortcutAction.SelectWorkspaceTab1;
-                if (index is >= 0 and < 9) ViewModel.SelectWorkspaceTabAt(index);
+                var tabIndex = (int)action - (int)AppShortcutAction.SelectWorkspaceTab1;
+                if (tabIndex is >= 0 and < 9)
+                {
+                    ViewModel.SelectWorkspaceTabAt(tabIndex);
+                    break;
+                }
+                var paneIndex = (int)action - (int)AppShortcutAction.SelectTerminalPane1;
+                if (paneIndex is >= 0 and < 4) ActivateTerminalPaneAt(paneIndex);
                 break;
         }
+        return true;
+    }
+
+    private bool ActivateTerminalPaneAt(int zeroBasedIndex)
+    {
+        if (!ViewModel.IsTerminalOpen || zeroBasedIndex is < 0 or > 3)
+        {
+            return false;
+        }
+
+        if (zeroBasedIndex == 0)
+        {
+            SetActiveTerminalSurface(NativeTerminalView, null);
+            NativeTerminalView.FocusTerminal();
+            return true;
+        }
+
+        var pane = ViewModel.TerminalSplitPanes.ElementAtOrDefault(zeroBasedIndex - 1);
+        if (pane is null || !terminalSplitSurfaces.TryGetValue(pane.Id, out var surface))
+        {
+            return false;
+        }
+
+        SetActiveTerminalSurface(surface.TerminalView, pane.Id);
+        surface.TerminalView.FocusTerminal();
         return true;
     }
 
@@ -3475,7 +3507,6 @@ public sealed partial class MainWindow : Window
         var expanded = AssetSidebar.Visibility == Visibility.Visible;
         AssetSidebarRail.Visibility = expanded ? Visibility.Collapsed : Visibility.Visible;
         AssetSidebarSplitter.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
-        SynchronizationStatusFooter.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
         SynchronizationStatusFooter.Width = double.NaN;
         SynchronizationStatusFooter.HorizontalAlignment = HorizontalAlignment.Stretch;
     }

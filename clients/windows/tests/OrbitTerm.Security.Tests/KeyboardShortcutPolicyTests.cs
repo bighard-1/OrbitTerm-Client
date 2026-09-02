@@ -27,6 +27,17 @@ public sealed class KeyboardShortcutPolicyTests
     }
 
     [Fact]
+    public void TerminalPaneNavigationUsesAltNumberWithoutConflictingWithSessionTabs()
+    {
+        var assignments = KeyboardShortcutCatalog.CreateDefaults();
+
+        Assert.Equal(new KeyboardShortcutGesture("Number1", ShortcutModifiers.Alt), assignments[AppShortcutAction.SelectTerminalPane1]);
+        Assert.Equal(new KeyboardShortcutGesture("Number4", ShortcutModifiers.Alt), assignments[AppShortcutAction.SelectTerminalPane4]);
+        Assert.Equal(new KeyboardShortcutGesture("Number1", ShortcutModifiers.Control), assignments[AppShortcutAction.SelectWorkspaceTab1]);
+        Assert.True(KeyboardShortcutPolicy.ValidateAll(assignments).IsValid);
+    }
+
+    [Fact]
     public void DuplicateAssignmentReportsTheExistingAction()
     {
         var assignments = KeyboardShortcutCatalog.CreateDefaults();
