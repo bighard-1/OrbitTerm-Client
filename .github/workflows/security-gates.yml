@@ -30,6 +30,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy,rustfmt
+      - name: Install workflow tools
+        run: brew list ripgrep >/dev/null 2>&1 || brew install ripgrep
       - name: Fetch locked Rust dependencies
         run: cargo fetch --locked --manifest-path orbit-core/Cargo.toml
       - name: Rust tests, release harness, headers, symbols, and static scans
@@ -50,6 +52,7 @@ jobs:
         run: |
           rustup target add aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim
           brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+          brew list ripgrep >/dev/null 2>&1 || brew install ripgrep
       - name: Fetch locked Rust dependencies
         run: cargo fetch --locked --manifest-path orbit-core/Cargo.toml
       - name: Swift static scans and Apple build matrix
@@ -93,9 +96,8 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
       - name: Android source build, tests and Release artifact gates
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
         run: scripts/security/check_android_release_gates.sh
 
   android-instrumentation-gates:
@@ -116,10 +118,9 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
       - name: Run connected tests on Android 15 emulator
         uses: reactivecircus/android-emulator-runner@v2
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
         with:
           api-level: 35
           target: google_apis
@@ -147,7 +148,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Scan locked Gradle and Cargo dependencies
-        uses: aquasecurity/trivy-action@0.33.1
+        # v0.36.0, pinned to its immutable release commit after the upstream
+        # March 2026 credential-compromise response invalidated older tags.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           scan-type: fs
           scan-ref: .
