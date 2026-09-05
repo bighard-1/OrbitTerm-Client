@@ -28,18 +28,14 @@ wait_for_android_runtime() {
 section "Android connected instrumentation tests"
 (
   cd "$ANDROID_PROJECT"
-  instrumentation_args=()
-  case "${ORBITTERM_ANDROID_TEST_PROFILE:-standard}" in
+  instrumentation_profile="${ORBITTERM_ANDROID_TEST_PROFILE:-standard}"
+  case "$instrumentation_profile" in
     standard)
       ;;
     aosp-atd-api35)
       # The hosted Ubuntu runner has no hardware acceleration. Preserve memory,
       # liveness, ANR, semantics, and renderer-specific visual gates while the
       # 8-second operation/frame SLA remains enforced on normal local devices.
-      instrumentation_args+=(
-        -Pandroid.testInstrumentationRunnerArguments.strictPerformance=false
-        -Pandroid.testInstrumentationRunnerArguments.visualBaselineProfile=aosp-atd-api35
-      )
       ;;
     *)
       fail "unsupported Android instrumentation profile: ${ORBITTERM_ANDROID_TEST_PROFILE}"
@@ -47,7 +43,13 @@ section "Android connected instrumentation tests"
   esac
   for module in core feature app; do
     wait_for_android_runtime
-    ./gradlew --no-daemon ":${module}:connectedDebugAndroidTest" "${instrumentation_args[@]}"
+    if [[ "$instrumentation_profile" == "aosp-atd-api35" ]]; then
+      ./gradlew --no-daemon ":${module}:connectedDebugAndroidTest" \
+        -Pandroid.testInstrumentationRunnerArguments.strictPerformance=false \
+        -Pandroid.testInstrumentationRunnerArguments.visualBaselineProfile=aosp-atd-api35
+    else
+      ./gradlew --no-daemon ":${module}:connectedDebugAndroidTest"
+    fi
   done
   ./gradlew --no-daemon :app:assembleSmoke
 )
