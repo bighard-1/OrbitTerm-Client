@@ -191,6 +191,7 @@ struct WorkstationMonitorCardView: View {
     }
 }
 
+#if os(macOS)
 struct WorkstationMonitorOverviewStrip: View {
     @ObservedObject var active: WorkspaceSession
     @ObservedObject var monitorService: MonitorService
@@ -388,6 +389,7 @@ private struct MonitorOverviewMetric: Identifiable {
     var id: String { title }
     var isElevated: Bool { ceiling > 0 && current / ceiling >= 0.9 }
 }
+#endif
 
 private struct MonitorSystemSummary: View {
     let systemInfo: MonitorSystemInfo

@@ -8,14 +8,31 @@ ANDROID_GRADLE="$ANDROID_PROJECT/gradlew"
 
 [[ -x "$ANDROID_GRADLE" ]] || fail "Android Gradle wrapper is missing"
 
+ADB_BIN="${ANDROID_HOME:-}/platform-tools/adb"
+[[ -x "$ADB_BIN" ]] || ADB_BIN="$(command -v adb || true)"
+[[ -n "$ADB_BIN" && -x "$ADB_BIN" ]] || fail "adb is unavailable"
+
+wait_for_android_runtime() {
+  local attempt
+  "$ADB_BIN" wait-for-device
+  for attempt in $(seq 1 60); do
+    if [[ "$("$ADB_BIN" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]] && \
+       "$ADB_BIN" shell cmd package list packages >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  fail "Android emulator package service did not become ready"
+}
+
 section "Android connected instrumentation tests"
 (
   cd "$ANDROID_PROJECT"
-  ./gradlew --no-daemon \
-    :core:connectedDebugAndroidTest \
-    :feature:connectedDebugAndroidTest \
-    :app:connectedDebugAndroidTest \
-    :app:assembleSmoke
+  for module in core feature app; do
+    wait_for_android_runtime
+    ./gradlew --no-daemon ":${module}:connectedDebugAndroidTest"
+  done
+  ./gradlew --no-daemon :app:assembleSmoke
 )
 
 "$ORBIT_ROOT/scripts/security/run_android_smoke_fixtures.sh"
