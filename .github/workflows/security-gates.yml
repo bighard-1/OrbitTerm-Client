@@ -135,6 +135,8 @@ jobs:
             :app:assembleSmoke
       - name: Run connected tests on Android 15 emulator
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ORBITTERM_ANDROID_TEST_PROFILE: aosp-atd-api35
         with:
           api-level: 35
           # ATD keeps Android 15/API 35 behavior while avoiding the unused

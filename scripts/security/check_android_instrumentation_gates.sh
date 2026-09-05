@@ -28,9 +28,26 @@ wait_for_android_runtime() {
 section "Android connected instrumentation tests"
 (
   cd "$ANDROID_PROJECT"
+  instrumentation_args=()
+  case "${ORBITTERM_ANDROID_TEST_PROFILE:-standard}" in
+    standard)
+      ;;
+    aosp-atd-api35)
+      # The hosted Ubuntu runner has no hardware acceleration. Preserve memory,
+      # liveness, ANR, semantics, and renderer-specific visual gates while the
+      # 8-second operation/frame SLA remains enforced on normal local devices.
+      instrumentation_args+=(
+        -Pandroid.testInstrumentationRunnerArguments.strictPerformance=false
+        -Pandroid.testInstrumentationRunnerArguments.visualBaselineProfile=aosp-atd-api35
+      )
+      ;;
+    *)
+      fail "unsupported Android instrumentation profile: ${ORBITTERM_ANDROID_TEST_PROFILE}"
+      ;;
+  esac
   for module in core feature app; do
     wait_for_android_runtime
-    ./gradlew --no-daemon ":${module}:connectedDebugAndroidTest"
+    ./gradlew --no-daemon ":${module}:connectedDebugAndroidTest" "${instrumentation_args[@]}"
   done
   ./gradlew --no-daemon :app:assembleSmoke
 )

@@ -21,6 +21,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.orbitterm.android.domain.performance.PerformanceAcceptanceBaseline
 import com.orbitterm.android.domain.performance.RuntimeResourceBudget
 import com.orbitterm.android.domain.performance.retainUtf8Tail
@@ -40,7 +41,7 @@ import org.junit.runner.RunWith
 class PerformanceBaselineInstrumentationTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
-    @Test(timeout = PerformanceAcceptanceBaseline.MAX_OPERATION_MILLIS)
+    @Test(timeout = PerformanceAcceptanceBaseline.MAX_DEVICE_TEST_WATCHDOG_MILLIS)
     fun thousandAssetsAndRapidSessionSwitchesStayWithinDeviceBudget() {
         val selectedSession = mutableIntStateOf(0)
         val assets = List(PerformanceAcceptanceBaseline.LARGE_ASSET_COUNT) { index ->
@@ -62,7 +63,7 @@ class PerformanceBaselineInstrumentationTest {
         )
     }
 
-    @Test(timeout = PerformanceAcceptanceBaseline.MAX_OPERATION_MILLIS)
+    @Test(timeout = PerformanceAcceptanceBaseline.MAX_DEVICE_TEST_WATCHDOG_MILLIS)
     fun boundedLongDockerLogStaysWithinDeviceBudget() {
         val visibleRevision = mutableIntStateOf(0)
         val rawLog = buildString(PerformanceAcceptanceBaseline.LONG_DOCKER_LOG_SOURCE_BYTES) {
@@ -128,12 +129,24 @@ class PerformanceBaselineInstrumentationTest {
 
         val elapsedMillis = android.os.SystemClock.elapsedRealtime() - startedAt
         val pssGrowthKb = (currentPssKb() - beforePssKb).coerceAtLeast(0)
-        assertTrue("operation exceeded ${PerformanceAcceptanceBaseline.MAX_OPERATION_MILLIS}ms", elapsedMillis <= PerformanceAcceptanceBaseline.MAX_OPERATION_MILLIS)
+        if (strictPerformanceChecks()) {
+            assertTrue("operation exceeded ${PerformanceAcceptanceBaseline.MAX_OPERATION_MILLIS}ms", elapsedMillis <= PerformanceAcceptanceBaseline.MAX_OPERATION_MILLIS)
+        }
         assertTrue("PSS grew ${pssGrowthKb}KB", pssGrowthKb <= PerformanceAcceptanceBaseline.MAX_PSS_GROWTH_KB)
         assertTrue("only ${frameDurations.size} frame samples collected", frameDurations.size >= PerformanceAcceptanceBaseline.MIN_FRAME_SAMPLES)
         val p95 = frameDurations.sorted()[(frameDurations.lastIndex * 95) / 100] / 1_000_000L
-        assertTrue("p95 frame duration was ${p95}ms", p95 <= PerformanceAcceptanceBaseline.MAX_P95_FRAME_MILLIS)
+        if (strictPerformanceChecks()) {
+            assertTrue("p95 frame duration was ${p95}ms", p95 <= PerformanceAcceptanceBaseline.MAX_P95_FRAME_MILLIS)
+        }
         assertEquals(PerformanceAcceptanceBaseline.MAX_ANR_PROCESS_STATES, ownAnrStateCount())
+    }
+
+    private fun strictPerformanceChecks(): Boolean = when (
+        InstrumentationRegistry.getArguments().getString("strictPerformance")
+    ) {
+        null, "true" -> true
+        "false" -> false
+        else -> error("strictPerformance must be true or false")
     }
 
     private fun currentPssKb(): Int = Debug.MemoryInfo().also(Debug::getMemoryInfo).totalPss
