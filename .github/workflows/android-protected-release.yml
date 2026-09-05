@@ -27,7 +27,6 @@ jobs:
       name: android-production-signing
     env:
       ORBITTERM_REQUIRE_PRODUCTION_SIGNING: 'true'
-      ORBITTERM_RELEASE_KEYSTORE_FILE: ${{ runner.temp }}/orbitterm-release.keystore
       ORBITTERM_RELEASE_KEYSTORE_BASE64: ${{ secrets.ORBITTERM_RELEASE_KEYSTORE_BASE64 }}
       ORBITTERM_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ORBITTERM_RELEASE_KEYSTORE_PASSWORD }}
       ORBITTERM_RELEASE_KEY_ALIAS: ${{ secrets.ORBITTERM_RELEASE_KEY_ALIAS }}
@@ -38,6 +37,10 @@ jobs:
         with:
           ref: ${{ inputs.release_ref }}
           fetch-depth: 0
+
+      - name: Set protected release workspace paths
+        shell: bash
+        run: echo "ORBITTERM_RELEASE_KEYSTORE_FILE=$RUNNER_TEMP/orbitterm-release.keystore" >> "$GITHUB_ENV"
 
       - name: Verify immutable release reference
         shell: bash
