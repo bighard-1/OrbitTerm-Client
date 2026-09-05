@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "genre": "compact-professional-operations-workstation",
+  "window": {
+    "minimum_width": 980,
+    "minimum_height": 700,
+    "preferred_width": 1280,
+    "preferred_height": 800
+  },
+  "chrome": {
+    "command_lane_height": 36,
+    "overview_lane_min_height": 34,
+    "overview_lane_max_height": 40,
+    "logo_size": 22,
+    "logo_corner_radius": 7,
+    "command_gap": 5,
+    "command_horizontal_padding": 10,
+    "command_vertical_padding": 5
+  },
+  "panes": {
+    "asset": {
+      "preferred_width": 300,
+      "minimum_width": 220,
+      "maximum_width": 320,
+      "preferred_window_ratio": 0.234375,
+      "collapse_below_window_width": 980
+    },
+    "terminal": {
+      "minimum_width": 560
+    },
+    "tools": {
+      "preferred_width": 328,
+      "minimum_width": 280,
+      "maximum_width": 420,
+      "preferred_window_ratio": 0.25625,
+      "collapse_below_window_width": 1180
+    },
+    "collapsed_layout_width": 0,
+    "edge_restore_width": 24,
+    "splitter_hit_width": 10,
+    "splitter_visual_width": 1
+  },
+  "overview": {
+    "endpoint_order": 0,
+    "metric_order": ["cpu", "memory", "disk", "download", "upload", "tcp_latency"],
+    "detail_width": 54,
+    "gap": 6,
+    "card_corner_radius": 10,
+    "sparkline_height": 10
+  },
+  "spacing": [4, 8, 12, 16, 24],
+  "radii": {
+    "control": 6,
+    "workstation_card": 10,
+    "dialog": 14,
+    "authentication_card": 20
+  },
+  "authentication": {
+    "card_min_width": 480,
+    "card_max_width": 560,
+    "form_horizontal_padding": 24,
+    "form_vertical_padding": 26
+  },
+  "native_exceptions": [
+    "window_controls",
+    "system_ui_font",
+    "focus_visual",
+    "file_picker",
+    "accessibility_provider",
+    "keyboard_modifier_names",
+    "biometric_provider",
+    "protected_storage_provider"
+  ]
+}

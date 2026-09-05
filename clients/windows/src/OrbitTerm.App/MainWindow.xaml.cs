@@ -77,6 +77,8 @@ public sealed partial class MainWindow : Window
     private const double CollapsedPaneWidth = 0;
     private const double DefaultAssetSidebarWidth = 300;
     private const double DefaultToolInspectorWidth = 328;
+    private const double AssetSidebarWindowRatio = 0.234375;
+    private const double ToolInspectorWindowRatio = 0.25625;
     private const double MinimumAssetSidebarWidth = 220;
     private const double MaximumAssetSidebarWidth = 320;
     private const double MinimumToolInspectorWidth = 280;
@@ -91,6 +93,8 @@ public sealed partial class MainWindow : Window
     private const double MaximumTerminalSplitRatio = 0.8;
     private double assetSidebarExpandedWidth = DefaultAssetSidebarWidth;
     private double toolInspectorExpandedWidth = DefaultToolInspectorWidth;
+    private bool assetSidebarFollowsWindow = true;
+    private bool toolInspectorFollowsWindow = true;
     private double terminalSplitTopRatio = 0.5;
     private double terminalSplitLeftRatio = 0.5;
     private readonly string layoutStatePath = Path.Combine(
@@ -261,6 +265,7 @@ public sealed partial class MainWindow : Window
         activeTerminalView = NativeTerminalView;
         RebuildTerminalSplitLayout();
         UpdateTerminalEmptyState();
+        UpdateToolInspectorSessionState();
         UpdateAssetEmptyState();
         ViewModel.LoadAssetsCommand.Execute(null);
         ViewModel.LoadAccountSessionCommand.Execute(null);
@@ -925,11 +930,11 @@ public sealed partial class MainWindow : Window
         package.SetText(host);
         Clipboard.SetContent(package);
         CurrentHostCopyGlyph.Glyph = "\uE73E";
-        CurrentHostCopyFeedback.Text = "已复制";
+        ToolTipService.SetToolTip(CurrentHostCopyButton, "已复制当前资产 IP");
         AutomationProperties.SetHelpText(CurrentHostCopyButton, "当前资产 IP 已复制");
         await Task.Delay(1200);
         CurrentHostCopyGlyph.Glyph = "\uE8C8";
-        CurrentHostCopyFeedback.Text = "复制";
+        ToolTipService.SetToolTip(CurrentHostCopyButton, "复制当前资产 IP");
     }
 
     private void ShowMonitorDetailsClick(object sender, RoutedEventArgs e)
@@ -3152,6 +3157,30 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        if (assetSidebarFollowsWindow)
+        {
+            assetSidebarExpandedWidth = Math.Clamp(
+                availableWidth * AssetSidebarWindowRatio,
+                MinimumAssetSidebarWidth,
+                MaximumAssetSidebarWidth);
+            if (AssetSidebar.Visibility == Visibility.Visible)
+            {
+                AssetSidebarColumn.Width = new GridLength(assetSidebarExpandedWidth);
+            }
+        }
+
+        if (toolInspectorFollowsWindow)
+        {
+            toolInspectorExpandedWidth = Math.Clamp(
+                availableWidth * ToolInspectorWindowRatio,
+                MinimumToolInspectorWidth,
+                MaximumToolInspectorWidth);
+            if (ToolInspector.Visibility == Visibility.Visible)
+            {
+                ToolInspectorColumn.Width = new GridLength(toolInspectorExpandedWidth);
+            }
+        }
+
         if (availableWidth < 1180 && ToolInspector.Visibility == Visibility.Visible)
         {
             toolInspectorExpandedWidth = Math.Clamp(
@@ -3371,6 +3400,7 @@ public sealed partial class MainWindow : Window
     private void AssetSidebarSplitterDragDelta(object sender, DragDeltaEventArgs e)
     {
         if (AssetSidebar.Visibility != Visibility.Visible) return;
+        assetSidebarFollowsWindow = false;
         var toolWidth = GetVisiblePaneWidth(ToolInspector, ToolInspectorColumn);
         var maximum = Math.Max(
             MinimumAssetSidebarWidth,
@@ -3385,6 +3415,7 @@ public sealed partial class MainWindow : Window
     private void ToolInspectorSplitterDragDelta(object sender, DragDeltaEventArgs e)
     {
         if (ToolInspector.Visibility != Visibility.Visible) return;
+        toolInspectorFollowsWindow = false;
         var assetWidth = GetVisiblePaneWidth(AssetSidebar, AssetSidebarColumn);
         var maximum = Math.Max(
             MinimumToolInspectorWidth,
@@ -3432,6 +3463,8 @@ public sealed partial class MainWindow : Window
                 state.ToolInspectorWidth,
                 MinimumToolInspectorWidth,
                 MaximumToolInspectorWidth);
+            assetSidebarFollowsWindow = Math.Abs(state.AssetSidebarWidth - DefaultAssetSidebarWidth) < 0.5;
+            toolInspectorFollowsWindow = Math.Abs(state.ToolInspectorWidth - DefaultToolInspectorWidth) < 0.5;
             terminalSplitTopRatio = Math.Clamp(
                 state.TerminalSplitTopRatio ?? 0.5,
                 MinimumTerminalSplitRatio,
@@ -3471,8 +3504,10 @@ public sealed partial class MainWindow : Window
     {
         // Match the desktop information architecture: keep the terminal wide
         // on first launch while leaving session tools immediately available.
-        AssetSidebar.Visibility = Visibility.Collapsed;
-        AssetSidebarColumn.Width = new GridLength(CollapsedPaneWidth);
+        assetSidebarFollowsWindow = true;
+        toolInspectorFollowsWindow = true;
+        AssetSidebar.Visibility = Visibility.Visible;
+        AssetSidebarColumn.Width = new GridLength(assetSidebarExpandedWidth);
         ToolInspector.Visibility = Visibility.Visible;
         ToolInspectorColumn.Width = new GridLength(toolInspectorExpandedWidth);
         UpdateAssetSidebarVisualState();
@@ -3729,6 +3764,10 @@ public sealed partial class MainWindow : Window
             {
                 activeDockerLogWindow?.StopAndClose();
             }
+            if (e.PropertyName == nameof(MainWindowViewModel.IsConnected))
+            {
+                UpdateToolInspectorSessionState();
+            }
             UpdateMonitorRefreshTimer();
             UpdateDockerRefreshTimer();
         }
@@ -3767,6 +3806,16 @@ public sealed partial class MainWindow : Window
         {
             AnimateFeedbackOpacity(DockerFeedbackLayer, ViewModel.IsDockerFeedbackFadingOut ? 0 : 1);
         }
+    }
+
+    private void UpdateToolInspectorSessionState()
+    {
+        ConnectedToolInspectorContent.Visibility = ViewModel.IsConnected
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        DisconnectedToolInspectorContent.Visibility = ViewModel.IsConnected
+            ? Visibility.Collapsed
+            : Visibility.Visible;
     }
 
     private void UpdateSftpFeedbackVisual()

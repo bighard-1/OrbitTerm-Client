@@ -40,13 +40,13 @@ struct TerminalSessionPane: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(
                 TerminalThemeManager.theme(for: resolvedTerminalThemeID).background.swiftUIColor,
-                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
             )
             // The platform terminal view can draw its dirty region beyond a
             // SwiftUI sibling unless its viewport is explicitly clipped.
             // Keep the final terminal row inside this region so the command
             // preinput bar never obscures the cursor.
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .modifier(WorkstationTerminalDropUploadModifier(
                 session: session,
                 sessionManager: sessionManager
