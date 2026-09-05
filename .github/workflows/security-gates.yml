@@ -53,8 +53,12 @@ jobs:
           rustup target add aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim
           brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
           brew list ripgrep >/dev/null 2>&1 || brew install ripgrep
+          brew list cmake >/dev/null 2>&1 || brew install cmake
+          brew list ninja >/dev/null 2>&1 || brew install ninja
       - name: Fetch locked Rust dependencies
         run: cargo fetch --locked --manifest-path orbit-core/Cargo.toml
+      - name: Build audited macOS FreeRDP runtime
+        run: scripts/build_freerdp_macos.sh
       - name: Swift static scans and Apple build matrix
         run: |
           scripts/security/check_static_scans.sh
@@ -91,6 +95,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,x86_64-linux-android
+      - name: Install workflow tools
+        run: brew list ripgrep >/dev/null 2>&1 || brew install ripgrep
       - name: Install Android SDK and NDK
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
