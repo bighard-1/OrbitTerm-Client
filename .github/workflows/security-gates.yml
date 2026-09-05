@@ -140,7 +140,7 @@ jobs:
           target: google_apis
           arch: x86_64
           disable-animations: true
-          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -memory 4096 -gpu swiftshader_indirect
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
           script: scripts/security/check_android_instrumentation_gates.sh
       - name: Preserve Android instrumentation reports
         if: always()
