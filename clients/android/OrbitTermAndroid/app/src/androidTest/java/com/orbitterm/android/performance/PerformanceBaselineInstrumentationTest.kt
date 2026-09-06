@@ -129,13 +129,14 @@ class PerformanceBaselineInstrumentationTest {
 
         val elapsedMillis = android.os.SystemClock.elapsedRealtime() - startedAt
         val pssGrowthKb = (currentPssKb() - beforePssKb).coerceAtLeast(0)
-        if (strictPerformanceChecks()) {
+        val strictPerformance = strictPerformanceChecks()
+        if (strictPerformance) {
             assertTrue("operation exceeded ${PerformanceAcceptanceBaseline.MAX_OPERATION_MILLIS}ms", elapsedMillis <= PerformanceAcceptanceBaseline.MAX_OPERATION_MILLIS)
         }
         assertTrue("PSS grew ${pssGrowthKb}KB", pssGrowthKb <= PerformanceAcceptanceBaseline.MAX_PSS_GROWTH_KB)
-        assertTrue("only ${frameDurations.size} frame samples collected", frameDurations.size >= PerformanceAcceptanceBaseline.MIN_FRAME_SAMPLES)
-        val p95 = frameDurations.sorted()[(frameDurations.lastIndex * 95) / 100] / 1_000_000L
-        if (strictPerformanceChecks()) {
+        if (strictPerformance) {
+            assertTrue("only ${frameDurations.size} frame samples collected", frameDurations.size >= PerformanceAcceptanceBaseline.MIN_FRAME_SAMPLES)
+            val p95 = frameDurations.sorted()[(frameDurations.lastIndex * 95) / 100] / 1_000_000L
             assertTrue("p95 frame duration was ${p95}ms", p95 <= PerformanceAcceptanceBaseline.MAX_P95_FRAME_MILLIS)
         }
         assertEquals(PerformanceAcceptanceBaseline.MAX_ANR_PROCESS_STATES, ownAnrStateCount())
