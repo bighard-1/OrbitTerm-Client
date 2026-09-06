@@ -59,6 +59,11 @@ const RDP_PTR_DOWN: u16 = 0x8000;
 const RDP_PTR_LEFT: u16 = 0x1000;
 const RDP_PTR_RIGHT: u16 = 0x2000;
 const RDP_PTR_MIDDLE: u16 = 0x4000;
+const EMPTY_ASSET_TITLE: &str = "还没有服务器";
+const EMPTY_ASSET_DESCRIPTION: &str = "添加服务器后，即可从这里安全地发起连接。";
+const EMPTY_SESSION_TITLE: &str = "暂无会话";
+const EMPTY_SESSION_DESCRIPTION: &str = "从左侧选择服务器，然后建立连接。";
+const EMPTY_SESSION_TAB_HINT: &str = "建立连接后，会话标签将在这里显示";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct RdpReconnectState {
@@ -2183,8 +2188,8 @@ fn build_sidebar(
     stack.add_named(&scroller, Some("assets"));
     let empty = adw::StatusPage::builder()
         .icon_name("network-server-symbolic")
-        .title("还没有服务器")
-        .description("添加服务器资产后，可从这里打开经 Host Key 验证的会话。")
+        .title(EMPTY_ASSET_TITLE)
+        .description(EMPTY_ASSET_DESCRIPTION)
         .build();
     empty.add_css_class("compact-status");
     stack.add_named(&empty, Some("empty"));
@@ -2237,7 +2242,7 @@ fn build_workspace() -> WorkspaceWidgets {
     tabs.add_css_class("workspace-tabs");
     let tab_status = gtk::Label::new(Some("0 会话"));
     tab_status.add_css_class("tab-status");
-    let tab_hint = gtk::Label::new(Some("连接资产后将在这里显示会话标签"));
+    let tab_hint = gtk::Label::new(Some(EMPTY_SESSION_TAB_HINT));
     tab_hint.add_css_class("tab-hint");
     tab_hint.set_hexpand(true);
     tab_hint.set_xalign(0.0);
@@ -2417,11 +2422,9 @@ fn build_workspace() -> WorkspaceWidgets {
     let empty_icon = gtk::Image::from_icon_name("utilities-terminal-symbolic");
     empty_icon.set_pixel_size(42);
     empty_icon.add_css_class("workspace-empty-icon");
-    let empty_title = gtk::Label::new(Some("选择一台服务器开始工作"));
+    let empty_title = gtk::Label::new(Some(EMPTY_SESSION_TITLE));
     empty_title.add_css_class("workspace-empty-title");
-    let empty_description = gtk::Label::new(Some(
-        "从左侧资产栏选择服务器，然后建立经 Host Key 验证的安全会话。",
-    ));
+    let empty_description = gtk::Label::new(Some(EMPTY_SESSION_DESCRIPTION));
     empty_description.add_css_class("workspace-empty-description");
     empty_description.set_wrap(true);
     empty_description.set_justify(gtk::Justification::Center);
@@ -3533,7 +3536,7 @@ fn refresh_session_tabs(context: &UiContext) {
         .workspace
         .tab_hint
         .set_label(if sessions.is_empty() {
-            "连接资产后将在这里显示会话标签"
+            EMPTY_SESSION_TAB_HINT
         } else {
             "切换标签时终端与工具上下文会同步切换"
         });
@@ -6773,7 +6776,7 @@ fn perform_workstation_shortcut(
             } else {
                 context
                     .status
-                    .set_label("请先在服务器栏选择资产，再新建会话标签。");
+                    .set_label("请先从服务器栏选择资产，再建立会话。");
             }
         }
         WorkstationShortcutAction::CloseSession => {
@@ -15996,6 +15999,21 @@ mod tests {
         assert_eq!(responsive_workstation_panel_widths(1280), (300, 328));
         assert_eq!(responsive_workstation_panel_widths(1600), (320, 410));
         assert_eq!(responsive_workstation_panel_widths(2200), (320, 420));
+    }
+
+    #[test]
+    fn empty_workspace_copy_matches_the_desktop_contract() {
+        assert_eq!(EMPTY_ASSET_TITLE, "还没有服务器");
+        assert_eq!(
+            EMPTY_ASSET_DESCRIPTION,
+            "添加服务器后，即可从这里安全地发起连接。"
+        );
+        assert_eq!(EMPTY_SESSION_TITLE, "暂无会话");
+        assert_eq!(
+            EMPTY_SESSION_DESCRIPTION,
+            "从左侧选择服务器，然后建立连接。"
+        );
+        assert_eq!(EMPTY_SESSION_TAB_HINT, "建立连接后，会话标签将在这里显示");
     }
 
     #[test]

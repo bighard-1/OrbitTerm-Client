@@ -391,10 +391,10 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public bool HasAssetSearchResults => AssetGroups.Count != 0;
 
-    public string AssetEmptyStateTitle => Assets.Count == 0 ? "尚未保存服务器资产" : "未找到匹配的服务器";
+    public string AssetEmptyStateTitle => Assets.Count == 0 ? "还没有服务器" : "未找到匹配的服务器";
 
     public string AssetEmptyStateDescription => Assets.Count == 0
-        ? "选择“新建服务器”添加第一台本地资产。"
+        ? "添加服务器后，即可从这里安全地发起连接。"
         : "请调整关键词或分组筛选条件。";
 
     public string AssetStorageStatus => string.Concat("仅本地保存 · ", AssetEditorStatus);
@@ -1190,12 +1190,12 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public string TerminalEmptyStateLabel => HasHostKeyChallenge
         ? "等待主机密钥确认"
-        : IsConnected ? "已准备就绪" : "尚未建立连接";
+        : IsConnected ? "已准备就绪" : "暂无会话";
 
     public string TerminalEmptyStateDescription => HasHostKeyChallenge
         ? "确认主机密钥后，才能为此服务器打开终端。"
         : IsConnected ? "此服务器已完成验证。打开终端后即可运行命令。"
-        : "先从左侧选择服务器并建立连接。";
+        : "从左侧选择服务器，然后建立连接。";
 
     public string ActivitySummary => TerminalLines.Count == 0
         ? "暂无终端活动"
@@ -3990,6 +3990,7 @@ public sealed class MainWindowViewModel : ObservableObject
             await EndSessionCoreAsync(cancellationToken, "Previous session ended before reconnect").ConfigureAwait(true);
         }
 
+        SelectedWorkspaceTab?.MarkSessionStarted();
         Status = AssetTransport == ServerTransport.Telnet ? "正在建立 Telnet 明文连接" : "正在连接";
         SessionActionSummary = AssetTransport == ServerTransport.Telnet ? "正在连接已确认的 Telnet 目标" : "正在验证服务器身份";
         SecurityStatus = AssetTransport == ServerTransport.Telnet ? "无加密 · 无服务器身份验证" : "正在检查主机密钥";

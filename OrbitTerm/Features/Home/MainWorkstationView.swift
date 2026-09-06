@@ -416,12 +416,6 @@ struct MainWorkstationView: View {
                 activeTabID: sessionManager.activeTabID,
                 onSelect: { tab in sessionManager.activateTab(tab.id) },
                 onClose: { tab in sessionManager.closeTab(tab) },
-                onNew: {
-                    if let selected = serverStore.selectedServer {
-                        sessionManager.quickOpenServer = selected
-                    }
-                    sessionManager.openQuickTabFromSelection()
-                },
                 onDetach: { tab in
                     openWindow(value: tab.id)
                 },
@@ -472,7 +466,7 @@ struct MainWorkstationView: View {
                 ContentUnavailableView(
                     "暂无会话",
                     systemImage: "terminal",
-                    description: Text("从左侧选择服务器并点击 + 打开新标签")
+                    description: Text("从左侧选择服务器，然后建立连接。")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

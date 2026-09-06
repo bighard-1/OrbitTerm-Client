@@ -11,6 +11,22 @@ namespace OrbitTerm.Security.Tests;
 public sealed class MainWindowViewModelTests
 {
     [Fact]
+    public void EmptyWorkspaceCopyAndDraftTabMatchDesktopContract()
+    {
+        var viewModel = CreateViewModel(seedDefaultAsset: false);
+
+        Assert.Equal("还没有服务器", viewModel.AssetEmptyStateTitle);
+        Assert.Equal("添加服务器后，即可从这里安全地发起连接。", viewModel.AssetEmptyStateDescription);
+        Assert.Equal("暂无会话", viewModel.TerminalEmptyStateLabel);
+        Assert.Equal("从左侧选择服务器，然后建立连接。", viewModel.TerminalEmptyStateDescription);
+
+        var draft = Assert.IsType<WorkspaceTabViewModel>(viewModel.SelectedWorkspaceTab);
+        Assert.False(draft.IsSessionTabVisible);
+        draft.MarkSessionStarted();
+        Assert.True(draft.IsSessionTabVisible);
+    }
+
+    [Fact]
     public void LegacyAssetDocumentsReceiveSafeGroupAndTagDefaults()
     {
         const string legacyAssetJson = """

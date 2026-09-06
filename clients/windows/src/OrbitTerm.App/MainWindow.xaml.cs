@@ -40,6 +40,7 @@ public sealed partial class MainWindow : Window
     public const int MinimumWindowHeight = 700;
     private const int DefaultWindowWidth = 1280;
     private const int DefaultWindowHeight = 800;
+    private const int CompactAccountEntryWidth = 1080;
     private static readonly ApplicationPaletteOption[] ApplicationPaletteOptions =
     [
         new("天空糖果"),
@@ -3152,6 +3153,13 @@ public sealed partial class MainWindow : Window
 
     private void ApplyResponsivePaneRules(double availableWidth)
     {
+        // Preserve every title-bar command at the supported minimum width by
+        // collapsing only the account caption. Its icon, tooltip and automation
+        // name continue to expose the full action meaning.
+        AccountEntryText.Visibility = availableWidth < CompactAccountEntryWidth
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+
         if (isTerminalFullscreen)
         {
             return;
@@ -3767,6 +3775,7 @@ public sealed partial class MainWindow : Window
             if (e.PropertyName == nameof(MainWindowViewModel.IsConnected))
             {
                 UpdateToolInspectorSessionState();
+                UpdateTerminalEmptyState();
             }
             UpdateMonitorRefreshTimer();
             UpdateDockerRefreshTimer();
@@ -7026,6 +7035,9 @@ public sealed partial class MainWindow : Window
         TerminalEmptyState.Visibility = ViewModel.IsTerminalOpen
             ? Visibility.Collapsed
             : Visibility.Visible;
+        OpenTerminalEmptyButton.Visibility = ViewModel.IsConnected
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         NativeTerminalView.IsInputEnabled = ViewModel.IsTerminalOpen;
 
         // Focus only for the closed -> open transition. Re-running a generic

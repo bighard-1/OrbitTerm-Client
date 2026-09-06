@@ -25,7 +25,7 @@ struct WorkstationAssetSidebarView: View {
                 ContentUnavailableView(
                     "还没有服务器",
                     systemImage: "server.rack",
-                    description: Text("点击右上角“添加服务器”开始")
+                    description: Text("添加服务器后，即可从这里安全地发起连接。")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
