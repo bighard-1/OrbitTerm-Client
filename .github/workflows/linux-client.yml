@@ -1,0 +1,45 @@
+name: Linux Client
+
+on:
+  pull_request:
+    paths:
+      - "clients/linux/**"
+      - "orbit-core/**"
+      - ".github/workflows/linux-client.yml"
+  push:
+    branches: [main]
+    paths:
+      - "clients/linux/**"
+      - "orbit-core/**"
+      - ".github/workflows/linux-client.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  native-ubuntu-2404:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: clients/linux
+      - name: Install native libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            desktop-file-utils \
+            freerdp3-dev \
+            libadwaita-1-dev \
+            libgtk-4-dev \
+            libsecret-1-dev \
+            libvte-2.91-gtk4-dev \
+            libwinpr3-dev
+      - name: Verify Linux security and quality gates
+        run: clients/linux/scripts/check_linux.sh
+      - name: Build native release binary
+        run: clients/linux/scripts/build_release.sh

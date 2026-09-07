@@ -226,7 +226,7 @@ struct WorkstationRightPanelView: View {
     }
 
     private var emptyState: some View {
-        Text("连接终端后自动展示监控与 SFTP")
+        Text("连接会话后自动显示 SFTP、Docker 与命令片段")
             .font(.caption)
             .foregroundStyle(palette.textSecondary.color)
             .padding(10)

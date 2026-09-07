@@ -1,0 +1,869 @@
+/* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4
+ * Hallmark · macrostructure: Workbench · theme: Cobalt · native GTK state extension
+ * genre: modern-minimal
+ * audience: operations and development professionals · use: offline sync queue and audit
+ * tone: technical utilitarian · palette anchor: Adwaita cobalt accent · enrichment: none
+ * nav: desktop asset sidebar · footer: status line
+ * contrast: pass (40–41) · honest: pass (46) · chrome: pass (47) · tokens: pass (48)
+ * responsive: desktop-only, 960px minimum · icons: pass (30) · slop: pass (native-app applicable gates)
+ * mobile: not applicable (native desktop client) · interactive states: GTK native + explicit focus/disabled
+ */
+.orbitterm-window {
+  background-color: @orbit_paper;
+  color: @orbit_ink;
+}
+
+.window-resize-handle {
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+}
+
+.app-header {
+  border-bottom: 1px solid @orbit_rule;
+  background-color: @orbit_surface;
+  min-height: 36px;
+}
+
+.header-actions { margin: 0; }
+
+.header-brand-frame {
+  min-width: 24px;
+  min-height: 24px;
+  margin: 0 5px 0 0;
+  border-radius: 7px;
+  background-color: @orbit_terminal;
+}
+
+.header-brand-icon { margin: 0; }
+
+.auth-mark-frame {
+  min-width: 58px;
+  min-height: 58px;
+  border-radius: 14px;
+  background-color: @orbit_terminal;
+}
+
+.top-command {
+  border-radius: 7px;
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+button label,
+.top-command label {
+  font-family: "Adwaita Sans", "Noto Sans CJK SC", "Cantarell", sans-serif;
+  font-style: normal;
+}
+
+.title,
+.heading,
+.dialog-title,
+.panel-heading-label {
+  font-family: "Adwaita Sans", "Cantarell", sans-serif;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.title { font-size: 16px; }
+.heading { font-size: 15px; }
+.dialog-title { font-size: 20px; }
+.caption { font-size: 12px; opacity: 0.72; }
+.metric { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.asset-sidebar,
+.tool-panel {
+  background-color: @orbit_surface;
+}
+
+.asset-sidebar-root {
+  min-width: 220px;
+  background-color: @orbit_surface;
+  border-right: 1px solid @orbit_rule;
+}
+
+.asset-sidebar { border-right: 1px solid @orbit_rule; }
+.tool-panel { border-left: 1px solid @orbit_rule; }
+
+.collapsed-panel-rail {
+  min-width: 38px;
+  background-color: @orbit_surface;
+  border-color: @orbit_rule;
+}
+
+.collapsed-panel-rail button {
+  min-width: 36px;
+  padding: 0;
+}
+
+.persistent-context-bar {
+  min-height: 34px;
+  padding: 0 10px;
+  border-bottom: 1px solid @orbit_rule;
+  background-color: @orbit_paper_2;
+}
+
+.persistent-context-bar .active-endpoint,
+.persistent-context-bar .sidebar-footer {
+  border: none;
+  background: transparent;
+  padding: 0;
+  min-height: 32px;
+}
+
+.persistent-context-bar .active-endpoint { min-width: 360px; }
+.persistent-context-bar .sidebar-footer { min-width: 300px; }
+
+.panel-edge-button {
+  min-width: 28px;
+  min-height: 72px;
+  padding: 0;
+  border-radius: 0 9px 9px 0;
+  background-color: alpha(@orbit_surface, 0.94);
+  box-shadow: 0 2px 8px alpha(black, 0.14);
+}
+
+.panel-edge-button:last-child { border-radius: 9px 0 0 9px; }
+
+.collapsed-context-chip {
+  min-width: 300px;
+  min-height: 34px;
+  padding: 0 8px;
+  background-color: alpha(@orbit_surface, 0.97);
+  border: 1px solid @orbit_rule;
+  box-shadow: 0 3px 10px alpha(black, 0.16);
+}
+
+.collapsed-endpoint-chip { border-radius: 0 0 9px 0; }
+.collapsed-sync-chip { border-radius: 0 9px 0 0; }
+
+.monitor-card {
+  min-width: 0;
+  padding: 1px 6px;
+  border: 1px solid @orbit_rule;
+  border-radius: 10px;
+  background-color: @orbit_metric;
+}
+
+.monitor-card .caption { font-size: 11px; }
+.monitor-card .metric { font-size: 12px; }
+.endpoint-monitor-card .endpoint-value {
+  font-size: 11px;
+  font-weight: 600;
+}
+.monitor-copy-button {
+  min-width: 22px;
+  min-height: 20px;
+  padding: 0;
+}
+
+.monitor-detail-card {
+  min-width: 180px;
+  margin: 5px;
+  padding: 14px;
+  border: 1px solid @orbit_rule;
+  border-radius: 10px;
+  background-color: @orbit_surface;
+}
+
+.process-monitor-card,
+.settings-section {
+  padding: 12px;
+  border: 1px solid @orbit_rule;
+  border-radius: 10px;
+  background-color: @orbit_surface;
+}
+
+.process-table-header,
+.process-row,
+.shortcut-summary {
+  font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
+}
+
+.process-table-header {
+  color: @orbit_muted;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+}
+
+.process-row {
+  font-size: 11px;
+  padding: 7px 8px;
+}
+
+.process-selection {
+  border-top: 1px solid @orbit_rule;
+  padding-top: 8px;
+  font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
+  font-size: 11px;
+}
+
+.process-history-card {
+  padding: 7px 9px;
+  border: 1px solid @orbit_rule;
+  border-radius: 8px;
+  background-color: @orbit_paper_2;
+}
+
+.settings-window { padding: 16px; }
+.settings-content { padding: 4px 8px 10px 0; }
+.settings-section { min-width: 480px; }
+.settings-row-label { font-size: 12px; font-weight: 700; }
+.palette-choices { margin-top: 2px; }
+.palette-choice {
+  min-width: 104px;
+  min-height: 36px;
+  border-width: 2px;
+  border-radius: 9px;
+  font-weight: 700;
+}
+.palette-choice:checked { border-color: @orbit_accent; }
+.palette-sky { background-color: #e2effc; color: #1261c2; }
+.palette-emerald { background-color: #e2f2e9; color: #08664d; }
+.palette-peach { background-color: #fce7db; color: #9c3333; }
+.palette-lavender { background-color: #ede5f8; color: #613894; }
+.palette-glacier { background-color: #e0f1f4; color: #056373; }
+.shortcut-summary { font-size: 12px; }
+
+.sftp-context-menu button { min-width: 170px; }
+.detached-session { padding: 10px; background-color: @orbit_paper; }
+
+.active-endpoint {
+  border-bottom: 1px solid @orbit_rule;
+  background-color: @orbit_paper_2;
+  min-height: 36px;
+  padding: 5px 10px;
+}
+
+.endpoint-value {
+  font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.asset-count {
+  border-radius: 999px;
+  background-color: alpha(@orbit_muted, 0.10);
+  color: @orbit_muted;
+  font-size: 10px;
+  padding: 2px 6px;
+}
+
+.panel-heading,
+.workspace-heading,
+.monitor-strip,
+.terminal-input-row,
+.asset-dialog {
+  padding: 12px;
+}
+
+.panel-heading {
+  min-height: 38px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.sidebar-search {
+  margin: 0 12px 8px 12px;
+}
+
+.asset-list {
+  background-color: @orbit_paper_2;
+  padding: 4px 8px;
+}
+
+.asset-row {
+  border-radius: 8px;
+  padding: 8px 7px;
+  margin: 2px 0;
+}
+
+.asset-row:selected {
+  background-color: alpha(@orbit_accent, 0.14);
+}
+
+.asset-status-dot {
+  font-size: 9px;
+  margin-top: 3px;
+}
+
+.asset-group-row {
+  background-color: transparent;
+  margin: 6px 0 2px 0;
+}
+
+.asset-group-header {
+  border: 1px solid @orbit_rule;
+  border-radius: 7px;
+  background-color: @orbit_surface;
+  font-weight: 700;
+  min-height: 30px;
+  padding: 0 8px;
+}
+
+.asset-group-count {
+  color: @orbit_muted;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.transport-badge {
+  border: 1px solid @orbit_rule;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+}
+
+.transport-ssh {
+  border-color: alpha(@orbit_accent, 0.36);
+  background-color: alpha(@orbit_accent, 0.10);
+  color: @orbit_accent;
+}
+
+.transport-telnet {
+  border-color: alpha(@orbit_warning, 0.42);
+  background-color: alpha(@orbit_warning, 0.10);
+  color: @orbit_warning;
+}
+
+.transport-rdp {
+  border-color: alpha(@orbit_rdp, 0.42);
+  background-color: alpha(@orbit_rdp, 0.10);
+  color: @orbit_rdp;
+}
+
+.asset-tags {
+  color: @orbit_accent;
+  font-size: 10px;
+  opacity: 0.82;
+}
+
+.sidebar-footer,
+.status-bar {
+  border-top: 1px solid @orbit_rule;
+  background-color: @orbit_surface;
+  padding: 8px 12px;
+}
+
+.sidebar-footer-title {
+  color: @orbit_muted;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.sidebar-footer { min-height: 46px; padding: 6px 10px; }
+
+.status-bar { min-height: 24px; }
+.status-idle { color: @orbit_muted; font-size: 10px; opacity: 0.62; }
+.status-ok { color: @orbit_success; }
+.status-warning { color: @orbit_warning; }
+.status-error { color: @orbit_danger; }
+
+.workspace { background-color: @orbit_paper; }
+
+.workspace-tabs {
+  background-color: @orbit_surface;
+  border-bottom: 1px solid @orbit_rule;
+  min-height: 36px;
+  padding: 3px 8px;
+}
+
+.new-session-button {
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  border-radius: 7px;
+}
+
+.tab-button {
+  border-radius: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+.session-tab-group {
+  border: 1px solid @orbit_rule;
+  border-radius: 7px;
+  background-color: @orbit_paper_2;
+}
+
+.session-tab-group .tab-button {
+  border: 0;
+  border-radius: 6px 0 0 6px;
+  background-color: transparent;
+  box-shadow: none;
+}
+
+.session-tab-group .tab-button:checked {
+  background-color: alpha(@orbit_accent, 0.14);
+  color: @orbit_ink;
+}
+
+.session-tab-close {
+  border: 0;
+  border-left: 1px solid @orbit_rule;
+  border-radius: 0 6px 6px 0;
+  min-height: 30px;
+  min-width: 28px;
+  padding: 0 5px;
+}
+
+.tab-status {
+  border-radius: 999px;
+  background-color: alpha(@orbit_muted, 0.10);
+  color: @orbit_muted;
+  font-size: 10px;
+  padding: 2px 6px;
+}
+
+.tab-status.connected {
+  background-color: alpha(@orbit_success, 0.14);
+  color: @orbit_success;
+}
+
+.tab-status.failed {
+  background-color: alpha(@orbit_danger, 0.12);
+  color: @orbit_danger;
+}
+
+.tab-hint {
+  color: @orbit_muted;
+  font-size: 11px;
+  opacity: 0.64;
+}
+
+.workspace-heading {
+  background-color: @orbit_surface;
+  border-bottom: 1px solid @orbit_rule;
+  min-height: 52px;
+  padding-top: 9px;
+  padding-bottom: 9px;
+}
+
+.security-chip {
+  border: 1px solid @orbit_rule;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: @orbit_warning;
+}
+
+.security-chip.verified {
+  border-color: alpha(@orbit_success, 0.52);
+  color: @orbit_success;
+}
+
+.security-chip.insecure {
+  border-color: alpha(@orbit_danger, 0.48);
+  background-color: alpha(@orbit_danger, 0.07);
+  color: @orbit_danger;
+}
+
+.monitor-strip {
+  background-color: @orbit_paper_2;
+  border-bottom: 1px solid @orbit_rule;
+  min-height: 36px;
+  padding: 2px 8px;
+}
+
+.overview-label {
+  color: @orbit_muted;
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 62px;
+}
+
+paned > separator {
+  min-width: 6px;
+  background-color: alpha(@orbit_rule, 0.72);
+}
+
+paned > separator:hover,
+paned > separator:focus {
+  background-color: alpha(@orbit_accent, 0.48);
+}
+
+.workspace-empty {
+  margin: 24px;
+}
+
+.workspace-empty-icon {
+  color: @orbit_accent;
+  opacity: 0.78;
+}
+
+.workspace-empty-title {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.workspace-empty-description {
+  color: @orbit_muted;
+  font-size: 13px;
+  opacity: 0.72;
+}
+
+.terminal-frame {
+  background-color: @orbit_terminal;
+  border: 1px solid @orbit_rule;
+  border-radius: 10px;
+  padding: 6px;
+}
+
+.terminal-frame.active {
+  border-color: @orbit_accent;
+  box-shadow: inset 0 0 0 1px alpha(@orbit_accent, 0.28);
+}
+
+.terminal-grid { background-color: @orbit_paper; }
+.terminal-split-popover button { min-width: 150px; }
+
+.terminal {
+  background-color: @orbit_terminal;
+  color: @orbit_terminal_ink;
+  font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
+  font-size: 12px;
+}
+
+.terminal-input-row {
+  margin: 6px 8px;
+  padding: 5px 8px;
+  background-color: @orbit_surface;
+  border: 1px solid @orbit_rule;
+  border-radius: 10px;
+}
+
+.terminal-prompt {
+  color: @orbit_accent;
+  font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
+  font-weight: 700;
+}
+
+.rdp-workspace {
+  background-color: #0b0e13;
+}
+
+.rdp-surface {
+  background-color: #0b0e13;
+}
+
+.rdp-surface:focus-visible {
+  outline: 2px solid @orbit_focus;
+  outline-offset: -2px;
+}
+
+.rdp-control-bar {
+  border: 1px solid alpha(@orbit_rule, 0.86);
+  border-radius: 10px;
+  background-color: alpha(@orbit_surface, 0.94);
+  box-shadow: 0 6px 18px alpha(black, 0.22);
+  padding: 5px;
+}
+
+.rdp-state-overlay {
+  min-width: 300px;
+  border: 1px solid alpha(@orbit_rule, 0.9);
+  border-radius: 12px;
+  background-color: alpha(@orbit_surface, 0.94);
+  box-shadow: 0 10px 30px alpha(black, 0.22);
+  color: @orbit_ink;
+  padding: 18px 22px;
+}
+
+.rdp-state-overlay image {
+  color: @orbit_accent;
+  margin-bottom: 3px;
+}
+
+.rdp-control-bar button {
+  min-height: 28px;
+  padding-left: 9px;
+  padding-right: 9px;
+}
+
+.rdp-tools-toggle {
+  min-height: 24px;
+  padding: 2px 10px;
+  border-radius: 8px;
+  border: 1px solid alpha(@orbit_rule, 0.86);
+  background-color: alpha(@orbit_surface, 0.94);
+  color: @orbit_ink;
+}
+
+.module-fullscreen-button {
+  border: 1px solid alpha(@orbit_rule, 0.86);
+  border-radius: 9px;
+  background-color: alpha(@orbit_surface, 0.94);
+  box-shadow: 0 5px 16px alpha(black, 0.24);
+  min-height: 30px;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.rdp-input-status {
+  color: @orbit_muted;
+  padding: 0 5px;
+}
+
+.rdp-input-status.captured {
+  color: @orbit_success;
+  font-weight: 700;
+}
+
+.rdp-security-bar {
+  border-top: 1px solid @orbit_rule;
+  background-color: @orbit_surface;
+  color: @orbit_muted;
+  font-size: 11px;
+  padding: 7px 12px;
+}
+
+.tool-switcher {
+  margin: 0 8px 8px 8px;
+  min-width: 282px;
+}
+
+.tool-switcher button {
+  min-width: 0;
+  padding-left: 2px;
+  padding-right: 2px;
+  font-size: 11px;
+}
+
+.tool-empty-banner {
+  margin: 10px;
+  padding: 10px 12px;
+  border: 1px solid @orbit_rule;
+  border-radius: 8px;
+  background-color: @orbit_paper_2;
+  color: @orbit_muted;
+  font-size: 11px;
+}
+
+.tool-page {
+  padding: 0 12px 12px 12px;
+}
+
+.tool-list {
+  background-color: transparent;
+}
+
+.tool-row {
+  border-bottom: 1px solid @orbit_rule;
+  padding: 8px 6px;
+}
+
+.tool-row:selected {
+  background-color: alpha(@orbit_accent, 0.14);
+}
+
+.tool-status {
+  color: @orbit_muted;
+  font-size: 12px;
+  min-height: 20px;
+}
+
+.tool-action-strip {
+  border-top: 1px solid @orbit_rule;
+  padding-top: 8px;
+}
+
+.docker-state-badge {
+  border: 1px solid @orbit_rule;
+  border-radius: 999px;
+  color: @orbit_muted;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+}
+
+.docker-state-badge.running {
+  border-color: alpha(@orbit_success, 0.48);
+  background-color: alpha(@orbit_success, 0.10);
+  color: @orbit_success;
+}
+
+.tool-output {
+  border: 1px solid @orbit_rule;
+  border-radius: 8px;
+  background-color: @orbit_terminal;
+}
+
+.tool-output textview,
+.tool-output text {
+  background-color: @orbit_terminal;
+  color: @orbit_terminal_ink;
+  font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
+  font-size: 12px;
+}
+
+.compact-status {
+  padding: 16px;
+}
+
+.asset-dialog {
+  background-color: @orbit_paper;
+}
+
+.form-card,
+.management-list,
+.auth-card,
+.sync-workspace-card {
+  border: 1px solid @orbit_rule;
+  border-radius: 12px;
+  background-color: @orbit_surface;
+}
+
+.form-card,
+.auth-card,
+.sync-workspace-card {
+  padding: 16px;
+}
+
+.management-row {
+  border-bottom: 1px solid @orbit_rule;
+  padding: 10px 12px;
+}
+
+.management-row:last-child { border-bottom: 0; }
+
+.sync-dialog {
+  min-width: 480px;
+}
+
+.auth-card {
+  min-width: 480px;
+  margin: 8px 40px 12px 40px;
+  padding: 26px 24px;
+  border-radius: 20px;
+  box-shadow: 0 12px 28px alpha(black, 0.14);
+}
+
+.auth-card-title {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.auth-brand-title {
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.auth-shell { padding-top: 16px; }
+.auth-mark { margin: 0 0 2px 0; }
+
+.auth-mode-switch {
+  border-radius: 999px;
+  background-color: @orbit_paper_2;
+  padding: 4px;
+}
+
+.auth-mode-switch button {
+  min-width: 112px;
+  min-height: 34px;
+  border-radius: 999px;
+}
+
+.auth-card entry,
+.auth-card passwordentry {
+  min-height: 40px;
+  border-radius: 10px;
+}
+
+.auth-card .suggested-action {
+  min-height: 44px;
+  border-radius: 12px;
+}
+
+.sync-workspace-card { margin-top: 4px; }
+
+.document-window { padding: 14px; }
+
+.document-window textview,
+.document-window text {
+  background-color: @orbit_terminal;
+  color: @orbit_terminal_ink;
+  font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
+}
+
+.security-note {
+  border: 1px solid alpha(@orbit_success, 0.42);
+  border-radius: 8px;
+  background-color: alpha(@orbit_success, 0.08);
+  color: @orbit_ink;
+  padding: 8px;
+}
+
+.sync-summary {
+  border-top: 1px solid @orbit_rule;
+  border-bottom: 1px solid @orbit_rule;
+  min-height: 96px;
+  padding: 12px 0;
+}
+
+.sync-conflict-scroll {
+  border: 1px solid @orbit_rule;
+  border-radius: 8px;
+  background-color: @orbit_surface;
+}
+
+.sync-conflict-list {
+  background-color: transparent;
+}
+
+.sync-timeline-scroll {
+  border: 1px solid @orbit_rule;
+  border-radius: 8px;
+  background-color: @orbit_paper_2;
+}
+
+.sync-timeline-list {
+  background-color: transparent;
+}
+
+.sync-queue-row,
+.sync-audit-row {
+  border-bottom: 1px solid @orbit_rule;
+  padding: 8px;
+}
+
+.sync-queue-row {
+  background-color: alpha(@orbit_warning, 0.06);
+}
+
+.sync-conflict-row {
+  border-bottom: 1px solid @orbit_rule;
+  padding: 12px;
+}
+
+.sync-compare-grid {
+  border: 1px solid @orbit_rule;
+  border-radius: 6px;
+  background-color: @orbit_paper_2;
+  padding: 8px;
+}
+
+.sync-value-changed {
+  color: @orbit_warning;
+  font-weight: 600;
+}
+
+.field-label { font-weight: 700; }
+.error-message { color: @orbit_danger; }
+
+button:focus-visible,
+entry:focus-visible,
+row:focus-visible {
+  outline: 2px solid @orbit_focus;
+  outline-offset: 2px;
+}
+
+button:disabled,
+entry:disabled {
+  opacity: 0.55;
+}

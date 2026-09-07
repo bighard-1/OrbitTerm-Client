@@ -191,6 +191,7 @@ struct WorkstationMonitorCardView: View {
     }
 }
 
+#if os(macOS)
 struct WorkstationMonitorOverviewStrip: View {
     @ObservedObject var active: WorkspaceSession
     @ObservedObject var monitorService: MonitorService
@@ -207,13 +208,17 @@ struct WorkstationMonitorOverviewStrip: View {
                     let allMetrics = metrics(for: panel, latest: latest)
                     let detailWidth: CGFloat = 54
                     let spacing: CGFloat = 6
-                    let requiredSpacing = spacing * CGFloat(allMetrics.count)
+                    let cardCount = CGFloat(allMetrics.count + 1)
+                    let requiredSpacing = spacing * cardCount
                     let metricWidth = max(
                         0,
-                        floor((proxy.size.width - detailWidth - requiredSpacing) / CGFloat(allMetrics.count))
+                        floor((proxy.size.width - detailWidth - requiredSpacing) / cardCount)
                     )
 
                     HStack(spacing: spacing) {
+                        overviewEndpoint
+                            .frame(width: metricWidth, alignment: .leading)
+
                         ForEach(allMetrics) { metric in
                             overviewMetric(metric)
                                 .frame(width: metricWidth, alignment: .leading)
@@ -234,18 +239,49 @@ struct WorkstationMonitorOverviewStrip: View {
                     }
                     .frame(width: proxy.size.width, alignment: .leading)
                 }
-                .frame(height: 50)
+                .frame(height: 34)
             } else if active.verifiedSessionLease != nil {
-                Button("开始安全监控", action: onStartCheckedMonitoring)
-                    .buttonStyle(ThemedPrimaryButtonStyle())
-                    .controlSize(.small)
+                WorkstationMonitorPlaceholderStrip(
+                    host: active.server.host,
+                    actionTitle: "开始",
+                    action: onStartCheckedMonitoring
+                )
             } else {
-                Label("需要已验证会话", systemImage: "lock.shield")
-                    .font(.caption)
-                    .foregroundStyle(palette.textSecondary.color)
+                WorkstationMonitorPlaceholderStrip(host: active.server.host)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var overviewEndpoint: some View {
+        HStack(spacing: 4) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("当前资产 IP")
+                    .foregroundStyle(palette.textSecondary.color)
+                Text(active.server.host)
+                    .monospaced()
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 2)
+            Button {
+                _ = SecureClipboard.copy(active.server.host, kind: .ordinaryText)
+            } label: {
+                Image(systemName: "doc.on.doc")
+            }
+            .buttonStyle(.borderless)
+            .help("复制当前资产 IP")
+        }
+        .font(.caption2)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(palette.surfaceGlass.color, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(palette.borderGlass.color, lineWidth: 1)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("当前资产 IP，\(active.server.host)")
     }
 
     private func overviewMetric(_ metric: MonitorOverviewMetric) -> some View {
@@ -353,6 +389,7 @@ private struct MonitorOverviewMetric: Identifiable {
     var id: String { title }
     var isElevated: Bool { ceiling > 0 && current / ceiling >= 0.9 }
 }
+#endif
 
 private struct MonitorSystemSummary: View {
     let systemInfo: MonitorSystemInfo

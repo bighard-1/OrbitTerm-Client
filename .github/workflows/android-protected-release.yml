@@ -27,18 +27,20 @@ jobs:
       name: android-production-signing
     env:
       ORBITTERM_REQUIRE_PRODUCTION_SIGNING: 'true'
-      ORBITTERM_RELEASE_KEYSTORE_FILE: ${{ runner.temp }}/orbitterm-release.keystore
       ORBITTERM_RELEASE_KEYSTORE_BASE64: ${{ secrets.ORBITTERM_RELEASE_KEYSTORE_BASE64 }}
       ORBITTERM_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ORBITTERM_RELEASE_KEYSTORE_PASSWORD }}
       ORBITTERM_RELEASE_KEY_ALIAS: ${{ secrets.ORBITTERM_RELEASE_KEY_ALIAS }}
       ORBITTERM_RELEASE_KEY_PASSWORD: ${{ secrets.ORBITTERM_RELEASE_KEY_PASSWORD }}
-      ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
       RELEASE_REF: ${{ inputs.release_ref }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.release_ref }}
           fetch-depth: 0
+
+      - name: Set protected release workspace paths
+        shell: bash
+        run: echo "ORBITTERM_RELEASE_KEYSTORE_FILE=$RUNNER_TEMP/orbitterm-release.keystore" >> "$GITHUB_ENV"
 
       - name: Verify immutable release reference
         shell: bash
@@ -99,6 +101,7 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
 
       - name: Materialize protected signing key
         shell: bash

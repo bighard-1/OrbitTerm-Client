@@ -32,7 +32,6 @@ jobs:
     env:
       RELEASE_REF: ${{ inputs.release_ref }}
       ORBITTERM_RELEASE_VERSION: ${{ inputs.release_version }}
-      ORBITTERM_RELEASE_KEYCHAIN_PATH: ${{ runner.temp }}/orbitterm-release.keychain-db
       ORBITTERM_RELEASE_KEYCHAIN_PASSWORD: ${{ secrets.ORBITTERM_RELEASE_KEYCHAIN_PASSWORD }}
       ORBITTERM_IOS_DISTRIBUTION_P12_BASE64: ${{ secrets.ORBITTERM_IOS_DISTRIBUTION_P12_BASE64 }}
       ORBITTERM_IOS_DISTRIBUTION_P12_PASSWORD: ${{ secrets.ORBITTERM_IOS_DISTRIBUTION_P12_PASSWORD }}
@@ -54,6 +53,10 @@ jobs:
           ref: ${{ inputs.release_ref }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Set protected release workspace paths
+        shell: bash
+        run: echo "ORBITTERM_RELEASE_KEYCHAIN_PATH=$RUNNER_TEMP/orbitterm-release.keychain-db" >> "$GITHUB_ENV"
 
       - name: Verify immutable release reference
         shell: bash

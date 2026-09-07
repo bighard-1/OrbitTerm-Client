@@ -33,9 +33,11 @@ struct MainWorkstationView: View {
     // their own collapsed state in WorkstationAssetSidebarView.
     @State private var isLeftPanelCollapsed = false
     @State private var isRightPanelCollapsed = false
+    @State private var leftPanelAutomaticallyCollapsed = false
+    @State private var rightPanelAutomaticallyCollapsed = false
     @State private var isTerminalFullscreen = false
-    @AppStorage("orbitterm.workstation.left.width") private var preferredLeftPanelWidth: Double = 260
-    @AppStorage("orbitterm.workstation.right.width") private var preferredRightPanelWidth: Double = 340
+    @AppStorage("orbitterm.workstation.left.width") private var preferredLeftPanelWidth: Double = 300
+    @AppStorage("orbitterm.workstation.right.width") private var preferredRightPanelWidth: Double = 328
     @State private var leftResizeOrigin: CGFloat?
     @State private var rightResizeOrigin: CGFloat?
     @State private var selectedRightPanelTab: WorkstationRightPanelTab = .sftp
@@ -77,31 +79,23 @@ struct MainWorkstationView: View {
                             middleColumn
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         } else {
-                            if isLeftPanelCollapsed {
-                                collapsedLeftRail
-                                    .frame(width: widths.left)
-                            } else {
+                            if !isLeftPanelCollapsed {
                                 leftColumn
                                     .frame(width: widths.left)
+                                workspaceSplitter(
+                                    side: .left,
+                                    currentWidth: widths.left
+                                )
                             }
-
-                            workspaceSplitter(
-                                side: .left,
-                                currentWidth: widths.left
-                            )
 
                             middleColumn
                                 .frame(width: widths.middle)
 
-                            workspaceSplitter(
-                                side: .right,
-                                currentWidth: widths.right
-                            )
-
-                            if isRightPanelCollapsed {
-                                collapsedRail
-                                    .frame(width: widths.right)
-                            } else {
+                            if !isRightPanelCollapsed {
+                                workspaceSplitter(
+                                    side: .right,
+                                    currentWidth: widths.right
+                                )
                                 rightColumn
                                     .frame(width: widths.right)
                             }
@@ -119,9 +113,38 @@ struct MainWorkstationView: View {
                         )
                     }
                 }
+
+                if !isTerminalFullscreen, isLeftPanelCollapsed {
+                    workstationEdgeRestoreButton(
+                        systemImage: "sidebar.left",
+                        label: "展开服务器侧栏"
+                    ) {
+                        withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {
+                            isLeftPanelCollapsed = false
+                            leftPanelAutomaticallyCollapsed = false
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                }
+
+                if !isTerminalFullscreen, isRightPanelCollapsed {
+                    workstationEdgeRestoreButton(
+                        systemImage: "sidebar.right",
+                        label: "展开会话工具"
+                    ) {
+                        withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {
+                            isRightPanelCollapsed = false
+                            rightPanelAutomaticallyCollapsed = false
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .animation(reduceMotion ? nil : .interactiveSpring(response: 0.35, dampingFraction: 0.85), value: isRightPanelCollapsed)
+            .onChange(of: proxy.size.width, initial: true) { _, width in
+                updateResponsivePanels(for: width)
+            }
         }
 #if os(macOS)
         .navigationTitle("OrbitTerm")
@@ -370,6 +393,7 @@ struct MainWorkstationView: View {
             onCollapse: {
                 withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {
                     isLeftPanelCollapsed = true
+                    leftPanelAutomaticallyCollapsed = false
                 }
             },
             onAddServer: { showingAddServer = true },
@@ -385,14 +409,6 @@ struct MainWorkstationView: View {
         sessionManager.openTab(for: server, autoConnect: true)
     }
 
-    private var collapsedLeftRail: some View {
-        WorkstationLeftRailView {
-            withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {
-                isLeftPanelCollapsed = false
-            }
-        }
-    }
-
     private var middleColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
             TabBarView(
@@ -400,12 +416,6 @@ struct MainWorkstationView: View {
                 activeTabID: sessionManager.activeTabID,
                 onSelect: { tab in sessionManager.activateTab(tab.id) },
                 onClose: { tab in sessionManager.closeTab(tab) },
-                onNew: {
-                    if let selected = serverStore.selectedServer {
-                        sessionManager.quickOpenServer = selected
-                    }
-                    sessionManager.openQuickTabFromSelection()
-                },
                 onDetach: { tab in
                     openWindow(value: tab.id)
                 },
@@ -456,7 +466,7 @@ struct MainWorkstationView: View {
                 ContentUnavailableView(
                     "暂无会话",
                     systemImage: "terminal",
-                    description: Text("从左侧选择服务器并点击 + 打开新标签")
+                    description: Text("从左侧选择服务器，然后建立连接。")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -478,6 +488,7 @@ struct MainWorkstationView: View {
             onCollapse: {
                 withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {
                     isRightPanelCollapsed = true
+                    rightPanelAutomaticallyCollapsed = false
                 }
             },
             onCreateSFTPItem: { sessionID, kind in
@@ -507,12 +518,25 @@ struct MainWorkstationView: View {
     private func toggleTerminalFullscreen() { }
 #endif
 
-    private var collapsedRail: some View {
-        WorkstationRightRailView {
-            withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {
-                isRightPanelCollapsed = false
-            }
+    private func workstationEdgeRestoreButton(
+        systemImage: String,
+        label: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .frame(width: 24, height: 72)
         }
+        .buttonStyle(.plain)
+        .foregroundStyle(palette.textPrimary.color)
+        .background(palette.surfaceGlassStrong.color, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(palette.borderGlass.color, lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.14), radius: 8, y: 2)
+        .accessibilityLabel(label)
+        .help(label)
     }
 
     private enum WorkspaceSplitterSide { case left, right }
@@ -563,6 +587,24 @@ struct MainWorkstationView: View {
 #else
         ThemedDivider()
 #endif
+    }
+
+    private func updateResponsivePanels(for width: CGFloat) {
+        if width < 1_180, !isRightPanelCollapsed {
+            isRightPanelCollapsed = true
+            rightPanelAutomaticallyCollapsed = true
+        } else if width >= 1_180, rightPanelAutomaticallyCollapsed {
+            isRightPanelCollapsed = false
+            rightPanelAutomaticallyCollapsed = false
+        }
+
+        if width < 980, !isLeftPanelCollapsed {
+            isLeftPanelCollapsed = true
+            leftPanelAutomaticallyCollapsed = true
+        } else if width >= 980, leftPanelAutomaticallyCollapsed {
+            isLeftPanelCollapsed = false
+            leftPanelAutomaticallyCollapsed = false
+        }
     }
 
     private func deleteServer(_ server: ServerEntry) {

@@ -12,10 +12,22 @@ clients/android/OrbitTermAndroid/local.properties
 .hallmark/
 clients/windows/**/bin/
 clients/windows/**/obj/
+clients/linux/target/
+clients/linux/evidence/
+clients/linux/packaging/flatpak/.flatpak-builder/
+clients/linux/packaging/flatpak/build-dir/
+clients/linux/packaging/flatpak/repo/
+clients/linux/packaging/flatpak/vendor/
+clients/linux/packaging/flatpak/sources/*.tar.gz
+clients/linux/packaging/flatpak/sources/*.tar.xz
+clients/linux/packaging/flatpak/OrbitTerm.flatpak
+artifacts/
 .keys/
 dist/*.zip
 dist/*.ipa
 dist/*.dmg
+dist/*.deb
+dist/*.flatpak
 
 # Raw Instruments traces may contain process-level telemetry. Release evidence
 # is retained in the restricted artifact store, never in the source tree.

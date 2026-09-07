@@ -3,6 +3,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:OrbitTerm.App.Controls"
+    xmlns:presentation="using:OrbitTerm.Presentation"
     xmlns:primitives="using:Microsoft.UI.Xaml.Controls.Primitives"
     Title="OrbitTerm">
     <Grid x:Name="Root"
@@ -188,13 +189,15 @@
                             Style="{StaticResource OrbitTitleBarButtonStyle}" />
                     <Button Content="设置" Click="ShowTerminalAppearanceDialogClick"
                             Style="{StaticResource OrbitTitleBarButtonStyle}" />
-                    <Button ToolTipService.ToolTip="{Binding AccountEntryLabel}"
+                    <Button x:Name="AccountToolbarButton"
+                            ToolTipService.ToolTip="{Binding AccountEntryLabel}"
                             Style="{StaticResource OrbitTitleBarButtonStyle}"
                             Click="ManageAccountClick"
                             AutomationProperties.Name="{Binding AccountEntryLabel}">
                         <StackPanel Orientation="Horizontal" Spacing="5">
                             <FontIcon Glyph="&#xE77B;" FontSize="13" />
-                            <TextBlock Text="{Binding AccountEntryLabel}" />
+                            <TextBlock x:Name="AccountEntryText"
+                                       Text="{Binding AccountEntryLabel}" />
                         </StackPanel>
                     </Button>
                 </StackPanel>
@@ -347,65 +350,65 @@
                 Grid.ColumnSpan="3"
                 BorderThickness="0"
                 Background="{StaticResource OrbitWorkbenchBrush}">
-            <Grid Padding="12,2,12,5" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-                <Border Padding="9,4"
-                        MinWidth="176"
-                        VerticalAlignment="Stretch"
-                        Background="{StaticResource OrbitMetricBrush}"
-                        BorderBrush="{StaticResource OrbitPanelStrokeBrush}"
-                        BorderThickness="1"
-                        CornerRadius="{StaticResource OrbitCardCornerRadius}">
-                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
-                        <TextBlock Text="当前资产 IP" FontSize="12"
-                                   Foreground="{StaticResource OrbitMutedTextBrush}"
-                                   VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="1"
-                                   Text="{Binding CurrentConnectedHost, FallbackValue=未连接}"
-                                   FontSize="12"
-                                   FontWeight="SemiBold"
-                                   TextTrimming="CharacterEllipsis"
-                                   VerticalAlignment="Center" />
-                        <Button x:Name="CurrentHostCopyButton"
-                                Grid.Column="2"
-                                Click="CopyCurrentHostClick"
-                                Padding="5,2"
-                                MinHeight="24"
-                                ToolTipService.ToolTip="复制当前资产 IP"
-                                AutomationProperties.Name="复制当前资产 IP">
-                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                <FontIcon x:Name="CurrentHostCopyGlyph" Glyph="&#xE8C8;" FontSize="12" />
-                                <TextBlock x:Name="CurrentHostCopyFeedback" Text="复制" FontSize="12" />
+            <Grid Padding="12,2,12,5" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <Grid ColumnDefinitions="*,*,*,*,*,*,*" ColumnSpacing="6">
+                    <Border Grid.Column="0"
+                            Height="34"
+                            Padding="7,2"
+                            Background="{StaticResource OrbitMetricBrush}"
+                            BorderBrush="{StaticResource OrbitPanelStrokeBrush}"
+                            BorderThickness="1"
+                            CornerRadius="{StaticResource OrbitCardCornerRadius}">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4">
+                            <StackPanel Spacing="0" VerticalAlignment="Center">
+                                <TextBlock Text="当前资产 IP"
+                                           FontSize="12"
+                                           Foreground="{StaticResource OrbitMutedTextBrush}" />
+                                <TextBlock Text="{Binding CurrentConnectedHost, FallbackValue=未连接}"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" />
                             </StackPanel>
-                        </Button>
-                    </Grid>
-                </Border>
-                <Grid Grid.Column="1" ColumnDefinitions="*,*,*,*,*,*" ColumnSpacing="6">
-                    <ContentControl Grid.Column="0"
+                            <Button x:Name="CurrentHostCopyButton"
+                                    Grid.Column="1"
+                                    Style="{StaticResource OrbitIconButtonStyle}"
+                                    Width="24"
+                                    Height="24"
+                                    MinWidth="24"
+                                    MinHeight="24"
+                                    Click="CopyCurrentHostClick"
+                                    ToolTipService.ToolTip="复制当前资产 IP"
+                                    AutomationProperties.Name="复制当前资产 IP">
+                                <FontIcon x:Name="CurrentHostCopyGlyph" Glyph="&#xE8C8;" FontSize="12" />
+                            </Button>
+                        </Grid>
+                    </Border>
+                    <ContentControl Grid.Column="1"
                                     HorizontalContentAlignment="Stretch"
                                     Content="{Binding CpuMonitorTrend}"
                                     ContentTemplate="{StaticResource MonitorMetricCardTemplate}" />
-                    <ContentControl Grid.Column="1"
+                    <ContentControl Grid.Column="2"
                                     HorizontalContentAlignment="Stretch"
                                     Content="{Binding MemoryMonitorTrend}"
                                     ContentTemplate="{StaticResource MonitorMetricCardTemplate}" />
-                    <ContentControl Grid.Column="2"
+                    <ContentControl Grid.Column="3"
                                     HorizontalContentAlignment="Stretch"
                                     Content="{Binding DiskMonitorTrend}"
                                     ContentTemplate="{StaticResource MonitorMetricCardTemplate}" />
-                    <ContentControl Grid.Column="3"
+                    <ContentControl Grid.Column="4"
                                     HorizontalContentAlignment="Stretch"
                                     Content="{Binding DownloadMonitorTrend}"
                                     ContentTemplate="{StaticResource MonitorMetricCardTemplate}" />
-                    <ContentControl Grid.Column="4"
+                    <ContentControl Grid.Column="5"
                                     HorizontalContentAlignment="Stretch"
                                     Content="{Binding UploadMonitorTrend}"
                                     ContentTemplate="{StaticResource MonitorMetricCardTemplate}" />
-                    <ContentControl Grid.Column="5"
+                    <ContentControl Grid.Column="6"
                                     HorizontalContentAlignment="Stretch"
                                     Content="{Binding LatencyMonitorTrend}"
                                     ContentTemplate="{StaticResource MonitorMetricCardTemplate}" />
                 </Grid>
-                <Button Grid.Column="2"
+                <Button Grid.Column="1"
                         Content="详情"
                         Width="54"
                         MinHeight="28"
@@ -515,7 +518,7 @@
                                                FontSize="12"
                                                TextWrapping="Wrap" />
                                     <Button Click="CreateAssetClick"
-                                            Content="新建服务器"
+                                            Content="添加服务器"
                                             HorizontalAlignment="Left" />
                                 </StackPanel>
                             </Border>
@@ -670,7 +673,8 @@
               RowSpacing="8">
             <Grid ColumnDefinitions="*,Auto,Auto"
                   ColumnSpacing="8">
-                <ListView ItemsSource="{Binding WorkspaceTabs}"
+                <ListView x:Name="WorkspaceTabList"
+                          ItemsSource="{Binding WorkspaceTabs}"
                           SelectedItem="{Binding SelectedWorkspaceTab, Mode=TwoWay}"
                           SelectionMode="Single"
                           AutomationProperties.Name="Workspace tabs"
@@ -678,7 +682,9 @@
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="Padding" Value="0" />
-                            <Setter Property="Margin" Value="0,0,8,0" />
+                            <Setter Property="Margin" Value="0" />
+                            <Setter Property="MinHeight" Value="0" />
+                            <Setter Property="MinWidth" Value="0" />
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                         </Style>
                     </ListView.ItemContainerStyle>
@@ -688,10 +694,12 @@
                         </ItemsPanelTemplate>
                     </ListView.ItemsPanel>
                     <ListView.ItemTemplate>
-                        <DataTemplate>
+                        <DataTemplate x:DataType="presentation:WorkspaceTabViewModel">
                             <Grid ColumnDefinitions="Auto,*"
+                                  Visibility="{x:Bind IsSessionTabVisible, Mode=OneWay}"
                                   MinWidth="150"
                                   MaxWidth="220"
+                                  Margin="0,0,8,0"
                                   Padding="9,5">
                                 <Grid.ContextFlyout>
                                     <MenuFlyout>
@@ -814,7 +822,8 @@
                                    Foreground="{StaticResource OrbitTerminalTextBrush}"
                                    TextAlignment="Center"
                                    TextWrapping="Wrap" />
-                        <Button Command="{Binding OpenTerminalCommand}"
+                        <Button x:Name="OpenTerminalEmptyButton"
+                                Command="{Binding OpenTerminalCommand}"
                                 HorizontalAlignment="Center">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <FontIcon Glyph="&#xE8A7;" />
@@ -957,7 +966,8 @@
                     </StackPanel>
                 </Grid>
 
-                <Grid Grid.Row="1"
+                <Grid x:Name="ConnectedToolInspectorContent"
+                      Grid.Row="1"
                       RowDefinitions="Auto,*"
                       RowSpacing="8"
                       AutomationProperties.Name="会话工具检查器">
@@ -1645,6 +1655,34 @@
                     </Grid>
                     </Grid>
                     </Grid>
+                </Grid>
+                <Grid x:Name="DisconnectedToolInspectorContent"
+                      Grid.Row="1"
+                      Visibility="Collapsed"
+                      Padding="18"
+                      AutomationProperties.Name="未连接会话工具提示">
+                    <StackPanel HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Spacing="10">
+                        <Border Width="42"
+                                Height="42"
+                                HorizontalAlignment="Center"
+                                Background="{StaticResource OrbitMetricBrush}"
+                                BorderBrush="{StaticResource OrbitPanelStrokeBrush}"
+                                BorderThickness="1"
+                                CornerRadius="12">
+                            <FontIcon Glyph="&#xE968;"
+                                      FontSize="18"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center"
+                                      Foreground="{StaticResource OrbitMutedTextBrush}" />
+                        </Border>
+                        <TextBlock Text="连接会话后自动显示 SFTP、Docker 与命令片段"
+                                   MaxWidth="240"
+                                   TextAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   Foreground="{StaticResource OrbitMutedTextBrush}" />
+                    </StackPanel>
                 </Grid>
             </Grid>
         </Border>
