@@ -54,9 +54,18 @@ jobs:
         shell: pwsh
         run: |
           $output = Join-Path $env:RUNNER_TEMP "OrbitTerm-Windows11-Test"
-          clients/windows/scripts/build_windows_test_msix.ps1 `
+          $log = Join-Path $env:RUNNER_TEMP "orbitterm-windows-package.log"
+          & pwsh -NoProfile -File clients/windows/scripts/build_windows_test_msix.ps1 `
             -DesktopOutput $output `
-            -Dotnet (Get-Command dotnet).Source
+            -Dotnet (Get-Command dotnet).Source *>&1 |
+            Tee-Object -FilePath $log
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            $summary = (Get-Content -LiteralPath $log -Tail 40) -join "`n"
+            $summary = $summary.Replace('%', '%25').Replace("`r", '').Replace("`n", '%0A')
+            Write-Output "::error title=Windows test package build failed::$summary"
+            exit $exitCode
+          }
       - name: Upload signed internal-test MSIX
         uses: actions/upload-artifact@v7
         with:
