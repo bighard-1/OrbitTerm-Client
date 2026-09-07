@@ -3027,7 +3027,10 @@ public sealed class MainWindowViewModelTests
 
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        // The full suite runs in parallel on hosted Windows runners, where
+        // worker-thread scheduling can briefly exceed the local-machine
+        // latency without changing the behavior under test.
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         while (!condition())
         {
             timeout.Token.ThrowIfCancellationRequested();
