@@ -45,7 +45,7 @@ jobs:
             Tee-Object -FilePath $log
           $exitCode = $LASTEXITCODE
           if ($exitCode -ne 0) {
-            $summary = (Get-Content -LiteralPath $log -Tail 80) -join "`n"
+            $summary = (Get-Content -LiteralPath $log -Tail 24) -join "`n"
             $summary = $summary.Replace('%', '%25').Replace("`r", '').Replace("`n", '%0A')
             Write-Output "::error title=Windows tests or WinUI build failed::$summary"
             exit $exitCode

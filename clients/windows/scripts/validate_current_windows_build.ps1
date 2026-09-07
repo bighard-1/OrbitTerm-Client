@@ -13,7 +13,7 @@ if ($LASTEXITCODE -ne 0) {
 dotnet test 'clients\windows\tests\OrbitTerm.Security.Tests\OrbitTerm.Security.Tests.csproj' `
     --configuration Release `
     -p:RuntimeIdentifier=win-x64 `
-    --logger 'console;verbosity=normal'
+    --logger 'console;verbosity=minimal'
 if ($LASTEXITCODE -ne 0) {
     throw "Windows security test suite failed with exit code $LASTEXITCODE."
 }
