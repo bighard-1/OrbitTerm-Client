@@ -48,7 +48,7 @@ jobs:
       ORBITTERM_MACOS_CODESIGN_IDENTITY: ${{ secrets.ORBITTERM_MACOS_CODESIGN_IDENTITY }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.release_ref }}
           fetch-depth: 0
@@ -164,7 +164,7 @@ jobs:
             > "$evidence/signing-verification.txt" 2>&1
 
       - name: Upload protected release artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: apple-release-${{ github.run_id }}
           path: |
@@ -175,7 +175,7 @@ jobs:
 
       - name: Upload restricted evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: apple-release-evidence-${{ github.run_id }}
           path: ${{ runner.temp }}/apple-release-evidence/**
