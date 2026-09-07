@@ -39,4 +39,14 @@ jobs:
         run: clients/windows/scripts/build_windows_core.ps1
       - name: Run Windows tests and build WinUI x64 Release
         shell: pwsh
-        run: clients/windows/scripts/validate_current_windows_build.ps1
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "orbitterm-windows-validation.log"
+          & pwsh -NoProfile -File clients/windows/scripts/validate_current_windows_build.ps1 *>&1 |
+            Tee-Object -FilePath $log
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            $summary = (Get-Content -LiteralPath $log -Tail 80) -join "`n"
+            $summary = $summary.Replace('%', '%25').Replace("`r", '').Replace("`n", '%0A')
+            Write-Output "::error title=Windows tests or WinUI build failed::$summary"
+            exit $exitCode
+          }
