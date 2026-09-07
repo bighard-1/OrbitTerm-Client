@@ -23,7 +23,7 @@ $pipeOptions = [System.IO.Pipes.PipeOptions]::Asynchronous -bor
     [System.IO.Pipes.PipeOptions]::CurrentUserOnly
 $pipe = New-Object System.IO.Pipes.NamedPipeServerStream -ArgumentList @(
     $pipeName,
-    [System.IO.Pipes.PipeDirection]::Out,
+    [System.IO.Pipes.PipeDirection]::InOut,
     1,
     [System.IO.Pipes.PipeTransmissionMode]::Byte,
     $pipeOptions
