@@ -50,3 +50,17 @@ jobs:
             Write-Output "::error title=Windows tests or WinUI build failed::$summary"
             exit $exitCode
           }
+      - name: Build signed internal-test MSIX
+        shell: pwsh
+        run: |
+          $output = Join-Path $env:RUNNER_TEMP "OrbitTerm-Windows11-Test"
+          clients/windows/scripts/build_windows_test_msix.ps1 `
+            -DesktopOutput $output `
+            -Dotnet (Get-Command dotnet).Source
+      - name: Upload signed internal-test MSIX
+        uses: actions/upload-artifact@v7
+        with:
+          name: OrbitTerm-Windows-x64-Test-${{ github.sha }}
+          path: ${{ runner.temp }}\OrbitTerm-Windows11-Test
+          if-no-files-found: error
+          retention-days: 7
