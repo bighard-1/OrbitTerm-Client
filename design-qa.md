@@ -80,3 +80,32 @@ The P3 tool-label truncation was removed, the credential editor gained complete 
 - Native-app runtime log contained only expected virtual-GPU fallback warnings; no application panic or GTK critical error was observed.
 
 final result: passed
+
+---
+
+## Phase 32 — cross-desktop empty-workspace alignment
+
+### Comparison target
+
+- macOS implementation: `/Users/cwz/.codex/worktrees/820d/OrbitTerm-Client/artifacts/phase32-visual-audit/03-macos-unified-empty-state-clean.png`.
+- Linux implementation: `/Users/cwz/.codex/worktrees/820d/OrbitTerm-Client/artifacts/phase32-visual-audit/01-linux-unified-empty-state.png`.
+- Windows source target: `clients/windows/src/OrbitTerm.App/MainWindow.xaml`, reviewed against the prior native 980 px, 1180 px, 1280 px, and maximized Phase 31 captures.
+- State: authenticated/unlocked empty workspace with no saved asset and no live session.
+
+### Findings and fixes
+
+- macOS no longer exposes an ambiguous tab-strip `+` while the workspace is empty. Asset double-click, the asset context menu, and the documented keyboard shortcut remain the deterministic ways to create a session.
+- Linux and macOS now use the same asset and session titles, descriptions, and action language. Infrastructure details are not disclosed in the empty state.
+- Windows keeps its internal draft workspace object for view-model ownership but hides it from the tab strip until a connection or Host Key challenge actually starts.
+- Windows collapses the redundant disabled empty-state terminal button and switches the narrow-width account entry to its icon-only form below 1080 px. The icon retains its tooltip and automation name.
+- No new visual token, icon style, radius, palette, or platform-specific navigation pattern was introduced.
+
+### Verification
+
+- macOS Debug build passed with code signing disabled, then the authenticated in-memory UI state was captured from the current source.
+- Linux formatting, strict Clippy, and the complete native quality gate passed: 111 tests passed and 3 explicitly isolated live-account tests remained ignored.
+- Linux release and Flatpak packaging passed; Flatpak commit `32a3a6521f681ef9d61dd8da8f91e50a6641b4bbab68d4c239da273cf794df33` was installed and launched on Ubuntu 24.04.
+- The Windows presentation contract is covered by a new view-model test for hidden draft tabs and the explicit transition to a visible session. Native Windows compilation remains a separate host gate; remote-control input translation prevented issuing the build command in this audit and is not represented as an application failure.
+- GitHub Linux Client workflow #16 passed for commit `d155307c3afd8e6dd22f2f7df6a199ffe2266978`.
+
+final result: passed
