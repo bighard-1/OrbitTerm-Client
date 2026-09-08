@@ -500,14 +500,11 @@ final class SessionManager: ObservableObject {
         }
         defer { connectionLaunchGate.finish(sessionID: session.id) }
         await awaitConnectionLossCleanup(for: session.id)
-        guard ApplicationNetworkAvailability.shared.routeState.allowsUserInitiatedConnection else {
-            session.isConnected = false
-            session.updateConnectionState(.disconnected, detail: "等待网络恢复后重连")
-            session.appendTerminal("[network] 当前没有可用网络；网络恢复后请手动重新连接")
-            return
-        }
         if session.server.transport.requiresRemoteDesktopWorkspace {
 #if os(macOS)
+            // The native RDP engine owns authoritative reachability and error
+            // classification. A stale NWPath snapshot must never leave an
+            // empty tab without authentication/network feedback.
             await connectRemoteDesktop(session: session)
 #else
             session.updateConnectionState(.blocked, detail: "当前平台尚未开放远程桌面")
@@ -515,7 +512,12 @@ final class SessionManager: ObservableObject {
 #endif
             return
         }
-
+        guard ApplicationNetworkAvailability.shared.routeState.allowsUserInitiatedConnection else {
+            session.isConnected = false
+            session.updateConnectionState(.disconnected, detail: "等待网络恢复后重连")
+            session.appendTerminal("[network] 当前没有可用网络；网络恢复后请手动重新连接")
+            return
+        }
         if session.server.transport == .telnet {
             let target = TelnetTargetIdentity(
                 serverID: session.server.id,

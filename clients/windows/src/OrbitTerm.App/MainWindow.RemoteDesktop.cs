@@ -21,6 +21,7 @@ public sealed partial class MainWindow
     private async Task LaunchSavedRemoteDesktopAssetAsync(AssetViewModel asset)
     {
         if (isRemoteDesktopDialogOpen) return;
+        if (TryActivateExistingRemoteDesktopHost(asset.Id)) return;
         using var launchLease = remoteDesktopLaunchGate.TryAcquire(asset.Id);
         if (launchLease is null) return;
 
@@ -299,6 +300,23 @@ public sealed partial class MainWindow
 
     private WorkspaceTabViewModel? FindConnectedWorkspace(Guid assetId) =>
         ViewModel.WorkspaceTabs.FirstOrDefault(tab => tab.AssetId == assetId && tab.IsConnected);
+
+    private bool TryActivateExistingRemoteDesktopHost(Guid assetId)
+    {
+        RemoteDesktopHostSession? existing;
+        lock (remoteDesktopHostsGate)
+        {
+            existing = remoteDesktopHosts.Keys.FirstOrDefault(
+                session => session.AssetId == assetId && session.IsAlive);
+        }
+        if (existing is null) return false;
+
+        // Repeated activation means “return to this asset”, matching embedded
+        // tab reuse on macOS/Linux. Windows keeps its isolated native RDP host,
+        // so the equivalent operation is restoring and focusing that window.
+        existing.TryActivate();
+        return true;
+    }
 
     private void RemoteDesktopHostStateChanged(object? sender, RemoteDesktopSessionUpdate update)
     {
