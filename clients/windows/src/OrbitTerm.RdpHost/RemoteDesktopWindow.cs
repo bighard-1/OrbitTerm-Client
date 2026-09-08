@@ -174,6 +174,13 @@ internal sealed class RemoteDesktopWindow : Form
             SetComProperty(client, "DesktopHeight", remoteDesktopSize.Height);
             SetComProperty(client, "ColorDepth", 32);
 
+            // SmartSizing alone can remain capped at the negotiated desktop
+            // size when the host becomes larger. EnableZoom is the native RDP
+            // opt-in that permits local upscaling without changing the remote
+            // session resolution.
+            stage = "启用远程桌面等比例放大";
+            EnableNativeUpscaling(client);
+
             stage = "读取高级安全设置";
             var advanced = GetComProperty(client, "AdvancedSettings9");
             stage = "设置远程端口";
@@ -437,25 +444,18 @@ internal sealed class RemoteDesktopWindow : Form
         fullScreenButton.SetBounds(minimizeButton.Left - 46, 0, 46, NormalChromeHeight);
         reconnectButton.SetBounds(fullScreenButton.Left - 46, 0, 46, NormalChromeHeight);
 
-        if (fullScreenChromeExpanded)
-        {
-            fullScreenChromeToggle.SetBounds(
-                reconnectButton.Left - 124,
-                0,
-                124,
-                NormalChromeHeight);
-        }
-        else
-        {
-            fullScreenChromeToggle.SetBounds(
-                Math.Max(0, (titleBar.ClientSize.Width - 124) / 2),
-                0,
-                124,
-                FullScreenCollapsedChromeHeight);
-        }
+        // Keep the reveal and hide action in exactly the same place so the
+        // toolbar does not appear to jump after the user expands it.
+        fullScreenChromeToggle.SetBounds(
+            Math.Max(0, (titleBar.ClientSize.Width - 124) / 2),
+            0,
+            124,
+            fullScreenChromeExpanded ? NormalChromeHeight : FullScreenCollapsedChromeHeight);
         var chromeLeft = fullScreenChromeExpanded
-            ? fullScreenChromeToggle.Left
+            ? Math.Min(fullScreenChromeToggle.Left, reconnectButton.Left)
             : reconnectButton.Left;
+        var titleWidth = Math.Max(120, Math.Min(470, chromeLeft - titleLabel.Left - 8));
+        titleLabel.Width = titleWidth;
         var statusLeft = titleLabel.Right + 8;
         var statusWidth = Math.Max(0, chromeLeft - statusLeft - 8);
         statusLabel.Visible = (!fullScreen || fullScreenChromeExpanded) && statusWidth >= 120;
@@ -533,6 +533,14 @@ internal sealed class RemoteDesktopWindow : Form
             // A resize can race with native disconnect. The connection poller
             // owns the user-visible lifecycle message; resizing must stay quiet.
         }
+    }
+
+    private static void EnableNativeUpscaling(object client)
+    {
+        var extended = (IMsRdpExtendedSettings)client;
+        object enabled = true;
+        var result = extended.put_Property("EnableZoom", ref enabled);
+        Marshal.ThrowExceptionForHR(result);
     }
 
     private static Button ToolbarToggleButton(string text, Color foreground, Color background) => new()
@@ -792,6 +800,23 @@ internal sealed class RemoteDesktopWindow : Form
         [DllImport("oleaut32.dll")]
         private static extern int VariantClear(IntPtr variant);
     }
+
+    [ComImport]
+    [Guid("302D8188-0052-4807-806A-362B628F9AC5")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IMsRdpExtendedSettings
+    {
+        [PreserveSig]
+        int put_Property(
+            [MarshalAs(UnmanagedType.BStr)] string propertyName,
+            [In, MarshalAs(UnmanagedType.Struct)] ref object value);
+
+        [PreserveSig]
+        int get_Property(
+            [MarshalAs(UnmanagedType.BStr)] string propertyName,
+            [Out, MarshalAs(UnmanagedType.Struct)] out object value);
+    }
+
     [DllImport("user32.dll")][return: MarshalAs(UnmanagedType.Bool)] private static extern bool ReleaseCapture();
     [DllImport("user32.dll")] private static extern nint SendMessage(nint handle, int message, nint wParam, nint lParam);
     private sealed class RdpActiveXHost() : AxHost(RdpClient9NotSafeForScriptingClassId) { public object ActiveXObject => GetOcx() ?? throw new InvalidOperationException(); }

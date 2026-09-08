@@ -48,8 +48,13 @@ hostnames and remote content must not enter analytics or persistent diagnostics.
   recovery and disconnect path while the isolated host is alive.
 - Windows host resizing is local presentation scaling: preserve the negotiated
   desktop aspect ratio, centre the largest complete image in the available
-  viewport, and reapply ActiveX SmartSizing after a host resize. Never change
-  the remote desktop resolution merely because the local window was resized.
+  viewport, enable native RDP zoom so SmartSizing may scale above the negotiated
+  desktop size, and reapply SmartSizing after a host resize. Never change the
+  remote desktop resolution merely because the local window was resized.
+- macOS renders every received FreeRDP frame with bidirectional aspect-fit
+  scaling. Its debounced display-control resize may request a matching remote
+  canvas when the server supports that channel; unsupported or delayed display
+  control must retain complete local aspect-fit rendering without cropping.
 - Linux reconnect remains bounded and only transport/DNS/timeout failures are
   eligible for automatic retry.
 
