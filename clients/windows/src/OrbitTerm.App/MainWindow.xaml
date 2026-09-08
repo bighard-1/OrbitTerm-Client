@@ -600,6 +600,15 @@
                                                                     <MenuFlyoutItem Text="编辑资产" Tag="{Binding}" Click="AssetContextEditClick" />
                                                                     <MenuFlyoutItem Text="端口映射" Tag="{Binding}" Click="AssetContextPortForwardingClick" />
                                                                     <MenuFlyoutSeparator />
+                                                                    <MenuFlyoutItem Text="恢复 RDP 窗口"
+                                                                                    Tag="{Binding}"
+                                                                                    IsEnabled="{Binding IsRemoteDesktop}"
+                                                                                    Click="AssetContextRestoreRemoteDesktopClick" />
+                                                                    <MenuFlyoutItem Text="断开并关闭 RDP"
+                                                                                    Tag="{Binding}"
+                                                                                    IsEnabled="{Binding IsRemoteDesktop}"
+                                                                                    Click="AssetContextDisconnectRemoteDesktopClick" />
+                                                                    <MenuFlyoutSeparator />
                                                                     <MenuFlyoutItem Text="删除资产" Tag="{Binding}" Click="AssetContextDeleteClick" />
                                                                 </MenuFlyout>
                                                             </Grid.ContextFlyout>

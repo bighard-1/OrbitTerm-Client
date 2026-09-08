@@ -303,12 +303,7 @@ public sealed partial class MainWindow
 
     private bool TryActivateExistingRemoteDesktopHost(Guid assetId)
     {
-        RemoteDesktopHostSession? existing;
-        lock (remoteDesktopHostsGate)
-        {
-            existing = remoteDesktopHosts.Keys.FirstOrDefault(
-                session => session.AssetId == assetId && session.IsAlive);
-        }
+        var existing = FindRemoteDesktopHost(assetId);
         if (existing is null) return false;
 
         // Repeated activation means “return to this asset”, matching embedded
@@ -316,6 +311,48 @@ public sealed partial class MainWindow
         // so the equivalent operation is restoring and focusing that window.
         existing.TryActivate();
         return true;
+    }
+
+    private RemoteDesktopHostSession? FindRemoteDesktopHost(Guid assetId)
+    {
+        lock (remoteDesktopHostsGate)
+        {
+            return remoteDesktopHosts.Keys.FirstOrDefault(
+                session => session.AssetId == assetId && session.IsAlive);
+        }
+    }
+
+    internal async void AssetContextRestoreRemoteDesktopClick(object sender, RoutedEventArgs e)
+    {
+        if (!SelectContextAsset(sender) || ViewModel.SelectedAsset is not { } asset || !asset.IsRemoteDesktop)
+            return;
+        if (TryActivateExistingRemoteDesktopHost(asset.Id)) return;
+
+        await ShowAccountMessageAsync(
+            "没有活动的远程桌面",
+            "此资产当前没有正在运行的 RDP 窗口。双击资产即可重新连接。");
+    }
+
+    internal async void AssetContextDisconnectRemoteDesktopClick(object sender, RoutedEventArgs e)
+    {
+        if (!SelectContextAsset(sender) || ViewModel.SelectedAsset is not { } asset || !asset.IsRemoteDesktop)
+            return;
+        var existing = FindRemoteDesktopHost(asset.Id);
+        if (existing is null)
+        {
+            await ShowAccountMessageAsync(
+                "没有活动的远程桌面",
+                "此资产当前没有需要断开的 RDP 窗口。");
+            return;
+        }
+
+        if (!existing.RequestClose())
+        {
+            existing.TryActivate();
+            await ShowAccountMessageAsync(
+                "远程桌面窗口未响应",
+                "已尝试恢复远程桌面窗口。请使用窗口内的“断开并关闭”按钮重试。");
+        }
     }
 
     private void RemoteDesktopHostStateChanged(object? sender, RemoteDesktopSessionUpdate update)

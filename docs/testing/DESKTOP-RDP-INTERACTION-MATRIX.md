@@ -18,7 +18,7 @@ user-visible lifecycle, safety policy or recovery result.
 | DRI06 | Certificate trust scope | Make the acceptance scope explicit. Session-only acceptance may prompt again for a fresh engine; stored unchanged trust may skip confirmation; a changed certificate must always prompt again. | Accept once per fresh engine | Windows RDP trust handling | Stored trust or explicit dialog |
 | DRI07 | Authentication failure | Show an authentication-specific, user-safe message and keep an explicit retry path. | Workspace overlay | App/host feedback | Workspace overlay/dialog |
 | DRI08 | Network/port failure | Distinguish reachability from credentials without exposing native exception text. | Workspace overlay | App/host feedback | Workspace overlay/dialog |
-| DRI09 | Explicit disconnect | Stop the current session and any pending reconnect; retain the asset container for manual recovery where native. | Tab remains | Host window owns native close/disconnect | Tab remains |
+| DRI09 | Explicit disconnect | Stop the current session and any pending reconnect; retain the asset container for manual recovery where native. | Tab remains | Host window close control or the parent asset menu can disconnect and close the isolated host | Tab remains |
 | DRI10 | Manual reconnect | Reuse the saved asset and protected credential; one action starts one retry. | Existing controller or fresh engine | Existing native host retry | Existing workspace/canvas |
 | DRI11 | Close | Release engine, input capture and sensitive transient state; a later activation is a fresh session. | Close tab | Close isolated host | Close tab |
 | DRI12 | Background failure | Do not steal foreground selection, focus, fullscreen or shortcut ownership. | Workspace isolation | Separate process/window | Workspace isolation |
@@ -42,6 +42,10 @@ hostnames and remote content must not enter analytics or persistent diagnostics.
   failed initial open or an explicit disconnect must reopen the saved target.
 - Windows must coalesce an in-flight launch and restore/focus a living host for
   subsequent activation; it must not create a second RDP host for the same asset.
+- Windows module fullscreen must retain a small, explicit tool-strip toggle;
+  expanding it exposes reconnect, exit-fullscreen, minimize, restore/maximize
+  and disconnect/close actions. The parent asset menu must remain a second
+  recovery and disconnect path while the isolated host is alive.
 - Linux reconnect remains bounded and only transport/DNS/timeout failures are
   eligible for automatic retry.
 

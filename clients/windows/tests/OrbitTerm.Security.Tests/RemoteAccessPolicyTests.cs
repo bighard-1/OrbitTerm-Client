@@ -76,6 +76,7 @@ public sealed class RemoteAccessPolicyTests
 
         Assert.Equal(ServerTransport.RemoteDesktop, asset.Transport);
         Assert.Equal("RDP", asset.TransportLabel);
+        Assert.True(asset.IsRemoteDesktop);
         Assert.Equal(record, asset.ToRecord());
     }
 

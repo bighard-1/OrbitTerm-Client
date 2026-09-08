@@ -181,10 +181,12 @@ internal sealed class RemoteDesktopHostSession : IDisposable
         Exited?.Invoke(this, EventArgs.Empty);
     }
 
-    public void Close()
+    public bool RequestClose()
     {
-        try { if (!process.HasExited) process.CloseMainWindow(); } catch { }
+        try { return !process.HasExited && process.CloseMainWindow(); }
+        catch { return false; }
     }
+    public void Close() => _ = RequestClose();
     public void Dispose()
     {
         if (disposed) return;

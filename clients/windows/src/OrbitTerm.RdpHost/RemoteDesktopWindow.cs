@@ -15,18 +15,30 @@ internal sealed class RemoteDesktopWindow : Form
     private const int WmNcHitTest = 0x0084;
     private const int WmNcLButtonDown = 0x00A1;
     private const int HtCaption = 2;
+    private const int NormalChromeHeight = 40;
+    private const int FullScreenCollapsedChromeHeight = 12;
     private readonly RdpActiveXHost rdpHost = new();
     private readonly Label statusLabel = new();
     private readonly System.Windows.Forms.Timer stateTimer = new() { Interval = 500 };
+    private readonly ToolTip chromeToolTip = new();
     private readonly RdpHostLaunch launch;
     private readonly RdpHostStatusReporter reporter;
     private readonly TableLayoutPanel root;
     private readonly Panel titleBar;
+    private readonly Label titleLabel;
+    private readonly Button minimizeButton;
+    private readonly Button maximizeButton;
+    private readonly Button reconnectButton;
+    private readonly Button fullScreenButton;
+    private readonly Button closeButton;
+    private readonly Button fullScreenChromeToggle;
+    private readonly Control[] standardChromeControls;
     private string password;
     private bool connected;
     private bool closing;
     private bool awaitingDecisionReported;
     private bool fullScreen;
+    private bool fullScreenChromeExpanded;
     private DateTimeOffset connectionStartedAt;
     private Rectangle restoredBounds;
     private FormWindowState restoredWindowState;
@@ -50,10 +62,10 @@ internal sealed class RemoteDesktopWindow : Form
         BackColor = stroke;
 
         root = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = surface, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty };
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, NormalChromeHeight));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         titleBar = new Panel { Dock = DockStyle.Fill, BackColor = chrome, Margin = Padding.Empty };
-        var title = new Label { Text = Text, AutoEllipsis = true, ForeColor = foreground, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold), Location = new Point(14, 4), Height = 32, Width = 470, TextAlign = ContentAlignment.MiddleLeft };
+        titleLabel = new Label { Text = Text, AutoEllipsis = true, ForeColor = foreground, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold), Location = new Point(14, 4), Height = 32, Width = 470, TextAlign = ContentAlignment.MiddleLeft };
         statusLabel.Text = "正在准备安全连接…";
         statusLabel.AutoEllipsis = true;
         statusLabel.ForeColor = launch.DarkTheme ? Color.FromArgb(190, 207, 227) : Color.FromArgb(64, 82, 107);
@@ -61,38 +73,47 @@ internal sealed class RemoteDesktopWindow : Form
         statusLabel.Size = new Size(390, 32);
         statusLabel.TextAlign = ContentAlignment.MiddleRight;
         statusLabel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        var minimize = CaptionButton("\uE921", foreground, chrome);
-        var maximize = CaptionButton("\uE922", foreground, chrome);
-        var reconnect = CaptionButton("\uE72C", foreground, chrome);
-        var enterFullScreen = CaptionButton("\uE740", foreground, chrome);
-        var close = CaptionButton("\uE8BB", foreground, chrome);
-        minimize.Click += (_, _) => WindowState = FormWindowState.Minimized;
-        maximize.Click += (_, _) => ToggleMaximize();
-        reconnect.Click += (_, _) => Reconnect();
-        enterFullScreen.Click += (_, _) => ToggleFullScreen();
-        close.Click += (_, _) => Close();
-        ToolTip toolTip = new();
-        toolTip.SetToolTip(reconnect, "重新连接");
-        toolTip.SetToolTip(enterFullScreen, "全屏（F11）");
-        toolTip.SetToolTip(minimize, "最小化");
-        toolTip.SetToolTip(maximize, "最大化/还原");
-        toolTip.SetToolTip(close, "关闭");
-        close.MouseEnter += (_, _) => close.BackColor = Color.FromArgb(196, 43, 28);
-        close.MouseLeave += (_, _) => close.BackColor = chrome;
-        title.MouseDown += TitleBarMouseDown;
+        minimizeButton = CaptionButton("\uE921", foreground, chrome);
+        maximizeButton = CaptionButton("\uE922", foreground, chrome);
+        reconnectButton = CaptionButton("\uE72C", foreground, chrome);
+        fullScreenButton = CaptionButton("\uE740", foreground, chrome);
+        closeButton = CaptionButton("\uE8BB", foreground, chrome);
+        fullScreenChromeToggle = CaptionButton("\uE70D", foreground, chrome);
+        fullScreenChromeToggle.Visible = false;
+        minimizeButton.Click += (_, _) => WindowState = FormWindowState.Minimized;
+        maximizeButton.Click += (_, _) => ToggleMaximize();
+        reconnectButton.Click += (_, _) => Reconnect();
+        fullScreenButton.Click += (_, _) => ToggleFullScreen();
+        closeButton.Click += (_, _) => Close();
+        fullScreenChromeToggle.Click += (_, _) => ToggleFullScreenChrome();
+        chromeToolTip.SetToolTip(reconnectButton, "重新连接");
+        chromeToolTip.SetToolTip(fullScreenButton, "全屏（F11）");
+        chromeToolTip.SetToolTip(minimizeButton, "最小化");
+        chromeToolTip.SetToolTip(maximizeButton, "最大化/还原");
+        chromeToolTip.SetToolTip(closeButton, "断开并关闭远程桌面");
+        chromeToolTip.SetToolTip(fullScreenChromeToggle, "显示远程桌面工具栏");
+        closeButton.MouseEnter += (_, _) => closeButton.BackColor = Color.FromArgb(196, 43, 28);
+        closeButton.MouseLeave += (_, _) => closeButton.BackColor = chrome;
+        titleLabel.MouseDown += TitleBarMouseDown;
         titleBar.MouseDown += TitleBarMouseDown;
-        title.DoubleClick += (_, _) => ToggleMaximize();
+        titleLabel.DoubleClick += (_, _) => ToggleMaximize();
         titleBar.DoubleClick += (_, _) => ToggleMaximize();
-        titleBar.Resize += (_, _) =>
-        {
-            close.SetBounds(titleBar.ClientSize.Width - 46, 0, 46, 40);
-            maximize.SetBounds(close.Left - 46, 0, 46, 40);
-            minimize.SetBounds(maximize.Left - 46, 0, 46, 40);
-            enterFullScreen.SetBounds(minimize.Left - 46, 0, 46, 40);
-            reconnect.SetBounds(enterFullScreen.Left - 46, 0, 46, 40);
-            statusLabel.Left = Math.Max(title.Right + 8, reconnect.Left - statusLabel.Width - 8);
-        };
-        titleBar.Controls.AddRange([title, statusLabel, reconnect, enterFullScreen, minimize, maximize, close]);
+        titleBar.Resize += (_, _) => LayoutTitleBarControls();
+        standardChromeControls =
+        [
+            titleLabel,
+            statusLabel,
+            reconnectButton,
+            fullScreenButton,
+            minimizeButton,
+            maximizeButton,
+            closeButton,
+        ];
+        titleBar.Controls.AddRange(
+        [
+            .. standardChromeControls,
+            fullScreenChromeToggle,
+        ]);
 
         ((ISupportInitialize)rdpHost).BeginInit();
         rdpHost.Dock = DockStyle.Fill;
@@ -299,12 +320,23 @@ internal sealed class RemoteDesktopWindow : Form
 
     private void TitleBarMouseDown(object? sender, MouseEventArgs e)
     {
-        if (e.Button != MouseButtons.Left) return;
+        if (fullScreen || e.Button != MouseButtons.Left) return;
         _ = ReleaseCapture();
         _ = SendMessage(Handle, WmNcLButtonDown, (nint)HtCaption, nint.Zero);
     }
 
-    private void ToggleMaximize() => WindowState = WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized;
+    private void ToggleMaximize()
+    {
+        if (fullScreen)
+        {
+            ExitFullScreen();
+            WindowState = FormWindowState.Maximized;
+            return;
+        }
+        WindowState = WindowState == FormWindowState.Maximized
+            ? FormWindowState.Normal
+            : FormWindowState.Maximized;
+    }
 
     private void ToggleFullScreen()
     {
@@ -313,19 +345,85 @@ internal sealed class RemoteDesktopWindow : Form
             restoredBounds = Bounds;
             restoredWindowState = WindowState;
             WindowState = FormWindowState.Normal;
-            titleBar.Visible = false;
-            root.RowStyles[0].Height = 0;
             Bounds = Screen.FromControl(this).Bounds;
             fullScreen = true;
+            fullScreenChromeExpanded = false;
+            ApplyChromeVisibility();
+            rdpHost.Focus();
             return;
         }
 
-        titleBar.Visible = true;
-        root.RowStyles[0].Height = 40;
+        ExitFullScreen();
+    }
+
+    private void ExitFullScreen()
+    {
+        fullScreen = false;
+        fullScreenChromeExpanded = false;
+        ApplyChromeVisibility();
         WindowState = restoredWindowState;
         if (restoredWindowState == FormWindowState.Normal && !restoredBounds.IsEmpty)
             Bounds = restoredBounds;
-        fullScreen = false;
+    }
+
+    private void ToggleFullScreenChrome()
+    {
+        if (!fullScreen) return;
+        fullScreenChromeExpanded = !fullScreenChromeExpanded;
+        ApplyChromeVisibility();
+        if (!fullScreenChromeExpanded)
+            rdpHost.Focus();
+    }
+
+    private void ApplyChromeVisibility()
+    {
+        var showStandardChrome = !fullScreen || fullScreenChromeExpanded;
+        foreach (var control in standardChromeControls)
+            control.Visible = showStandardChrome;
+
+        fullScreenChromeToggle.Visible = fullScreen;
+        fullScreenChromeToggle.Text = fullScreenChromeExpanded ? "\uE70E" : "\uE70D";
+        chromeToolTip.SetToolTip(
+            fullScreenButton,
+            fullScreen ? "退出全屏（F11）" : "全屏（F11）");
+        chromeToolTip.SetToolTip(
+            fullScreenChromeToggle,
+            fullScreenChromeExpanded ? "隐藏远程桌面工具栏" : "显示远程桌面工具栏");
+        root.RowStyles[0].Height = fullScreen
+            ? fullScreenChromeExpanded ? NormalChromeHeight : FullScreenCollapsedChromeHeight
+            : NormalChromeHeight;
+        LayoutTitleBarControls();
+    }
+
+    private void LayoutTitleBarControls()
+    {
+        closeButton.SetBounds(titleBar.ClientSize.Width - 46, 0, 46, NormalChromeHeight);
+        maximizeButton.SetBounds(closeButton.Left - 46, 0, 46, NormalChromeHeight);
+        minimizeButton.SetBounds(maximizeButton.Left - 46, 0, 46, NormalChromeHeight);
+        fullScreenButton.SetBounds(minimizeButton.Left - 46, 0, 46, NormalChromeHeight);
+        reconnectButton.SetBounds(fullScreenButton.Left - 46, 0, 46, NormalChromeHeight);
+
+        if (fullScreenChromeExpanded)
+        {
+            fullScreenChromeToggle.SetBounds(
+                reconnectButton.Left - 46,
+                0,
+                46,
+                NormalChromeHeight);
+        }
+        else
+        {
+            fullScreenChromeToggle.SetBounds(
+                Math.Max(0, (titleBar.ClientSize.Width - 88) / 2),
+                0,
+                88,
+                FullScreenCollapsedChromeHeight);
+        }
+        var chromeLeft = fullScreenChromeExpanded
+            ? fullScreenChromeToggle.Left
+            : reconnectButton.Left;
+        statusLabel.Left = Math.Max(titleLabel.Right + 8, chromeLeft - statusLabel.Width - 8);
+        fullScreenChromeToggle.BringToFront();
     }
     private static Button CaptionButton(string text, Color foreground, Color background) => new()
     {

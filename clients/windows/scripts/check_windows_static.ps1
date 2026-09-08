@@ -127,6 +127,23 @@ foreach ($requiredText in @(
 }
 Pass "SFTP browse interaction contract is present"
 
+$remoteDesktopWindow = Get-Content (Join-Path $src "OrbitTerm.RdpHost/RemoteDesktopWindow.cs") -Raw
+$remoteDesktopMainWindow = Get-Content (Join-Path $src "OrbitTerm.App/MainWindow.RemoteDesktop.cs") -Raw
+foreach ($requiredText in @(
+    "FullScreenCollapsedChromeHeight",
+    "ToggleFullScreenChrome",
+    "ApplyChromeVisibility",
+    "RequestClose",
+    "AssetContextRestoreRemoteDesktopClick",
+    "AssetContextDisconnectRemoteDesktopClick",
+    "断开并关闭 RDP"
+)) {
+    if (-not ($remoteDesktopWindow.Contains($requiredText) -or $remoteDesktopMainWindow.Contains($requiredText) -or $mainWindowXaml.Contains($requiredText))) {
+        Fail "RDP window recovery and disconnect contract is missing: $requiredText"
+    }
+}
+Pass "RDP fullscreen recovery and parent disconnect contract is present"
+
 foreach ($file in $sourceFiles) {
     $text = Get-Content $file.FullName -Raw
     # OrbitConfigCrypto is the single audited adapter for the shared Rust
