@@ -5249,15 +5249,7 @@ public sealed partial class MainWindow : Window
 
         if (asset.Transport == ServerTransport.RemoteDesktop)
         {
-            ConnectionProgressOverlay.Visibility = Visibility.Visible;
-            try
-            {
-                await LaunchSavedRemoteDesktopAssetAsync(asset);
-            }
-            finally
-            {
-                ConnectionProgressOverlay.Visibility = Visibility.Collapsed;
-            }
+            await LaunchSavedRemoteDesktopAssetAsync(asset);
             return;
         }
 

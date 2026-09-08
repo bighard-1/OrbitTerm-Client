@@ -65,6 +65,7 @@ final class SessionManager: ObservableObject {
     private var auxiliaryRefreshesAreActive = true
     private let liveSessionRecoveryMarker = LiveSessionRecoveryMarker()
     private var connectionLossCleanupTasks: [UUID: Task<Void, Never>] = [:]
+    private var connectionLaunchGate = ConnectionLaunchGate()
 
     private init(
         connectionSecurityPolicy: ConnectionSecurityPolicy = .applicationDefault,
@@ -491,8 +492,15 @@ final class SessionManager: ObservableObject {
     }
 
     func connect(session: WorkspaceSession) async {
+        guard connectionLaunchGate.begin(
+            sessionID: session.id,
+            phase: session.connectionPresentation.phase
+        ) else {
+            return
+        }
+        defer { connectionLaunchGate.finish(sessionID: session.id) }
         await awaitConnectionLossCleanup(for: session.id)
-        guard ApplicationNetworkAvailability.shared.isNetworkUsable else {
+        guard ApplicationNetworkAvailability.shared.routeState.allowsUserInitiatedConnection else {
             session.isConnected = false
             session.updateConnectionState(.disconnected, detail: "等待网络恢复后重连")
             session.appendTerminal("[network] 当前没有可用网络；网络恢复后请手动重新连接")

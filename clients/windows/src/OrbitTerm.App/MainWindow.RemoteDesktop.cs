@@ -14,14 +14,18 @@ public sealed partial class MainWindow
     private readonly HashSet<RemoteDesktopHostSession> remoteDesktopFailurePresented = [];
     private readonly object remoteDesktopHostsGate = new();
     private readonly RemoteDesktopHostLauncher remoteDesktopHostLauncher = new();
+    private readonly RemoteDesktopLaunchGate remoteDesktopLaunchGate = new();
+    private int remoteDesktopLaunchOverlayLeases;
     private bool isRemoteDesktopDialogOpen;
 
     private async Task LaunchSavedRemoteDesktopAssetAsync(AssetViewModel asset)
     {
-        if (isRemoteDesktopDialogOpen)
-            return;
+        if (isRemoteDesktopDialogOpen) return;
+        using var launchLease = remoteDesktopLaunchGate.TryAcquire(asset.Id);
+        if (launchLease is null) return;
 
-        isRemoteDesktopDialogOpen = true;
+        remoteDesktopLaunchOverlayLeases++;
+        ConnectionProgressOverlay.Visibility = Visibility.Visible;
         try
         {
             var credential = await credentialVault.ReadAsync(asset.CredentialId, CancellationToken.None);
@@ -50,7 +54,9 @@ public sealed partial class MainWindow
         }
         finally
         {
-            isRemoteDesktopDialogOpen = false;
+            remoteDesktopLaunchOverlayLeases = Math.Max(0, remoteDesktopLaunchOverlayLeases - 1);
+            if (remoteDesktopLaunchOverlayLeases == 0)
+                ConnectionProgressOverlay.Visibility = Visibility.Collapsed;
         }
     }
 

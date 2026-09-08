@@ -2,6 +2,31 @@ import SwiftUI
 
 enum ConnectionPresentationPhase: Equatable {
     case idle, connecting, reconnecting, awaitingHostKeyDecision, openingTerminal, connected, disconnected, blocked, failed, cancelled
+
+    var allowsConnectionLaunch: Bool {
+        switch self {
+        case .idle, .disconnected, .failed, .cancelled:
+            true
+        case .connecting, .reconnecting, .awaitingHostKeyDecision, .openingTerminal, .connected, .blocked:
+            false
+        }
+    }
+}
+
+/// Coalesces repeated UI activation for one workspace before its asynchronous
+/// connection state has had a chance to become visible. The lifecycle phase
+/// remains the long-lived guard after the short launch operation completes.
+struct ConnectionLaunchGate {
+    private var activeSessionIDs: Set<UUID> = []
+
+    mutating func begin(sessionID: UUID, phase: ConnectionPresentationPhase) -> Bool {
+        guard phase.allowsConnectionLaunch else { return false }
+        return activeSessionIDs.insert(sessionID).inserted
+    }
+
+    mutating func finish(sessionID: UUID) {
+        activeSessionIDs.remove(sessionID)
+    }
 }
 
 enum ConnectionSemanticRole { case connected, connecting, disconnected, warning, danger, blocked }

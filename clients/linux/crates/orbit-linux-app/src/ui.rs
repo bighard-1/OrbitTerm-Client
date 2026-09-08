@@ -16505,6 +16505,32 @@ mod tests {
     }
 
     #[test]
+    fn repeated_asset_activation_is_single_flight_across_connection_lifecycle() {
+        for phase in [
+            WorkspacePhase::Starting,
+            WorkspacePhase::Authenticating,
+            WorkspacePhase::AwaitingUserDecision,
+            WorkspacePhase::Connected,
+        ] {
+            assert!(
+                !workspace_phase_accepts_connect_start(phase),
+                "duplicate activation unexpectedly accepted in {phase:?}"
+            );
+        }
+        for phase in [
+            WorkspacePhase::Reconnecting,
+            WorkspacePhase::Disconnected,
+            WorkspacePhase::Failed,
+            WorkspacePhase::Closed,
+        ] {
+            assert!(
+                workspace_phase_accepts_connect_start(phase),
+                "manual recovery unexpectedly rejected in {phase:?}"
+            );
+        }
+    }
+
+    #[test]
     fn rdp_scroll_translates_gtk_direction_without_losing_axis() {
         assert_eq!(
             rdp_scroll_pointer_flags(-1.0, false),
