@@ -503,9 +503,16 @@ static int orbit_apply_profile(
          * video codecs disabled for the deterministic software-GDI path.
          * Caches are memory-only: no remote pixels are persisted to disk.
          */
-        freerdp_settings_set_uint32(settings, FreeRDP_ConnectionType, CONNECTION_TYPE_AUTODETECT) &&
-        freerdp_settings_set_bool(settings, FreeRDP_NetworkAutoDetect, TRUE) &&
-        freerdp_settings_set_bool(settings, FreeRDP_SupportHeartbeatPdu, TRUE) &&
+        freerdp_settings_set_uint32(settings, FreeRDP_ConnectionType, CONNECTION_TYPE_LAN) &&
+        /*
+         * Keep activation on the standard MCS join path.  A subset of
+         * Windows 11 hosts returns connect-time auto-detect traffic on the
+         * global channel, which FreeRDP correctly rejects when it expects the
+         * optional message channel and then reports an activation timeout.
+         */
+        freerdp_settings_set_bool(settings, FreeRDP_NetworkAutoDetect, FALSE) &&
+        freerdp_settings_set_bool(settings, FreeRDP_SupportHeartbeatPdu, FALSE) &&
+        freerdp_settings_set_bool(settings, FreeRDP_SupportSkipChannelJoin, FALSE) &&
         freerdp_settings_set_bool(settings, FreeRDP_CompressionEnabled, TRUE) &&
         freerdp_settings_set_bool(settings, FreeRDP_BitmapCacheEnabled, TRUE) &&
         freerdp_settings_set_bool(settings, FreeRDP_BitmapCacheV3Enabled, TRUE) &&
@@ -522,6 +529,7 @@ static int orbit_apply_profile(
         freerdp_settings_set_uint32(settings, FreeRDP_TcpKeepAliveRetries, 3) &&
         freerdp_settings_set_bool(settings, FreeRDP_AutoReconnectionEnabled, FALSE) &&
         freerdp_settings_set_bool(settings, FreeRDP_SupportMultitransport, FALSE) &&
+        freerdp_settings_set_uint32(settings, FreeRDP_MultitransportFlags, 0) &&
         freerdp_settings_set_bool(settings, FreeRDP_DeviceRedirection, FALSE) &&
         freerdp_settings_set_bool(settings, FreeRDP_RedirectClipboard, FALSE) &&
         freerdp_settings_set_bool(settings, FreeRDP_RedirectDrives, FALSE) &&
