@@ -240,8 +240,29 @@ Copy-Item $package.FullName $packageDestination -Force
 Copy-Item $validationCertificate $certificateDestination -Force
 Remove-Item -LiteralPath $validationCertificate -Force -ErrorAction SilentlyContinue
 
+$installerSource = Join-Path $PSScriptRoot "install_windows_test_msix.ps1"
+$installerTokens = $null
+$installerParseErrors = $null
+[System.Management.Automation.Language.Parser]::ParseFile(
+    $installerSource,
+    [ref]$installerTokens,
+    [ref]$installerParseErrors) | Out-Null
+if ($installerParseErrors.Count -gt 0) {
+    throw "Windows test installer has PowerShell parse errors: $($installerParseErrors[0].Message)"
+}
+$installerSourceText = Get-Content -LiteralPath $installerSource -Raw
+foreach ($requiredFragment in @(
+    'Cert:\LocalMachine\TrustedPeople',
+    '-Volume $systemVolume',
+    'WindowsBuiltInRole]::Administrator'
+)) {
+    if (-not $installerSourceText.Contains($requiredFragment)) {
+        throw "Windows test installer is missing required safety behavior: $requiredFragment"
+    }
+}
+
 Copy-Item `
-    (Join-Path $PSScriptRoot "install_windows_test_msix.ps1") `
+    $installerSource `
     (Join-Path $DesktopOutput "Install-OrbitTerm.ps1") `
     -Force
 
@@ -252,15 +273,15 @@ Installation:
 1. Right-click Install-OrbitTerm.ps1 and choose Run with PowerShell.
 2. Do not double-click the MSIX. The script validates and registers it directly,
    so Microsoft App Installer is not required.
-3. Administrator permission is not required; the bundled test certificate is
-   trusted only for the current Windows user.
+3. The installer requests administrator confirmation so the bundled test
+   certificate can be trusted in Local Computer > Trusted People.
 4. If script execution is blocked, open PowerShell in this folder and run:
    PowerShell.exe -ExecutionPolicy Bypass -File .\Install-OrbitTerm.ps1
 5. On failure, Install-OrbitTerm.log is created and opened automatically.
 6. The included certificate is a local test-signing certificate, not a public
    production identity. Install it only on the intended test machine.
-7. To remove the test certificate later, open certmgr.msc and remove
-   "OrbitTerm Development" from Current User > Trusted People.
+7. To remove the test certificate later, open certlm.msc as administrator and
+   remove "OrbitTerm Development" from Trusted People.
 
 The package targets Windows 10/11 x64, build 19041 or later.
 '@ | Set-Content -LiteralPath (Join-Path $DesktopOutput "README-INSTALL.txt") -Encoding utf8
