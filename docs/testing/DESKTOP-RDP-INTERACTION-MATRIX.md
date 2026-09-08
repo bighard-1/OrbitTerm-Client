@@ -46,6 +46,10 @@ hostnames and remote content must not enter analytics or persistent diagnostics.
   expanding it exposes reconnect, exit-fullscreen, minimize, restore/maximize
   and disconnect/close actions. The parent asset menu must remain a second
   recovery and disconnect path while the isolated host is alive.
+- Windows host resizing is local presentation scaling: preserve the negotiated
+  desktop aspect ratio, centre the largest complete image in the available
+  viewport, and reapply ActiveX SmartSizing after a host resize. Never change
+  the remote desktop resolution merely because the local window was resized.
 - Linux reconnect remains bounded and only transport/DNS/timeout failures are
   eligible for automatic retry.
 

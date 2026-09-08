@@ -16,15 +16,17 @@ internal sealed class RemoteDesktopWindow : Form
     private const int WmNcLButtonDown = 0x00A1;
     private const int HtCaption = 2;
     private const int NormalChromeHeight = 40;
-    private const int FullScreenCollapsedChromeHeight = 12;
+    private const int FullScreenCollapsedChromeHeight = 24;
     private readonly RdpActiveXHost rdpHost = new();
     private readonly Label statusLabel = new();
     private readonly System.Windows.Forms.Timer stateTimer = new() { Interval = 500 };
+    private readonly System.Windows.Forms.Timer resizeTimer = new() { Interval = 120 };
     private readonly ToolTip chromeToolTip = new();
     private readonly RdpHostLaunch launch;
     private readonly RdpHostStatusReporter reporter;
     private readonly TableLayoutPanel root;
     private readonly Panel titleBar;
+    private readonly Panel rdpViewport;
     private readonly Label titleLabel;
     private readonly Button minimizeButton;
     private readonly Button maximizeButton;
@@ -39,6 +41,7 @@ internal sealed class RemoteDesktopWindow : Form
     private bool awaitingDecisionReported;
     private bool fullScreen;
     private bool fullScreenChromeExpanded;
+    private Size remoteDesktopSize;
     private DateTimeOffset connectionStartedAt;
     private Rectangle restoredBounds;
     private FormWindowState restoredWindowState;
@@ -78,7 +81,7 @@ internal sealed class RemoteDesktopWindow : Form
         reconnectButton = CaptionButton("\uE72C", foreground, chrome);
         fullScreenButton = CaptionButton("\uE740", foreground, chrome);
         closeButton = CaptionButton("\uE8BB", foreground, chrome);
-        fullScreenChromeToggle = CaptionButton("\uE70D", foreground, chrome);
+        fullScreenChromeToggle = ToolbarToggleButton("显示工具栏  ▼", foreground, chrome);
         fullScreenChromeToggle.Visible = false;
         minimizeButton.Click += (_, _) => WindowState = FormWindowState.Minimized;
         maximizeButton.Click += (_, _) => ToggleMaximize();
@@ -116,16 +119,35 @@ internal sealed class RemoteDesktopWindow : Form
         ]);
 
         ((ISupportInitialize)rdpHost).BeginInit();
-        rdpHost.Dock = DockStyle.Fill;
+        rdpHost.Dock = DockStyle.None;
         rdpHost.Margin = Padding.Empty;
+        rdpViewport = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Color.Black,
+            Margin = Padding.Empty,
+        };
+        rdpViewport.Controls.Add(rdpHost);
+        rdpViewport.Resize += (_, _) =>
+        {
+            LayoutRdpSurface();
+            QueueLocalSmartSizingRefresh();
+        };
         root.Controls.Add(titleBar, 0, 0);
-        root.Controls.Add(rdpHost, 0, 1);
+        root.Controls.Add(rdpViewport, 0, 1);
         Controls.Add(root);
         ((ISupportInitialize)rdpHost).EndInit();
         KeyPreview = true;
         Shown += (_, _) => Connect();
+        Resize += (_, _) => UpdateMaximizeButtonPresentation();
         FormClosing += RemoteDesktopWindowClosing;
         stateTimer.Tick += PollConnection;
+        resizeTimer.Tick += (_, _) =>
+        {
+            resizeTimer.Stop();
+            ApplyLocalSmartSizing();
+        };
+        UpdateMaximizeButtonPresentation();
     }
 
     private void Connect(bool reconnecting = false)
@@ -144,8 +166,12 @@ internal sealed class RemoteDesktopWindow : Form
             stage = "设置远程目标";
             SetComProperty(client, "Server", launch.Host);
             SetComProperty(client, "UserName", launch.Username);
-            SetComProperty(client, "DesktopWidth", Math.Max(800, rdpHost.ClientSize.Width));
-            SetComProperty(client, "DesktopHeight", Math.Max(600, rdpHost.ClientSize.Height));
+            remoteDesktopSize = new Size(
+                Math.Max(800, rdpViewport.ClientSize.Width),
+                Math.Max(600, rdpViewport.ClientSize.Height));
+            LayoutRdpSurface();
+            SetComProperty(client, "DesktopWidth", remoteDesktopSize.Width);
+            SetComProperty(client, "DesktopHeight", remoteDesktopSize.Height);
             SetComProperty(client, "ColorDepth", 32);
 
             stage = "读取高级安全设置";
@@ -206,6 +232,8 @@ internal sealed class RemoteDesktopWindow : Form
                 if (!connected)
                 {
                     connected = true;
+                    RefreshNegotiatedDesktopSize(client);
+                    ApplyLocalSmartSizing();
                     reporter.Report("Connected", "远程桌面已连接");
                 }
                 statusLabel.Text = $"已连接 {launch.Host}:{launch.Port} · NLA";
@@ -274,6 +302,7 @@ internal sealed class RemoteDesktopWindow : Form
         if (closing) return;
         closing = true;
         stateTimer.Stop();
+        resizeTimer.Stop();
         password = string.Empty;
         try
         {
@@ -330,7 +359,6 @@ internal sealed class RemoteDesktopWindow : Form
         if (fullScreen)
         {
             ExitFullScreen();
-            WindowState = FormWindowState.Maximized;
             return;
         }
         WindowState = WindowState == FormWindowState.Maximized
@@ -349,6 +377,7 @@ internal sealed class RemoteDesktopWindow : Form
             fullScreen = true;
             fullScreenChromeExpanded = false;
             ApplyChromeVisibility();
+            UpdateMaximizeButtonPresentation();
             rdpHost.Focus();
             return;
         }
@@ -364,6 +393,7 @@ internal sealed class RemoteDesktopWindow : Form
         WindowState = restoredWindowState;
         if (restoredWindowState == FormWindowState.Normal && !restoredBounds.IsEmpty)
             Bounds = restoredBounds;
+        UpdateMaximizeButtonPresentation();
     }
 
     private void ToggleFullScreenChrome()
@@ -382,7 +412,9 @@ internal sealed class RemoteDesktopWindow : Form
             control.Visible = showStandardChrome;
 
         fullScreenChromeToggle.Visible = fullScreen;
-        fullScreenChromeToggle.Text = fullScreenChromeExpanded ? "\uE70E" : "\uE70D";
+        fullScreenChromeToggle.Text = fullScreenChromeExpanded
+            ? "隐藏工具栏  ▲"
+            : "显示工具栏  ▼";
         chromeToolTip.SetToolTip(
             fullScreenButton,
             fullScreen ? "退出全屏（F11）" : "全屏（F11）");
@@ -393,6 +425,8 @@ internal sealed class RemoteDesktopWindow : Form
             ? fullScreenChromeExpanded ? NormalChromeHeight : FullScreenCollapsedChromeHeight
             : NormalChromeHeight;
         LayoutTitleBarControls();
+        LayoutRdpSurface();
+        QueueLocalSmartSizingRefresh();
     }
 
     private void LayoutTitleBarControls()
@@ -406,25 +440,112 @@ internal sealed class RemoteDesktopWindow : Form
         if (fullScreenChromeExpanded)
         {
             fullScreenChromeToggle.SetBounds(
-                reconnectButton.Left - 46,
+                reconnectButton.Left - 124,
                 0,
-                46,
+                124,
                 NormalChromeHeight);
         }
         else
         {
             fullScreenChromeToggle.SetBounds(
-                Math.Max(0, (titleBar.ClientSize.Width - 88) / 2),
+                Math.Max(0, (titleBar.ClientSize.Width - 124) / 2),
                 0,
-                88,
+                124,
                 FullScreenCollapsedChromeHeight);
         }
         var chromeLeft = fullScreenChromeExpanded
             ? fullScreenChromeToggle.Left
             : reconnectButton.Left;
-        statusLabel.Left = Math.Max(titleLabel.Right + 8, chromeLeft - statusLabel.Width - 8);
+        var statusLeft = titleLabel.Right + 8;
+        var statusWidth = Math.Max(0, chromeLeft - statusLeft - 8);
+        statusLabel.Visible = (!fullScreen || fullScreenChromeExpanded) && statusWidth >= 120;
+        statusLabel.SetBounds(statusLeft, 4, statusWidth, 32);
         fullScreenChromeToggle.BringToFront();
     }
+
+    private void UpdateMaximizeButtonPresentation()
+    {
+        var restoresWindow = fullScreen || WindowState == FormWindowState.Maximized;
+        maximizeButton.Text = restoresWindow ? "\uE923" : "\uE922";
+        chromeToolTip.SetToolTip(maximizeButton, restoresWindow ? "还原窗口" : "最大化");
+    }
+
+    private void LayoutRdpSurface()
+    {
+        var available = rdpViewport.ClientSize;
+        if (available.Width <= 0 || available.Height <= 0) return;
+        if (remoteDesktopSize.Width <= 0 || remoteDesktopSize.Height <= 0)
+        {
+            rdpHost.Bounds = new Rectangle(Point.Empty, available);
+            return;
+        }
+
+        var scale = Math.Min(
+            (double)available.Width / remoteDesktopSize.Width,
+            (double)available.Height / remoteDesktopSize.Height);
+        var width = Math.Max(1, (int)Math.Floor(remoteDesktopSize.Width * scale));
+        var height = Math.Max(1, (int)Math.Floor(remoteDesktopSize.Height * scale));
+        rdpHost.Bounds = new Rectangle(
+            (available.Width - width) / 2,
+            (available.Height - height) / 2,
+            width,
+            height);
+    }
+
+    private void QueueLocalSmartSizingRefresh()
+    {
+        if (!connected || closing) return;
+        resizeTimer.Stop();
+        resizeTimer.Start();
+    }
+
+    private void RefreshNegotiatedDesktopSize(object client)
+    {
+        try
+        {
+            var width = Convert.ToInt32(
+                GetComProperty(client, "DesktopWidth"),
+                CultureInfo.InvariantCulture);
+            var height = Convert.ToInt32(
+                GetComProperty(client, "DesktopHeight"),
+                CultureInfo.InvariantCulture);
+            if (width <= 0 || height <= 0) return;
+            remoteDesktopSize = new Size(width, height);
+            LayoutRdpSurface();
+        }
+        catch
+        {
+            // Keep the requested size when an older server does not expose the
+            // negotiated desktop dimensions through the ActiveX interface.
+        }
+    }
+
+    private void ApplyLocalSmartSizing()
+    {
+        if (!connected || closing) return;
+        try
+        {
+            var advanced = GetComProperty(rdpHost.ActiveXObject, "AdvancedSettings9");
+            SetComProperty(advanced, "SmartSizing", true);
+        }
+        catch
+        {
+            // A resize can race with native disconnect. The connection poller
+            // owns the user-visible lifecycle message; resizing must stay quiet.
+        }
+    }
+
+    private static Button ToolbarToggleButton(string text, Color foreground, Color background) => new()
+    {
+        Text = text,
+        FlatStyle = FlatStyle.Flat,
+        FlatAppearance = { BorderSize = 1, BorderColor = Color.FromArgb(112, 132, 158), MouseOverBackColor = Color.FromArgb(54, 68, 88) },
+        ForeColor = foreground,
+        BackColor = background,
+        Font = new Font("Segoe UI", 9, FontStyle.Bold),
+        TextAlign = ContentAlignment.MiddleCenter,
+        TabStop = false,
+    };
     private static Button CaptionButton(string text, Color foreground, Color background) => new()
     {
         Text = text,
