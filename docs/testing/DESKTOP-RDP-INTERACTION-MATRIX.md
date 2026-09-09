@@ -55,6 +55,10 @@ hostnames and remote content must not enter analytics or persistent diagnostics.
   scaling. Its debounced display-control resize may request a matching remote
   canvas when the server supports that channel; unsupported or delayed display
   control must retain complete local aspect-fit rendering without cropping.
+- macOS releases every tracked remote modifier and pressed pointer button when
+  the RDP canvas resigns first responder, the application loses key-window
+  status or the canvas leaves its window. Returning to the canvas must start
+  from a clean input state rather than inheriting a remotely stuck gesture.
 - Linux reconnect remains bounded and only transport/DNS/timeout failures are
   eligible for automatic retry.
 
@@ -78,3 +82,33 @@ or clipboard contents.
 Record only platform/build ID, case ID, pass/fail, timestamp and sanitized
 failure category. Never record credentials, certificate private material,
 remote screen contents or user-entered commands.
+
+## 2026-09-08 macOS live acceptance
+
+- Candidate: Apple-silicon Debug build based on `5b7db54` plus the macOS
+  focus-loss cleanup in this change. The signed executable SHA-256 was
+  `dfe18dea60f2ea17b23c533042385e702bfcec2fcd6e15c3a97bdb2dbd27b944`.
+- The bundled FreeRDP runtime probe passed and the complete checked-FFI suite
+  passed 303 tests with no failures, including the new deterministic modifier
+  and pointer-release plan test.
+- The owner-authorised Windows 11 test asset opened from a cold application
+  session with one double activation. The native certificate sheet exposed the
+  target identity and fingerprint; explicit session-only acceptance produced
+  one connected embedded workspace. No remote file, setting, service or
+  clipboard content was changed.
+- Live window dimensions moved from 1244×768 to the 1536×768 native zoom size,
+  returned to 1244×768, and reached the enforced compact size of 980×732. The
+  right tool column collapsed responsively at the compact width. The RDP
+  workspace stayed `connected` and frame sampling returned to 60 FPS after
+  every transition.
+- RDP module fullscreen entered and exited without closing the application or
+  replacing the active workspace. Moving focus from the remote canvas to
+  Finder and back kept the same process and connected workspace; the new
+  cleanup path releases held modifiers and pointer buttons on that transition.
+- Manual reconnect created a fresh engine, repeated the certificate prompt as
+  required by session-only trust, and returned to `connected` after a second
+  explicit acceptance.
+- The application intentionally sets the protected window's sharing type to
+  disallow screen capture. Consequently remote pixels were not retained as
+  test artifacts; evidence was limited to accessibility lifecycle state,
+  process identity, frame-rate state and captured window geometry.

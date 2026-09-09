@@ -57,6 +57,19 @@ final class RemoteDesktopAdapterTests: XCTestCase {
         XCTAssertEqual(image.bytesPerRow, 8)
     }
 
+    func testRemoteDesktopFocusLossReleasesHeldModifiersAndPointerButtons() {
+        XCTAssertEqual(
+            RemoteDesktopInputReleasePlan.modifierScancodes(for: [.shift, .command]),
+            [0x2A, 0x15B]
+        )
+        XCTAssertEqual(
+            RemoteDesktopInputReleasePlan.pointerReleaseActions(for: [5, 1, 3]),
+            [2, 4, 6]
+        )
+        XCTAssertTrue(RemoteDesktopInputReleasePlan.modifierScancodes(for: []).isEmpty)
+        XCTAssertTrue(RemoteDesktopInputReleasePlan.pointerReleaseActions(for: []).isEmpty)
+    }
+
     func testClosedSessionCannotBeRevivedByLateCallbacks() {
         var machine = RemoteDesktopSessionStateMachine()
         XCTAssertTrue(machine.transition(to: .authenticating))
