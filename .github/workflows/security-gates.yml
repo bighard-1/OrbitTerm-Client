@@ -21,6 +21,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  desktop-visual-contract:
+    name: Desktop visual contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify shared macOS, Windows, and Linux workstation rules
+        run: python3 scripts/quality/check_desktop_visual_contract.py
+
   rust-security-gates:
     name: Rust release gates
     runs-on: macos-15

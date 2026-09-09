@@ -1890,7 +1890,7 @@ fn build_header(
     account.connect_clicked(move |_| present_sync_window(account_context.clone()));
     end_actions.append(&account);
 
-    let add = command_button("添加服务器", "list-add-symbolic", "添加服务器资产");
+    let add = top_bar_button("添加服务器", "添加服务器资产");
     add.add_css_class("suggested-action");
     let parent = window.clone();
     add.connect_clicked(move |_| {
@@ -1898,11 +1898,7 @@ fn build_header(
     });
     start_actions.append(&add);
 
-    let edit = command_button(
-        "编辑凭据",
-        "document-edit-symbolic",
-        "编辑当前选中的服务器资产",
-    );
+    let edit = top_bar_button("编辑凭据", "编辑当前选中的服务器资产");
     let edit_context = context.clone();
     edit.connect_clicked(move |_| {
         let Some(asset_id) = edit_context.session.borrow().selected_asset_id else {
@@ -1919,7 +1915,7 @@ fn build_header(
     });
     start_actions.append(&edit);
 
-    let assets = command_button("资产管理", "network-server-symbolic", "管理服务器资产");
+    let assets = top_bar_button("资产管理", "管理服务器资产");
     let assets_context = context.clone();
     let search_for_assets = search.clone();
     assets.connect_clicked(move |_| {
@@ -1927,30 +1923,22 @@ fn build_header(
     });
     start_actions.append(&assets);
 
-    let keys = command_button("密钥管理", "dialog-password-symbolic", "管理 SSH 密钥资产");
+    let keys = top_bar_button("密钥管理", "管理 SSH 密钥资产");
     let keys_context = context.clone();
     keys.connect_clicked(move |_| present_key_management_window(keys_context.clone()));
     start_actions.append(&keys);
 
-    let tunnels = command_button(
-        "端口映射",
-        "network-transmit-receive-symbolic",
-        "管理本地端口映射",
-    );
+    let tunnels = top_bar_button("端口映射", "管理本地端口映射");
     let tunnel_context = context.clone();
     tunnels.connect_clicked(move |_| present_port_forwarding_window(tunnel_context.clone()));
     start_actions.append(&tunnels);
 
-    let batch = command_button(
-        "批量命令",
-        "utilities-terminal-symbolic",
-        "向已连接 SSH 会话执行批量命令",
-    );
+    let batch = top_bar_button("批量命令", "向已连接 SSH 会话执行批量命令");
     let batch_context = context.clone();
     batch.connect_clicked(move |_| present_batch_command_window(batch_context.clone()));
     start_actions.append(&batch);
 
-    let settings = command_button("设置", "preferences-system-symbolic", "终端与应用设置");
+    let settings = top_bar_button("设置", "终端与应用设置");
     let settings_context = context.clone();
     settings.connect_clicked(move |_| present_settings_window(settings_context.clone()));
     start_actions.append(&settings);
@@ -2109,6 +2097,16 @@ fn command_button(label: &str, icon_name: &str, tooltip: &str) -> gtk::Button {
         .child(&content)
         .tooltip_text(tooltip)
         .build();
+    button.add_css_class("top-command");
+    button
+}
+
+fn top_bar_button(label: &str, tooltip: &str) -> gtk::Button {
+    // Apple and Windows keep the dense global command row text-only. GTK
+    // follows the same information weight while retaining native button,
+    // focus, hover and disabled-state rendering.
+    let button = gtk::Button::with_label(label);
+    button.set_tooltip_text(Some(tooltip));
     button.add_css_class("top-command");
     button
 }
@@ -2347,7 +2345,7 @@ fn build_workspace() -> WorkspaceWidgets {
     let monitor_history = Rc::new(RefCell::new(Vec::<MonitorSnapshot>::new()));
     let mut monitor_values = Vec::new();
     let mut monitor_graphs = Vec::new();
-    for (index, label) in ["CPU", "内存", "磁盘", "下载", "上传", "延迟"]
+    for (index, label) in ["CPU", "内存", "磁盘", "下载", "上传", "TCP 延迟"]
         .into_iter()
         .enumerate()
     {
