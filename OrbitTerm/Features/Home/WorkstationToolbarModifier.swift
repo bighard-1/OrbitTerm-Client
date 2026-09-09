@@ -95,6 +95,7 @@ struct WorkstationTopBar: View {
     @Binding var showingAssetManager: Bool
     @Binding var showingSettings: Bool
     @Binding var showingBatchCommand: Bool
+    @Binding var showingSnippets: Bool
     @Binding var showingAccountSecurity: Bool
 
     var body: some View {
@@ -147,6 +148,8 @@ struct WorkstationTopBar: View {
                 }
                 .buttonStyle(WorkstationTopBarButtonStyle(isPrimary: false))
                 Button("批量命令") { showingBatchCommand = true }
+                    .buttonStyle(WorkstationTopBarButtonStyle(isPrimary: false))
+                Button("Snippets") { showingSnippets = true }
                     .buttonStyle(WorkstationTopBarButtonStyle(isPrimary: false))
                 Button("设置") { showingSettings = true }
                     .buttonStyle(WorkstationTopBarButtonStyle(isPrimary: false))
@@ -203,7 +206,6 @@ struct WorkstationBrandOverview: View {
 }
 
 struct WorkstationOverviewBand: View {
-    let sidebarWidth: CGFloat
     let activeSession: WorkspaceSession?
     @ObservedObject var monitorService: MonitorService
     @Binding var showingDetailPanelID: UUID?
@@ -211,29 +213,22 @@ struct WorkstationOverviewBand: View {
     @Environment(\.appThemePalette) private var palette
 
     var body: some View {
-        HStack(spacing: 8) {
-            RemoteEndpointMonitorCard(
-                host: activeSession?.isConnected == true ? activeSession?.server.host : nil
-            )
-            .frame(width: 176)
-
-            Group {
-                if let activeSession {
-                    WorkstationMonitorOverviewStrip(
-                        active: activeSession,
-                        monitorService: monitorService,
-                        onShowDetail: {
-                            showingDetailPanelID = activeSession.activeMonitorPanelID
-                        },
-                        onStartCheckedMonitoring: onStartCheckedMonitoring
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    WorkstationMonitorPlaceholderStrip()
-                }
+        Group {
+            if let activeSession {
+                WorkstationMonitorOverviewStrip(
+                    active: activeSession,
+                    monitorService: monitorService,
+                    onShowDetail: {
+                        showingDetailPanelID = activeSession.activeMonitorPanelID
+                    },
+                    onStartCheckedMonitoring: onStartCheckedMonitoring
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                WorkstationMonitorPlaceholderStrip()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.leading, 12)
         .padding(.trailing, 12)
         .frame(height: 40)
@@ -313,6 +308,7 @@ struct WorkstationMonitorPlaceholderStrip: View {
         .font(.caption2)
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
+        .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34, alignment: .leading)
         .background(palette.surfaceGlass.color, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)

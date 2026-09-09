@@ -78,6 +78,9 @@ struct WorkstationSFTPCardView: View {
                 }
             }
             .frame(maxHeight: .infinity)
+            .contextMenu {
+                directoryActions
+            }
 
             DisclosureGroup(isExpanded: $isTransferQueueExpanded) {
                 SFTPTransferBoard(manager: sftpManager)
@@ -102,18 +105,55 @@ struct WorkstationSFTPCardView: View {
     }
 
     private var header: some View {
-        HStack {
-            Button("刷新", action: onRefresh)
-                .buttonStyle(.bordered)
-            Button("上传", action: onUpload)
-                .buttonStyle(.bordered)
-            Button("新建目录", action: onCreateDirectory)
-                .buttonStyle(.bordered)
-            Button("新建文件", action: onCreateFile)
-                .buttonStyle(.bordered)
-            Button("返回上级", action: onUp)
-                .buttonStyle(.bordered)
+        HStack(spacing: 6) {
+            Button(action: onUp) {
+                Image(systemName: "arrow.up")
+            }
+            .buttonStyle(.bordered)
+            .disabled(!canBrowse || sftpManager.currentPath == "/")
+            .help("返回上级目录")
+            .accessibilityLabel("返回上级目录")
+
+            Spacer(minLength: 0)
+
+            Button(action: onRefresh) {
+                Image(systemName: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+            .disabled(!canBrowse)
+            .help("刷新当前目录")
+            .accessibilityLabel("刷新当前目录")
+
+            Menu {
+                directoryActions
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .menuStyle(.borderlessButton)
+            .disabled(!canBrowse)
+            .help("当前目录操作")
+            .accessibilityLabel("当前目录操作")
         }
+    }
+
+    @ViewBuilder
+    private var directoryActions: some View {
+        Button("上传文件…", action: onUpload)
+            .disabled(!canBrowse)
+        Divider()
+        Button("新建目录…", action: onCreateDirectory)
+            .disabled(!canBrowse)
+        Button("新建文件…", action: onCreateFile)
+            .disabled(!canBrowse)
+        Divider()
+        Button("刷新当前目录", action: onRefresh)
+            .disabled(!canBrowse)
+        Button("返回上级目录", action: onUp)
+            .disabled(!canBrowse || sftpManager.currentPath == "/")
+    }
+
+    private var canBrowse: Bool {
+        sftpManager.isConnected && !sftpManager.isLoading
     }
 
     private func fileRow(_ item: FileItem) -> some View {
@@ -152,8 +192,6 @@ struct WorkstationSFTPCardView: View {
                     lineWidth: 1
                 )
         }
-        .scaleEffect(hoveredItemID == item.id ? 1.012 : 1)
-        .animation(.easeOut(duration: 0.14), value: hoveredItemID == item.id)
 #if os(macOS)
         .onHover { hoveredItemID = $0 ? item.id : nil }
 #endif

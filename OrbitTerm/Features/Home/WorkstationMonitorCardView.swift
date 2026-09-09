@@ -275,6 +275,7 @@ struct WorkstationMonitorOverviewStrip: View {
         .font(.caption2)
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
+        .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34, alignment: .leading)
         .background(palette.surfaceGlass.color, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -304,7 +305,7 @@ struct WorkstationMonitorOverviewStrip: View {
         .font(.caption2)
         .padding(.horizontal, 4)
         .padding(.vertical, 3)
-        .frame(maxWidth: .infinity, minHeight: 50, maxHeight: 50, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34, alignment: .leading)
         .background(palette.surfaceGlass.color, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)

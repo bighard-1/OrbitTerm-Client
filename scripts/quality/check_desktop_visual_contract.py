@@ -150,6 +150,7 @@ global_actions = [
     "密钥管理",
     "端口映射",
     "批量命令",
+    "Snippets",
     "设置",
 ]
 require_ordered(
@@ -216,18 +217,62 @@ for text, label in (
     for fragment in empty_copy:
         require(text, fragment, label)
 
-tool_tabs = ["SFTP", "Docker", "Snippets"]
+tool_tabs = ["SFTP", "Docker"]
 require_ordered(mac_right, [f'case .{name.lower()}: "{name}"' for name in tool_tabs], "macOS tool tabs")
 require_ordered(
     windows_xaml,
-    ['TextBlock Text="SFTP"', 'TextBlock Text="Docker"', 'TextBlock Text="Snippets"'],
+    ['TextBlock Text="SFTP"', 'TextBlock Text="Docker"'],
     "Windows tool tabs",
 )
 require_ordered(
     between(linux_ui, "fn build_tools(", "fn refresh_snippet_list", "Linux tool tabs"),
-    ['"SFTP"', '"Docker"', '"Snippets"'],
+    ['"SFTP"', '"Docker"'],
     "Linux tool tabs",
 )
+for text, forbidden, label in (
+    (mac_right, "case snippets", "macOS right inspector"),
+    (windows_xaml, 'Tag="Snippets"', "Windows right inspector"),
+    (between(linux_ui, "fn build_tools(", "fn refresh_snippet_list", "Linux tool tabs"), 'Some("snippets")', "Linux right inspector"),
+):
+    if forbidden in text:
+        raise SystemExit(f"desktop visual contract failed: {label} still contains Snippets")
+require(mac_main, ".sheet(isPresented: $showingSnippets)", "macOS standalone Snippets")
+require(windows_xaml, 'x:Name="SnippetsDialog"', "Windows standalone Snippets")
+require(linux_ui, "fn present_snippets_window", "Linux standalone Snippets")
+
+
+# SFTP keeps only navigation, path, refresh and one overflow entry in its
+# visible chrome. Current-directory and item mutations remain available from
+# native menus, while transfer history starts collapsed.
+require(mac_right, "case .sftp", "macOS SFTP tab")
+require(mac_main, "showingSnippets: $showingSnippets", "macOS Snippets command")
+require(mac_right, "WorkstationSFTPCardView(", "macOS SFTP inspector")
+require(read("OrbitTerm/Features/Home/WorkstationSFTPCardView.swift"), "@State private var isTransferQueueExpanded = false", "macOS collapsed transfer queue")
+require(windows_xaml, '<Expander Grid.Row="4" IsExpanded="False"', "Windows collapsed transfer queue")
+require(linux_ui, "sftp_transfers.set_expanded(false);", "Linux collapsed transfer queue")
+require(windows_xaml, 'ContextRequested="SftpSurfaceContextRequested"', "Windows directory context menu")
+require(linux_ui, 'icon_name("view-more-symbolic")', "Linux compact SFTP overflow")
+
+
+# Restore rails share the same top inset and height. Linux command pre-input
+# uses zero left offset when the asset pane is not part of layout.
+require(mac_main, ".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)", "macOS left restore placement")
+require(mac_main, ".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)", "macOS right restore placement")
+require(windows_xaml, 'Height="72"', "Windows restore rail height")
+require(linux_ui, ".valign(Align::Start)", "Linux restore rail placement")
+require(
+    linux_ui,
+    "let left = if sidebar_for_bottom_layout.is_visible()",
+    "Linux collapsed command input left edge",
+)
+
+
+# macOS owns exactly one endpoint card inside the responsive monitoring strip,
+# and every card is constrained to the shared compact height.
+overview_band = between(mac_toolbar, "struct WorkstationOverviewBand", "struct WorkstationMonitorPlaceholderStrip", "macOS overview band")
+if "RemoteEndpointMonitorCard(" in overview_band:
+    raise SystemExit("desktop visual contract failed: macOS overview duplicates endpoint card")
+require(mac_monitor, "minHeight: 34, maxHeight: 34", "macOS equal monitor card heights")
 
 
 # Five palette names and their ordering remain shared even though SwiftUI,

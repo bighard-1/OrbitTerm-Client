@@ -187,6 +187,9 @@
                             AutomationProperties.AutomationId="OpenBatchCommandButton"
                             AutomationProperties.Name="批量命令"
                             Style="{StaticResource OrbitTitleBarButtonStyle}" />
+                    <Button Content="Snippets" Click="ShowSnippetsClick"
+                            AutomationProperties.Name="命令片段"
+                            Style="{StaticResource OrbitTitleBarButtonStyle}" />
                     <Button Content="设置" Click="ShowTerminalAppearanceDialogClick"
                             Style="{StaticResource OrbitTitleBarButtonStyle}" />
                     <Button x:Name="AccountToolbarButton"
@@ -980,7 +983,7 @@
                       RowDefinitions="Auto,*"
                       RowSpacing="8"
                       AutomationProperties.Name="会话工具检查器">
-                    <Grid ColumnDefinitions="*,*,*"
+                    <Grid ColumnDefinitions="*,*"
                           ColumnSpacing="4"
                           Padding="3"
                           Background="{StaticResource OrbitMetricBrush}"
@@ -1014,20 +1017,6 @@
                             <StackPanel Orientation="Horizontal" Spacing="4">
                                 <FontIcon Glyph="&#xE7B8;" FontSize="13" />
                                 <TextBlock Text="Docker" FontSize="12" FontWeight="SemiBold" TextWrapping="NoWrap" />
-                            </StackPanel>
-                        </ToggleButton>
-                        <ToggleButton x:Name="SnippetsToolTabButton"
-                                      Grid.Column="2"
-                                      Tag="Snippets"
-                                      MinWidth="0"
-                                      Padding="4,6"
-                                      HorizontalAlignment="Stretch"
-                                      HorizontalContentAlignment="Center"
-                                      Click="ToolInspectorTabClick"
-                                      AutomationProperties.Name="显示 Snippets 工具">
-                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                <FontIcon Glyph="&#xE8A5;" FontSize="13" />
-                                <TextBlock Text="Snippets" FontSize="12" FontWeight="SemiBold" TextWrapping="NoWrap" />
                             </StackPanel>
                         </ToggleButton>
                     </Grid>
@@ -1228,8 +1217,13 @@
                     </StackPanel>
                     </ScrollViewer>
                     </Grid>
-                    <Grid x:Name="SnippetsToolPanel" Visibility="Collapsed" AutomationProperties.Name="Snippets">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                    <ContentDialog x:Name="SnippetsDialog"
+                                   Title="Snippets"
+                                   CloseButtonText="关闭"
+                                   DefaultButton="Close"
+                                   AutomationProperties.Name="Snippets 命令片段管理">
+                    <ScrollViewer Width="540" MaxHeight="620"
+                                  VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Spacing="8">
                     <Grid ColumnDefinitions="*,Auto,Auto"
@@ -1327,42 +1321,34 @@
                                FontSize="12" TextTrimming="CharacterEllipsis" />
                     </StackPanel>
                     </ScrollViewer>
-                    </Grid>
+                    </ContentDialog>
                     <Grid x:Name="SftpToolPanel" AutomationProperties.Name="SFTP"
                           AllowDrop="True"
                           DragOver="SftpUploadDragOver"
                           Drop="SftpUploadDrop">
                     <Grid Padding="0,0,10,0" RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="7">
-                    <Grid RowDefinitions="Auto,Auto" RowSpacing="6">
-                        <Grid ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto" ColumnSpacing="5" RowSpacing="5">
-                            <Button Content="刷新" Command="{Binding RefreshSftpBrowseCommand}"
-                                    Style="{StaticResource OrbitSftpToolbarButtonStyle}"
-                                    AutomationProperties.Name="刷新 SFTP 当前目录" />
-                            <Button Grid.Column="1" Content="上传" Click="UploadSftpFileClick"
-                                    Style="{StaticResource OrbitSftpToolbarButtonStyle}"
-                                    IsEnabled="{Binding IsSftpOpen}" AutomationProperties.Name="上传文件" />
-                            <Button Grid.Column="2" Content="新建目录" Click="CreateSftpDirectoryClick"
-                                    Style="{StaticResource OrbitSftpToolbarButtonStyle}"
-                                    IsEnabled="{Binding IsSftpOpen}" />
-                            <Button Grid.Row="1" Content="新建文件" Click="CreateSftpFileClick"
-                                    Style="{StaticResource OrbitSftpToolbarButtonStyle}"
-                                    IsEnabled="{Binding IsSftpOpen}" />
-                            <Button Grid.Row="1" Grid.Column="1" Content="返回上级"
-                                    Style="{StaticResource OrbitSftpToolbarButtonStyle}"
-                                    Command="{Binding GoParentSftpCommand}" />
-                            <Button Grid.Row="1" Grid.Column="2" Content="更多"
-                                    Style="{StaticResource OrbitSftpToolbarButtonStyle}"
-                                    Click="SftpMoreClick"
-                                    AutomationProperties.Name="更多 SFTP 所选项操作" />
-                        </Grid>
-                        <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="5">
-                            <FontIcon Glyph="&#xE8B7;" FontSize="13" VerticalAlignment="Center" />
-                            <TextBox Grid.Column="1" PlaceholderText="远程路径（例如 /var/log）"
-                                     Text="{Binding SftpPathText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     KeyDown="SftpPathTextBoxKeyDown" AutomationProperties.Name="SFTP 远程路径" />
-                            <Button Grid.Column="2" Content="前往" Command="{Binding PrepareSftpBrowseCommand}"
-                                    Style="{StaticResource OrbitSftpInlineButtonStyle}" />
-                        </Grid>
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="5">
+                        <Button Command="{Binding GoParentSftpCommand}"
+                                Style="{StaticResource OrbitIconButtonStyle}"
+                                ToolTipService.ToolTip="返回上级目录"
+                                AutomationProperties.Name="返回 SFTP 上级目录">
+                            <FontIcon Glyph="&#xE74A;" FontSize="13" />
+                        </Button>
+                        <TextBox Grid.Column="1" PlaceholderText="远程路径（例如 /var/log）"
+                                 Text="{Binding SftpPathText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 KeyDown="SftpPathTextBoxKeyDown" AutomationProperties.Name="SFTP 远程路径" />
+                        <Button Grid.Column="2" Command="{Binding RefreshSftpBrowseCommand}"
+                                Style="{StaticResource OrbitIconButtonStyle}"
+                                ToolTipService.ToolTip="刷新当前目录"
+                                AutomationProperties.Name="刷新 SFTP 当前目录">
+                            <FontIcon Glyph="&#xE72C;" FontSize="13" />
+                        </Button>
+                        <Button Grid.Column="3" Click="SftpMoreClick"
+                                Style="{StaticResource OrbitIconButtonStyle}"
+                                ToolTipService.ToolTip="当前目录操作"
+                                AutomationProperties.Name="更多 SFTP 当前目录操作">
+                            <FontIcon Glyph="&#xE712;" FontSize="13" />
+                        </Button>
                     </Grid>
                     <Grid x:Name="SftpFeedbackHost"
                           Grid.Row="1"
@@ -1478,6 +1464,7 @@
                               SelectionChanged="SftpEntriesSelectionChanged"
                               PointerEntered="SftpEntryPointerEntered"
                               PointerExited="SftpEntryPointerExited"
+                              ContextRequested="SftpSurfaceContextRequested"
                               KeyDown="SftpEntriesKeyDown"
                               DoubleTapped="SftpEntriesDoubleTapped">
                         <ListView.ItemContainerStyle>
@@ -1686,7 +1673,7 @@
                                       VerticalAlignment="Center"
                                       Foreground="{StaticResource OrbitMutedTextBrush}" />
                         </Border>
-                        <TextBlock Text="连接会话后自动显示 SFTP、Docker 与命令片段"
+                        <TextBlock Text="连接会话后自动显示 SFTP 与 Docker"
                                    MaxWidth="240"
                                    TextAlignment="Center"
                                    TextWrapping="Wrap"
@@ -1709,14 +1696,14 @@
                 Visibility="Collapsed">
             <Button Click="ToggleToolInspectorClick"
                     Width="24"
-                    Height="88"
+                    Height="72"
                     HorizontalAlignment="Right"
                     VerticalAlignment="Top"
                     Margin="0,12,0,0"
                     Padding="2,5"
                     ToolTipService.ToolTip="展开会话工具"
                     AutomationProperties.Name="Expand session tools">
-                <TextBlock Text="会&#x0a;话&#x0a;工&#x0a;具"
+                <TextBlock Text="工&#x0a;具"
                            TextAlignment="Center"
                            FontWeight="SemiBold"
                            FontSize="12"

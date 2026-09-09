@@ -28,6 +28,7 @@ struct MainWorkstationView: View {
     @State private var showingBatchCommand = false
     @State private var showingKeyManagement = false
     @State private var showingPortForwarding = false
+    @State private var showingSnippets = false
     @State private var leftSearchText = ""
     // The workstation sidebars open by default. Individual asset groups own
     // their own collapsed state in WorkstationAssetSidebarView.
@@ -71,7 +72,7 @@ struct MainWorkstationView: View {
                 VStack(spacing: 0) {
 #if os(macOS)
                     if !isTerminalFullscreen {
-                        workstationTopChrome(widths: widths)
+                        workstationTopChrome()
                     }
 #endif
                     HStack(spacing: 0) {
@@ -124,7 +125,8 @@ struct MainWorkstationView: View {
                             leftPanelAutomaticallyCollapsed = false
                         }
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(.top, 12)
                 }
 
                 if !isTerminalFullscreen, isRightPanelCollapsed {
@@ -137,7 +139,8 @@ struct MainWorkstationView: View {
                             rightPanelAutomaticallyCollapsed = false
                         }
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(.top, 12)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -184,6 +187,27 @@ struct MainWorkstationView: View {
             chmodText: $pendingSFTPChmodText,
             pendingFileEdit: $pendingSFTPFileEdit
         ))
+        .sheet(isPresented: $showingSnippets) {
+            NavigationStack {
+                SnippetsPanelView(
+                    snippetStore: snippetStore,
+                    session: sessionManager.activeSession,
+                    onInsertCommand: { command, executeImmediately in
+                        guard let active = sessionManager.activeSession else { return }
+                        Task {
+                            await sessionManager.dispatchSnippetCommand(
+                                session: active,
+                                command: command,
+                                executeImmediately: executeImmediately
+                            )
+                        }
+                    }
+                )
+                .padding(16)
+                .navigationTitle("Snippets")
+            }
+            .frame(minWidth: 560, minHeight: 600)
+        }
         #if os(macOS)
         .modifier(MacManagementSheetsModifier(
             store: serverStore,
@@ -289,7 +313,6 @@ struct MainWorkstationView: View {
                 switch selectedRightPanelTab {
                 case .sftp: canUseSFTP
                 case .docker: canRefreshDocker
-                case .snippets: false
                 }
             }(),
             refreshMonitor: {
@@ -321,8 +344,6 @@ struct MainWorkstationView: View {
             Task { try? await active.sftpManager.refresh() }
         case .docker:
             Task { try? await active.dockerService.refreshNow() }
-        case .snippets:
-            break
         }
     }
 
@@ -342,9 +363,7 @@ struct MainWorkstationView: View {
         }
     }
 
-    private func workstationTopChrome(
-        widths: (left: CGFloat, middle: CGFloat, right: CGFloat)
-    ) -> some View {
+    private func workstationTopChrome() -> some View {
         // The hidden-title-bar scene still reserves a native traffic-light safe
         // area. Lift this chrome as one unit so the endpoint and workspace
         // actions share that visual baseline without putting interactive views
@@ -359,10 +378,10 @@ struct MainWorkstationView: View {
                 showingAssetManager: $showingAssetManager,
                 showingSettings: $showingSettings,
                 showingBatchCommand: $showingBatchCommand,
+                showingSnippets: $showingSnippets,
                 showingAccountSecurity: $showingAccountSecurity
             )
             WorkstationOverviewBand(
-                sidebarWidth: widths.left,
                 activeSession: sessionManager.activeSession,
                 monitorService: sessionManager.monitorService,
                 showingDetailPanelID: $showingMonitorDetailPanelID,
@@ -476,7 +495,6 @@ struct MainWorkstationView: View {
     private var rightColumn: some View {
         WorkstationRightPanelView(
             sessionManager: sessionManager,
-            snippetStore: snippetStore,
             selectedTab: $selectedRightPanelTab,
             sftpPathFocusRequest: {
                 #if os(macOS)

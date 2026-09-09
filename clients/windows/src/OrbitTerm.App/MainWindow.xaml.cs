@@ -326,20 +326,23 @@ public sealed partial class MainWindow : Window
     {
         var showSftp = string.Equals(tool, "SFTP", StringComparison.Ordinal);
         var showDocker = string.Equals(tool, "Docker", StringComparison.Ordinal);
-        var showSnippets = string.Equals(tool, "Snippets", StringComparison.Ordinal);
-        if (!showSftp && !showDocker && !showSnippets)
+        if (!showSftp && !showDocker)
         {
             showSftp = true;
         }
 
         SftpToolPanel.Visibility = showSftp ? Visibility.Visible : Visibility.Collapsed;
         DockerToolPanel.Visibility = showDocker ? Visibility.Visible : Visibility.Collapsed;
-        SnippetsToolPanel.Visibility = showSnippets ? Visibility.Visible : Visibility.Collapsed;
         SftpToolTabButton.IsChecked = showSftp;
         DockerToolTabButton.IsChecked = showDocker;
-        SnippetsToolTabButton.IsChecked = showSnippets;
         isDockerInspectorVisible = showDocker;
         UpdateDockerRefreshTimer();
+    }
+
+    private async void ShowSnippetsClick(object sender, RoutedEventArgs e)
+    {
+        SnippetsDialog.XamlRoot = Root.XamlRoot;
+        await SnippetsDialog.ShowAsync();
     }
 
     private void MainWindowActivated(object sender, WindowActivatedEventArgs args)
@@ -7293,17 +7296,44 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (ViewModel.SelectedSftpEntry is not { } entry)
+        var flyout = CreateSftpDirectoryOperationsFlyout(target);
+        flyout.ShowAt(target);
+        QueueDefaultPointerCursorRestore();
+    }
+
+    private void SftpSurfaceContextRequested(UIElement sender, ContextRequestedEventArgs e)
+    {
+        if (sender is not FrameworkElement target)
         {
-            SftpRecentOperationsButton.Flyout?.ShowAt(target);
-            QueueDefaultPointerCursorRestore();
             return;
         }
 
-        var selection = ViewModel.SelectedSftpEntries.Count > 0
-            ? ViewModel.SelectedSftpEntries
-            : [entry];
-        var flyout = CreateSftpOperationsFlyout(entry, selection);
+        var flyout = CreateSftpDirectoryOperationsFlyout(target);
+        if (e.TryGetPosition(target, out var position))
+        {
+            flyout.ShowAt(target, position);
+        }
+        else
+        {
+            flyout.ShowAt(target);
+        }
+        e.Handled = true;
+        QueueDefaultPointerCursorRestore();
+    }
+
+    private MenuFlyout CreateSftpDirectoryOperationsFlyout(FrameworkElement target)
+    {
+        var flyout = new MenuFlyout();
+        var upload = new MenuFlyoutItem { Text = "上传文件…", IsEnabled = ViewModel.IsSftpOpen };
+        upload.Click += UploadSftpFileClick;
+        flyout.Items.Add(upload);
+        flyout.Items.Add(new MenuFlyoutSeparator());
+        var createDirectory = new MenuFlyoutItem { Text = "新建目录…", IsEnabled = ViewModel.IsSftpOpen };
+        createDirectory.Click += CreateSftpDirectoryClick;
+        flyout.Items.Add(createDirectory);
+        var createFile = new MenuFlyoutItem { Text = "新建文件…", IsEnabled = ViewModel.IsSftpOpen };
+        createFile.Click += CreateSftpFileClick;
+        flyout.Items.Add(createFile);
         flyout.Items.Add(new MenuFlyoutSeparator());
         var recent = new MenuFlyoutItem
         {
@@ -7313,8 +7343,7 @@ public sealed partial class MainWindow : Window
         recent.Click += (_, _) => Root.DispatcherQueue.TryEnqueue(() =>
             SftpRecentOperationsButton.Flyout?.ShowAt(target));
         flyout.Items.Add(recent);
-        flyout.ShowAt(target);
-        QueueDefaultPointerCursorRestore();
+        return flyout;
     }
 
     private MenuFlyout CreateSftpOperationsFlyout(

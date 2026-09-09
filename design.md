@@ -103,14 +103,25 @@ a skin: every client implements one shared hierarchy with native controls.
 
 1. Native window controls and square rounded OrbitTerm mark.
 2. Add Server, Edit Credentials, Asset Management, Key Management, Port
-   Forwarding, Batch Command, Settings, Account.
+   Forwarding, Batch Command, Snippets, Settings, Account.
 3. Current endpoint, CPU, memory, disk, download, upload, TCP latency, details.
 4. Asset pane, tabbed terminal workspace, session tools.
 
 The asset pane contains its heading, grouped assets and search. Asset groups are
 collapsed by default. Synchronization status is visually aligned with the asset
 pane but remains visible when that pane collapses. Session tools expose SFTP,
-Docker and Snippets only while a compatible active session exists.
+and Docker only while a compatible active session exists. Snippets is a global
+top-command destination because users must be able to create, search and sync
+command fragments before opening a session; insertion and execution activate
+only when a compatible SSH session exists.
+
+SFTP uses one compact navigation row: parent directory, editable path, refresh
+and overflow. Upload/create operations live in the overflow and current-folder
+context menu; item-specific open, download, rename, permissions and delete
+operations live in each file row's context menu. The transfer queue is always
+present at the bottom of SFTP but starts collapsed with a one-line summary.
+Collapsed pane restore controls use the same 12-pixel top inset and 72-pixel
+interaction lane on every desktop.
 
 ## Surfaces and interaction
 

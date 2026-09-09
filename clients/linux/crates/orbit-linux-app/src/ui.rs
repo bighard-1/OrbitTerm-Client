@@ -883,6 +883,8 @@ struct ToolsWidgets {
     sftp_delete: gtk::Button,
     sftp_list: gtk::ListBox,
     sftp_status: gtk::Label,
+    sftp_transfer_summary: gtk::Label,
+    sftp_transfer_detail: gtk::Label,
     sftp_entries: Rc<RefCell<Vec<SftpEntry>>>,
     docker_refresh: gtk::Button,
     docker_list: gtk::ListBox,
@@ -901,6 +903,7 @@ struct ToolsWidgets {
     snippet_insert: gtk::Button,
     snippet_run: gtk::Button,
     snippet_status: gtk::Label,
+    snippet_page: gtk::Box,
     snippets: Rc<RefCell<Vec<CommandSnippet>>>,
     visible_snippet_ids: Rc<RefCell<Vec<Uuid>>>,
     snippet_repository: SnippetRepository,
@@ -932,6 +935,7 @@ struct UiContext {
     tools_collapsed: Rc<Cell<bool>>,
     tools_auto_hidden_for_rdp: Rc<Cell<bool>>,
     tools_expand: Rc<RefCell<Option<gtk::Button>>>,
+    snippet_window: Rc<RefCell<Option<gtk::Window>>>,
     rdp_input_capture: Rc<Cell<bool>>,
     rdp_capture_policy: Rc<Cell<RdpCapturePolicy>>,
     rdp_reconnect_states: Rc<RefCell<BTreeMap<Uuid, RdpReconnectState>>>,
@@ -1275,6 +1279,7 @@ pub fn build_application_window(application: &adw::Application) {
         tools_collapsed: Rc::new(Cell::new(false)),
         tools_auto_hidden_for_rdp: Rc::new(Cell::new(false)),
         tools_expand: Rc::new(RefCell::new(None)),
+        snippet_window: Rc::new(RefCell::new(None)),
         rdp_input_capture: Rc::new(Cell::new(false)),
         rdp_capture_policy: Rc::new(Cell::new(RdpCapturePolicy::default())),
         rdp_reconnect_states: Rc::new(RefCell::new(BTreeMap::new())),
@@ -1365,21 +1370,23 @@ pub fn build_application_window(application: &adw::Application) {
         .icon_name("sidebar-show-symbolic")
         .tooltip_text("展开服务器资产栏")
         .halign(Align::Start)
-        .valign(Align::Center)
+        .valign(Align::Start)
         .visible(false)
         .build();
     expand_left.add_css_class("panel-edge-button");
     expand_left.set_margin_start(0);
+    expand_left.set_margin_top(12);
     workbench_overlay.add_overlay(&expand_left);
     let expand_right = gtk::Button::builder()
         .icon_name("sidebar-show-right-symbolic")
         .tooltip_text("展开会话工具")
         .halign(Align::End)
-        .valign(Align::Center)
+        .valign(Align::Start)
         .visible(false)
         .build();
     expand_right.add_css_class("panel-edge-button");
     expand_right.set_margin_end(0);
+    expand_right.set_margin_top(12);
     workbench_overlay.add_overlay(&expand_right);
     context.tools_expand.replace(Some(expand_right.clone()));
     context.module_shell.replace(Some(ModuleShellWidgets {
@@ -1480,7 +1487,11 @@ pub fn build_application_window(application: &adw::Application) {
         if tools_for_bottom_layout.is_visible() && tools_for_bottom_layout.width() > 0 {
             last_tools_width.set(tools_for_bottom_layout.width());
         }
-        let left = last_sidebar_width.get();
+        let left = if sidebar_for_bottom_layout.is_visible() {
+            last_sidebar_width.get()
+        } else {
+            0
+        };
         let right = if tools_for_bottom_layout.is_visible() {
             last_tools_width.get()
         } else {
@@ -1932,6 +1943,11 @@ fn build_header(
     let batch_context = context.clone();
     batch.connect_clicked(move |_| present_batch_command_window(batch_context.clone()));
     start_actions.append(&batch);
+
+    let snippets = top_bar_button("Snippets", "管理、插入或执行命令片段");
+    let snippets_context = context.clone();
+    snippets.connect_clicked(move |_| present_snippets_window(snippets_context.clone()));
+    start_actions.append(&snippets);
 
     let settings = top_bar_button("设置", "终端与应用设置");
     let settings_context = context.clone();
@@ -2673,7 +2689,7 @@ fn build_tools(snippet_repository: SnippetRepository) -> ToolsWidgets {
     disconnected_banner.add_css_class("tool-empty-banner");
     let disconnected_icon = gtk::Image::from_icon_name("network-offline-symbolic");
     disconnected_icon.set_pixel_size(16);
-    let disconnected_copy = gtk::Label::new(Some("连接会话后自动显示 SFTP、Docker 与命令片段"));
+    let disconnected_copy = gtk::Label::new(Some("连接会话后自动显示 SFTP 与 Docker"));
     disconnected_copy.set_xalign(0.0);
     disconnected_copy.set_wrap(true);
     disconnected_copy.set_hexpand(true);
@@ -2690,9 +2706,8 @@ fn build_tools(snippet_repository: SnippetRepository) -> ToolsWidgets {
     unavailable_icon.set_pixel_size(42);
     let unavailable_title = gtk::Label::new(Some("当前协议不提供 SSH 工具"));
     unavailable_title.add_css_class("workspace-empty-title");
-    let unavailable_detail = gtk::Label::new(Some(
-        "SFTP、Docker、Monitor 与命令片段不会创建旁路 SSH 连接。",
-    ));
+    let unavailable_detail =
+        gtk::Label::new(Some("SFTP、Docker 与 Monitor 不会创建旁路 SSH 连接。"));
     unavailable_detail.add_css_class("workspace-empty-description");
     unavailable_detail.set_wrap(true);
     unavailable_detail.set_justify(gtk::Justification::Center);
@@ -2725,26 +2740,41 @@ fn build_tools(snippet_repository: SnippetRepository) -> ToolsWidgets {
         .sensitive(false)
         .build();
     let sftp_upload = gtk::Button::builder()
+        .label("上传文件…")
         .icon_name("document-send-symbolic")
         .tooltip_text("上传文件")
         .sensitive(false)
         .build();
     let sftp_new_directory = gtk::Button::builder()
+        .label("新建目录…")
         .icon_name("folder-new-symbolic")
         .tooltip_text("新建目录")
         .sensitive(false)
         .build();
     let sftp_new_file = gtk::Button::builder()
+        .label("新建文件…")
         .icon_name("document-new-symbolic")
         .tooltip_text("新建文件")
         .sensitive(false)
         .build();
+    let sftp_more = gtk::MenuButton::builder()
+        .icon_name("view-more-symbolic")
+        .tooltip_text("当前目录操作")
+        .build();
+    let sftp_more_popover = gtk::Popover::new();
+    let sftp_more_actions = gtk::Box::new(Orientation::Vertical, 2);
+    sftp_more_actions.add_css_class("sftp-directory-menu");
+    for button in [&sftp_upload, &sftp_new_directory, &sftp_new_file] {
+        button.add_css_class("flat");
+        button.set_halign(Align::Fill);
+        sftp_more_actions.append(button);
+    }
+    sftp_more_popover.set_child(Some(&sftp_more_actions));
+    sftp_more.set_popover(Some(&sftp_more_popover));
     sftp_toolbar.append(&sftp_up);
     sftp_toolbar.append(&sftp_path);
     sftp_toolbar.append(&sftp_refresh);
-    sftp_toolbar.append(&sftp_upload);
-    sftp_toolbar.append(&sftp_new_directory);
-    sftp_toolbar.append(&sftp_new_file);
+    sftp_toolbar.append(&sftp_more);
     sftp_page.append(&sftp_toolbar);
 
     let sftp_list = gtk::ListBox::new();
@@ -2762,8 +2792,6 @@ fn build_tools(snippet_repository: SnippetRepository) -> ToolsWidgets {
     sftp_status.set_xalign(0.0);
     sftp_status.set_wrap(true);
     sftp_page.append(&sftp_status);
-    let sftp_actions = gtk::Box::new(Orientation::Horizontal, 5);
-    sftp_actions.add_css_class("tool-action-strip");
     let sftp_download = gtk::Button::with_label("下载");
     let sftp_rename = gtk::Button::with_label("重命名");
     let sftp_chmod = gtk::Button::with_label("权限");
@@ -2771,9 +2799,20 @@ fn build_tools(snippet_repository: SnippetRepository) -> ToolsWidgets {
     sftp_delete.add_css_class("destructive-action");
     for button in [&sftp_download, &sftp_rename, &sftp_chmod, &sftp_delete] {
         button.set_sensitive(false);
-        sftp_actions.append(button);
     }
-    sftp_page.append(&sftp_actions);
+    let sftp_transfer_summary = gtk::Label::new(Some("传输任务 · 暂无"));
+    sftp_transfer_summary.set_xalign(0.0);
+    sftp_transfer_summary.add_css_class("heading");
+    let sftp_transfer_detail = gtk::Label::new(Some("上传和下载任务会显示在这里。"));
+    sftp_transfer_detail.set_xalign(0.0);
+    sftp_transfer_detail.set_wrap(true);
+    sftp_transfer_detail.add_css_class("caption");
+    let sftp_transfers = gtk::Expander::new(None);
+    sftp_transfers.set_label_widget(Some(&sftp_transfer_summary));
+    sftp_transfers.set_child(Some(&sftp_transfer_detail));
+    sftp_transfers.set_expanded(false);
+    sftp_transfers.add_css_class("transfer-queue");
+    sftp_page.append(&sftp_transfers);
     stack.add_titled_with_icon(&sftp_page, Some("sftp"), "SFTP", "folder-symbolic");
 
     let docker_page = gtk::Box::new(Orientation::Vertical, 8);
@@ -2870,12 +2909,6 @@ fn build_tools(snippet_repository: SnippetRepository) -> ToolsWidgets {
     snippet_actions.append(&snippet_insert);
     snippet_actions.append(&snippet_run);
     snippet_page.append(&snippet_actions);
-    stack.add_titled_with_icon(
-        &snippet_page,
-        Some("snippets"),
-        "Snippets",
-        "text-x-generic-symbolic",
-    );
     let switcher = adw::ViewSwitcher::builder()
         .stack(&stack)
         .policy(adw::ViewSwitcherPolicy::Wide)
@@ -2904,6 +2937,8 @@ fn build_tools(snippet_repository: SnippetRepository) -> ToolsWidgets {
         sftp_delete,
         sftp_list,
         sftp_status,
+        sftp_transfer_summary,
+        sftp_transfer_detail,
         sftp_entries: Rc::new(RefCell::new(Vec::new())),
         docker_refresh,
         docker_list,
@@ -2922,12 +2957,53 @@ fn build_tools(snippet_repository: SnippetRepository) -> ToolsWidgets {
         snippet_insert,
         snippet_run,
         snippet_status,
+        snippet_page,
         snippets,
         visible_snippet_ids,
         snippet_repository,
         unavailable_title,
         unavailable_detail,
     }
+}
+
+fn present_snippets_window(context: UiContext) {
+    if let Some(window) = context.snippet_window.borrow().as_ref() {
+        refresh_snippet_list(&context);
+        window.present();
+        return;
+    }
+
+    let window = gtk::Window::builder()
+        .title("Snippets")
+        .transient_for(&context.window)
+        .modal(false)
+        .default_width(620)
+        .default_height(640)
+        .build();
+    let shell = gtk::Box::new(Orientation::Vertical, 0);
+    shell.add_css_class("management-window");
+    let heading = gtk::Box::new(Orientation::Horizontal, 8);
+    heading.add_css_class("management-heading");
+    let title = gtk::Label::new(Some("命令片段"));
+    title.add_css_class("title-2");
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    let subtitle = gtk::Label::new(Some("跨资产管理；连接 SSH 会话后可插入或执行"));
+    subtitle.add_css_class("caption");
+    subtitle.set_xalign(1.0);
+    heading.append(&title);
+    heading.append(&subtitle);
+    shell.append(&heading);
+    context.tools.snippet_page.set_vexpand(true);
+    shell.append(&context.tools.snippet_page);
+    window.set_child(Some(&shell));
+    window.connect_close_request(|window| {
+        window.set_visible(false);
+        gtk::glib::Propagation::Stop
+    });
+    context.snippet_window.replace(Some(window.clone()));
+    refresh_snippet_list(&context);
+    window.present();
 }
 
 fn refresh_snippet_list(context: &UiContext) {
@@ -9536,11 +9612,39 @@ fn run_sftp_mutation<F>(context: UiContext, progress: &'static str, operation: F
 where
     F: FnOnce(&CheckedCoreClient, u64) -> Result<(), BridgeError> + Send + 'static,
 {
+    run_sftp_operation(context, progress, None, operation);
+}
+
+fn run_sftp_transfer<F>(context: UiContext, progress: &'static str, task: String, operation: F)
+where
+    F: FnOnce(&CheckedCoreClient, u64) -> Result<(), BridgeError> + Send + 'static,
+{
+    run_sftp_operation(context, progress, Some(task), operation);
+}
+
+fn run_sftp_operation<F>(
+    context: UiContext,
+    progress: &'static str,
+    transfer_task: Option<String>,
+    operation: F,
+) where
+    F: FnOnce(&CheckedCoreClient, u64) -> Result<(), BridgeError> + Send + 'static,
+{
     let Some(sftp_id) = active_sftp_session(&context) else {
         context.tools.sftp_status.set_label("SFTP 会话尚未就绪。");
         return;
     };
     context.tools.sftp_status.set_label(progress);
+    if let Some(task) = transfer_task.as_ref() {
+        context
+            .tools
+            .sftp_transfer_summary
+            .set_label("传输任务 · 1 进行中");
+        context
+            .tools
+            .sftp_transfer_detail
+            .set_label(&format!("{task} · 正在进行"));
+    }
     let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || {
         let result = operation(&CheckedCoreClient::new(), sftp_id);
@@ -9549,6 +9653,16 @@ where
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
         match receiver.try_recv() {
             Ok(Ok(())) => {
+                if let Some(task) = transfer_task.as_ref() {
+                    context
+                        .tools
+                        .sftp_transfer_summary
+                        .set_label("传输任务 · 0 进行中 · 1 完成");
+                    context
+                        .tools
+                        .sftp_transfer_detail
+                        .set_label(&format!("{task} · 已完成"));
+                }
                 let path = context.tools.sftp_path.text().to_string();
                 context
                     .tools
@@ -9558,6 +9672,16 @@ where
                 gtk::glib::ControlFlow::Break
             }
             Ok(Err(error)) => {
+                if let Some(task) = transfer_task.as_ref() {
+                    context
+                        .tools
+                        .sftp_transfer_summary
+                        .set_label("传输任务 · 0 进行中 · 1 失败");
+                    context
+                        .tools
+                        .sftp_transfer_detail
+                        .set_label(&format!("{task} · 失败：{error}"));
+                }
                 context
                     .tools
                     .sftp_status
@@ -9566,6 +9690,16 @@ where
             }
             Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
             Err(mpsc::TryRecvError::Disconnected) => {
+                if let Some(task) = transfer_task.as_ref() {
+                    context
+                        .tools
+                        .sftp_transfer_summary
+                        .set_label("传输任务 · 0 进行中 · 1 失败");
+                    context
+                        .tools
+                        .sftp_transfer_detail
+                        .set_label(&format!("{task} · 工作线程意外退出"));
+                }
                 context
                     .tools
                     .sftp_status
@@ -9766,9 +9900,10 @@ fn begin_sftp_upload(context: UiContext) {
         }
         let local = path.to_string_lossy().into_owned();
         let remote = join_remote_path(context.tools.sftp_path.text().as_str(), name);
-        run_sftp_mutation(
+        run_sftp_transfer(
             context,
             "正在安全上传文件…",
+            format!("上传 {name}"),
             move |core, sftp_id| core.upload_sftp_file(sftp_id, &local, &remote),
         );
     });
@@ -9805,9 +9940,10 @@ fn begin_sftp_download(context: UiContext) {
             return;
         }
         let local = path.to_string_lossy().into_owned();
-        run_sftp_mutation(
+        run_sftp_transfer(
             context,
             "正在安全下载文件…",
+            format!("下载 {}", entry.name),
             move |core, sftp_id| core.download_sftp_file(sftp_id, &remote, &local),
         );
     });
