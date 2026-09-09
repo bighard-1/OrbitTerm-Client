@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import struct
+import zlib
 from pathlib import Path
 
 
@@ -11,6 +13,48 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def read(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
+
+
+def png_corner_alphas(relative: str) -> tuple[list[int], int]:
+    payload = (ROOT / relative).read_bytes()
+    if not payload.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise SystemExit(f"desktop visual contract failed: not a PNG: {relative}")
+    position = 8
+    compressed = bytearray()
+    width = height = colour_type = 0
+    while position < len(payload):
+        length = struct.unpack(">I", payload[position : position + 4])[0]
+        chunk_type = payload[position + 4 : position + 8]
+        chunk = payload[position + 8 : position + 8 + length]
+        position += length + 12
+        if chunk_type == b"IHDR":
+            width, height, bit_depth, colour_type, _, _, interlace = struct.unpack(
+                ">IIBBBBB", chunk
+            )
+            if bit_depth != 8 or colour_type != 6 or interlace != 0:
+                raise SystemExit(
+                    f"desktop visual contract failed: icon is not non-interlaced RGBA: {relative}"
+                )
+        elif chunk_type == b"IDAT":
+            compressed.extend(chunk)
+        elif chunk_type == b"IEND":
+            break
+    if width != height or colour_type != 6:
+        raise SystemExit(f"desktop visual contract failed: icon is not square RGBA: {relative}")
+    raw = zlib.decompress(bytes(compressed))
+    stride = width * 4
+    if any(raw[row * (stride + 1)] != 0 for row in range(height)):
+        raise SystemExit(
+            f"desktop visual contract failed: generated icon filter changed: {relative}"
+        )
+
+    def alpha(x: int, y: int) -> int:
+        return raw[y * (stride + 1) + 1 + x * 4 + 3]
+
+    return (
+        [alpha(0, 0), alpha(width - 1, 0), alpha(0, height - 1), alpha(width - 1, height - 1)],
+        alpha(width // 2, height // 2),
+    )
 
 
 def require(text: str, fragment: str, label: str) -> None:
@@ -53,6 +97,7 @@ windows_tokens = read("clients/windows/src/OrbitTerm.App/Resources/OrbitTermToke
 
 linux_ui = read("clients/linux/crates/orbit-linux-app/src/ui.rs")
 linux_css = read("clients/linux/resources/orbitterm.css")
+linux_flatpak = read("clients/linux/packaging/flatpak/com.orbitterm.Client.json")
 
 
 # Supported window floor. Native title bars may change the default outer size,
@@ -208,5 +253,54 @@ require_ordered(
 
 for token in ("OrbitSidebarMinWidth", "OrbitInspectorMinWidth", "OrbitTerminalMinWidth"):
     require(windows_tokens, token, "Windows shared layout tokens")
+
+
+# Synchronization is one independent full-width row below the three-pane body.
+# Pane dividers must end above it on every platform.
+require_ordered(
+    mac_main,
+    ["HStack(spacing: 0) {", "WorkstationPersistentSyncStatusView("],
+    "macOS independent synchronization footer",
+)
+require(
+    windows_xaml,
+    'x:Name="SynchronizationStatusFooter"',
+    "Windows synchronization footer",
+)
+windows_sync_footer = between(
+    windows_xaml,
+    '<Border x:Name="SynchronizationStatusFooter"',
+    '<primitives:Thumb x:Name="AssetSidebarSplitter"',
+    "Windows synchronization footer",
+)
+for fragment in ('Grid.Row="3"', 'Grid.ColumnSpan="3"', 'HorizontalAlignment="Stretch"'):
+    require(windows_sync_footer, fragment, "Windows full-width synchronization footer")
+require_ordered(
+    linux_ui,
+    ["root.append(&workbench_overlay);", "root.append(&sidebar.footer);"],
+    "Linux independent synchronization footer",
+)
+if "workbench_overlay.add_overlay(&sidebar.footer)" in linux_ui:
+    raise SystemExit(
+        "desktop visual contract failed: Linux synchronization footer returned inside pane overlay"
+    )
+require(linux_css, ".sidebar-footer { min-height: 28px;", "Linux compact synchronization footer")
+
+
+# Linux cannot rely on the compositor masks used by Apple and Windows. Every
+# packaged launcher size must therefore have transparent corners of its own.
+for size in (16, 32, 64, 128, 256, 512):
+    relative = f"clients/linux/resources/icons/hicolor/{size}.png"
+    require(
+        linux_flatpak,
+        f"clients/linux/resources/icons/hicolor/{size}.png",
+        f"Linux {size}px packaged icon",
+    )
+    corners, centre = png_corner_alphas(relative)
+    if corners != [0, 0, 0, 0] or centre != 255:
+        raise SystemExit(
+            "desktop visual contract failed: "
+            f"Linux {size}px icon needs transparent corners and an opaque centre"
+        )
 
 print("PASS: macOS, Windows and Linux desktop visual contract")

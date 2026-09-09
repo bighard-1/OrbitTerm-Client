@@ -1387,23 +1387,19 @@ pub fn build_application_window(application: &adw::Application) {
         expand_left: expand_left.clone(),
         expand_right: expand_right.clone(),
     }));
-    // Keep sync and pre-input as two precisely-sized overlays instead of a
-    // full-width bottom row. The right tools pane can therefore use the full
-    // workbench height, including the area beside pre-input, without an empty
-    // spacer intercepting its bottom controls.
-    sidebar.footer.set_halign(Align::Start);
-    sidebar.footer.set_valign(Align::End);
-    sidebar.footer.set_size_request(300, 46);
-    workbench_overlay.add_overlay(&sidebar.footer);
+    // The synchronization footer is a workstation-level row on every desktop
+    // client. Keeping it outside the three-pane workbench makes both splitters
+    // terminate above the footer and keeps sync state visible when either side
+    // panel is collapsed.
     workspace.input_row.set_halign(Align::Start);
     workspace.input_row.set_valign(Align::End);
     workspace.input_row.set_size_request(680, -1);
     workbench_overlay.add_overlay(&workspace.input_row);
     root.append(&workbench_overlay);
+    root.append(&sidebar.footer);
 
     let overlay_for_bottom_layout = workbench_overlay.clone();
     let sidebar_for_bottom_layout = sidebar.root.clone();
-    let footer_for_bottom_layout = sidebar.footer.clone();
     let workspace_for_bottom_layout = workspace.root.clone();
     let input_for_bottom_layout = workspace.input_row.clone();
     let tools_for_bottom_layout = tools.root.clone();
@@ -1498,8 +1494,7 @@ pub fn build_application_window(application: &adw::Application) {
         } else {
             0
         };
-        footer_for_bottom_layout.set_size_request(left, 46);
-        sidebar_for_bottom_layout.set_margin_bottom(46);
+        sidebar_for_bottom_layout.set_margin_bottom(0);
         workspace_for_bottom_layout.set_margin_bottom(input_height);
         gtk::glib::ControlFlow::Continue
     });
@@ -2193,24 +2188,19 @@ fn build_sidebar(
     stack.add_named(&empty, Some("empty"));
     sidebar.append(stack);
 
-    let footer = gtk::Box::new(Orientation::Horizontal, 8);
+    let footer = gtk::Box::new(Orientation::Horizontal, 7);
     footer.add_css_class("sidebar-footer");
-    // Explicitly opt out of horizontal expansion. Child labels may request
-    // expansion internally, but the persistent sync module must retain the
-    // last asset-rail width when either upper pane is collapsed.
-    footer.set_hexpand(false);
+    footer.set_hexpand(true);
     let dot = gtk::Label::new(Some("●"));
     dot.add_css_class("status-idle");
     footer.append(&dot);
-    let sync_copy = gtk::Box::new(Orientation::Vertical, 0);
     let sync_title = gtk::Label::new(Some("同步状态"));
     sync_title.add_css_class("sidebar-footer-title");
     sync_title.set_xalign(0.0);
-    sync_copy.append(&sync_title);
-    sync_copy.append(sync_status);
-    sync_copy.set_hexpand(true);
-    footer.append(&sync_copy);
-    sync_status.set_hexpand(true);
+    footer.append(&sync_title);
+    footer.append(sync_status);
+    sync_status.set_hexpand(false);
+    sync_status.set_max_width_chars(90);
     let sync = gtk::Button::builder()
         .icon_name("view-refresh-symbolic")
         .tooltip_text("打开账户与同步")

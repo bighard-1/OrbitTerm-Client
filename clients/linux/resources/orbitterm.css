@@ -352,11 +352,11 @@ button label,
 
 .sidebar-footer-title {
   color: @orbit_muted;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
 }
 
-.sidebar-footer { min-height: 46px; padding: 6px 10px; }
+.sidebar-footer { min-height: 28px; padding: 4px 12px; }
 
 .status-bar { min-height: 24px; }
 .status-idle { color: @orbit_muted; font-size: 10px; opacity: 0.62; }

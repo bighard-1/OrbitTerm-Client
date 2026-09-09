@@ -14,6 +14,7 @@
 - 顶部 Logo、全局操作的数量、顺序、相对权重和可达性。
 - 端点与六项监控指标的顺序、卡片占比、曲线和详情入口。
 - 资产栏、终端工作区、会话工具三栏结构及其响应式折叠顺序。
+- 同步状态是位于三栏工作区之外的全宽独立底栏；三栏分割线必须在底栏上方终止，任何侧栏折叠都不得隐藏或改变底栏宽度。
 - 标签、终端、命令预输入、SFTP、Docker、Snippets 的信息层级。
 - 登录、注册、解锁和同步管理的任务拆分及字段顺序。
 - 设置分组顺序、五套应用主题、四套终端主题和语义状态色。
@@ -23,6 +24,7 @@
 
 - macOS 交通灯、Windows 标题栏按钮、Linux 桌面环境窗口按钮。
 - SF Symbols、Segoe Fluent Icons 和 Freedesktop symbolic icons 的具体字形。
+- 应用标志的主体、正方形比例和圆角轮廓必须一致；Linux 图标资源必须自带透明圆角，不依赖桌面环境代为裁切。
 - San Francisco、Segoe UI Variable、Adwaita Sans 的字面度量差异。
 - Command、Ctrl、Alt、Super 的平台惯用快捷键。
 - Touch ID、Windows Hello、Secret Service 等平台能力入口。
@@ -71,6 +73,8 @@ Windows 10 原生客户端，以及 macOS 当前构建的窗口几何与无障�
 - 端点后的 CPU、内存、磁盘、下载、上传、TCP 延迟顺序；
 - 资产/会话空状态文案、SFTP/Docker/Snippets 顺序；
 - 五套应用配色的名称和顺序。
+- 根级全宽同步底栏的层级、顺序和紧凑高度，以及 Linux 三栏分割线不得穿过底栏；
+- Linux Flatpak 六个 Hicolor 尺寸均来自专用图标集，且四角透明、中心不透明。
 
 该检查进入 Ubuntu 客户端检查以及独立跨桌面发布门禁，未来任一端单独改动上述
 合同都会直接失败。像素栅格、系统字体和窗口装饰不参与失败判定。

@@ -113,12 +113,12 @@
         "install -Dm755 clients/linux/target/release/orbitterm-linux /app/bin/orbitterm-linux",
         "install -Dm644 clients/linux/data/com.orbitterm.Client.desktop /app/share/applications/com.orbitterm.Client.desktop",
         "install -Dm644 clients/linux/data/com.orbitterm.Client.metainfo.xml /app/share/metainfo/com.orbitterm.Client.metainfo.xml",
-        "install -Dm644 OrbitTerm/Assets.xcassets/AppIcon.appiconset/mac-16@1x.png /app/share/icons/hicolor/16x16/apps/com.orbitterm.Client.png",
-        "install -Dm644 OrbitTerm/Assets.xcassets/AppIcon.appiconset/mac-32@1x.png /app/share/icons/hicolor/32x32/apps/com.orbitterm.Client.png",
-        "install -Dm644 OrbitTerm/Assets.xcassets/AppIcon.appiconset/mac-32@2x.png /app/share/icons/hicolor/64x64/apps/com.orbitterm.Client.png",
-        "install -Dm644 OrbitTerm/Assets.xcassets/AppIcon.appiconset/mac-128@1x.png /app/share/icons/hicolor/128x128/apps/com.orbitterm.Client.png",
-        "install -Dm644 OrbitTerm/Assets.xcassets/AppIcon.appiconset/mac-256@1x.png /app/share/icons/hicolor/256x256/apps/com.orbitterm.Client.png",
-        "install -Dm644 OrbitTerm/Assets.xcassets/AppIcon.appiconset/mac-512@1x.png /app/share/icons/hicolor/512x512/apps/com.orbitterm.Client.png",
+        "install -Dm644 clients/linux/resources/icons/hicolor/16.png /app/share/icons/hicolor/16x16/apps/com.orbitterm.Client.png",
+        "install -Dm644 clients/linux/resources/icons/hicolor/32.png /app/share/icons/hicolor/32x32/apps/com.orbitterm.Client.png",
+        "install -Dm644 clients/linux/resources/icons/hicolor/64.png /app/share/icons/hicolor/64x64/apps/com.orbitterm.Client.png",
+        "install -Dm644 clients/linux/resources/icons/hicolor/128.png /app/share/icons/hicolor/128x128/apps/com.orbitterm.Client.png",
+        "install -Dm644 clients/linux/resources/icons/hicolor/256.png /app/share/icons/hicolor/256x256/apps/com.orbitterm.Client.png",
+        "install -Dm644 clients/linux/resources/icons/hicolor/512.png /app/share/icons/hicolor/512x512/apps/com.orbitterm.Client.png",
         "install -Dm644 third_party/freerdp/linux-manifest.json /app/share/orbitterm/third-party/freerdp-linux-manifest.json"
       ],
       "sources": [
