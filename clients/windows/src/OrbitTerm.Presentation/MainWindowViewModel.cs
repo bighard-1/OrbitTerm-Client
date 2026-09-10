@@ -4532,11 +4532,14 @@ public sealed class MainWindowViewModel : ObservableObject
                 SftpOperationStatus = string.Concat("Saved ", savedPath);
                 SftpPreviewStatus = string.Create(
                     System.Globalization.CultureInfo.InvariantCulture,
-                    $"Saved {System.Text.Encoding.UTF8.GetByteCount(SftpPreviewText)} B to {savedPath}");
+                    $"保存成功：已写入 {System.Text.Encoding.UTF8.GetByteCount(SftpPreviewText)} B。关闭后重新打开可继续编辑。");
+                PublishSftpFeedback(SftpFeedbackKind.Success, "保存完成", savedPath);
                 NotifySftpEditorStateChanged();
                 break;
             case SftpMutationResult.Failed failed:
                 SftpOperationStatus = FormatSftpMutationFailure(failed);
+                SftpPreviewStatus = string.Concat("保存失败：", SftpOperationStatus);
+                PublishSftpFeedback(SftpFeedbackKind.Error, "保存失败", SftpOperationStatus);
                 break;
         }
 
@@ -4561,6 +4564,8 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             case SftpOpenResult.Opened opened:
                 sftpLease = opened.Lease;
+                SftpPathText = opened.Lease.HomePath;
+                RebuildSftpBreadcrumbs(SftpPathText);
                 var transferContext = GetCurrentSftpTransferContext();
                 SftpStatus = "SFTP channel open";
                 SftpBrowserStatus = "SFTP browser ready";
@@ -6768,7 +6773,11 @@ public sealed class MainWindowViewModel : ObservableObject
                 break;
             case SftpDownloadResult.Failed failed:
                 SetSftpOperationStatusForOwner(owner, failed.Code);
-                var failedStatus = string.Concat("下载失败：", selected.Name, "。请确认连接状态；如已断线，重新连接原资产后重试。");
+                var failedStatus = string.Concat(
+                    "下载失败：",
+                    selected.Name,
+                    "。",
+                    FormatSftpTransferFailure(failed.DetailCode, isUpload: false));
                 SetSftpTransferStatus(transferContext, failedStatus);
                 SetSftpTransferRetries(transferContext, SftpTransferRetryRequest.ForDownload(selected, localPath), null);
                 PublishSftpFeedbackForContext(transferContext, SftpFeedbackKind.Error, "下载失败", failedStatus);
@@ -7405,7 +7414,11 @@ public sealed class MainWindowViewModel : ObservableObject
                 break;
             case SftpUploadResult.Failed failed:
                 SetSftpOperationStatusForOwner(owner, failed.Code);
-                var failedStatus = string.Concat("上传失败：", localFileName, "。请确认网络和连接状态；如已断线，重新连接原资产后重试。");
+                var failedStatus = string.Concat(
+                    "上传失败：",
+                    localFileName,
+                    "。",
+                    FormatSftpTransferFailure(failed.DetailCode, isUpload: true));
                 SetSftpTransferStatus(transferContext, failedStatus);
                 SetSftpTransferRetries(transferContext, SftpTransferRetryRequest.ForUpload(localPath, remotePath), null);
                 PublishSftpFeedbackForContext(transferContext, SftpFeedbackKind.Error, "上传失败", failedStatus);
@@ -9918,11 +9931,43 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private static string FormatSftpMutationFailure(SftpMutationResult.Failed failed)
     {
-        return failed.Code switch
+        return failed.DetailCode switch
         {
-            "sftp_entry_changed" => "Entry changed on the server; refresh before retrying",
-            "sftp_target_exists" => "A destination or OrbitTerm recovery file already exists",
-            _ => failed.Code,
+            "permission_denied" or "sftp_permission_denied" =>
+                "远程目录或文件权限不足，请选择可写目录或调整权限后重试。",
+            "sftp_target_exists" or "sftp_destination_exists" =>
+                "远程已存在同名项目，请更换名称后重试。",
+            "sftp_entry_changed" => "远程项目已变更，请刷新目录并重新打开后重试。",
+            "sftp_session_unavailable" or "sftp_connection_closed" or "sftp_generation_mismatch" =>
+                "SFTP 会话已中断，请重新连接该资产后重试。",
+            _ => failed.Code switch
+            {
+                "sftp_entry_changed" => "远程项目已变更，请刷新后重试。",
+                "sftp_target_exists" => "远程已存在同名项目，请更名后重试。",
+                _ => "远程操作未完成，请检查会话和目标权限后重试。",
+            },
+        };
+    }
+
+    private static string FormatSftpTransferFailure(string? detailCode, bool isUpload)
+    {
+        return detailCode switch
+        {
+            "sftp_permission_denied" => isUpload
+                ? "当前远程目录不可写，请返回登录主目录或选择有写入权限的目录。"
+                : "远端拒绝读取该文件，请检查文件权限。",
+            "sftp_destination_exists" => isUpload
+                ? "远端已存在同名文件；为防止覆盖，请改名后重试。"
+                : "本地目标已存在，请选择其他文件名。",
+            "sftp_no_space_left" => isUpload
+                ? "远端存储空间不足。"
+                : "本地存储空间不足。",
+            "sftp_source_not_found" => "源文件已移动或删除，请刷新目录后重试。",
+            "sftp_connection_closed" or "sftp_generation_mismatch" =>
+                "SFTP 会话已中断，请重新连接该资产后重试。",
+            "sftp_local_io_failed" => "本地文件或目标目录不可访问，请重新选择位置。",
+            "sftp_transfer_cancelled" => "传输已取消。",
+            _ => "请检查连接与目标目录权限；可在“最近操作”中查看完整提示后重试。",
         };
     }
 

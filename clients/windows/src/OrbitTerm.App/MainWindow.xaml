@@ -1222,16 +1222,29 @@
                                    CloseButtonText="关闭"
                                    DefaultButton="Close"
                                    AutomationProperties.Name="Snippets 命令片段管理">
-                    <ScrollViewer Width="540" MaxHeight="620"
+                    <ScrollViewer Width="560" MaxHeight="620"
                                   VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Spacing="8">
-                    <Grid ColumnDefinitions="*,Auto,Auto"
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto"
                           ColumnSpacing="8">
-                        <TextBlock Text="快捷指令"
+                        <StackPanel Spacing="2">
+                        <TextBlock Text="命令片段"
                                    FontWeight="SemiBold"
                                    VerticalAlignment="Center" />
+                        <TextBlock Text="跨资产管理；连接 SSH 会话后可插入或执行"
+                                   FontSize="12"
+                                   Foreground="{StaticResource OrbitMutedTextBrush}" />
+                        </StackPanel>
                         <Button Grid.Column="1"
+                                Style="{StaticResource OrbitIconButtonStyle}"
+                                Command="{Binding SaveLatestCommandAsSnippetCommand}"
+                                ToolTipService.ToolTip="从最近终端命令保存片段"
+                                AutomationProperties.Name="从最近终端命令保存片段">
+                            <FontIcon Glyph="&#xE823;"
+                                      FontSize="14" />
+                        </Button>
+                        <Button Grid.Column="2"
                                 Style="{StaticResource OrbitIconButtonStyle}"
                                 Click="CreateSnippetClick"
                                 ToolTipService.ToolTip="新建快捷指令"
@@ -1239,7 +1252,7 @@
                             <FontIcon Glyph="&#xE710;"
                                       FontSize="14" />
                         </Button>
-                        <Button Grid.Column="2"
+                        <Button Grid.Column="3"
                                 Style="{StaticResource OrbitIconButtonStyle}"
                                 Click="EditSnippetClick"
                                 IsEnabled="{Binding HasSelectedSnippet}"
@@ -1249,12 +1262,7 @@
                                       FontSize="14" />
                         </Button>
                     </Grid>
-                    <Button Command="{Binding SaveLatestCommandAsSnippetCommand}"
-                            HorizontalAlignment="Left"
-                            Content="保存最近终端命令"
-                            AutomationProperties.Name="保存最近终端命令为快捷指令"
-                            ToolTipService.ToolTip="将当前会话最近发送的命令保存为快捷指令" />
-                    <TextBox PlaceholderText="搜索快捷指令"
+                    <TextBox PlaceholderText="搜索标题 / 命令 / 分类"
                              Text="{Binding SnippetQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                              AutomationProperties.Name="搜索快捷指令" />
                     <ListView ItemsSource="{Binding Source={StaticResource GroupedSnippets}}"
@@ -1283,25 +1291,41 @@
                         </ListView.GroupStyle>
                         <ListView.ItemTemplate>
                             <DataTemplate>
-                                <Border Height="62" Padding="8,6"
+                                <Border MinHeight="86" Padding="10,8"
                                         CornerRadius="{StaticResource OrbitCornerRadius}"
                                         Background="{StaticResource OrbitPanelBrush}"
                                         BorderBrush="{StaticResource OrbitPanelStrokeBrush}"
                                         BorderThickness="1">
-                                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                                    <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto,Auto"
+                                          ColumnSpacing="6" RowSpacing="3">
                                         <TextBlock Text="{Binding Title}"
                                                    FontWeight="SemiBold"
                                                    TextTrimming="CharacterEllipsis" />
-                                        <Border Grid.Column="1" Padding="5,1" CornerRadius="6"
+                                        <Border Grid.Column="1" Grid.ColumnSpan="2"
+                                                MinWidth="64" Padding="7,2" CornerRadius="6"
+                                                HorizontalAlignment="Right"
                                                 Background="{StaticResource OrbitMetricBrush}">
                                             <TextBlock Text="{Binding ScopeDisplay}" FontSize="12"
+                                                       TextWrapping="NoWrap"
                                                        Foreground="{StaticResource OrbitMutedTextBrush}" />
                                         </Border>
-                                        <TextBlock Grid.Row="1" Grid.ColumnSpan="2"
+                                        <TextBlock Grid.Row="1" Grid.ColumnSpan="3"
                                                    Text="{Binding Command}"
                                                    FontFamily="Consolas" FontSize="12"
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                    TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Row="2" Text="{Binding Category}"
+                                                   FontSize="12"
+                                                   Foreground="{StaticResource OrbitMutedTextBrush}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <Button Grid.Row="2" Grid.Column="1" Content="插入"
+                                                Tag="{Binding}" Click="SnippetContextInsertClick"
+                                                Padding="10,3" MinHeight="26"
+                                                IsEnabled="{Binding DataContext.IsTerminalOpen, ElementName=Root}" />
+                                        <Button Grid.Row="2" Grid.Column="2" Content="执行"
+                                                Tag="{Binding}" Click="SnippetContextExecuteClick"
+                                                Padding="10,3" MinHeight="26"
+                                                IsEnabled="{Binding DataContext.IsTerminalOpen, ElementName=Root}" />
                                         <Grid.ContextFlyout>
                                             <MenuFlyout>
                                                 <MenuFlyoutItem Text="编辑" Tag="{Binding}" Click="SnippetContextEditClick" />
@@ -1352,14 +1376,15 @@
                     </Grid>
                     <Grid x:Name="SftpFeedbackHost"
                           Grid.Row="1"
-                          Height="48"
+                          MinHeight="48"
+                          MaxHeight="104"
                           Visibility="Collapsed">
                         <Grid x:Name="SftpFeedbackLayer"
                               Opacity="0"
                               Visibility="Collapsed"
                               IsHitTestVisible="False"
                               AutomationProperties.LiveSetting="Polite">
-                        <InfoBar Height="46"
+                        <InfoBar MinHeight="46"
                                  IsOpen="{Binding IsSftpFeedbackInProgress}"
                                  IsClosable="False"
                                  Severity="Informational"
@@ -1374,21 +1399,21 @@
                                 </Grid>
                             </InfoBar.Content>
                         </InfoBar>
-                        <InfoBar Height="46"
+                        <InfoBar MinHeight="46"
                                  IsOpen="{Binding IsSftpFeedbackSuccess}"
                                  IsClosable="False"
                                  Severity="Success"
                                  Title="{Binding SftpFeedbackTitle}"
                                  Message="{Binding SftpFeedbackMessage}"
                                  ToolTipService.ToolTip="{Binding SftpFeedbackMessage}" />
-                        <InfoBar Height="46"
+                        <InfoBar MinHeight="46"
                                  IsOpen="{Binding IsSftpFeedbackWarning}"
                                  IsClosable="False"
                                  Severity="Warning"
                                  Title="{Binding SftpFeedbackTitle}"
                                  Message="{Binding SftpFeedbackMessage}"
                                  ToolTipService.ToolTip="{Binding SftpFeedbackMessage}" />
-                        <InfoBar Height="46"
+                        <InfoBar MinHeight="46"
                                  IsOpen="{Binding IsSftpFeedbackError}"
                                  IsClosable="False"
                                  Severity="Error"
@@ -1456,6 +1481,8 @@
                                    FontSize="12" TextTrimming="CharacterEllipsis" />
                     </Grid>
                     <ListView x:Name="SftpEntriesList" Grid.Row="3" ItemsSource="{Binding SftpEntries}"
+                              ScrollViewer.VerticalScrollBarVisibility="Hidden"
+                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                               SelectedItem="{Binding SelectedSftpEntry, Mode=TwoWay}"
                               AutomationProperties.Name="SFTP 当前目录文件列表"
                               AutomationProperties.HelpText="使用方向键选择项目。Enter 打开，F2 重命名，Delete 删除，Shift+F10 打开管理菜单。"
@@ -1557,6 +1584,8 @@
                             </Grid>
                             <Grid x:Name="ActiveSftpTransfersContent" Grid.Row="1">
                                 <ListView ItemsSource="{Binding ActiveSftpTransferTasks}"
+                                          ScrollViewer.VerticalScrollBarVisibility="Hidden"
+                                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                           SelectionMode="None" MaxHeight="145"
                                           AutomationProperties.Name="SFTP 进行中任务">
                                     <ListView.ItemContainerStyle>
@@ -1623,6 +1652,8 @@
                             <Grid x:Name="CompletedSftpTransfersContent" Grid.Row="1"
                                   Visibility="Collapsed">
                                 <ListView ItemsSource="{Binding CompletedSftpTransferTasks}"
+                                          ScrollViewer.VerticalScrollBarVisibility="Hidden"
+                                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                           SelectionMode="None" MaxHeight="145"
                                           AutomationProperties.Name="SFTP 已完成任务">
                                     <ListView.ItemContainerStyle>

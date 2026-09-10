@@ -52,6 +52,7 @@ public sealed partial class MainWindow : Window
 
     private bool isSftpDialogOpen;
     private bool isSnippetDialogOpen;
+    private bool isSnippetsManagerOpen;
     private bool isDockerDialogOpen;
     private DockerLogWindow? activeDockerLogWindow;
     private bool isAssetDialogOpen;
@@ -341,8 +342,48 @@ public sealed partial class MainWindow : Window
 
     private async void ShowSnippetsClick(object sender, RoutedEventArgs e)
     {
-        SnippetsDialog.XamlRoot = Root.XamlRoot;
-        await SnippetsDialog.ShowAsync();
+        await ShowSnippetsManagerAsync();
+    }
+
+    private async Task ShowSnippetsManagerAsync()
+    {
+        if (isSnippetsManagerOpen)
+        {
+            return;
+        }
+
+        isSnippetsManagerOpen = true;
+        try
+        {
+            SnippetsDialog.XamlRoot = Root.XamlRoot;
+            await SnippetsDialog.ShowAsync();
+        }
+        finally
+        {
+            isSnippetsManagerOpen = false;
+        }
+    }
+
+    private async Task RunWithSnippetsManagerSuspendedAsync(Func<Task> action)
+    {
+        var reopenManager = isSnippetsManagerOpen;
+        if (reopenManager)
+        {
+            SnippetsDialog.Hide();
+            await Task.Yield();
+        }
+
+        try
+        {
+            await action();
+        }
+        finally
+        {
+            if (reopenManager)
+            {
+                await ShowSnippetsManagerAsync();
+            }
+        }
     }
 
     private void MainWindowActivated(object sender, WindowActivatedEventArgs args)
@@ -4412,19 +4453,19 @@ public sealed partial class MainWindow : Window
             };
             var saveButton = new Button
             {
-                Content = "保存到远端",
-                IsEnabled = ViewModel.CanEditSftpPreview,
+                Content = "保存",
+                IsEnabled = ViewModel.CanSaveSftpPreview,
                 Style = ResourceStyle("OrbitWideActionButtonStyle"),
             };
             var revertButton = new Button
             {
-                Content = "还原修改",
-                IsEnabled = ViewModel.CanEditSftpPreview,
+                Content = "还原",
+                IsEnabled = ViewModel.IsSftpPreviewDirty,
                 Style = ResourceStyle("OrbitWideActionButtonStyle"),
             };
             var copyButton = new Button
             {
-                Content = "复制内容",
+                Content = "复制",
                 Style = ResourceStyle("OrbitWideActionButtonStyle"),
             };
             var discardButton = new Button
@@ -4449,8 +4490,13 @@ public sealed partial class MainWindow : Window
                     return;
                 }
 
+                saveButton.IsEnabled = false;
+                status.Text = "正在核对远端文件并安全保存…";
                 await ViewModel.SaveSftpPreviewAsync(CancellationToken.None);
                 status.Text = ViewModel.SftpPreviewStatus;
+                saveButton.IsEnabled = ViewModel.CanSaveSftpPreview;
+                revertButton.IsEnabled = ViewModel.IsSftpPreviewDirty;
+                editor.IsReadOnly = !ViewModel.CanEditSftpPreview;
             };
             revertButton.Click += (_, _) =>
             {
@@ -4465,25 +4511,31 @@ public sealed partial class MainWindow : Window
                 Clipboard.SetContent(package);
                 status.Text = "内容已复制到剪贴板。";
             };
+            editor.TextChanged += (_, _) =>
+            {
+                saveButton.IsEnabled = ViewModel.CanSaveSftpPreview;
+                revertButton.IsEnabled = ViewModel.IsSftpPreviewDirty;
+            };
 
-            var actions = new Grid { ColumnSpacing = 8, RowSpacing = 8 };
-            actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var actions = new Grid { ColumnSpacing = 8, RowSpacing = 8, HorizontalAlignment = HorizontalAlignment.Stretch };
+            actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             actions.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             actions.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            Grid.SetColumn(revertButton, 1);
-            Grid.SetColumn(copyButton, 2);
+            Grid.SetColumn(revertButton, 0);
+            Grid.SetColumn(copyButton, 1);
+            Grid.SetColumn(saveButton, 2);
             Grid.SetRow(discardButton, 1);
             Grid.SetRow(keepEditingButton, 1);
             Grid.SetColumn(keepEditingButton, 1);
-            actions.Children.Add(saveButton);
             actions.Children.Add(revertButton);
             actions.Children.Add(copyButton);
+            actions.Children.Add(saveButton);
             actions.Children.Add(discardButton);
             actions.Children.Add(keepEditingButton);
 
-            var content = new StackPanel { Spacing = 10, MinWidth = 680 };
+            var content = new StackPanel { Spacing = 10, MinWidth = 560 };
             content.Children.Add(new TextBlock
             {
                 Text = selected?.Path ?? ViewModel.SftpPathText,
@@ -4493,15 +4545,15 @@ public sealed partial class MainWindow : Window
             });
             content.Children.Add(encoding);
             content.Children.Add(status);
-            content.Children.Add(actions);
             content.Children.Add(editor);
+            content.Children.Add(actions);
 
             var dialog = new ContentDialog
             {
                 XamlRoot = Root.XamlRoot,
                 Title = string.Concat("文本预览 · ", selected?.Name ?? "远程文件"),
                 Content = content,
-                CloseButtonText = "关闭编辑器",
+                CloseButtonText = "关闭",
                 DefaultButton = ContentDialogButton.Close,
             };
             var allowDiscard = false;
@@ -4930,7 +4982,7 @@ public sealed partial class MainWindow : Window
 
     private async void CreateSnippetClick(object sender, RoutedEventArgs e)
     {
-        await ShowSnippetEditorAsync(null);
+        await RunWithSnippetsManagerSuspendedAsync(() => ShowSnippetEditorAsync(null));
     }
 
     private async void CreateAssetClick(object sender, RoutedEventArgs e)
@@ -5859,7 +5911,7 @@ public sealed partial class MainWindow : Window
     {
         if (ViewModel.SelectedSnippet is { } selected)
         {
-            await ShowSnippetEditorAsync(selected);
+            await RunWithSnippetsManagerSuspendedAsync(() => ShowSnippetEditorAsync(selected));
         }
     }
 
@@ -5867,7 +5919,7 @@ public sealed partial class MainWindow : Window
     {
         if (SelectContextSnippet(sender) && ViewModel.SelectedSnippet is { } selected)
         {
-            await ShowSnippetEditorAsync(selected);
+            await RunWithSnippetsManagerSuspendedAsync(() => ShowSnippetEditorAsync(selected));
         }
     }
 
@@ -5875,23 +5927,23 @@ public sealed partial class MainWindow : Window
     {
         if (SelectContextSnippet(sender))
         {
-            await InsertSelectedSnippetIntoTerminalAsync();
+            await RunWithSnippetsManagerSuspendedAsync(InsertSelectedSnippetIntoTerminalAsync);
         }
     }
 
-    private void SnippetContextExecuteClick(object sender, RoutedEventArgs e)
+    private async void SnippetContextExecuteClick(object sender, RoutedEventArgs e)
     {
         if (SelectContextSnippet(sender))
         {
-            ExecuteSnippetClick(sender, e);
+            await RunWithSnippetsManagerSuspendedAsync(ExecuteSelectedSnippetAsync);
         }
     }
 
-    private void SnippetContextDeleteClick(object sender, RoutedEventArgs e)
+    private async void SnippetContextDeleteClick(object sender, RoutedEventArgs e)
     {
         if (SelectContextSnippet(sender))
         {
-            DeleteSnippetClick(sender, e);
+            await RunWithSnippetsManagerSuspendedAsync(DeleteSelectedSnippetAsync);
         }
     }
 
@@ -5988,6 +6040,11 @@ public sealed partial class MainWindow : Window
 
     private async void DeleteSnippetClick(object sender, RoutedEventArgs e)
     {
+        await RunWithSnippetsManagerSuspendedAsync(DeleteSelectedSnippetAsync);
+    }
+
+    private async Task DeleteSelectedSnippetAsync()
+    {
         if (isSnippetDialogOpen || ViewModel.SelectedSnippet is not { } selected)
         {
             return;
@@ -6048,6 +6105,11 @@ public sealed partial class MainWindow : Window
     }
 
     private async void ExecuteSnippetClick(object sender, RoutedEventArgs e)
+    {
+        await ExecuteSelectedSnippetAsync();
+    }
+
+    private async Task ExecuteSelectedSnippetAsync()
     {
         var command = await ResolveSelectedSnippetAsync();
         if (command is not null)

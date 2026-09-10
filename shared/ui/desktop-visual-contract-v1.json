@@ -5,7 +5,14 @@
     "minimum_width": 980,
     "minimum_height": 700,
     "preferred_width": 1280,
-    "preferred_height": 800
+    "preferred_height": 800,
+    "platform_compact_minimum": {
+      "linux": {
+        "width": 820,
+        "height": 560,
+        "collapse_side_panes_first": true
+      }
+    }
   },
   "chrome": {
     "command_lane_height": 36,
@@ -46,7 +53,9 @@
     "detail_width": 54,
     "gap": 6,
     "card_corner_radius": 10,
-    "sparkline_height": 10
+    "sparkline_height": 10,
+    "network_rate_base_unit": "kilobits_per_second",
+    "network_rate_display_units": ["Kbps", "Mbps", "Gbps"]
   },
   "spacing": [4, 8, 12, 16, 24],
   "radii": {
@@ -60,6 +69,24 @@
     "card_max_width": 560,
     "form_horizontal_padding": 24,
     "form_vertical_padding": 26
+  },
+  "snippets": {
+    "card_fields": ["title", "command", "category", "asset_scope"],
+    "primary_actions": ["insert", "execute"],
+    "header_actions": ["search", "save_from_history", "create"],
+    "secondary_actions": ["edit", "delete"],
+    "scope_labels": {
+      "all": "全部资产",
+      "restricted_pattern": "限 {count} 台资产"
+    }
+  },
+  "sftp": {
+    "navigation_actions": ["parent", "path", "refresh", "overflow"],
+    "editor_actions": ["revert", "copy", "save", "cancel"],
+    "transfer_queue_initially_expanded": false,
+    "scrolling_requires_visible_scrollbar": false,
+    "error_message_must_wrap": true,
+    "raw_bridge_error_visible": false
   },
   "native_exceptions": [
     "window_controls",

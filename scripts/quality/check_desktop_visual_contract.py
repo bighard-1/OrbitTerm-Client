@@ -88,11 +88,15 @@ mac_metrics = read("OrbitTerm/Features/Home/WorkstationLayoutMetrics.swift")
 mac_monitor = read("OrbitTerm/Features/Home/WorkstationMonitorCardView.swift")
 mac_assets = read("OrbitTerm/Features/Home/WorkstationAssetSidebarView.swift")
 mac_right = read("OrbitTerm/Features/Home/WorkstationRightPanelView.swift")
+mac_snippets = read("OrbitTerm/Features/Home/SnippetsPanelView.swift")
+mac_sftp_dialogs = read("OrbitTerm/Features/Home/WorkstationSFTPDialogs.swift")
+mac_terminal = read("OrbitTerm/Features/Home/SwiftTermTerminalView.swift")
 mac_themes = read("OrbitTerm/Core/Appearance/AppThemeID.swift")
 
 windows_xaml = read("clients/windows/src/OrbitTerm.App/MainWindow.xaml")
 windows_main = read("clients/windows/src/OrbitTerm.App/MainWindow.xaml.cs")
 windows_view_model = read("clients/windows/src/OrbitTerm.Presentation/MainWindowViewModel.cs")
+windows_snippet_view_model = read("clients/windows/src/OrbitTerm.Presentation/SnippetViewModel.cs")
 windows_tokens = read("clients/windows/src/OrbitTerm.App/Resources/OrbitTermTokens.xaml")
 
 linux_ui = read("clients/linux/crates/orbit-linux-app/src/ui.rs")
@@ -105,9 +109,11 @@ linux_flatpak = read("clients/linux/packaging/flatpak/com.orbitterm.Client.json"
 require(mac_shell, ".frame(minWidth: 980, minHeight: 700)", "macOS minimum window")
 require(windows_main, "public const int MinimumWindowWidth = 980;", "Windows minimum width")
 require(windows_main, "public const int MinimumWindowHeight = 700;", "Windows minimum height")
-require(linux_ui, ".width_request(980)", "Linux minimum width")
-require(linux_ui, ".height_request(700)", "Linux minimum height")
-require(linux_css, "desktop-only, 980px minimum", "Linux documented minimum")
+require(linux_ui, ".width_request(820)", "Linux compact minimum width")
+require(linux_ui, ".height_request(560)", "Linux compact minimum height")
+require(linux_ui, ".resizable(true)", "Linux resizable native window")
+require(linux_ui, "install_window_resize_handles", "Linux discoverable resize edges")
+require(linux_css, "desktop-only, 820px compact minimum", "Linux documented compact minimum")
 
 
 # Window-relative panel ratios and hard usability limits.
@@ -240,6 +246,20 @@ require(mac_main, ".sheet(isPresented: $showingSnippets)", "macOS standalone Sni
 require(windows_xaml, 'x:Name="SnippetsDialog"', "Windows standalone Snippets")
 require(linux_ui, "fn present_snippets_window", "Linux standalone Snippets")
 
+# Snippets presents one shared card vocabulary and keeps create/history in the
+# header while native sheet/dialog mechanics remain platform-owned.
+for text, label in (
+    (mac_snippets, "macOS Snippets"),
+    (windows_xaml + windows_snippet_view_model, "Windows Snippets"),
+    (linux_ui, "Linux Snippets"),
+):
+    for fragment in ("跨资产管理", "插入", "执行", "全部资产"):
+        require(text, fragment, label)
+require(mac_snippets, "限 \(snippet.assetScope.assetIDs.count) 台资产", "macOS restricted Snippet scope")
+require(windows_snippet_view_model, '$"限 {EffectiveAssetScope.AssetIds.Count} 台资产"', "Windows restricted Snippet scope")
+require(linux_ui, 'format!("限 {} 台资产"', "Linux restricted Snippet scope")
+require(windows_main, "RunWithSnippetsManagerSuspendedAsync", "Windows nested Snippet editor transition")
+
 
 # SFTP keeps only navigation, path, refresh and one overflow entry in its
 # visible chrome. Current-directory and item mutations remain available from
@@ -252,6 +272,26 @@ require(windows_xaml, '<Expander Grid.Row="4" IsExpanded="False"', "Windows coll
 require(linux_ui, "sftp_transfers.set_expanded(false);", "Linux collapsed transfer queue")
 require(windows_xaml, 'ContextRequested="SftpSurfaceContextRequested"', "Windows directory context menu")
 require(linux_ui, 'icon_name("view-more-symbolic")', "Linux compact SFTP overflow")
+for text, label in (
+    (mac_sftp_dialogs, "macOS SFTP editor"),
+    (windows_main, "Windows SFTP editor"),
+    (linux_ui, "Linux SFTP editor"),
+):
+    for fragment in ('"还原"', '"复制"', '"保存"'):
+        require(text, fragment, label)
+for fragment in (
+    'ScrollViewer.VerticalScrollBarVisibility="Hidden"',
+    'ScrollViewer.HorizontalScrollBarVisibility="Disabled"',
+):
+    require(windows_xaml, fragment, "Windows hidden decorative SFTP scrollbars")
+require(windows_xaml, 'MaxHeight="104"', "Windows wrapping SFTP feedback")
+
+# Platform-specific rendering fixes remain guarded by deterministic source
+# checks so future refactors cannot silently restore the reported regressions.
+for unit in ("Kbps", "Mbps", "Gbps"):
+    require(linux_ui, unit, "Linux adaptive network unit")
+require(mac_terminal, ".padding(.horizontal, 7)", "macOS terminal horizontal optical inset")
+require(mac_terminal, ".padding(.vertical, 5)", "macOS terminal vertical optical inset")
 
 
 # Restore rails share the same top inset and height. Linux command pre-input

@@ -1,6 +1,6 @@
 use orbit_linux_bridge::{
     decimal_id, register_terminal_output, BridgeError, CheckedConnectionRequest, CheckedCoreClient,
-    RequestId,
+    RequestId, SftpEntrySnapshot,
 };
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -68,10 +68,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("checked exec marker mismatch".into());
     }
 
-    let sftp = core.open_sftp(base_session_id, &RequestId::new())?;
-    let sftp_session_id = decimal_id(sftp.require_kind("sftp_channel_opened")?, "sftp_session_id")?;
-    core.list_sftp(sftp_session_id, "/", &RequestId::new())?
-        .require_kind("sftp_directory_list")?;
+    let sftp = core.open_sftp_session(base_session_id)?;
+    let sftp_session_id = sftp.id;
+    core.list_sftp_directory(sftp_session_id, &sftp.home_path)?;
+
+    let marker = b"OrbitTerm checked SFTP round trip\n";
+    let local_source = directory.path().join("sftp-upload.txt");
+    let local_download = directory.path().join("sftp-download.txt");
+    std::fs::write(&local_source, marker)?;
+    let remote_name = format!(".orbitterm-sftp-smoke-{}.txt", std::process::id());
+    let remote_path = format!("{}/{}", sftp.home_path.trim_end_matches('/'), remote_name);
+    core.upload_sftp_file(
+        sftp_session_id,
+        local_source
+            .to_str()
+            .ok_or("local upload path is not UTF-8")?,
+        &remote_path,
+    )?;
+    core.download_sftp_file(
+        sftp_session_id,
+        &remote_path,
+        local_download
+            .to_str()
+            .ok_or("local download path is not UTF-8")?,
+    )?;
+    if std::fs::read(&local_download)? != marker {
+        return Err("checked SFTP round-trip marker mismatch".into());
+    }
+    let listing = core.list_sftp_directory(sftp_session_id, &sftp.home_path)?;
+    let uploaded = listing
+        .entries
+        .iter()
+        .find(|entry| entry.name == remote_name)
+        .ok_or("checked SFTP upload did not appear in home listing")?;
+    core.remove_sftp_entry(
+        sftp_session_id,
+        &remote_path,
+        &SftpEntrySnapshot::from(uploaded),
+    )?;
     core.close_sftp(sftp_session_id)?;
 
     let docker = core.docker_list(base_session_id, &RequestId::new())?;

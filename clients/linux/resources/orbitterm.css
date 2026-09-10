@@ -5,7 +5,7 @@
  * tone: technical utilitarian · palette anchor: Adwaita cobalt accent · enrichment: none
  * nav: desktop asset sidebar · footer: status line
  * contrast: pass (40–41) · honest: pass (46) · chrome: pass (47) · tokens: pass (48)
- * responsive: desktop-only, 980px minimum · icons: pass (30) · slop: pass (native-app applicable gates)
+ * responsive: desktop-only, 820px compact minimum · icons: pass (30) · slop: pass (native-app applicable gates)
  * mobile: not applicable (native desktop client) · interactive states: GTK native + explicit focus/disabled
  */
 .orbitterm-window {

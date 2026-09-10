@@ -83,9 +83,10 @@ a skin: every client implements one shared hierarchy with native controls.
 - The window is a responsive canvas, not a collection of screenshot-sized
   rectangles. Width-sensitive elements use available width, a preferred ratio,
   and explicit minimum and maximum values.
-- The supported minimum content size is 980 x 700 logical pixels. The preferred
-  first-launch size is 1280 x 800. At the minimum size, the terminal remains at
-  least 560 logical pixels wide.
+- The fully expanded three-pane minimum is 980 x 700 logical pixels. The
+  preferred first-launch size is 1280 x 800. Linux additionally supports an
+  820 x 560 compact window for lower-resolution desktops; the side panes must
+  collapse before the terminal is allowed below 560 logical pixels wide.
 - The asset pane prefers 300 logical pixels, may occupy 19–25% of the window,
   and is clamped to 220–320. The tool inspector prefers 328 logical pixels, may
   occupy 22–30%, and is clamped to 280–420.
@@ -96,6 +97,8 @@ a skin: every client implements one shared hierarchy with native controls.
 - The top command lane is 36 logical pixels high. The overview lane is compact:
   34–40 logical pixels, with endpoint and six equal-width monitoring cards plus
   a fixed 54-pixel detail action. Cards expand and contract with the window.
+  Network throughput is sourced as decimal kilobits per second and promotes
+  consistently through Kbps, Mbps and Gbps; byte-rate labels are not used.
 - The terminal and tool inspector own all remaining height. Status or pre-input
   controls must not reserve an empty full-width row beneath the tool inspector.
 
@@ -120,8 +123,19 @@ and overflow. Upload/create operations live in the overflow and current-folder
 context menu; item-specific open, download, rename, permissions and delete
 operations live in each file row's context menu. The transfer queue is always
 present at the bottom of SFTP but starts collapsed with a one-line summary.
+Transfer failures use a complete, wrapping, actionable message while retaining
+redacted stable error codes; a raw bridge or core exception is never shown to
+the user. Text editing uses the same Revert, Copy, Save and Cancel actions on
+all desktops. List scrolling remains available even when decorative scrollbars
+are hidden.
 Collapsed pane restore controls use the same 12-pixel top inset and 72-pixel
 interaction lane on every desktop.
+
+The Snippets manager always exposes the same primary content: title, command,
+category, asset scope ("All assets" or a concrete restricted count), Insert and
+Execute. Search, history save and create live in the manager header; edit and
+delete remain secondary management actions. Native menus and sheet transitions
+may differ, but no platform may hide a primary action behind selection alone.
 
 ## Surfaces and interaction
 

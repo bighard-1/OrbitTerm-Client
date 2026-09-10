@@ -1039,12 +1039,13 @@ pub fn build_application_window(application: &adw::Application) {
     let window = adw::ApplicationWindow::builder()
         .application(application)
         .title("OrbitTerm")
-        .default_width(1280)
-        .default_height(800)
-        // The three-pane workbench needs enough room for a useful terminal,
-        // a complete asset rail and the three labelled tool tabs.
-        .width_request(980)
-        .height_request(700)
+        .default_width(1180)
+        .default_height(740)
+        // GTK's width/height requests are hard minimums. Keep a compact floor
+        // for 1024x600-class desktops; the responsive workbench automatically
+        // collapses the tool inspector before the terminal becomes unusable.
+        .width_request(820)
+        .height_request(560)
         .resizable(true)
         .build();
     window.add_css_class("orbitterm-window");
@@ -2030,7 +2031,8 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
         overlay.add_overlay(&handle);
     };
 
-    // Twelve-pixel handles are easy to discover on high-DPI displays while
+    // Ten-pixel edges and eighteen-pixel corners are easy to discover on
+    // high-DPI displays while
     // remaining visually transparent. Corners are added after edges so their
     // diagonal cursor and resize direction win in the overlapping area.
     add_handle(
@@ -2039,7 +2041,7 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
         Align::Fill,
         Align::Start,
         -1,
-        7,
+        10,
     );
     add_handle(
         SurfaceEdge::South,
@@ -2047,14 +2049,14 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
         Align::Fill,
         Align::End,
         -1,
-        7,
+        10,
     );
     add_handle(
         SurfaceEdge::West,
         "w-resize",
         Align::Start,
         Align::Fill,
-        7,
+        10,
         -1,
     );
     add_handle(
@@ -2062,7 +2064,7 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
         "e-resize",
         Align::End,
         Align::Fill,
-        7,
+        10,
         -1,
     );
     add_handle(
@@ -2070,32 +2072,32 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
         "nw-resize",
         Align::Start,
         Align::Start,
-        14,
-        14,
+        18,
+        18,
     );
     add_handle(
         SurfaceEdge::NorthEast,
         "ne-resize",
         Align::End,
         Align::Start,
-        14,
-        14,
+        18,
+        18,
     );
     add_handle(
         SurfaceEdge::SouthWest,
         "sw-resize",
         Align::Start,
         Align::End,
-        14,
-        14,
+        18,
+        18,
     );
     add_handle(
         SurfaceEdge::SouthEast,
         "se-resize",
         Align::End,
         Align::End,
-        14,
-        14,
+        18,
+        18,
     );
 }
 
@@ -2906,8 +2908,8 @@ fn build_tools(snippet_repository: SnippetRepository) -> ToolsWidgets {
     snippet_run.add_css_class("suggested-action");
     snippet_actions.append(&snippet_edit);
     snippet_actions.append(&snippet_delete);
-    snippet_actions.append(&snippet_insert);
-    snippet_actions.append(&snippet_run);
+    // Insert/execute are card-level primary actions on every desktop client;
+    // keep only management actions in the selection strip.
     snippet_page.append(&snippet_actions);
     let switcher = adw::ViewSwitcher::builder()
         .stack(&stack)
@@ -3043,17 +3045,37 @@ fn refresh_snippet_list(context: &UiContext) {
         command.set_ellipsize(gtk::pango::EllipsizeMode::End);
         command.add_css_class("caption");
         let scope = match snippet.asset_scope.mode {
-            SnippetScopeMode::AllAssets => "适用于所有资产".to_owned(),
+            SnippetScopeMode::AllAssets => "全部资产".to_owned(),
             SnippetScopeMode::SelectedAssets => {
-                format!("限定 {} 项资产", snippet.asset_scope.asset_ids.len())
+                format!("限 {} 台资产", snippet.asset_scope.asset_ids.len())
             }
         };
         let scope = gtk::Label::new(Some(&scope));
         scope.set_xalign(0.0);
+        scope.set_hexpand(true);
         scope.add_css_class("caption");
+        let actions = gtk::Box::new(Orientation::Horizontal, 6);
+        let insert = gtk::Button::with_label("插入");
+        let run = gtk::Button::with_label("执行");
+        run.add_css_class("suggested-action");
+        let can_use_terminal = context.session.borrow().active().is_some_and(|runtime| {
+            runtime.phase == WorkspacePhase::Connected
+                && runtime.transport != Transport::Rdp
+                && runtime.terminal_channel_id.is_some()
+        });
+        insert.set_sensitive(can_use_terminal);
+        run.set_sensitive(can_use_terminal);
+        let snippet_id = snippet.id;
+        let insert_context = context.clone();
+        insert.connect_clicked(move |_| insert_snippet_by_id(&insert_context, snippet_id));
+        let run_context = context.clone();
+        run.connect_clicked(move |_| run_snippet_by_id(&run_context, snippet_id));
+        actions.append(&scope);
+        actions.append(&insert);
+        actions.append(&run);
         row.append(&heading);
         row.append(&command);
-        row.append(&scope);
+        row.append(&actions);
         context.tools.snippet_list.append(&row);
         context
             .tools
@@ -3071,6 +3093,39 @@ fn refresh_snippet_list(context: &UiContext) {
         format!("显示 {visible}/{total} 条 · 已按搜索与资产范围筛选")
     };
     context.tools.snippet_status.set_label(&summary);
+}
+
+fn snippet_by_id(context: &UiContext, snippet_id: Uuid) -> Option<CommandSnippet> {
+    context
+        .tools
+        .snippets
+        .borrow()
+        .iter()
+        .find(|snippet| snippet.id == snippet_id)
+        .cloned()
+}
+
+fn insert_snippet_by_id(context: &UiContext, snippet_id: Uuid) {
+    let Some(snippet) = snippet_by_id(context, snippet_id) else {
+        return;
+    };
+    context.workspace.input.set_text(&snippet.command);
+    context.workspace.input.grab_focus();
+}
+
+fn run_snippet_by_id(context: &UiContext, snippet_id: Uuid) {
+    let Some(snippet) = snippet_by_id(context, snippet_id) else {
+        return;
+    };
+    let payload = format!("{}\r", snippet.command);
+    if let Err(error) = write_active_terminal(context, payload.as_bytes()) {
+        context
+            .tools
+            .snippet_status
+            .set_label(&format!("片段发送失败：{error}"));
+    } else {
+        remember_active_command(context, &snippet.command);
+    }
 }
 
 fn selected_snippet(context: &UiContext) -> Option<CommandSnippet> {
@@ -8476,11 +8531,11 @@ fn render_monitor(context: &UiContext, snapshot: &MonitorSnapshot) {
     context
         .workspace
         .monitor_download
-        .set_label(&format!("{:.1} KB/s", stats.rx_rate_kbps));
+        .set_label(&format_monitor_network_rate(stats.rx_rate_kbps));
     context
         .workspace
         .monitor_upload
-        .set_label(&format!("{:.1} KB/s", stats.tx_rate_kbps));
+        .set_label(&format_monitor_network_rate(stats.tx_rate_kbps));
     for graph in context.workspace.monitor_graphs.iter() {
         graph.queue_draw();
     }
@@ -8565,8 +8620,14 @@ fn present_monitor_detail_window(context: UiContext) {
             ("CPU", format!("{:.1}%", snapshot.stats.cpu_usage_percent)),
             ("内存", format!("{:.1}%", snapshot.stats.mem_used_percent)),
             ("磁盘", format!("{:.1}%", snapshot.stats.disk_used_percent)),
-            ("下载", format!("{:.1} KB/s", snapshot.stats.rx_rate_kbps)),
-            ("上传", format!("{:.1} KB/s", snapshot.stats.tx_rate_kbps)),
+            (
+                "下载",
+                format_monitor_network_rate(snapshot.stats.rx_rate_kbps),
+            ),
+            (
+                "上传",
+                format_monitor_network_rate(snapshot.stats.tx_rate_kbps),
+            ),
             (
                 "延迟",
                 snapshot
@@ -8637,6 +8698,21 @@ fn present_monitor_detail_window(context: UiContext) {
         .build();
     window.set_child(Some(&scroll));
     window.present();
+}
+
+fn format_monitor_network_rate(kilobits_per_second: f64) -> String {
+    let value = if kilobits_per_second.is_finite() {
+        kilobits_per_second.max(0.0)
+    } else {
+        0.0
+    };
+    if value >= 1_000_000.0 {
+        format!("{:.2} Gbps", value / 1_000_000.0)
+    } else if value >= 1_000.0 {
+        format!("{:.2} Mbps", value / 1_000.0)
+    } else {
+        format!("{value:.1} Kbps")
+    }
 }
 
 fn monitor_history_value(snapshot: &MonitorSnapshot, index: usize) -> f64 {
@@ -9581,7 +9657,7 @@ fn activate_sftp_row(context: UiContext, index: i32) {
                 context
                     .tools
                     .sftp_status
-                    .set_label(&format!("无法预览文件：{error}"));
+                    .set_label(&format!("无法预览文件：{}", describe_sftp_error(&error)));
                 gtk::glib::ControlFlow::Break
             }
             Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
@@ -9672,6 +9748,7 @@ fn run_sftp_operation<F>(
                 gtk::glib::ControlFlow::Break
             }
             Ok(Err(error)) => {
+                let guidance = describe_sftp_error(&error);
                 if let Some(task) = transfer_task.as_ref() {
                     context
                         .tools
@@ -9680,12 +9757,12 @@ fn run_sftp_operation<F>(
                     context
                         .tools
                         .sftp_transfer_detail
-                        .set_label(&format!("{task} · 失败：{error}"));
+                        .set_label(&format!("{task} · 失败：{guidance}"));
                 }
                 context
                     .tools
                     .sftp_status
-                    .set_label(&format!("SFTP 操作失败：{error}"));
+                    .set_label(&format!("SFTP 操作失败：{guidance}"));
                 gtk::glib::ControlFlow::Break
             }
             Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
@@ -9708,6 +9785,33 @@ fn run_sftp_operation<F>(
             }
         }
     });
+}
+
+fn describe_sftp_error(error: &BridgeError) -> &'static str {
+    match error {
+        BridgeError::Core { detail_code, .. } => match detail_code.as_deref() {
+            Some("sftp_permission_denied") => {
+                "远端拒绝访问；上传时请返回登录主目录或选择有写入权限的目录"
+            }
+            Some("permission_denied") => "远端目录或文件权限不足，请选择可写目录后重试",
+            Some("sftp_destination_exists" | "sftp_target_exists") => {
+                "目标已存在；为防止覆盖，请改名后重试"
+            }
+            Some("sftp_entry_changed") => "远端项目已变更，请刷新并重新打开后重试",
+            Some("sftp_session_unavailable") => "SFTP 会话已关闭，请重新连接该资产",
+            Some("sftp_no_space_left") => "本地或远端存储空间不足",
+            Some("sftp_source_not_found") => "源文件已移动或删除，请刷新目录后重试",
+            Some("sftp_connection_closed" | "sftp_generation_mismatch") => {
+                "SFTP 会话已中断，请重新连接该资产后重试"
+            }
+            Some("sftp_local_io_failed") => "本地文件或保存目录不可访问，请重新选择位置",
+            Some("sftp_transfer_cancelled") => "传输已取消",
+            _ => "请检查连接、源文件及目标目录权限后重试",
+        },
+        BridgeError::InvalidInput("local_upload_path") => "所选本地文件不可访问",
+        BridgeError::InvalidInput("local_download_path") => "所选保存位置无效或目标文件已经存在",
+        _ => "请检查连接、源文件及目标目录权限后重试",
+    }
 }
 
 fn prompt_sftp_text<F>(
@@ -9950,6 +10054,7 @@ fn begin_sftp_download(context: UiContext) {
 }
 
 fn present_sftp_editor(context: UiContext, entry: SftpEntry, path: String, content: String) {
+    let original_content = content.clone();
     let window = gtk::Window::builder()
         .title(format!("编辑 {}", entry.name))
         .transient_for(&context.window)
@@ -9982,15 +10087,33 @@ fn present_sftp_editor(context: UiContext, entry: SftpEntry, path: String, conte
     status.set_hexpand(true);
     status.add_css_class("caption");
     let cancel = gtk::Button::with_label("取消");
+    let revert = gtk::Button::with_label("还原");
+    let copy = gtk::Button::with_label("复制");
     let save = gtk::Button::with_label("保存");
     save.add_css_class("suggested-action");
     footer.append(&status);
     footer.append(&cancel);
+    footer.append(&revert);
+    footer.append(&copy);
     footer.append(&save);
     root.append(&footer);
     window.set_child(Some(&root));
     let close_target = window.clone();
     cancel.connect_clicked(move |_| close_target.close());
+    let revert_editor = editor.clone();
+    let revert_status = status.clone();
+    revert.connect_clicked(move |_| {
+        revert_editor.buffer().set_text(&original_content);
+        revert_status.set_label("已还原为远端读取时的内容。");
+    });
+    let copy_editor = editor.clone();
+    let copy_status = status.clone();
+    copy.connect_clicked(move |_| {
+        let buffer = copy_editor.buffer();
+        let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), true);
+        copy_editor.clipboard().set_text(&text);
+        copy_status.set_label("内容已复制到剪贴板。");
+    });
     let save_context = context.clone();
     let save_window = window.clone();
     save.connect_clicked(move |button| {
@@ -10029,7 +10152,8 @@ fn present_sftp_editor(context: UiContext, entry: SftpEntry, path: String, conte
                     gtk::glib::ControlFlow::Break
                 }
                 Ok(Err(error)) => {
-                    completion_status.set_label(&format!("保存失败：{error}"));
+                    completion_status
+                        .set_label(&format!("保存失败：{}", describe_sftp_error(&error)));
                     completion_button.set_sensitive(true);
                     gtk::glib::ControlFlow::Break
                 }
@@ -16119,10 +16243,31 @@ mod tests {
 
     #[test]
     fn workstation_panels_scale_with_the_window_and_keep_safe_bounds() {
+        assert_eq!(responsive_workstation_panel_widths(820), (220, 280));
         assert_eq!(responsive_workstation_panel_widths(980), (230, 280));
         assert_eq!(responsive_workstation_panel_widths(1280), (300, 328));
         assert_eq!(responsive_workstation_panel_widths(1600), (320, 410));
         assert_eq!(responsive_workstation_panel_widths(2200), (320, 420));
+    }
+
+    #[test]
+    fn monitor_network_rate_uses_readable_adaptive_units() {
+        assert_eq!(format_monitor_network_rate(0.5), "0.5 Kbps");
+        assert_eq!(format_monitor_network_rate(64.0), "64.0 Kbps");
+        assert_eq!(format_monitor_network_rate(1_536.0), "1.54 Mbps");
+        assert_eq!(format_monitor_network_rate(2_000_000.0), "2.00 Gbps");
+    }
+
+    #[test]
+    fn sftp_failure_guidance_is_actionable_and_redacted() {
+        let error = BridgeError::Core {
+            code: "sftp_upload_failed".into(),
+            message_key: "error.sftp.upload_failed".into(),
+            detail_code: Some("sftp_permission_denied".into()),
+        };
+        let guidance = describe_sftp_error(&error);
+        assert!(guidance.contains("登录主目录"));
+        assert!(!guidance.contains("orbit-core"));
     }
 
     #[test]

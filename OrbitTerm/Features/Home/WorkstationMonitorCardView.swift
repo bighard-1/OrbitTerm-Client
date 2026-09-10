@@ -158,10 +158,13 @@ struct WorkstationMonitorCardView: View {
     }
 
     private func formatRate(_ kbps: Double) -> String {
-        if kbps >= 1024 {
-            return String(format: "%.2f MB/s", kbps / 1024.0)
+        if kbps >= 1_000_000 {
+            return String(format: "%.2f Gbps", kbps / 1_000_000)
         }
-        return String(format: "%.0f KB/s", kbps)
+        if kbps >= 1_000 {
+            return String(format: "%.2f Mbps", kbps / 1_000)
+        }
+        return String(format: "%.1f Kbps", kbps)
     }
 
     private func dynamicCeiling(for values: [Double]) -> Double {
@@ -372,7 +375,9 @@ struct WorkstationMonitorOverviewStrip: View {
     }
 
     private func formatRate(_ kbps: Double) -> String {
-        kbps >= 1_024 ? String(format: "%.2f MB/s", kbps / 1_024) : String(format: "%.0f KB/s", kbps)
+        if kbps >= 1_000_000 { return String(format: "%.2f Gbps", kbps / 1_000_000) }
+        if kbps >= 1_000 { return String(format: "%.2f Mbps", kbps / 1_000) }
+        return String(format: "%.1f Kbps", kbps)
     }
 
     private func dynamicCeiling(for values: [Double]) -> Double {

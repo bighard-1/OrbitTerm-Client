@@ -39,7 +39,8 @@ public sealed record TerminalChannelOpenedPayload(
 public sealed record SftpChannelOpenedPayload(
     [property: JsonPropertyName("base_session_id")] string BaseSessionId,
     [property: JsonPropertyName("sftp_session_id")] string SftpSessionId,
-    [property: JsonPropertyName("security_generation")] CheckedSecurityGeneration SecurityGeneration)
+    [property: JsonPropertyName("security_generation")] CheckedSecurityGeneration SecurityGeneration,
+    [property: JsonPropertyName("home_path")] string? HomePath = null)
 {
     public ulong ParsedBaseSessionId => ParseId(BaseSessionId, "base_session_id");
 
@@ -50,6 +51,17 @@ public sealed record SftpChannelOpenedPayload(
         if (SecurityGeneration != CheckedSecurityGeneration.HostKeyVerified)
         {
             throw new OrbitNativeException("SFTP channel is not bound to a HostKeyVerified session.");
+        }
+
+        if (HomePath is { } homePath &&
+            (string.IsNullOrWhiteSpace(homePath) ||
+             homePath.Length > 512 ||
+             !homePath.StartsWith('/', StringComparison.Ordinal) ||
+             homePath.Any(char.IsControl) ||
+             homePath.Contains('\\') ||
+             homePath.Split('/').Any(segment => segment == "..")))
+        {
+            throw new OrbitNativeException("SFTP channel contains an invalid home_path.");
         }
     }
 
