@@ -56,7 +56,7 @@ public sealed record SftpChannelOpenedPayload(
         if (HomePath is { } homePath &&
             (string.IsNullOrWhiteSpace(homePath) ||
              homePath.Length > 512 ||
-             !homePath.StartsWith('/', StringComparison.Ordinal) ||
+             !homePath.StartsWith("/", StringComparison.Ordinal) ||
              homePath.Any(char.IsControl) ||
              homePath.Contains('\\') ||
              homePath.Split('/').Any(segment => segment == "..")))
