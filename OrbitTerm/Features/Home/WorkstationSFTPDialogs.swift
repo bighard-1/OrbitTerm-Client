@@ -1,9 +1,4 @@
 import SwiftUI
-#if os(macOS)
-import AppKit
-#else
-import UIKit
-#endif
 
 enum SFTPCreateKind {
     case file
@@ -226,11 +221,6 @@ struct WorkstationSFTPDialogs: ViewModifier {
     }
 
     private func copyFileEditContent() {
-#if os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(fileEditContent, forType: .string)
-#else
-        UIPasteboard.general.string = fileEditContent
-#endif
+        _ = SecureClipboard.copy(fileEditContent, kind: .ordinaryText)
     }
 }
