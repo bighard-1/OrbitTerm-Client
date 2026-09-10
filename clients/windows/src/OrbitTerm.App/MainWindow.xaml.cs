@@ -77,8 +77,9 @@ public sealed partial class MainWindow : Window
     private readonly IntPtr windowHandle;
     private readonly WindowSubclassProc windowSubclassProc;
     private const double CollapsedPaneWidth = 0;
-    private const double DefaultAssetSidebarWidth = 300;
-    private const double DefaultToolInspectorWidth = 328;
+    private const double DefaultAssetSidebarWidth = 220;
+    private const double DefaultToolInspectorWidth = 280;
+    private const int PaneLayoutSchemaVersion = 2;
     private const double AssetSidebarWindowRatio = 0.234375;
     private const double ToolInspectorWindowRatio = 0.25625;
     private const double MinimumAssetSidebarWidth = 220;
@@ -355,12 +356,29 @@ public sealed partial class MainWindow : Window
         isSnippetsManagerOpen = true;
         try
         {
+            EnsureSnippetsDialogAtWindowRoot();
             SnippetsDialog.XamlRoot = Root.XamlRoot;
             await SnippetsDialog.ShowAsync();
         }
         finally
         {
             isSnippetsManagerOpen = false;
+        }
+    }
+
+    private void EnsureSnippetsDialogAtWindowRoot()
+    {
+        // This command belongs to the global toolbar. Its modal must not inherit
+        // the connected-session or right-inspector visibility state, otherwise
+        // a collapsed ancestor leaves only an invisible modal input shield.
+        if (SnippetsDialog.Parent is Panel owner && !ReferenceEquals(owner, Root))
+        {
+            owner.Children.Remove(SnippetsDialog);
+            Root.Children.Add(SnippetsDialog);
+            Grid.SetRow(SnippetsDialog, 0);
+            Grid.SetRowSpan(SnippetsDialog, 4);
+            Grid.SetColumn(SnippetsDialog, 0);
+            Grid.SetColumnSpan(SnippetsDialog, 3);
         }
     }
 
@@ -3191,8 +3209,43 @@ public sealed partial class MainWindow : Window
             // 100%, 150%, and 200% DPI displays.
             DispatcherQueue.TryEnqueue(QueueTerminalResizeAfterDpiChange);
         }
+        else if (message == WindowMessageNcHitTest)
+        {
+            var fallback = DefSubclassProc(hWnd, message, wParam, lParam);
+            if (fallback.ToInt32() == HitTestClient &&
+                IsScreenPointInsideElement(lParam, SynchronizationStatusDragRegion))
+            {
+                return new IntPtr(HitTestCaption);
+            }
+            return fallback;
+        }
 
         return DefSubclassProc(hWnd, message, wParam, lParam);
+    }
+
+    private bool IsScreenPointInsideElement(IntPtr packedScreenPoint, FrameworkElement element)
+    {
+        if (element.XamlRoot is null || element.ActualWidth <= 0 || element.ActualHeight <= 0)
+        {
+            return false;
+        }
+
+        var packed = packedScreenPoint.ToInt64();
+        var screenX = unchecked((short)(packed & 0xFFFF));
+        var screenY = unchecked((short)((packed >> 16) & 0xFFFF));
+        var clientOrigin = new NativeScreenPoint();
+        if (!ClientToScreen(windowHandle, ref clientOrigin))
+        {
+            return false;
+        }
+
+        var scale = GetDpiScale(windowHandle);
+        var origin = element.TransformToVisual(Root)
+            .TransformPoint(new Windows.Foundation.Point(0, 0));
+        var left = clientOrigin.X + origin.X * scale;
+        var top = clientOrigin.Y + origin.Y * scale;
+        return screenX >= left && screenX < left + element.ActualWidth * scale &&
+               screenY >= top && screenY < top + element.ActualHeight * scale;
     }
 
     private void ApplyResponsivePaneRules(double availableWidth)
@@ -3507,16 +3560,21 @@ public sealed partial class MainWindow : Window
                 ApplyDefaultPaneLayout();
                 return;
             }
-            assetSidebarExpandedWidth = Math.Clamp(
-                state.AssetSidebarWidth,
-                MinimumAssetSidebarWidth,
-                MaximumAssetSidebarWidth);
-            toolInspectorExpandedWidth = Math.Clamp(
-                state.ToolInspectorWidth,
-                MinimumToolInspectorWidth,
-                MaximumToolInspectorWidth);
-            assetSidebarFollowsWindow = Math.Abs(state.AssetSidebarWidth - DefaultAssetSidebarWidth) < 0.5;
-            toolInspectorFollowsWindow = Math.Abs(state.ToolInspectorWidth - DefaultToolInspectorWidth) < 0.5;
+            var migrateLegacyDefaultWidths = state.Version != PaneLayoutSchemaVersion;
+            assetSidebarExpandedWidth = migrateLegacyDefaultWidths
+                ? MinimumAssetSidebarWidth
+                : Math.Clamp(
+                    state.AssetSidebarWidth,
+                    MinimumAssetSidebarWidth,
+                    MaximumAssetSidebarWidth);
+            toolInspectorExpandedWidth = migrateLegacyDefaultWidths
+                ? MinimumToolInspectorWidth
+                : Math.Clamp(
+                    state.ToolInspectorWidth,
+                    MinimumToolInspectorWidth,
+                    MaximumToolInspectorWidth);
+            assetSidebarFollowsWindow = false;
+            toolInspectorFollowsWindow = false;
             terminalSplitTopRatio = Math.Clamp(
                 state.TerminalSplitTopRatio ?? 0.5,
                 MinimumTerminalSplitRatio,
@@ -3556,8 +3614,8 @@ public sealed partial class MainWindow : Window
     {
         // Match the desktop information architecture: keep the terminal wide
         // on first launch while leaving session tools immediately available.
-        assetSidebarFollowsWindow = true;
-        toolInspectorFollowsWindow = true;
+        assetSidebarFollowsWindow = false;
+        toolInspectorFollowsWindow = false;
         AssetSidebar.Visibility = Visibility.Visible;
         AssetSidebarColumn.Width = new GridLength(assetSidebarExpandedWidth);
         ToolInspector.Visibility = Visibility.Visible;
@@ -3583,7 +3641,8 @@ public sealed partial class MainWindow : Window
                 AppWindow.Presenter is OverlappedPresenter
                 {
                     State: OverlappedPresenterState.Maximized,
-                });
+                },
+                PaneLayoutSchemaVersion);
             File.WriteAllText(layoutStatePath, JsonSerializer.Serialize(state));
         }
         catch (IOException) { }
@@ -3739,7 +3798,8 @@ public sealed partial class MainWindow : Window
         double? TerminalSplitLeftRatio = null,
         double? WindowWidth = null,
         double? WindowHeight = null,
-        bool? WindowMaximized = null);
+        bool? WindowMaximized = null,
+        int? Version = null);
 
     private enum PanePreference
     {
@@ -7675,6 +7735,9 @@ public sealed partial class MainWindow : Window
 
     private const uint WindowMessageGetMinMaxInfo = 0x0024;
     private const uint WindowMessageDpiChanged = 0x02E0;
+    private const uint WindowMessageNcHitTest = 0x0084;
+    private const int HitTestClient = 1;
+    private const int HitTestCaption = 2;
     private const int ArrowCursorResourceId = 32512;
 
     private static double GetDpiScale(IntPtr hWnd)
@@ -7708,6 +7771,13 @@ public sealed partial class MainWindow : Window
         public NativePoint MaximumTrackingSize;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeScreenPoint
+    {
+        public int X;
+        public int Y;
+    }
+
     [DllImport("comctl32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowSubclass(
@@ -7725,6 +7795,10 @@ public sealed partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ClientToScreen(IntPtr hWnd, ref NativeScreenPoint point);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr LoadCursor(IntPtr instanceHandle, IntPtr cursorName);

@@ -352,11 +352,25 @@ button label,
 
 .sidebar-footer-title {
   color: @orbit_muted;
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 700;
 }
 
-.sidebar-footer { min-height: 28px; padding: 4px 12px; }
+.sidebar-footer { min-height: 22px; padding: 1px 8px; }
+
+.sidebar-footer .caption { font-size: 10px; }
+
+.compact-footer-button {
+  min-width: 22px;
+  min-height: 22px;
+  padding: 2px;
+}
+
+.workspace-paned > separator {
+  min-width: 6px;
+  min-height: 6px;
+  background-color: alpha(@orbit_rule, 0.72);
+}
 
 .status-bar { min-height: 24px; }
 .status-idle { color: @orbit_muted; font-size: 10px; opacity: 0.62; }

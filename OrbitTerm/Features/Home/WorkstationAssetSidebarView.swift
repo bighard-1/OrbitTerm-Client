@@ -271,7 +271,13 @@ struct WorkstationPersistentSyncStatusView: View {
             .disabled(isSynchronizing || !session.isUnlocked)
             .help("立即双向同步")
             .accessibilityLabel("立即双向同步")
+            #if os(macOS)
+            WorkstationWindowDragRegion()
+                .frame(minWidth: 8, maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityHidden(true)
+            #else
             Spacer(minLength: 8)
+            #endif
         }
         .font(.caption2)
         .foregroundStyle(

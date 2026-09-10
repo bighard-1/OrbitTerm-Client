@@ -126,7 +126,9 @@ struct WorkstationTopBar: View {
                     .help("网络重试中")
             }
 
-            Spacer(minLength: 8)
+            WorkstationWindowDragRegion()
+                .frame(minWidth: 8, maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityHidden(true)
 
             HStack(spacing: 8) {
                 Button("添加服务器") { showingAddServer = true }
@@ -170,6 +172,20 @@ struct WorkstationTopBar: View {
         .background(palette.surfaceGlassStrong.color)
     }
 
+}
+
+struct WorkstationWindowDragRegion: NSViewRepresentable {
+    final class DragSurface: NSView {
+        override var mouseDownCanMoveWindow: Bool { true }
+    }
+
+    func makeNSView(context: Context) -> DragSurface {
+        let view = DragSurface()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }
+
+    func updateNSView(_ nsView: DragSurface, context: Context) {}
 }
 
 struct WorkstationBrandOverview: View {

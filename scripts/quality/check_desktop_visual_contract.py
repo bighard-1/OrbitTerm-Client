@@ -116,10 +116,10 @@ require(linux_ui, "install_window_resize_handles", "Linux discoverable resize ed
 require(linux_css, "desktop-only, 820px compact minimum", "Linux documented compact minimum")
 
 
-# Window-relative panel ratios and hard usability limits.
+# Side panes open at their safe minimum and remain explicitly user-resizable.
 for fragment in (
-    "totalWidth * 0.234_375",
-    "totalWidth * 0.256_25",
+    "preferredLeft: CGFloat = 220",
+    "preferredRight: CGFloat = 280",
     "min(max(220, requestedLeft), 320)",
     "min(max(280, requestedRight), 420)",
     "let minMiddle: CGFloat = 560",
@@ -127,6 +127,8 @@ for fragment in (
     require(mac_metrics, fragment, "macOS responsive pane contract")
 
 for fragment in (
+    "DefaultAssetSidebarWidth = 220",
+    "DefaultToolInspectorWidth = 280",
     "AssetSidebarWindowRatio = 0.234375",
     "ToolInspectorWindowRatio = 0.25625",
     "MinimumAssetSidebarWidth = 220",
@@ -138,10 +140,8 @@ for fragment in (
     require(windows_main, fragment, "Windows responsive pane contract")
 
 for fragment in (
-    "total_width) * 0.234_375",
-    ".clamp(220, 320)",
-    "total_width) * 0.256_25",
-    ".clamp(280, 420)",
+    "(220, 280)",
+    "set_wide_handle(true)",
     ".max(560)",
 ):
     require(linux_ui, fragment, "Linux responsive pane contract")
@@ -369,7 +369,23 @@ if "workbench_overlay.add_overlay(&sidebar.footer)" in linux_ui:
     raise SystemExit(
         "desktop visual contract failed: Linux synchronization footer returned inside pane overlay"
     )
-require(linux_css, ".sidebar-footer { min-height: 28px;", "Linux compact synchronization footer")
+require(linux_css, ".sidebar-footer { min-height: 22px;", "Linux compact synchronization footer")
+
+
+# Windows shell surfaces select target-size resources independently from tile
+# logos. Unplated variants preserve the product's own transparent rounded mask
+# instead of allowing the taskbar to synthesize a square backing plate.
+for size in (16, 20, 24, 30, 32, 36, 40, 44, 48, 60, 64, 72, 80, 96, 256):
+    relative = (
+        "clients/windows/src/OrbitTerm.App/Assets/"
+        f"Square44x44Logo.targetsize-{size}_altform-unplated.png"
+    )
+    corners, centre = png_corner_alphas(relative)
+    if corners != [0, 0, 0, 0] or centre != 255:
+        raise SystemExit(
+            "desktop visual contract failed: "
+            f"Windows {size}px unplated icon needs transparent corners and an opaque centre"
+        )
 
 
 # Linux cannot rely on the compositor masks used by Apple and Windows. Every

@@ -37,8 +37,9 @@ struct MainWorkstationView: View {
     @State private var leftPanelAutomaticallyCollapsed = false
     @State private var rightPanelAutomaticallyCollapsed = false
     @State private var isTerminalFullscreen = false
-    @AppStorage("orbitterm.workstation.left.width") private var preferredLeftPanelWidth: Double = 300
-    @AppStorage("orbitterm.workstation.right.width") private var preferredRightPanelWidth: Double = 328
+    @AppStorage("orbitterm.workstation.left.width") private var preferredLeftPanelWidth: Double = 220
+    @AppStorage("orbitterm.workstation.right.width") private var preferredRightPanelWidth: Double = 280
+    @AppStorage("orbitterm.workstation.pane-width-schema") private var paneWidthSchema: Int = 0
     @State private var leftResizeOrigin: CGFloat?
     @State private var rightResizeOrigin: CGFloat?
     @State private var selectedRightPanelTab: WorkstationRightPanelTab = .sftp
@@ -147,6 +148,12 @@ struct MainWorkstationView: View {
             .animation(reduceMotion ? nil : .interactiveSpring(response: 0.35, dampingFraction: 0.85), value: isRightPanelCollapsed)
             .onChange(of: proxy.size.width, initial: true) { _, width in
                 updateResponsivePanels(for: width)
+            }
+            .onAppear {
+                guard paneWidthSchema < 2 else { return }
+                preferredLeftPanelWidth = 220
+                preferredRightPanelWidth = 280
+                paneWidthSchema = 2
             }
         }
 #if os(macOS)

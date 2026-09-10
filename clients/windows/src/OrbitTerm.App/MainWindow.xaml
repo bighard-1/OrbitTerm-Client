@@ -17,13 +17,13 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition x:Name="AssetSidebarColumn" Width="300" MinWidth="0" />
+            <ColumnDefinition x:Name="AssetSidebarColumn" Width="220" MinWidth="0" />
             <!-- The usable terminal minimum is enforced by MainWindow's pane
                  coordinator. Keeping the Grid column itself flexible prevents
                  WinUI from overflowing/clipping the centre content during a
                  splitter drag before the responsive rule is applied. -->
             <ColumnDefinition Width="*" MinWidth="0" />
-            <ColumnDefinition x:Name="ToolInspectorColumn" Width="328" MinWidth="0" />
+            <ColumnDefinition x:Name="ToolInspectorColumn" Width="280" MinWidth="0" />
         </Grid.ColumnDefinitions>
         <Grid.Resources>
             <DataTemplate x:Key="MonitorMetricCardTemplate">
@@ -635,11 +635,12 @@
                 Grid.Row="3"
                 Grid.ColumnSpan="3"
                 HorizontalAlignment="Stretch"
-                Padding="12,4"
+                MinHeight="24"
+                Padding="8,1"
                 Background="{StaticResource OrbitPanelBrush}"
                 BorderBrush="{StaticResource OrbitPanelStrokeBrush}"
                 BorderThickness="0,1,0,0">
-            <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="7">
+            <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="5">
                 <TextBlock Text="同步状态"
                            FontSize="12"
                            FontWeight="SemiBold"
@@ -657,12 +658,19 @@
                            VerticalAlignment="Center" />
                 <Button Grid.Column="2"
                         Style="{StaticResource OrbitIconButtonStyle}"
+                        MinWidth="22"
+                        MinHeight="22"
+                        Padding="3"
                         IsEnabled="{Binding IsAccountUnlocked}"
                         Click="SynchronizeAccountClick"
                         ToolTipService.ToolTip="立即双向同步"
                         AutomationProperties.Name="立即双向同步">
-                    <FontIcon Glyph="&#xE895;" FontSize="13" />
+                    <FontIcon Glyph="&#xE895;" FontSize="12" />
                 </Button>
+                <Grid x:Name="SynchronizationStatusDragRegion"
+                      Grid.Column="3"
+                      Background="Transparent"
+                      AutomationProperties.Name="拖动窗口" />
             </Grid>
         </Border>
 

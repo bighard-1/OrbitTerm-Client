@@ -580,10 +580,10 @@ fn rdp_scroll_pointer_flags(delta: f64, horizontal: bool) -> Option<u16> {
     Some(axis | RDP_WHEEL_DELTA | if negative { RDP_PTR_WHEEL_NEGATIVE } else { 0 })
 }
 
-fn responsive_workstation_panel_widths(total_width: i32) -> (i32, i32) {
-    let asset = ((f64::from(total_width) * 0.234_375).round() as i32).clamp(220, 320);
-    let tools = ((f64::from(total_width) * 0.256_25).round() as i32).clamp(280, 420);
-    (asset, tools)
+fn responsive_workstation_panel_widths(_total_width: i32) -> (i32, i32) {
+    // Keep first-launch panes at their safe minimum on every desktop size.
+    // GtkPaned still lets the user expand either side explicitly.
+    (220, 280)
 }
 
 const ORBIT_LEGAL_TERMS: &str = r#"OrbitTerm 使用条款、免责声明与隐私说明
@@ -1348,6 +1348,8 @@ pub fn build_application_window(application: &adw::Application) {
     root.append(&workspace.monitor_band);
 
     let workspace_and_tools = gtk::Paned::new(Orientation::Horizontal);
+    workspace_and_tools.add_css_class("workspace-paned");
+    workspace_and_tools.set_wide_handle(true);
     workspace_and_tools.set_start_child(Some(&workspace.root));
     workspace_and_tools.set_end_child(Some(&tools.root));
     workspace_and_tools.set_position(680);
@@ -1357,9 +1359,11 @@ pub fn build_application_window(application: &adw::Application) {
     workspace_and_tools.set_shrink_end_child(false);
 
     let main_paned = gtk::Paned::new(Orientation::Horizontal);
+    main_paned.add_css_class("workspace-paned");
+    main_paned.set_wide_handle(true);
     main_paned.set_start_child(Some(&sidebar.root));
     main_paned.set_end_child(Some(&workspace_and_tools));
-    main_paned.set_position(300);
+    main_paned.set_position(220);
     main_paned.set_resize_start_child(false);
     main_paned.set_resize_end_child(true);
     main_paned.set_shrink_start_child(false);
@@ -1411,8 +1415,8 @@ pub fn build_application_window(application: &adw::Application) {
     let workspace_for_bottom_layout = workspace.root.clone();
     let input_for_bottom_layout = workspace.input_row.clone();
     let tools_for_bottom_layout = tools.root.clone();
-    let last_sidebar_width = Rc::new(Cell::new(300));
-    let last_tools_width = Rc::new(Cell::new(328));
+    let last_sidebar_width = Rc::new(Cell::new(220));
+    let last_tools_width = Rc::new(Cell::new(280));
     let last_workbench_width = Rc::new(Cell::new(0));
     let responsive_layout_initialized = Rc::new(Cell::new(false));
     let applying_responsive_layout = Rc::new(Cell::new(false));
@@ -2037,7 +2041,7 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
     // diagonal cursor and resize direction win in the overlapping area.
     add_handle(
         SurfaceEdge::North,
-        "n-resize",
+        "ns-resize",
         Align::Fill,
         Align::Start,
         -1,
@@ -2045,7 +2049,7 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
     );
     add_handle(
         SurfaceEdge::South,
-        "s-resize",
+        "ns-resize",
         Align::Fill,
         Align::End,
         -1,
@@ -2053,7 +2057,7 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
     );
     add_handle(
         SurfaceEdge::West,
-        "w-resize",
+        "ew-resize",
         Align::Start,
         Align::Fill,
         10,
@@ -2061,7 +2065,7 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
     );
     add_handle(
         SurfaceEdge::East,
-        "e-resize",
+        "ew-resize",
         Align::End,
         Align::Fill,
         10,
@@ -2069,7 +2073,7 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
     );
     add_handle(
         SurfaceEdge::NorthWest,
-        "nw-resize",
+        "nwse-resize",
         Align::Start,
         Align::Start,
         18,
@@ -2077,7 +2081,7 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
     );
     add_handle(
         SurfaceEdge::NorthEast,
-        "ne-resize",
+        "nesw-resize",
         Align::End,
         Align::Start,
         18,
@@ -2085,7 +2089,7 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
     );
     add_handle(
         SurfaceEdge::SouthWest,
-        "sw-resize",
+        "nesw-resize",
         Align::Start,
         Align::End,
         18,
@@ -2093,7 +2097,7 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
     );
     add_handle(
         SurfaceEdge::SouthEast,
-        "se-resize",
+        "nwse-resize",
         Align::End,
         Align::End,
         18,
@@ -2141,7 +2145,7 @@ fn build_sidebar(
     sidebar.add_css_class("asset-sidebar");
     let sidebar_root = gtk::Box::new(Orientation::Vertical, 0);
     sidebar_root.add_css_class("asset-sidebar-root");
-    sidebar_root.set_size_request(240, -1);
+    sidebar_root.set_size_request(220, -1);
 
     let heading = gtk::Box::new(Orientation::Horizontal, 8);
     heading.add_css_class("panel-heading");
@@ -2219,11 +2223,19 @@ fn build_sidebar(
     footer.append(sync_status);
     sync_status.set_hexpand(false);
     sync_status.set_max_width_chars(90);
+    let drag_handle = gtk::WindowHandle::new();
+    drag_handle.set_hexpand(true);
+    drag_handle.set_tooltip_text(Some("拖动窗口"));
+    let drag_space = gtk::Box::new(Orientation::Horizontal, 0);
+    drag_space.set_hexpand(true);
+    drag_handle.set_child(Some(&drag_space));
+    footer.append(&drag_handle);
     let sync = gtk::Button::builder()
         .icon_name("view-refresh-symbolic")
         .tooltip_text("打开账户与同步")
         .build();
     sync.add_css_class("flat");
+    sync.add_css_class("compact-footer-button");
     let sync_context_for_footer = sync_context.clone();
     sync.connect_clicked(move |_| present_sync_window(sync_context_for_footer.clone()));
     footer.append(&sync);
@@ -16242,12 +16254,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn workstation_panels_scale_with_the_window_and_keep_safe_bounds() {
+    fn workstation_panels_default_to_safe_minimum_widths() {
         assert_eq!(responsive_workstation_panel_widths(820), (220, 280));
-        assert_eq!(responsive_workstation_panel_widths(980), (230, 280));
-        assert_eq!(responsive_workstation_panel_widths(1280), (300, 328));
-        assert_eq!(responsive_workstation_panel_widths(1600), (320, 410));
-        assert_eq!(responsive_workstation_panel_widths(2200), (320, 420));
+        assert_eq!(responsive_workstation_panel_widths(980), (220, 280));
+        assert_eq!(responsive_workstation_panel_widths(1280), (220, 280));
+        assert_eq!(responsive_workstation_panel_widths(1600), (220, 280));
+        assert_eq!(responsive_workstation_panel_widths(2200), (220, 280));
     }
 
     #[test]

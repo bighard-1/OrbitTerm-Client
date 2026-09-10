@@ -5,18 +5,16 @@ struct WorkstationLayoutMetrics {
         totalWidth: CGFloat,
         leftCollapsed: Bool,
         rightCollapsed: Bool,
-        preferredLeft: CGFloat = 300,
-        preferredRight: CGFloat = 328
+        preferredLeft: CGFloat = 220,
+        preferredRight: CGFloat = 280
     ) -> (left: CGFloat, middle: CGFloat, right: CGFloat) {
         let dividerSpace: CGFloat = (leftCollapsed ? 0 : 6) + (rightCollapsed ? 0 : 6)
         let available = max(0, totalWidth - dividerSpace)
         let leftRail: CGFloat = 0
         let rightRail: CGFloat = 0
 
-        let responsiveLeft = min(max(220, totalWidth * 0.234_375), 320)
-        let responsiveRight = min(max(280, totalWidth * 0.256_25), 420)
-        let requestedLeft = abs(preferredLeft - 300) < 0.5 ? responsiveLeft : preferredLeft
-        let requestedRight = abs(preferredRight - 328) < 0.5 ? responsiveRight : preferredRight
+        let requestedLeft = preferredLeft
+        let requestedRight = preferredRight
         var left = leftCollapsed ? leftRail : min(max(220, requestedLeft), 320)
         var right = rightCollapsed ? rightRail : min(max(280, requestedRight), 420)
         let minMiddle: CGFloat = 560
