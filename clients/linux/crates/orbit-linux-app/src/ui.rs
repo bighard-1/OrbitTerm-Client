@@ -1984,6 +1984,7 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
         handle.set_valign(valign);
         handle.set_size_request(width, height);
         handle.set_cursor_from_name(Some(cursor));
+        handle.set_can_target(true);
         handle.set_tooltip_text(Some("拖动以调整窗口大小"));
         // Ignoring the gesture is not click-through: remove edge hit targets
         // in fullscreen/maximized modes so remote window controls receive input.
@@ -2041,7 +2042,7 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
     // diagonal cursor and resize direction win in the overlapping area.
     add_handle(
         SurfaceEdge::North,
-        "ns-resize",
+        "n-resize",
         Align::Fill,
         Align::Start,
         -1,
@@ -2049,7 +2050,7 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
     );
     add_handle(
         SurfaceEdge::South,
-        "ns-resize",
+        "s-resize",
         Align::Fill,
         Align::End,
         -1,
@@ -2057,7 +2058,7 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
     );
     add_handle(
         SurfaceEdge::West,
-        "ew-resize",
+        "w-resize",
         Align::Start,
         Align::Fill,
         10,
@@ -2065,7 +2066,7 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
     );
     add_handle(
         SurfaceEdge::East,
-        "ew-resize",
+        "e-resize",
         Align::End,
         Align::Fill,
         10,
@@ -2073,7 +2074,7 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
     );
     add_handle(
         SurfaceEdge::NorthWest,
-        "nwse-resize",
+        "nw-resize",
         Align::Start,
         Align::Start,
         18,
@@ -2081,7 +2082,7 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
     );
     add_handle(
         SurfaceEdge::NorthEast,
-        "nesw-resize",
+        "ne-resize",
         Align::End,
         Align::Start,
         18,
@@ -2089,7 +2090,7 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
     );
     add_handle(
         SurfaceEdge::SouthWest,
-        "nesw-resize",
+        "sw-resize",
         Align::Start,
         Align::End,
         18,
@@ -2097,7 +2098,7 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
     );
     add_handle(
         SurfaceEdge::SouthEast,
-        "nwse-resize",
+        "se-resize",
         Align::End,
         Align::End,
         18,
@@ -2223,13 +2224,6 @@ fn build_sidebar(
     footer.append(sync_status);
     sync_status.set_hexpand(false);
     sync_status.set_max_width_chars(90);
-    let drag_handle = gtk::WindowHandle::new();
-    drag_handle.set_hexpand(true);
-    drag_handle.set_tooltip_text(Some("拖动窗口"));
-    let drag_space = gtk::Box::new(Orientation::Horizontal, 0);
-    drag_space.set_hexpand(true);
-    drag_handle.set_child(Some(&drag_space));
-    footer.append(&drag_handle);
     let sync = gtk::Button::builder()
         .icon_name("view-refresh-symbolic")
         .tooltip_text("打开账户与同步")
@@ -2239,6 +2233,13 @@ fn build_sidebar(
     let sync_context_for_footer = sync_context.clone();
     sync.connect_clicked(move |_| present_sync_window(sync_context_for_footer.clone()));
     footer.append(&sync);
+    let drag_handle = gtk::WindowHandle::new();
+    drag_handle.set_hexpand(true);
+    drag_handle.set_tooltip_text(Some("拖动窗口"));
+    let drag_space = gtk::Box::new(Orientation::Horizontal, 0);
+    drag_space.set_hexpand(true);
+    drag_handle.set_child(Some(&drag_space));
+    footer.append(&drag_handle);
     panel_stack.add_named(&sidebar, Some("expanded"));
     panel_stack.set_visible_child_name("expanded");
     panel_stack.set_vexpand(true);

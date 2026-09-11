@@ -127,7 +127,11 @@ struct WorkstationTopBar: View {
             }
 
             WorkstationWindowDragRegion()
-                .frame(minWidth: 8, maxWidth: .infinity, maxHeight: .infinity)
+                // A drag surface must participate only in the toolbar's own
+                // height. An unbounded NSViewRepresentable greedily consumes
+                // the workstation's vertical remainder in SwiftUI.
+                .frame(minWidth: 8, maxWidth: .infinity)
+                .frame(height: 28)
                 .accessibilityHidden(true)
 
             HStack(spacing: 8) {
@@ -177,6 +181,7 @@ struct WorkstationTopBar: View {
 struct WorkstationWindowDragRegion: NSViewRepresentable {
     final class DragSurface: NSView {
         override var mouseDownCanMoveWindow: Bool { true }
+        override var intrinsicContentSize: NSSize { NSSize(width: -1, height: 0) }
     }
 
     func makeNSView(context: Context) -> DragSurface {

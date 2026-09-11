@@ -6827,6 +6827,10 @@ public sealed class MainWindowViewModel : ObservableObject
 
             if (entry.IsDirectory)
             {
+                if (depth == 0 && Directory.Exists(localPath))
+                {
+                    localPath = CreateUniqueLocalDownloadPath(localPath, directory: true);
+                }
                 if (depth >= MaximumSftpBatchDownloadDepth)
                 {
                     SftpOperationStatus = string.Concat("文件夹层级超过安全限制：", entry.Path);
@@ -6884,7 +6888,11 @@ public sealed class MainWindowViewModel : ObservableObject
                 continue;
             }
 
-            plannedFiles.Add((entry, localPath));
+            plannedFiles.Add((
+                entry,
+                File.Exists(localPath)
+                    ? CreateUniqueLocalDownloadPath(localPath, directory: false)
+                    : localPath));
         }
 
         if (plannedFiles.Count == 0)
@@ -6940,14 +6948,6 @@ public sealed class MainWindowViewModel : ObservableObject
                     System.Globalization.CultureInfo.InvariantCulture,
                     $"批量下载 {index + 1}/{pending.Count}：{item.Entry.Name}"));
 
-                if (File.Exists(item.LocalPath))
-                {
-                    failed.Add(item);
-                    item.Task.MarkFailed("本地存在同名文件");
-                    processed++;
-                    continue;
-                }
-
                 var normalized = NormalizeSftpPath(item.Entry.Path);
                 if (normalized is null)
                 {
@@ -6990,18 +6990,19 @@ public sealed class MainWindowViewModel : ObservableObject
                     item.Task.MarkCompleted("下载完成");
                     ArchiveCompletedSftpTransfer(transferContext, item.Task);
                 }
-                else
+                else if (result is SftpDownloadResult.Failed failedResult)
                 {
                     failed.Add(item);
-                    item.Task.MarkFailed("下载失败，确认连接后可重试");
+                    item.Task.MarkFailed(FormatSftpTransferFailure(failedResult.DetailCode, isUpload: false));
                 }
                 NotifySftpTransferQueueChanged(transferContext);
                 processed++;
             }
 
+            var firstFailure = failed.FirstOrDefault()?.Task.StatusText;
             var completionStatus = failed.Count == 0
                 ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"批量下载完成：成功 {completed}/{pending.Count}")
-                : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"批量下载中断：成功 {completed}/{pending.Count}，失败 {failed.Count}；确认连接或重新连接原资产后可重试");
+                : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"批量下载中断：成功 {completed}/{pending.Count}，失败 {failed.Count}；{firstFailure ?? "请查看失败任务详情"}");
             SetSftpTransferStatus(transferContext, completionStatus);
             SetSftpOperationStatusForOwner(owner, completionStatus);
             SetSftpTransferRetries(transferContext, null, failed.Count == 0 ? null : SftpBatchRetryRequest.ForDownloads(failed));
@@ -7176,7 +7177,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 catch (Exception exception)
                 {
                     WriteSftpTransferDiagnostic("upload", exception);
-                    outcome = new SftpUploadItemOutcome(false, "上传异常，确认连接后可重试");
+                    outcome = new SftpUploadItemOutcome(false, "本地文件读取或传输发生异常，请重新选择文件后重试");
                 }
                 if (outcome.Succeeded)
                 {
@@ -7193,9 +7194,10 @@ public sealed class MainWindowViewModel : ObservableObject
                 NotifySftpTransferQueueChanged(transferContext);
             }
 
+            var firstFailure = failed.FirstOrDefault()?.Task.StatusText;
             var completionStatus = failed.Count == 0
                 ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"批量上传完成：成功 {completed}/{pending.Count}")
-                : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"批量上传中断：成功 {completed}/{pending.Count}，失败 {failed.Count}；确认连接或重新连接原资产后可重试");
+                : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"批量上传中断：成功 {completed}/{pending.Count}，失败 {failed.Count}；{firstFailure ?? "请查看失败任务详情"}");
             SetSftpTransferStatus(transferContext, completionStatus);
             SetSftpOperationStatusForOwner(owner, completionStatus);
             SetSftpTransferRetries(transferContext, null, failed.Count == 0 ? null : SftpBatchRetryRequest.ForUploads(failed));
@@ -7259,9 +7261,16 @@ public sealed class MainWindowViewModel : ObservableObject
                     progress,
                     item.Task.TransferControl).ConfigureAwait(false),
                 CancellationToken.None).ConfigureAwait(true);
-            return result is SftpUploadResult.Uploaded uploaded
-                ? new SftpUploadItemOutcome(true, string.Create(System.Globalization.CultureInfo.InvariantCulture, $"上传完成 · {uploaded.ByteLength} B"))
-                : new SftpUploadItemOutcome(false, "上传失败，确认连接后可重试");
+            return result switch
+            {
+                SftpUploadResult.Uploaded uploaded => new SftpUploadItemOutcome(
+                    true,
+                    string.Create(System.Globalization.CultureInfo.InvariantCulture, $"上传完成 · {uploaded.ByteLength} B")),
+                SftpUploadResult.Failed failed => new SftpUploadItemOutcome(
+                    false,
+                    FormatSftpTransferFailure(failed.DetailCode, isUpload: true)),
+                _ => new SftpUploadItemOutcome(false, "上传未完成，请查看最近操作详情"),
+            };
         }
 
         return await ReplaceSftpFileSafelyAsync(item, batchLease, transferContext, cancellationToken).ConfigureAwait(true);
@@ -7615,6 +7624,7 @@ public sealed class MainWindowViewModel : ObservableObject
         if (sftpLease is null)
         {
             SftpOperationStatus = "Open SFTP before creating a directory";
+            PublishSftpFeedback(SftpFeedbackKind.Error, "无法新建文件夹", "请先建立 SFTP 会话");
             return;
         }
 
@@ -7622,10 +7632,12 @@ public sealed class MainWindowViewModel : ObservableObject
         if (remotePath is null)
         {
             SftpOperationStatus = "Directory name rejected";
+            PublishSftpFeedback(SftpFeedbackKind.Error, "无法新建文件夹", "名称不能包含路径分隔符、控制字符或上级目录引用");
             return;
         }
 
         SftpOperationStatus = string.Concat("Creating ", remotePath);
+        PublishSftpFeedback(SftpFeedbackKind.InProgress, "正在新建文件夹", remotePath);
         var result = await orchestrator.CreateSftpDirectoryAsync(
             sftpLease,
             remotePath,
@@ -7635,9 +7647,11 @@ public sealed class MainWindowViewModel : ObservableObject
             case SftpMutationResult.Completed completed:
                 await PrepareSftpBrowseAsync(cancellationToken).ConfigureAwait(true);
                 SftpOperationStatus = string.Concat("Created folder ", completed.Path);
+                PublishSftpFeedback(SftpFeedbackKind.Success, "文件夹已创建", completed.Path);
                 break;
             case SftpMutationResult.Failed failed:
                 SftpOperationStatus = FormatSftpMutationFailure(failed);
+                PublishSftpFeedback(SftpFeedbackKind.Error, "新建文件夹失败", SftpOperationStatus);
                 break;
         }
 
@@ -7651,6 +7665,7 @@ public sealed class MainWindowViewModel : ObservableObject
         if (sftpLease is null)
         {
             SftpOperationStatus = "Open SFTP before creating a file";
+            PublishSftpFeedback(SftpFeedbackKind.Error, "无法新建文件", "请先建立 SFTP 会话");
             return;
         }
 
@@ -7658,10 +7673,12 @@ public sealed class MainWindowViewModel : ObservableObject
         if (remotePath is null)
         {
             SftpOperationStatus = "File name rejected";
+            PublishSftpFeedback(SftpFeedbackKind.Error, "无法新建文件", "名称不能包含路径分隔符、控制字符或上级目录引用");
             return;
         }
 
         SftpOperationStatus = string.Concat("Creating ", remotePath);
+        PublishSftpFeedback(SftpFeedbackKind.InProgress, "正在新建文件", remotePath);
         var result = await orchestrator.CreateSftpFileAsync(
             sftpLease,
             remotePath,
@@ -7671,9 +7688,11 @@ public sealed class MainWindowViewModel : ObservableObject
             case SftpMutationResult.Completed completed:
                 await PrepareSftpBrowseAsync(cancellationToken).ConfigureAwait(true);
                 SftpOperationStatus = string.Concat("Created file ", completed.Path);
+                PublishSftpFeedback(SftpFeedbackKind.Success, "文件已创建", completed.Path);
                 break;
             case SftpMutationResult.Failed failed:
                 SftpOperationStatus = FormatSftpMutationFailure(failed);
+                PublishSftpFeedback(SftpFeedbackKind.Error, "新建文件失败", SftpOperationStatus);
                 break;
         }
 
@@ -10198,6 +10217,27 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             return null;
         }
+    }
+
+    private static string CreateUniqueLocalDownloadPath(string requestedPath, bool directory)
+    {
+        var parent = Path.GetDirectoryName(requestedPath)
+            ?? throw new ArgumentException("A local download parent directory is required.", nameof(requestedPath));
+        var fileName = Path.GetFileName(requestedPath);
+        var extension = directory ? string.Empty : Path.GetExtension(fileName);
+        var stem = extension.Length == 0 ? fileName : fileName[..^extension.Length];
+        for (var index = 1; index <= 9999; index++)
+        {
+            var candidate = Path.Combine(parent, string.Concat(stem, " (", index, ")", extension));
+            if (!File.Exists(candidate) && !Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return Path.Combine(
+            parent,
+            string.Concat(stem, "-", Guid.NewGuid().ToString("N"), extension));
     }
 
     private static bool IsSafeSftpChildName(string name) =>

@@ -1261,10 +1261,14 @@ public sealed class MainWindowViewModelTests
         await viewModel.CreateSftpDirectoryAsync("archive", CancellationToken.None);
         Assert.Equal("/var/log/archive", coreClient.LastCreatedSftpDirectoryPath);
         Assert.Equal("Created folder /var/log/archive", viewModel.SftpOperationStatus);
+        Assert.True(viewModel.IsSftpFeedbackSuccess);
+        Assert.Equal("文件夹已创建", viewModel.SftpFeedbackTitle);
 
         await viewModel.CreateSftpFileAsync("empty.txt", CancellationToken.None);
         Assert.Equal("/var/log/empty.txt", coreClient.LastCreatedSftpFilePath);
         Assert.Equal("Created file /var/log/empty.txt", viewModel.SftpOperationStatus);
+        Assert.True(viewModel.IsSftpFeedbackSuccess);
+        Assert.Equal("文件已创建", viewModel.SftpFeedbackTitle);
 
         viewModel.SelectedSftpEntry = viewModel.SftpEntries[0];
         await viewModel.RenameSelectedSftpEntryAsync("syslog.old", CancellationToken.None);
@@ -1312,7 +1316,7 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
-    public async Task SftpMultiSelectionSupportsBatchDownloadRetryAndBatchDelete()
+    public async Task SftpMultiSelectionKeepsBothLocalFilesAndSupportsBatchDelete()
     {
         var coreClient = new FakeCheckedCoreClient();
         var viewModel = CreateViewModel(coreClient);
@@ -1342,16 +1346,10 @@ public sealed class MainWindowViewModelTests
             File.WriteAllText(collisionPath, "existing");
             await viewModel.DownloadSelectedSftpEntriesAsync(downloadDirectory, CancellationToken.None);
 
-            Assert.Equal(2, coreClient.DownloadSftpFileCallCount);
+            Assert.Equal(3, coreClient.DownloadSftpFileCallCount);
             Assert.True(Directory.Exists(Path.Combine(downloadDirectory, "folder")));
-            Assert.Contains("失败 1", viewModel.SftpTransferStatus, StringComparison.Ordinal);
-            Assert.True(viewModel.CanRetryLastSftpTransfer);
-
-            File.Delete(collisionPath);
-            viewModel.RetryLastSftpTransferCommand.Execute(null);
-            await WaitUntilAsync(() => coreClient.DownloadSftpFileCallCount == 3);
-            await WaitUntilAsync(() => viewModel.SftpTransferStatus.Contains("成功 1/1", StringComparison.Ordinal));
-            Assert.Contains("成功 1/1", viewModel.SftpTransferStatus, StringComparison.Ordinal);
+            Assert.Contains(Path.Combine(downloadDirectory, "one (1).txt"), coreClient.SftpDownloadLocalPaths);
+            Assert.Contains("成功 3/3", viewModel.SftpTransferStatus, StringComparison.Ordinal);
             Assert.False(viewModel.CanRetryLastSftpTransfer);
         }
         finally
@@ -3056,6 +3054,7 @@ public sealed class MainWindowViewModelTests
         public int UploadSftpFileCallCount { get; private set; }
         public int DownloadSftpFileCallCount { get; private set; }
         public List<ulong> SftpDownloadSessionIds { get; } = [];
+        public List<string> SftpDownloadLocalPaths { get; } = [];
         public int CancelSftpTransferCallCount { get; private set; }
         public int SftpDownloadDelayMilliseconds { get; init; }
         public int SftpUploadDelayMilliseconds { get; init; }
@@ -3312,6 +3311,7 @@ public sealed class MainWindowViewModelTests
         {
             DownloadSftpFileCallCount++;
             SftpDownloadSessionIds.Add(sftpSessionId);
+            SftpDownloadLocalPaths.Add(localPath);
             if (SftpDownloadDelayMilliseconds > 0)
             {
                 Thread.Sleep(SftpDownloadDelayMilliseconds);

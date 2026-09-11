@@ -364,6 +364,9 @@ button label,
   min-width: 22px;
   min-height: 22px;
   padding: 2px;
+  border: none;
+  box-shadow: none;
+  background: transparent;
 }
 
 .workspace-paned > separator {

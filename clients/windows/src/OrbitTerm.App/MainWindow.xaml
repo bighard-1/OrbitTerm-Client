@@ -657,7 +657,9 @@
                            AutomationProperties.LiveSetting="Polite"
                            VerticalAlignment="Center" />
                 <Button Grid.Column="2"
-                        Style="{StaticResource OrbitIconButtonStyle}"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        CornerRadius="0"
                         MinWidth="22"
                         MinHeight="22"
                         Padding="3"
@@ -1227,10 +1229,14 @@
                     </Grid>
                     <ContentDialog x:Name="SnippetsDialog"
                                    Title="Snippets"
+                                   Width="700"
+                                   MinWidth="660"
+                                   MaxWidth="760"
                                    CloseButtonText="关闭"
                                    DefaultButton="Close"
                                    AutomationProperties.Name="Snippets 命令片段管理">
-                    <ScrollViewer Width="560" MaxHeight="620"
+                    <ScrollViewer MinWidth="620" MaxWidth="680" MaxHeight="620"
+                                  HorizontalAlignment="Stretch"
                                   VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Spacing="8">
@@ -1299,17 +1305,17 @@
                         </ListView.GroupStyle>
                         <ListView.ItemTemplate>
                             <DataTemplate>
-                                <Border MinHeight="86" Padding="10,8"
+                                <Border MinHeight="86" Padding="10,8" Margin="0,2,8,2"
                                         CornerRadius="{StaticResource OrbitCornerRadius}"
                                         Background="{StaticResource OrbitPanelBrush}"
                                         BorderBrush="{StaticResource OrbitPanelStrokeBrush}"
                                         BorderThickness="1">
-                                    <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto,Auto"
+                                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto"
                                           ColumnSpacing="6" RowSpacing="3">
                                         <TextBlock Text="{Binding Title}"
                                                    FontWeight="SemiBold"
                                                    TextTrimming="CharacterEllipsis" />
-                                        <Border Grid.Column="1" Grid.ColumnSpan="2"
+                                        <Border Grid.Column="1"
                                                 MinWidth="64" Padding="7,2" CornerRadius="6"
                                                 HorizontalAlignment="Right"
                                                 Background="{StaticResource OrbitMetricBrush}">
@@ -1317,7 +1323,7 @@
                                                        TextWrapping="NoWrap"
                                                        Foreground="{StaticResource OrbitMutedTextBrush}" />
                                         </Border>
-                                        <TextBlock Grid.Row="1" Grid.ColumnSpan="3"
+                                        <TextBlock Grid.Row="1" Grid.ColumnSpan="2"
                                                    Text="{Binding Command}"
                                                    FontFamily="Consolas" FontSize="12"
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -1326,14 +1332,18 @@
                                                    FontSize="12"
                                                    Foreground="{StaticResource OrbitMutedTextBrush}"
                                                    TextTrimming="CharacterEllipsis" />
-                                        <Button Grid.Row="2" Grid.Column="1" Content="插入"
-                                                Tag="{Binding}" Click="SnippetContextInsertClick"
-                                                Padding="10,3" MinHeight="26"
-                                                IsEnabled="{Binding DataContext.IsTerminalOpen, ElementName=Root}" />
-                                        <Button Grid.Row="2" Grid.Column="2" Content="执行"
-                                                Tag="{Binding}" Click="SnippetContextExecuteClick"
-                                                Padding="10,3" MinHeight="26"
-                                                IsEnabled="{Binding DataContext.IsTerminalOpen, ElementName=Root}" />
+                                        <StackPanel Grid.Row="2" Grid.Column="1"
+                                                    Orientation="Horizontal" Spacing="6"
+                                                    HorizontalAlignment="Right">
+                                            <Button Content="插入"
+                                                    Tag="{Binding}" Click="SnippetContextInsertClick"
+                                                    Padding="10,3" MinHeight="26"
+                                                    IsEnabled="{Binding DataContext.IsTerminalOpen, ElementName=Root}" />
+                                            <Button Content="执行"
+                                                    Tag="{Binding}" Click="SnippetContextExecuteClick"
+                                                    Padding="10,3" MinHeight="26"
+                                                    IsEnabled="{Binding DataContext.IsTerminalOpen, ElementName=Root}" />
+                                        </StackPanel>
                                         <Grid.ContextFlyout>
                                             <MenuFlyout>
                                                 <MenuFlyoutItem Text="编辑" Tag="{Binding}" Click="SnippetContextEditClick" />

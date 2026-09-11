@@ -255,7 +255,7 @@ for text, label in (
 ):
     for fragment in ("跨资产管理", "插入", "执行", "全部资产"):
         require(text, fragment, label)
-require(mac_snippets, "限 \(snippet.assetScope.assetIDs.count) 台资产", "macOS restricted Snippet scope")
+require(mac_snippets, r"限 \(snippet.assetScope.assetIDs.count) 台资产", "macOS restricted Snippet scope")
 require(windows_snippet_view_model, '$"限 {EffectiveAssetScope.AssetIds.Count} 台资产"', "Windows restricted Snippet scope")
 require(linux_ui, 'format!("限 {} 台资产"', "Linux restricted Snippet scope")
 require(windows_main, "RunWithSnippetsManagerSuspendedAsync", "Windows nested Snippet editor transition")
@@ -292,6 +292,34 @@ for unit in ("Kbps", "Mbps", "Gbps"):
     require(linux_ui, unit, "Linux adaptive network unit")
 require(mac_terminal, ".padding(.horizontal, 7)", "macOS terminal horizontal optical inset")
 require(mac_terminal, ".padding(.vertical, 5)", "macOS terminal vertical optical inset")
+require(
+    mac_toolbar,
+    ".frame(minWidth: 8, maxWidth: .infinity)\n                .frame(height: 28)",
+    "macOS bounded top drag region",
+)
+require(
+    mac_assets,
+    ".frame(minWidth: 8, maxWidth: .infinity)\n                .frame(height: 28)",
+    "macOS bounded footer drag region",
+)
+windows_snippets_dialog = between(
+    windows_xaml,
+    '<ContentDialog x:Name="SnippetsDialog"',
+    '</ContentDialog>',
+    "Windows Snippets dialog",
+)
+for fragment in ('Width="700"', 'MinWidth="660"', 'MaxWidth="760"'):
+    require(windows_snippets_dialog, fragment, "Windows Snippets usable width")
+for cursor_name in ("n-resize", "s-resize", "w-resize", "e-resize", "nw-resize", "se-resize"):
+    require(linux_ui, cursor_name, "Linux discoverable native resize cursor")
+linux_footer_button = between(
+    linux_css,
+    ".compact-footer-button {",
+    "}",
+    "Linux synchronization action",
+)
+for fragment in ("border: none;", "box-shadow: none;", "background: transparent;"):
+    require(linux_footer_button, fragment, "Linux borderless synchronization action")
 
 
 # Restore rails share the same top inset and height. Linux command pre-input
@@ -360,10 +388,16 @@ windows_sync_footer = between(
 )
 for fragment in ('Grid.Row="3"', 'Grid.ColumnSpan="3"', 'HorizontalAlignment="Stretch"'):
     require(windows_sync_footer, fragment, "Windows full-width synchronization footer")
+require(windows_sync_footer, 'BorderThickness="0"', "Windows borderless synchronization action")
 require_ordered(
     linux_ui,
     ["root.append(&workbench_overlay);", "root.append(&sidebar.footer);"],
     "Linux independent synchronization footer",
+)
+require_ordered(
+    between(linux_ui, "let footer = gtk::Box::new", "let content = gtk::Box::new", "Linux synchronization footer"),
+    ["footer.append(sync_status);", "footer.append(&sync);", "footer.append(&drag_handle);"],
+    "Linux synchronization action stays beside its status",
 )
 if "workbench_overlay.add_overlay(&sidebar.footer)" in linux_ui:
     raise SystemExit(

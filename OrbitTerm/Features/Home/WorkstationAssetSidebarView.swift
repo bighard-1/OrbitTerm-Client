@@ -273,7 +273,8 @@ struct WorkstationPersistentSyncStatusView: View {
             .accessibilityLabel("立即双向同步")
             #if os(macOS)
             WorkstationWindowDragRegion()
-                .frame(minWidth: 8, maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minWidth: 8, maxWidth: .infinity)
+                .frame(height: 28)
                 .accessibilityHidden(true)
             #else
             Spacer(minLength: 8)
