@@ -95,6 +95,7 @@ struct WorkstationTopBar: View {
     @Binding var showingAssetManager: Bool
     @Binding var showingSettings: Bool
     @Binding var showingBatchCommand: Bool
+    @Binding var showingSnippets: Bool
     @Binding var showingAccountSecurity: Bool
 
     var body: some View {
@@ -105,6 +106,17 @@ struct WorkstationTopBar: View {
             Spacer(minLength: 0)
                 .frame(width: 62)
 
+            Image("OrbitTermLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 22, height: 22)
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(palette.borderGlass.color, lineWidth: 1)
+                }
+                .accessibilityLabel("OrbitTerm 标志")
+
 #if DEBUG
             DebugFPSBadge()
 #endif
@@ -114,7 +126,13 @@ struct WorkstationTopBar: View {
                     .help("网络重试中")
             }
 
-            Spacer(minLength: 8)
+            WorkstationWindowDragRegion()
+                // A drag surface must participate only in the toolbar's own
+                // height. An unbounded NSViewRepresentable greedily consumes
+                // the workstation's vertical remainder in SwiftUI.
+                .frame(minWidth: 8, maxWidth: .infinity)
+                .frame(height: 28)
+                .accessibilityHidden(true)
 
             HStack(spacing: 8) {
                 Button("添加服务器") { showingAddServer = true }
@@ -137,6 +155,8 @@ struct WorkstationTopBar: View {
                 .buttonStyle(WorkstationTopBarButtonStyle(isPrimary: false))
                 Button("批量命令") { showingBatchCommand = true }
                     .buttonStyle(WorkstationTopBarButtonStyle(isPrimary: false))
+                Button("Snippets") { showingSnippets = true }
+                    .buttonStyle(WorkstationTopBarButtonStyle(isPrimary: false))
                 Button("设置") { showingSettings = true }
                     .buttonStyle(WorkstationTopBarButtonStyle(isPrimary: false))
                 AccountToolbarMenu(
@@ -156,6 +176,21 @@ struct WorkstationTopBar: View {
         .background(palette.surfaceGlassStrong.color)
     }
 
+}
+
+struct WorkstationWindowDragRegion: NSViewRepresentable {
+    final class DragSurface: NSView {
+        override var mouseDownCanMoveWindow: Bool { true }
+        override var intrinsicContentSize: NSSize { NSSize(width: -1, height: 0) }
+    }
+
+    func makeNSView(context: Context) -> DragSurface {
+        let view = DragSurface()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }
+
+    func updateNSView(_ nsView: DragSurface, context: Context) {}
 }
 
 struct WorkstationBrandOverview: View {
@@ -192,7 +227,6 @@ struct WorkstationBrandOverview: View {
 }
 
 struct WorkstationOverviewBand: View {
-    let sidebarWidth: CGFloat
     let activeSession: WorkspaceSession?
     @ObservedObject var monitorService: MonitorService
     @Binding var showingDetailPanelID: UUID?
@@ -200,14 +234,8 @@ struct WorkstationOverviewBand: View {
     @Environment(\.appThemePalette) private var palette
 
     var body: some View {
-        HStack(spacing: 8) {
-            RemoteEndpointMonitorCard(
-                host: activeSession?.isConnected == true ? activeSession?.server.host : nil
-            )
-            .frame(width: 176)
-
-            Group {
-                if let activeSession {
+        Group {
+            if let activeSession {
                 WorkstationMonitorOverviewStrip(
                     active: activeSession,
                     monitorService: monitorService,
@@ -217,20 +245,96 @@ struct WorkstationOverviewBand: View {
                     onStartCheckedMonitoring: onStartCheckedMonitoring
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Label("连接服务器后显示系统概览", systemImage: "waveform.path.ecg")
-                        .font(.caption)
-                        .foregroundStyle(palette.textSecondary.color)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .accessibilityLabel("系统概览，连接服务器后可用")
-                }
+            } else {
+                WorkstationMonitorPlaceholderStrip()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.leading, 12)
         .padding(.trailing, 12)
-        .frame(height: 60)
+        .frame(height: 40)
         .background(palette.surfaceGlassStrong.color)
+    }
+}
+
+struct WorkstationMonitorPlaceholderStrip: View {
+    let host: String?
+    let actionTitle: String
+    let action: (() -> Void)?
+    @Environment(\.appThemePalette) private var palette
+
+    init(host: String? = nil, actionTitle: String = "详情", action: (() -> Void)? = nil) {
+        self.host = host
+        self.actionTitle = actionTitle
+        self.action = action
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let detailWidth: CGFloat = 54
+            let spacing: CGFloat = 6
+            let cardCount: CGFloat = 7
+            let metricWidth = max(
+                0,
+                floor((proxy.size.width - detailWidth - spacing * cardCount) / cardCount)
+            )
+
+            HStack(spacing: spacing) {
+                placeholderCard(title: "当前资产 IP", value: host ?? "尚未选择", monospaced: true)
+                    .frame(width: metricWidth)
+
+                ForEach(["CPU", "内存", "磁盘", "下载", "上传", "延迟"], id: \.self) { title in
+                    placeholderCard(title: title, value: "—")
+                        .frame(width: metricWidth)
+                }
+
+                Button(actionTitle) { action?() }
+                    .buttonStyle(.borderless)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(action == nil ? palette.textSecondary.color : palette.textOnAccent.color)
+                    .frame(width: detailWidth, height: 32)
+                    .background(
+                        action == nil ? palette.surfaceGlass.color : palette.accentPrimary.color,
+                        in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(palette.borderGlass.color, lineWidth: action == nil ? 1 : 0)
+                    }
+                    .disabled(action == nil)
+            }
+            .frame(width: proxy.size.width, alignment: .leading)
+        }
+        .frame(height: 34)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(host == nil ? "尚未选择资产，监控指标不可用" : "已选择资产，等待开始安全监控")
+    }
+
+    private func placeholderCard(title: String, value: String, monospaced: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                Text(title)
+                    .lineLimit(1)
+                Spacer(minLength: 2)
+                Text(value)
+                    .fontDesign(monospaced ? .monospaced : .default)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(palette.textSecondary.color)
+            }
+            Capsule()
+                .fill(palette.borderGlass.color.opacity(0.72))
+                .frame(maxWidth: .infinity, minHeight: 2, maxHeight: 2)
+        }
+        .font(.caption2)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34, alignment: .leading)
+        .background(palette.surfaceGlass.color, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(palette.borderGlass.color, lineWidth: 1)
+        }
     }
 }
 
@@ -255,7 +359,7 @@ struct WorkstationTopStatusBuffer: View {
                 .padding(.horizontal, 12)
             }
         }
-        .frame(height: message.isEmpty ? 14 : 24)
+        .frame(height: message.isEmpty ? 0 : 24)
         .background(palette.surfaceGlassStrong.color)
         .accessibilityElement(children: message.isEmpty ? .ignore : .combine)
         .accessibilityLabel(message)

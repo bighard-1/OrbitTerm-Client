@@ -441,6 +441,27 @@ static int orbit_configure_instance(orbit_rdp_session* session, freerdp* instanc
            freerdp_settings_set_bool(settings, FreeRDP_DesktopResize, TRUE) &&
            freerdp_settings_set_bool(settings, FreeRDP_DynamicResolutionUpdate, TRUE) &&
            freerdp_settings_set_bool(settings, FreeRDP_SupportDisplayControl, TRUE) &&
+           /*
+            * Use the standard MCS channel-join sequence.  Some Windows 11
+            * hosts answer connect-time auto-detect on the global channel even
+            * after advertising the optional message channel.  FreeRDP then
+            * rejects the otherwise valid response and waits for activation
+            * until timeout.  The conservative path is deterministic across
+            * Windows editions and still supports dynamic display updates once
+            * the desktop is active.
+            */
+           freerdp_settings_set_bool(settings, FreeRDP_NetworkAutoDetect, FALSE) &&
+           freerdp_settings_set_bool(settings, FreeRDP_SupportHeartbeatPdu, FALSE) &&
+           freerdp_settings_set_bool(settings, FreeRDP_SupportSkipChannelJoin, FALSE) &&
+           /*
+            * This embedded client has no audited RDP-UDP transport.  FreeRDP
+            * enables UDP multitransport by default, and advertising those
+            * flags can leave Windows waiting for an out-of-band channel until
+            * activation times out.  Keep the session on the supported TCP/TLS
+            * path and clear both the capability and its wire flags.
+            */
+           freerdp_settings_set_bool(settings, FreeRDP_SupportMultitransport, FALSE) &&
+           freerdp_settings_set_uint32(settings, FreeRDP_MultitransportFlags, 0) &&
            freerdp_settings_set_bool(settings, FreeRDP_AutoReconnectionEnabled, FALSE);
 }
 static void orbit_destroy_instance(freerdp* instance) {

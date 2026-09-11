@@ -16,7 +16,8 @@ public sealed record CheckedEnvelope(
 public sealed record CheckedErrorPayload(
     [property: JsonPropertyName("code")] string Code,
     [property: JsonPropertyName("message_key")] string MessageKey,
-    [property: JsonPropertyName("request_id")] string? RequestId);
+    [property: JsonPropertyName("request_id")] string? RequestId,
+    [property: JsonPropertyName("detail_code")] string? DetailCode = null);
 
 public static class CheckedEnvelopeDecoder
 {

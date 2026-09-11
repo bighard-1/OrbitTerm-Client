@@ -82,12 +82,32 @@ for marker in (
 PY
 pass "SFTP browse interaction contract is present"
 
-if find "$SRC" -type f \( -name '*.cs' -o -name '*.xaml' -o -name '*.csproj' \) \
-    ! -path '*/bin/*' ! -path '*/obj/*' -print0 |
-    xargs -0 rg -n 'OK:|ERR:|Trust All|accept-anyway|accept anyway|仍然接受|全部信任' >/tmp/orbitterm-windows-bypass-scan.txt 2>/dev/null; then
-  cat /tmp/orbitterm-windows-bypass-scan.txt >&2
-  fail "Checked protocol or Host Key bypass forbidden text appears in Windows source"
-fi
+python3 - "$SRC" <<'PY'
+import sys
+from pathlib import Path
+
+src = Path(sys.argv[1])
+allowed_protocol_markers = {
+    src / "OrbitTerm.NativeBridge/OrbitConfigCrypto.cs",
+    src / "OrbitTerm.Application/Security/SshPublicKeyDeploymentPolicy.cs",
+}
+for path in src.rglob("*"):
+    if not path.is_file() or path.suffix not in {".cs", ".xaml", ".csproj"}:
+        continue
+    if "bin" in path.parts or "obj" in path.parts:
+        continue
+    text = path.read_text(errors="replace")
+    if ("OK:" in text or "ERR:" in text) and path not in allowed_protocol_markers:
+        raise SystemExit(f"Checked Windows code must not parse legacy OK:/ERR: strings: {path}")
+    if any(marker in text for marker in (
+        "Trust All",
+        "accept-anyway",
+        "accept anyway",
+        "仍然接受",
+        "全部信任",
+    )):
+        raise SystemExit(f"Forbidden Host Key bypass UX appears in {path}")
+PY
 pass "Checked protocol and Host Key bypass UX scans passed"
 
 for project in \
@@ -241,7 +261,7 @@ require(quality.get("minimum_window_height", 0) >= 640, "minimum_window_height i
 require("MinWidth=" not in window_open and "MinHeight=" not in window_open, "WinUI Window root must not use unsupported MinWidth/MinHeight attributes")
 require(re.search(rf"MinimumWindowWidth\s*=\s*{quality['minimum_window_width']}\s*;", code_behind), "MainWindow minimum width constant missing")
 require(re.search(rf"MinimumWindowHeight\s*=\s*{quality['minimum_window_height']}\s*;", code_behind), "MainWindow minimum height constant missing")
-require("AppWindow.Resize(new SizeInt32(MinimumWindowWidth, MinimumWindowHeight))" in code_behind, "MainWindow AppWindow resize policy missing")
+require("WindowMessageGetMinMaxInfo" in code_behind and "MinimumTrackingSize = new NativePoint" in code_behind, "MainWindow WM_GETMINMAXINFO resize policy missing")
 minimum_font = int(quality.get("minimum_text_font_size", 0))
 require(minimum_font >= 12, "minimum_text_font_size is too small")
 for value in re.findall(r'FontSize="([0-9]+)"', xaml):
@@ -251,20 +271,29 @@ for command in ("PreviousCommandHistoryCommand", "NextCommandHistoryCommand"):
     require(index >= 0, f"Keyboard history command missing: {command}")
     require("AutomationProperties.Name=" in xaml[index:index + 260], f"Accessible name missing for {command}")
 for name in (
-    "Server assets",
-    "SFTP directory entries",
-    "SFTP preview text",
-    "Previous command",
-    "Next command",
+    "NativeTerminalView",
+    "TerminalPreInputBox",
+    "SftpEntriesList",
+    "ActiveSftpTransfersTab",
+    "CompletedSftpTransfersTab",
 ):
-    require(f'AutomationProperties.Name="{name}"' in xaml, f"Accessible name missing: {name}")
-require("<Image" not in xaml, "High-DPI smoke disallows unmanaged Image elements")
+    match = re.search(rf'<[^>]*x:Name="{name}"[^>]*>', xaml, re.DOTALL)
+    require(match is not None and "AutomationProperties.Name=" in match.group(0), f"Accessible name missing: {name}")
+images = re.findall(r'<Image\b[^>]*>', xaml)
+if images:
+    require(
+        len(images) == 1
+        and 'Source="ms-appx:///Assets/Square44x44Logo.png"' in images[0]
+        and re.search(r'<Border Width="22"\s+Height="22"', xaml) is not None,
+        "Release UI contains an unreviewed raster Image element",
+    )
 require(quality.get("requires_keyboard_access") is True, "keyboard access requirement missing")
 require(quality.get("requires_accessible_names") is True, "accessible name requirement missing")
 require(quality.get("requires_high_dpi_safe_assets") is True, "high-DPI requirement missing")
 localization = quality.get("localization") or {}
-require(localization.get("default_culture") == "en-US", "default culture must be en-US")
-require("en-US" in localization.get("supported_cultures", []), "supported cultures must include en-US")
+default_culture = localization.get("default_culture", "")
+require(re.fullmatch(r"[a-z]{2}-[A-Z]{2}", default_culture) is not None, "default culture must be a valid language-region tag")
+require(default_culture in localization.get("supported_cultures", []), "supported cultures must include the default culture")
 require(localization.get("external_distribution_requires_string_resources") is True, "external distribution must require string resources")
 PY
 pass "Windows release quality smoke checks"

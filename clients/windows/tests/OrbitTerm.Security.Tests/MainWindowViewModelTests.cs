@@ -11,6 +11,22 @@ namespace OrbitTerm.Security.Tests;
 public sealed class MainWindowViewModelTests
 {
     [Fact]
+    public void EmptyWorkspaceCopyAndDraftTabMatchDesktopContract()
+    {
+        var viewModel = CreateViewModel(seedDefaultAsset: false);
+
+        Assert.Equal("还没有服务器", viewModel.AssetEmptyStateTitle);
+        Assert.Equal("添加服务器后，即可从这里安全地发起连接。", viewModel.AssetEmptyStateDescription);
+        Assert.Equal("暂无会话", viewModel.TerminalEmptyStateLabel);
+        Assert.Equal("从左侧选择服务器，然后建立连接。", viewModel.TerminalEmptyStateDescription);
+
+        var draft = Assert.IsType<WorkspaceTabViewModel>(viewModel.SelectedWorkspaceTab);
+        Assert.False(draft.IsSessionTabVisible);
+        draft.MarkSessionStarted();
+        Assert.True(draft.IsSessionTabVisible);
+    }
+
+    [Fact]
     public void LegacyAssetDocumentsReceiveSafeGroupAndTagDefaults()
     {
         const string legacyAssetJson = """
@@ -1245,10 +1261,14 @@ public sealed class MainWindowViewModelTests
         await viewModel.CreateSftpDirectoryAsync("archive", CancellationToken.None);
         Assert.Equal("/var/log/archive", coreClient.LastCreatedSftpDirectoryPath);
         Assert.Equal("Created folder /var/log/archive", viewModel.SftpOperationStatus);
+        Assert.True(viewModel.IsSftpFeedbackSuccess);
+        Assert.Equal("文件夹已创建", viewModel.SftpFeedbackTitle);
 
         await viewModel.CreateSftpFileAsync("empty.txt", CancellationToken.None);
         Assert.Equal("/var/log/empty.txt", coreClient.LastCreatedSftpFilePath);
         Assert.Equal("Created file /var/log/empty.txt", viewModel.SftpOperationStatus);
+        Assert.True(viewModel.IsSftpFeedbackSuccess);
+        Assert.Equal("文件已创建", viewModel.SftpFeedbackTitle);
 
         viewModel.SelectedSftpEntry = viewModel.SftpEntries[0];
         await viewModel.RenameSelectedSftpEntryAsync("syslog.old", CancellationToken.None);
@@ -1296,7 +1316,7 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
-    public async Task SftpMultiSelectionSupportsBatchDownloadRetryAndBatchDelete()
+    public async Task SftpMultiSelectionKeepsBothLocalFilesAndSupportsBatchDelete()
     {
         var coreClient = new FakeCheckedCoreClient();
         var viewModel = CreateViewModel(coreClient);
@@ -1326,16 +1346,10 @@ public sealed class MainWindowViewModelTests
             File.WriteAllText(collisionPath, "existing");
             await viewModel.DownloadSelectedSftpEntriesAsync(downloadDirectory, CancellationToken.None);
 
-            Assert.Equal(2, coreClient.DownloadSftpFileCallCount);
+            Assert.Equal(3, coreClient.DownloadSftpFileCallCount);
             Assert.True(Directory.Exists(Path.Combine(downloadDirectory, "folder")));
-            Assert.Contains("失败 1", viewModel.SftpTransferStatus, StringComparison.Ordinal);
-            Assert.True(viewModel.CanRetryLastSftpTransfer);
-
-            File.Delete(collisionPath);
-            viewModel.RetryLastSftpTransferCommand.Execute(null);
-            await WaitUntilAsync(() => coreClient.DownloadSftpFileCallCount == 3);
-            await WaitUntilAsync(() => viewModel.SftpTransferStatus.Contains("成功 1/1", StringComparison.Ordinal));
-            Assert.Contains("成功 1/1", viewModel.SftpTransferStatus, StringComparison.Ordinal);
+            Assert.Contains(Path.Combine(downloadDirectory, "one (1).txt"), coreClient.SftpDownloadLocalPaths);
+            Assert.Contains("成功 3/3", viewModel.SftpTransferStatus, StringComparison.Ordinal);
             Assert.False(viewModel.CanRetryLastSftpTransfer);
         }
         finally
@@ -1431,7 +1445,8 @@ public sealed class MainWindowViewModelTests
     [Fact]
     public async Task SftpQueuesRunConcurrentlyAndRemainIsolatedPerWorkspace()
     {
-        var coreClient = new FakeCheckedCoreClient { SftpUploadDelayMilliseconds = 1_500 };
+        using var uploadReleaseGate = new ManualResetEventSlim(false);
+        var coreClient = new FakeCheckedCoreClient { SftpUploadReleaseGate = uploadReleaseGate };
         var viewModel = CreateViewModel(coreClient);
         viewModel.Password = "secret";
         viewModel.ConnectCommand.Execute(null);
@@ -1479,6 +1494,7 @@ public sealed class MainWindowViewModelTests
             Assert.True(viewModel.IsSftpBatchRunning);
             Assert.Equal(Path.GetFileName(firstPath), Assert.Single(viewModel.SftpTransferTasks).FileName);
 
+            uploadReleaseGate.Set();
             await Task.WhenAll(firstOperation, secondOperation);
             Assert.Equal(2, coreClient.MaxConcurrentSftpUploads);
             Assert.Single(viewModel.CompletedSftpTransferTasks);
@@ -1490,6 +1506,7 @@ public sealed class MainWindowViewModelTests
         }
         finally
         {
+            uploadReleaseGate.Set();
             File.Delete(firstPath);
             File.Delete(secondPath);
             File.Delete(queuedSecondPath);
@@ -3008,7 +3025,10 @@ public sealed class MainWindowViewModelTests
 
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        // The full suite runs in parallel on hosted Windows runners, where
+        // worker-thread scheduling can briefly exceed the local-machine
+        // latency without changing the behavior under test.
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         while (!condition())
         {
             timeout.Token.ThrowIfCancellationRequested();
@@ -3034,9 +3054,11 @@ public sealed class MainWindowViewModelTests
         public int UploadSftpFileCallCount { get; private set; }
         public int DownloadSftpFileCallCount { get; private set; }
         public List<ulong> SftpDownloadSessionIds { get; } = [];
+        public List<string> SftpDownloadLocalPaths { get; } = [];
         public int CancelSftpTransferCallCount { get; private set; }
         public int SftpDownloadDelayMilliseconds { get; init; }
         public int SftpUploadDelayMilliseconds { get; init; }
+        public ManualResetEventSlim? SftpUploadReleaseGate { get; init; }
         private int sftpUploadInFlight;
         private int maxConcurrentSftpUploads;
         public int SftpUploadInFlight => Volatile.Read(ref sftpUploadInFlight);
@@ -3289,6 +3311,7 @@ public sealed class MainWindowViewModelTests
         {
             DownloadSftpFileCallCount++;
             SftpDownloadSessionIds.Add(sftpSessionId);
+            SftpDownloadLocalPaths.Add(localPath);
             if (SftpDownloadDelayMilliseconds > 0)
             {
                 Thread.Sleep(SftpDownloadDelayMilliseconds);
@@ -3333,6 +3356,11 @@ public sealed class MainWindowViewModelTests
                 if (SftpUploadDelayMilliseconds > 0)
                 {
                     Thread.Sleep(SftpUploadDelayMilliseconds);
+                }
+                if (SftpUploadReleaseGate is { } releaseGate &&
+                    !releaseGate.Wait(TimeSpan.FromSeconds(10)))
+                {
+                    throw new TimeoutException("Timed out waiting to release the deterministic SFTP upload gate.");
                 }
                 if (SftpUploadFailuresRemaining > 0)
                 {

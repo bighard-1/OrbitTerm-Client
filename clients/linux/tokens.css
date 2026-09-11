@@ -1,0 +1,40 @@
+/* OrbitTerm Linux design tokens · canonical OKLCH source */
+:root {
+  --color-paper: oklch(97.4% 0.010 250);
+  --color-paper-2: oklch(94.8% 0.014 250);
+  --color-surface: oklch(99.2% 0.006 250);
+  --color-ink: oklch(20% 0.025 258);
+  --color-muted: oklch(42% 0.028 255);
+  --color-rule: oklch(84% 0.022 250);
+  --color-accent: oklch(51% 0.165 256);
+  --color-accent-hover: oklch(45% 0.155 256);
+  --color-accent-ink: oklch(98% 0.008 250);
+  --color-focus: oklch(64% 0.155 240);
+  --color-success: oklch(50% 0.115 155);
+  --color-warning: oklch(55% 0.135 65);
+  --color-danger: oklch(50% 0.18 28);
+  --color-terminal: oklch(19% 0.016 258);
+  --color-terminal-ink: oklch(90% 0.014 250);
+  --font-display: "Adwaita Sans", "Cantarell", sans-serif;
+  --font-body: "Adwaita Sans", "Cantarell", sans-serif;
+  --font-mono: "JetBrains Mono", "DejaVu Sans Mono", monospace;
+  --space-2xs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 40px;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-md: 20px;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+  --dur-long: 420ms;
+  --rule-thin: 1px;
+  --radius-control: 6px;
+  --radius-panel: 10px;
+}

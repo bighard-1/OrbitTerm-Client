@@ -25,7 +25,7 @@ struct WorkstationAssetSidebarView: View {
                 ContentUnavailableView(
                     "还没有服务器",
                     systemImage: "server.rack",
-                    description: Text("点击右上角“添加服务器”开始")
+                    description: Text("添加服务器后，即可从这里安全地发起连接。")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -271,7 +271,14 @@ struct WorkstationPersistentSyncStatusView: View {
             .disabled(isSynchronizing || !session.isUnlocked)
             .help("立即双向同步")
             .accessibilityLabel("立即双向同步")
+            #if os(macOS)
+            WorkstationWindowDragRegion()
+                .frame(minWidth: 8, maxWidth: .infinity)
+                .frame(height: 28)
+                .accessibilityHidden(true)
+            #else
             Spacer(minLength: 8)
+            #endif
         }
         .font(.caption2)
         .foregroundStyle(

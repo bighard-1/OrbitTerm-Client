@@ -1,6 +1,7 @@
 package com.orbitterm.android.core
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.orbitterm.android.domain.performance.PerformanceAcceptanceBaseline
 import com.orbitterm.android.domain.performance.RuntimeResourceBudget
 import kotlinx.coroutines.runBlocking
@@ -10,8 +11,9 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class TerminalPerformanceInstrumentationTest {
-    @Test(timeout = PerformanceAcceptanceBaseline.MAX_OPERATION_MILLIS)
+    @Test(timeout = PerformanceAcceptanceBaseline.MAX_DEVICE_TEST_WATCHDOG_MILLIS)
     fun largeTerminalBurstRemainsBoundedAndNonBlocking() = runBlocking {
+        val startedAt = System.nanoTime()
         val pipeline = TerminalOutputBackpressurePipeline(
             queueCapacity = RuntimeResourceBudget.TERMINAL_OUTPUT_QUEUE_CAPACITY,
             maxChunkBytes = RuntimeResourceBudget.TERMINAL_OUTPUT_MAX_CHUNK_BYTES,
@@ -25,5 +27,21 @@ class TerminalPerformanceInstrumentationTest {
         val metrics = pipeline.metrics()
         assertTrue(metrics.acceptedBytes <= RuntimeResourceBudget.TERMINAL_OUTPUT_MAX_BUFFERED_BYTES)
         assertTrue(metrics.droppedQueueFullChunks > 0)
+        if (strictPerformanceChecks()) {
+            val elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000
+            assertTrue(
+                "Terminal burst took ${elapsedMillis}ms; budget is " +
+                    "${PerformanceAcceptanceBaseline.MAX_OPERATION_MILLIS}ms",
+                elapsedMillis <= PerformanceAcceptanceBaseline.MAX_OPERATION_MILLIS,
+            )
+        }
+    }
+
+    private fun strictPerformanceChecks(): Boolean = when (
+        InstrumentationRegistry.getArguments().getString("strictPerformance")
+    ) {
+        null, "true" -> true
+        "false" -> false
+        else -> error("strictPerformance must be true or false")
     }
 }

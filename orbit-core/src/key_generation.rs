@@ -85,7 +85,8 @@ mod tests {
         let generated = generate_ed25519_key_pair(&format!("mobile\n{}", "x".repeat(100)))
             .expect("generate key");
         let public_key = PublicKey::from_openssh(&generated.public_key).expect("public key");
-        assert!(!public_key.comment().contains('\n'));
-        assert!(public_key.comment().chars().count() <= 80);
+        let comment = public_key.comment().as_str().expect("UTF-8 key comment");
+        assert!(!comment.contains('\n'));
+        assert!(comment.chars().count() <= 80);
     }
 }

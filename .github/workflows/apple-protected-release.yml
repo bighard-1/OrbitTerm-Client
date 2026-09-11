@@ -32,7 +32,6 @@ jobs:
     env:
       RELEASE_REF: ${{ inputs.release_ref }}
       ORBITTERM_RELEASE_VERSION: ${{ inputs.release_version }}
-      ORBITTERM_RELEASE_KEYCHAIN_PATH: ${{ runner.temp }}/orbitterm-release.keychain-db
       ORBITTERM_RELEASE_KEYCHAIN_PASSWORD: ${{ secrets.ORBITTERM_RELEASE_KEYCHAIN_PASSWORD }}
       ORBITTERM_IOS_DISTRIBUTION_P12_BASE64: ${{ secrets.ORBITTERM_IOS_DISTRIBUTION_P12_BASE64 }}
       ORBITTERM_IOS_DISTRIBUTION_P12_PASSWORD: ${{ secrets.ORBITTERM_IOS_DISTRIBUTION_P12_PASSWORD }}
@@ -49,11 +48,15 @@ jobs:
       ORBITTERM_MACOS_CODESIGN_IDENTITY: ${{ secrets.ORBITTERM_MACOS_CODESIGN_IDENTITY }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.release_ref }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Set protected release workspace paths
+        shell: bash
+        run: echo "ORBITTERM_RELEASE_KEYCHAIN_PATH=$RUNNER_TEMP/orbitterm-release.keychain-db" >> "$GITHUB_ENV"
 
       - name: Verify immutable release reference
         shell: bash
@@ -161,7 +164,7 @@ jobs:
             > "$evidence/signing-verification.txt" 2>&1
 
       - name: Upload protected release artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: apple-release-${{ github.run_id }}
           path: |
@@ -172,7 +175,7 @@ jobs:
 
       - name: Upload restricted evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: apple-release-evidence-${{ github.run_id }}
           path: ${{ runner.temp }}/apple-release-evidence/**

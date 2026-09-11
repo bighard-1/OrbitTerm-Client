@@ -3,6 +3,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:OrbitTerm.App.Controls"
+    xmlns:presentation="using:OrbitTerm.Presentation"
     xmlns:primitives="using:Microsoft.UI.Xaml.Controls.Primitives"
     Title="OrbitTerm">
     <Grid x:Name="Root"
@@ -16,13 +17,13 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition x:Name="AssetSidebarColumn" Width="300" MinWidth="0" />
+            <ColumnDefinition x:Name="AssetSidebarColumn" Width="220" MinWidth="0" />
             <!-- The usable terminal minimum is enforced by MainWindow's pane
                  coordinator. Keeping the Grid column itself flexible prevents
                  WinUI from overflowing/clipping the centre content during a
                  splitter drag before the responsive rule is applied. -->
             <ColumnDefinition Width="*" MinWidth="0" />
-            <ColumnDefinition x:Name="ToolInspectorColumn" Width="328" MinWidth="0" />
+            <ColumnDefinition x:Name="ToolInspectorColumn" Width="280" MinWidth="0" />
         </Grid.ColumnDefinitions>
         <Grid.Resources>
             <DataTemplate x:Key="MonitorMetricCardTemplate">
@@ -186,15 +187,20 @@
                             AutomationProperties.AutomationId="OpenBatchCommandButton"
                             AutomationProperties.Name="批量命令"
                             Style="{StaticResource OrbitTitleBarButtonStyle}" />
+                    <Button Content="Snippets" Click="ShowSnippetsClick"
+                            AutomationProperties.Name="命令片段"
+                            Style="{StaticResource OrbitTitleBarButtonStyle}" />
                     <Button Content="设置" Click="ShowTerminalAppearanceDialogClick"
                             Style="{StaticResource OrbitTitleBarButtonStyle}" />
-                    <Button ToolTipService.ToolTip="{Binding AccountEntryLabel}"
+                    <Button x:Name="AccountToolbarButton"
+                            ToolTipService.ToolTip="{Binding AccountEntryLabel}"
                             Style="{StaticResource OrbitTitleBarButtonStyle}"
                             Click="ManageAccountClick"
                             AutomationProperties.Name="{Binding AccountEntryLabel}">
                         <StackPanel Orientation="Horizontal" Spacing="5">
                             <FontIcon Glyph="&#xE77B;" FontSize="13" />
-                            <TextBlock Text="{Binding AccountEntryLabel}" />
+                            <TextBlock x:Name="AccountEntryText"
+                                       Text="{Binding AccountEntryLabel}" />
                         </StackPanel>
                     </Button>
                 </StackPanel>
@@ -347,65 +353,65 @@
                 Grid.ColumnSpan="3"
                 BorderThickness="0"
                 Background="{StaticResource OrbitWorkbenchBrush}">
-            <Grid Padding="12,2,12,5" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-                <Border Padding="9,4"
-                        MinWidth="176"
-                        VerticalAlignment="Stretch"
-                        Background="{StaticResource OrbitMetricBrush}"
-                        BorderBrush="{StaticResource OrbitPanelStrokeBrush}"
-                        BorderThickness="1"
-                        CornerRadius="{StaticResource OrbitCardCornerRadius}">
-                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
-                        <TextBlock Text="当前资产 IP" FontSize="12"
-                                   Foreground="{StaticResource OrbitMutedTextBrush}"
-                                   VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="1"
-                                   Text="{Binding CurrentConnectedHost, FallbackValue=未连接}"
-                                   FontSize="12"
-                                   FontWeight="SemiBold"
-                                   TextTrimming="CharacterEllipsis"
-                                   VerticalAlignment="Center" />
-                        <Button x:Name="CurrentHostCopyButton"
-                                Grid.Column="2"
-                                Click="CopyCurrentHostClick"
-                                Padding="5,2"
-                                MinHeight="24"
-                                ToolTipService.ToolTip="复制当前资产 IP"
-                                AutomationProperties.Name="复制当前资产 IP">
-                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                <FontIcon x:Name="CurrentHostCopyGlyph" Glyph="&#xE8C8;" FontSize="12" />
-                                <TextBlock x:Name="CurrentHostCopyFeedback" Text="复制" FontSize="12" />
+            <Grid Padding="12,2,12,5" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <Grid ColumnDefinitions="*,*,*,*,*,*,*" ColumnSpacing="6">
+                    <Border Grid.Column="0"
+                            Height="34"
+                            Padding="7,2"
+                            Background="{StaticResource OrbitMetricBrush}"
+                            BorderBrush="{StaticResource OrbitPanelStrokeBrush}"
+                            BorderThickness="1"
+                            CornerRadius="{StaticResource OrbitCardCornerRadius}">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4">
+                            <StackPanel Spacing="0" VerticalAlignment="Center">
+                                <TextBlock Text="当前资产 IP"
+                                           FontSize="12"
+                                           Foreground="{StaticResource OrbitMutedTextBrush}" />
+                                <TextBlock Text="{Binding CurrentConnectedHost, FallbackValue=未连接}"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" />
                             </StackPanel>
-                        </Button>
-                    </Grid>
-                </Border>
-                <Grid Grid.Column="1" ColumnDefinitions="*,*,*,*,*,*" ColumnSpacing="6">
-                    <ContentControl Grid.Column="0"
+                            <Button x:Name="CurrentHostCopyButton"
+                                    Grid.Column="1"
+                                    Style="{StaticResource OrbitIconButtonStyle}"
+                                    Width="24"
+                                    Height="24"
+                                    MinWidth="24"
+                                    MinHeight="24"
+                                    Click="CopyCurrentHostClick"
+                                    ToolTipService.ToolTip="复制当前资产 IP"
+                                    AutomationProperties.Name="复制当前资产 IP">
+                                <FontIcon x:Name="CurrentHostCopyGlyph" Glyph="&#xE8C8;" FontSize="12" />
+                            </Button>
+                        </Grid>
+                    </Border>
+                    <ContentControl Grid.Column="1"
                                     HorizontalContentAlignment="Stretch"
                                     Content="{Binding CpuMonitorTrend}"
                                     ContentTemplate="{StaticResource MonitorMetricCardTemplate}" />
-                    <ContentControl Grid.Column="1"
+                    <ContentControl Grid.Column="2"
                                     HorizontalContentAlignment="Stretch"
                                     Content="{Binding MemoryMonitorTrend}"
                                     ContentTemplate="{StaticResource MonitorMetricCardTemplate}" />
-                    <ContentControl Grid.Column="2"
+                    <ContentControl Grid.Column="3"
                                     HorizontalContentAlignment="Stretch"
                                     Content="{Binding DiskMonitorTrend}"
                                     ContentTemplate="{StaticResource MonitorMetricCardTemplate}" />
-                    <ContentControl Grid.Column="3"
+                    <ContentControl Grid.Column="4"
                                     HorizontalContentAlignment="Stretch"
                                     Content="{Binding DownloadMonitorTrend}"
                                     ContentTemplate="{StaticResource MonitorMetricCardTemplate}" />
-                    <ContentControl Grid.Column="4"
+                    <ContentControl Grid.Column="5"
                                     HorizontalContentAlignment="Stretch"
                                     Content="{Binding UploadMonitorTrend}"
                                     ContentTemplate="{StaticResource MonitorMetricCardTemplate}" />
-                    <ContentControl Grid.Column="5"
+                    <ContentControl Grid.Column="6"
                                     HorizontalContentAlignment="Stretch"
                                     Content="{Binding LatencyMonitorTrend}"
                                     ContentTemplate="{StaticResource MonitorMetricCardTemplate}" />
                 </Grid>
-                <Button Grid.Column="2"
+                <Button Grid.Column="1"
                         Content="详情"
                         Width="54"
                         MinHeight="28"
@@ -515,7 +521,7 @@
                                                FontSize="12"
                                                TextWrapping="Wrap" />
                                     <Button Click="CreateAssetClick"
-                                            Content="新建服务器"
+                                            Content="添加服务器"
                                             HorizontalAlignment="Left" />
                                 </StackPanel>
                             </Border>
@@ -597,6 +603,15 @@
                                                                     <MenuFlyoutItem Text="编辑资产" Tag="{Binding}" Click="AssetContextEditClick" />
                                                                     <MenuFlyoutItem Text="端口映射" Tag="{Binding}" Click="AssetContextPortForwardingClick" />
                                                                     <MenuFlyoutSeparator />
+                                                                    <MenuFlyoutItem Text="恢复 RDP 窗口"
+                                                                                    Tag="{Binding}"
+                                                                                    IsEnabled="{Binding IsRemoteDesktop}"
+                                                                                    Click="AssetContextRestoreRemoteDesktopClick" />
+                                                                    <MenuFlyoutItem Text="断开并关闭 RDP"
+                                                                                    Tag="{Binding}"
+                                                                                    IsEnabled="{Binding IsRemoteDesktop}"
+                                                                                    Click="AssetContextDisconnectRemoteDesktopClick" />
+                                                                    <MenuFlyoutSeparator />
                                                                     <MenuFlyoutItem Text="删除资产" Tag="{Binding}" Click="AssetContextDeleteClick" />
                                                                 </MenuFlyout>
                                                             </Grid.ContextFlyout>
@@ -620,11 +635,12 @@
                 Grid.Row="3"
                 Grid.ColumnSpan="3"
                 HorizontalAlignment="Stretch"
-                Padding="12,4"
+                MinHeight="24"
+                Padding="8,1"
                 Background="{StaticResource OrbitPanelBrush}"
                 BorderBrush="{StaticResource OrbitPanelStrokeBrush}"
                 BorderThickness="0,1,0,0">
-            <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="7">
+            <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="5">
                 <TextBlock Text="同步状态"
                            FontSize="12"
                            FontWeight="SemiBold"
@@ -641,13 +657,22 @@
                            AutomationProperties.LiveSetting="Polite"
                            VerticalAlignment="Center" />
                 <Button Grid.Column="2"
-                        Style="{StaticResource OrbitIconButtonStyle}"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        CornerRadius="0"
+                        MinWidth="22"
+                        MinHeight="22"
+                        Padding="3"
                         IsEnabled="{Binding IsAccountUnlocked}"
                         Click="SynchronizeAccountClick"
                         ToolTipService.ToolTip="立即双向同步"
                         AutomationProperties.Name="立即双向同步">
-                    <FontIcon Glyph="&#xE895;" FontSize="13" />
+                    <FontIcon Glyph="&#xE895;" FontSize="12" />
                 </Button>
+                <Grid x:Name="SynchronizationStatusDragRegion"
+                      Grid.Column="3"
+                      Background="Transparent"
+                      AutomationProperties.Name="拖动窗口" />
             </Grid>
         </Border>
 
@@ -670,7 +695,8 @@
               RowSpacing="8">
             <Grid ColumnDefinitions="*,Auto,Auto"
                   ColumnSpacing="8">
-                <ListView ItemsSource="{Binding WorkspaceTabs}"
+                <ListView x:Name="WorkspaceTabList"
+                          ItemsSource="{Binding WorkspaceTabs}"
                           SelectedItem="{Binding SelectedWorkspaceTab, Mode=TwoWay}"
                           SelectionMode="Single"
                           AutomationProperties.Name="Workspace tabs"
@@ -678,7 +704,9 @@
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="Padding" Value="0" />
-                            <Setter Property="Margin" Value="0,0,8,0" />
+                            <Setter Property="Margin" Value="0" />
+                            <Setter Property="MinHeight" Value="0" />
+                            <Setter Property="MinWidth" Value="0" />
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                         </Style>
                     </ListView.ItemContainerStyle>
@@ -688,10 +716,12 @@
                         </ItemsPanelTemplate>
                     </ListView.ItemsPanel>
                     <ListView.ItemTemplate>
-                        <DataTemplate>
+                        <DataTemplate x:DataType="presentation:WorkspaceTabViewModel">
                             <Grid ColumnDefinitions="Auto,*"
+                                  Visibility="{x:Bind IsSessionTabVisible, Mode=OneWay}"
                                   MinWidth="150"
                                   MaxWidth="220"
+                                  Margin="0,0,8,0"
                                   Padding="9,5">
                                 <Grid.ContextFlyout>
                                     <MenuFlyout>
@@ -814,7 +844,8 @@
                                    Foreground="{StaticResource OrbitTerminalTextBrush}"
                                    TextAlignment="Center"
                                    TextWrapping="Wrap" />
-                        <Button Command="{Binding OpenTerminalCommand}"
+                        <Button x:Name="OpenTerminalEmptyButton"
+                                Command="{Binding OpenTerminalCommand}"
                                 HorizontalAlignment="Center">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <FontIcon Glyph="&#xE8A7;" />
@@ -957,11 +988,12 @@
                     </StackPanel>
                 </Grid>
 
-                <Grid Grid.Row="1"
+                <Grid x:Name="ConnectedToolInspectorContent"
+                      Grid.Row="1"
                       RowDefinitions="Auto,*"
                       RowSpacing="8"
                       AutomationProperties.Name="会话工具检查器">
-                    <Grid ColumnDefinitions="*,*,*"
+                    <Grid ColumnDefinitions="*,*"
                           ColumnSpacing="4"
                           Padding="3"
                           Background="{StaticResource OrbitMetricBrush}"
@@ -995,20 +1027,6 @@
                             <StackPanel Orientation="Horizontal" Spacing="4">
                                 <FontIcon Glyph="&#xE7B8;" FontSize="13" />
                                 <TextBlock Text="Docker" FontSize="12" FontWeight="SemiBold" TextWrapping="NoWrap" />
-                            </StackPanel>
-                        </ToggleButton>
-                        <ToggleButton x:Name="SnippetsToolTabButton"
-                                      Grid.Column="2"
-                                      Tag="Snippets"
-                                      MinWidth="0"
-                                      Padding="4,6"
-                                      HorizontalAlignment="Stretch"
-                                      HorizontalContentAlignment="Center"
-                                      Click="ToolInspectorTabClick"
-                                      AutomationProperties.Name="显示 Snippets 工具">
-                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                <FontIcon Glyph="&#xE8A5;" FontSize="13" />
-                                <TextBlock Text="Snippets" FontSize="12" FontWeight="SemiBold" TextWrapping="NoWrap" />
                             </StackPanel>
                         </ToggleButton>
                     </Grid>
@@ -1209,16 +1227,38 @@
                     </StackPanel>
                     </ScrollViewer>
                     </Grid>
-                    <Grid x:Name="SnippetsToolPanel" Visibility="Collapsed" AutomationProperties.Name="Snippets">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                    <ContentDialog x:Name="SnippetsDialog"
+                                   Title="Snippets"
+                                   Width="700"
+                                   MinWidth="660"
+                                   MaxWidth="760"
+                                   CloseButtonText="关闭"
+                                   DefaultButton="Close"
+                                   AutomationProperties.Name="Snippets 命令片段管理">
+                    <ScrollViewer MinWidth="620" MaxWidth="680" MaxHeight="620"
+                                  HorizontalAlignment="Stretch"
+                                  VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Spacing="8">
-                    <Grid ColumnDefinitions="*,Auto,Auto"
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto"
                           ColumnSpacing="8">
-                        <TextBlock Text="快捷指令"
+                        <StackPanel Spacing="2">
+                        <TextBlock Text="命令片段"
                                    FontWeight="SemiBold"
                                    VerticalAlignment="Center" />
+                        <TextBlock Text="跨资产管理；连接 SSH 会话后可插入或执行"
+                                   FontSize="12"
+                                   Foreground="{StaticResource OrbitMutedTextBrush}" />
+                        </StackPanel>
                         <Button Grid.Column="1"
+                                Style="{StaticResource OrbitIconButtonStyle}"
+                                Command="{Binding SaveLatestCommandAsSnippetCommand}"
+                                ToolTipService.ToolTip="从最近终端命令保存片段"
+                                AutomationProperties.Name="从最近终端命令保存片段">
+                            <FontIcon Glyph="&#xE823;"
+                                      FontSize="14" />
+                        </Button>
+                        <Button Grid.Column="2"
                                 Style="{StaticResource OrbitIconButtonStyle}"
                                 Click="CreateSnippetClick"
                                 ToolTipService.ToolTip="新建快捷指令"
@@ -1226,7 +1266,7 @@
                             <FontIcon Glyph="&#xE710;"
                                       FontSize="14" />
                         </Button>
-                        <Button Grid.Column="2"
+                        <Button Grid.Column="3"
                                 Style="{StaticResource OrbitIconButtonStyle}"
                                 Click="EditSnippetClick"
                                 IsEnabled="{Binding HasSelectedSnippet}"
@@ -1236,12 +1276,7 @@
                                       FontSize="14" />
                         </Button>
                     </Grid>
-                    <Button Command="{Binding SaveLatestCommandAsSnippetCommand}"
-                            HorizontalAlignment="Left"
-                            Content="保存最近终端命令"
-                            AutomationProperties.Name="保存最近终端命令为快捷指令"
-                            ToolTipService.ToolTip="将当前会话最近发送的命令保存为快捷指令" />
-                    <TextBox PlaceholderText="搜索快捷指令"
+                    <TextBox PlaceholderText="搜索标题 / 命令 / 分类"
                              Text="{Binding SnippetQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                              AutomationProperties.Name="搜索快捷指令" />
                     <ListView ItemsSource="{Binding Source={StaticResource GroupedSnippets}}"
@@ -1270,18 +1305,22 @@
                         </ListView.GroupStyle>
                         <ListView.ItemTemplate>
                             <DataTemplate>
-                                <Border Height="62" Padding="8,6"
+                                <Border MinHeight="86" Padding="10,8" Margin="0,2,8,2"
                                         CornerRadius="{StaticResource OrbitCornerRadius}"
                                         Background="{StaticResource OrbitPanelBrush}"
                                         BorderBrush="{StaticResource OrbitPanelStrokeBrush}"
                                         BorderThickness="1">
-                                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto"
+                                          ColumnSpacing="6" RowSpacing="3">
                                         <TextBlock Text="{Binding Title}"
                                                    FontWeight="SemiBold"
                                                    TextTrimming="CharacterEllipsis" />
-                                        <Border Grid.Column="1" Padding="5,1" CornerRadius="6"
+                                        <Border Grid.Column="1"
+                                                MinWidth="64" Padding="7,2" CornerRadius="6"
+                                                HorizontalAlignment="Right"
                                                 Background="{StaticResource OrbitMetricBrush}">
                                             <TextBlock Text="{Binding ScopeDisplay}" FontSize="12"
+                                                       TextWrapping="NoWrap"
                                                        Foreground="{StaticResource OrbitMutedTextBrush}" />
                                         </Border>
                                         <TextBlock Grid.Row="1" Grid.ColumnSpan="2"
@@ -1289,6 +1328,22 @@
                                                    FontFamily="Consolas" FontSize="12"
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                    TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Row="2" Text="{Binding Category}"
+                                                   FontSize="12"
+                                                   Foreground="{StaticResource OrbitMutedTextBrush}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <StackPanel Grid.Row="2" Grid.Column="1"
+                                                    Orientation="Horizontal" Spacing="6"
+                                                    HorizontalAlignment="Right">
+                                            <Button Content="插入"
+                                                    Tag="{Binding}" Click="SnippetContextInsertClick"
+                                                    Padding="10,3" MinHeight="26"
+                                                    IsEnabled="{Binding DataContext.IsTerminalOpen, ElementName=Root}" />
+                                            <Button Content="执行"
+                                                    Tag="{Binding}" Click="SnippetContextExecuteClick"
+                                                    Padding="10,3" MinHeight="26"
+                                                    IsEnabled="{Binding DataContext.IsTerminalOpen, ElementName=Root}" />
+                                        </StackPanel>
                                         <Grid.ContextFlyout>
                                             <MenuFlyout>
                                                 <MenuFlyoutItem Text="编辑" Tag="{Binding}" Click="SnippetContextEditClick" />
@@ -1308,53 +1363,46 @@
                                FontSize="12" TextTrimming="CharacterEllipsis" />
                     </StackPanel>
                     </ScrollViewer>
-                    </Grid>
+                    </ContentDialog>
                     <Grid x:Name="SftpToolPanel" AutomationProperties.Name="SFTP"
                           AllowDrop="True"
                           DragOver="SftpUploadDragOver"
                           Drop="SftpUploadDrop">
                     <Grid Padding="0,0,10,0" RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="7">
-                    <Grid RowDefinitions="Auto,Auto" RowSpacing="6">
-                        <Grid ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto" ColumnSpacing="5" RowSpacing="5">
-                            <Button Content="刷新" Command="{Binding RefreshSftpBrowseCommand}"
-                                    Style="{StaticResource OrbitSftpToolbarButtonStyle}"
-                                    AutomationProperties.Name="刷新 SFTP 当前目录" />
-                            <Button Grid.Column="1" Content="上传" Click="UploadSftpFileClick"
-                                    Style="{StaticResource OrbitSftpToolbarButtonStyle}"
-                                    IsEnabled="{Binding IsSftpOpen}" AutomationProperties.Name="上传文件" />
-                            <Button Grid.Column="2" Content="新建目录" Click="CreateSftpDirectoryClick"
-                                    Style="{StaticResource OrbitSftpToolbarButtonStyle}"
-                                    IsEnabled="{Binding IsSftpOpen}" />
-                            <Button Grid.Row="1" Content="新建文件" Click="CreateSftpFileClick"
-                                    Style="{StaticResource OrbitSftpToolbarButtonStyle}"
-                                    IsEnabled="{Binding IsSftpOpen}" />
-                            <Button Grid.Row="1" Grid.Column="1" Content="返回上级"
-                                    Style="{StaticResource OrbitSftpToolbarButtonStyle}"
-                                    Command="{Binding GoParentSftpCommand}" />
-                            <Button Grid.Row="1" Grid.Column="2" Content="更多"
-                                    Style="{StaticResource OrbitSftpToolbarButtonStyle}"
-                                    Click="SftpMoreClick"
-                                    AutomationProperties.Name="更多 SFTP 所选项操作" />
-                        </Grid>
-                        <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="5">
-                            <FontIcon Glyph="&#xE8B7;" FontSize="13" VerticalAlignment="Center" />
-                            <TextBox Grid.Column="1" PlaceholderText="远程路径（例如 /var/log）"
-                                     Text="{Binding SftpPathText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     KeyDown="SftpPathTextBoxKeyDown" AutomationProperties.Name="SFTP 远程路径" />
-                            <Button Grid.Column="2" Content="前往" Command="{Binding PrepareSftpBrowseCommand}"
-                                    Style="{StaticResource OrbitSftpInlineButtonStyle}" />
-                        </Grid>
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="5">
+                        <Button Command="{Binding GoParentSftpCommand}"
+                                Style="{StaticResource OrbitIconButtonStyle}"
+                                ToolTipService.ToolTip="返回上级目录"
+                                AutomationProperties.Name="返回 SFTP 上级目录">
+                            <FontIcon Glyph="&#xE74A;" FontSize="13" />
+                        </Button>
+                        <TextBox Grid.Column="1" PlaceholderText="远程路径（例如 /var/log）"
+                                 Text="{Binding SftpPathText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 KeyDown="SftpPathTextBoxKeyDown" AutomationProperties.Name="SFTP 远程路径" />
+                        <Button Grid.Column="2" Command="{Binding RefreshSftpBrowseCommand}"
+                                Style="{StaticResource OrbitIconButtonStyle}"
+                                ToolTipService.ToolTip="刷新当前目录"
+                                AutomationProperties.Name="刷新 SFTP 当前目录">
+                            <FontIcon Glyph="&#xE72C;" FontSize="13" />
+                        </Button>
+                        <Button Grid.Column="3" Click="SftpMoreClick"
+                                Style="{StaticResource OrbitIconButtonStyle}"
+                                ToolTipService.ToolTip="当前目录操作"
+                                AutomationProperties.Name="更多 SFTP 当前目录操作">
+                            <FontIcon Glyph="&#xE712;" FontSize="13" />
+                        </Button>
                     </Grid>
                     <Grid x:Name="SftpFeedbackHost"
                           Grid.Row="1"
-                          Height="48"
+                          MinHeight="48"
+                          MaxHeight="104"
                           Visibility="Collapsed">
                         <Grid x:Name="SftpFeedbackLayer"
                               Opacity="0"
                               Visibility="Collapsed"
                               IsHitTestVisible="False"
                               AutomationProperties.LiveSetting="Polite">
-                        <InfoBar Height="46"
+                        <InfoBar MinHeight="46"
                                  IsOpen="{Binding IsSftpFeedbackInProgress}"
                                  IsClosable="False"
                                  Severity="Informational"
@@ -1369,21 +1417,21 @@
                                 </Grid>
                             </InfoBar.Content>
                         </InfoBar>
-                        <InfoBar Height="46"
+                        <InfoBar MinHeight="46"
                                  IsOpen="{Binding IsSftpFeedbackSuccess}"
                                  IsClosable="False"
                                  Severity="Success"
                                  Title="{Binding SftpFeedbackTitle}"
                                  Message="{Binding SftpFeedbackMessage}"
                                  ToolTipService.ToolTip="{Binding SftpFeedbackMessage}" />
-                        <InfoBar Height="46"
+                        <InfoBar MinHeight="46"
                                  IsOpen="{Binding IsSftpFeedbackWarning}"
                                  IsClosable="False"
                                  Severity="Warning"
                                  Title="{Binding SftpFeedbackTitle}"
                                  Message="{Binding SftpFeedbackMessage}"
                                  ToolTipService.ToolTip="{Binding SftpFeedbackMessage}" />
-                        <InfoBar Height="46"
+                        <InfoBar MinHeight="46"
                                  IsOpen="{Binding IsSftpFeedbackError}"
                                  IsClosable="False"
                                  Severity="Error"
@@ -1451,6 +1499,8 @@
                                    FontSize="12" TextTrimming="CharacterEllipsis" />
                     </Grid>
                     <ListView x:Name="SftpEntriesList" Grid.Row="3" ItemsSource="{Binding SftpEntries}"
+                              ScrollViewer.VerticalScrollBarVisibility="Hidden"
+                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                               SelectedItem="{Binding SelectedSftpEntry, Mode=TwoWay}"
                               AutomationProperties.Name="SFTP 当前目录文件列表"
                               AutomationProperties.HelpText="使用方向键选择项目。Enter 打开，F2 重命名，Delete 删除，Shift+F10 打开管理菜单。"
@@ -1459,6 +1509,7 @@
                               SelectionChanged="SftpEntriesSelectionChanged"
                               PointerEntered="SftpEntryPointerEntered"
                               PointerExited="SftpEntryPointerExited"
+                              ContextRequested="SftpSurfaceContextRequested"
                               KeyDown="SftpEntriesKeyDown"
                               DoubleTapped="SftpEntriesDoubleTapped">
                         <ListView.ItemContainerStyle>
@@ -1551,6 +1602,8 @@
                             </Grid>
                             <Grid x:Name="ActiveSftpTransfersContent" Grid.Row="1">
                                 <ListView ItemsSource="{Binding ActiveSftpTransferTasks}"
+                                          ScrollViewer.VerticalScrollBarVisibility="Hidden"
+                                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                           SelectionMode="None" MaxHeight="145"
                                           AutomationProperties.Name="SFTP 进行中任务">
                                     <ListView.ItemContainerStyle>
@@ -1617,6 +1670,8 @@
                             <Grid x:Name="CompletedSftpTransfersContent" Grid.Row="1"
                                   Visibility="Collapsed">
                                 <ListView ItemsSource="{Binding CompletedSftpTransferTasks}"
+                                          ScrollViewer.VerticalScrollBarVisibility="Hidden"
+                                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                           SelectionMode="None" MaxHeight="145"
                                           AutomationProperties.Name="SFTP 已完成任务">
                                     <ListView.ItemContainerStyle>
@@ -1646,6 +1701,34 @@
                     </Grid>
                     </Grid>
                 </Grid>
+                <Grid x:Name="DisconnectedToolInspectorContent"
+                      Grid.Row="1"
+                      Visibility="Collapsed"
+                      Padding="18"
+                      AutomationProperties.Name="未连接会话工具提示">
+                    <StackPanel HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Spacing="10">
+                        <Border Width="42"
+                                Height="42"
+                                HorizontalAlignment="Center"
+                                Background="{StaticResource OrbitMetricBrush}"
+                                BorderBrush="{StaticResource OrbitPanelStrokeBrush}"
+                                BorderThickness="1"
+                                CornerRadius="12">
+                            <FontIcon Glyph="&#xE968;"
+                                      FontSize="18"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center"
+                                      Foreground="{StaticResource OrbitMutedTextBrush}" />
+                        </Border>
+                        <TextBlock Text="连接会话后自动显示 SFTP 与 Docker"
+                                   MaxWidth="240"
+                                   TextAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   Foreground="{StaticResource OrbitMutedTextBrush}" />
+                    </StackPanel>
+                </Grid>
             </Grid>
         </Border>
 
@@ -1662,14 +1745,14 @@
                 Visibility="Collapsed">
             <Button Click="ToggleToolInspectorClick"
                     Width="24"
-                    Height="88"
+                    Height="72"
                     HorizontalAlignment="Right"
                     VerticalAlignment="Top"
                     Margin="0,12,0,0"
                     Padding="2,5"
                     ToolTipService.ToolTip="展开会话工具"
                     AutomationProperties.Name="Expand session tools">
-                <TextBlock Text="会&#x0a;话&#x0a;工&#x0a;具"
+                <TextBlock Text="工&#x0a;具"
                            TextAlignment="Center"
                            FontWeight="SemiBold"
                            FontSize="12"

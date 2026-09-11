@@ -40,6 +40,7 @@ public sealed partial class MainWindow : Window
     public const int MinimumWindowHeight = 700;
     private const int DefaultWindowWidth = 1280;
     private const int DefaultWindowHeight = 800;
+    private const int CompactAccountEntryWidth = 1080;
     private static readonly ApplicationPaletteOption[] ApplicationPaletteOptions =
     [
         new("天空糖果"),
@@ -51,6 +52,7 @@ public sealed partial class MainWindow : Window
 
     private bool isSftpDialogOpen;
     private bool isSnippetDialogOpen;
+    private bool isSnippetsManagerOpen;
     private bool isDockerDialogOpen;
     private DockerLogWindow? activeDockerLogWindow;
     private bool isAssetDialogOpen;
@@ -75,8 +77,11 @@ public sealed partial class MainWindow : Window
     private readonly IntPtr windowHandle;
     private readonly WindowSubclassProc windowSubclassProc;
     private const double CollapsedPaneWidth = 0;
-    private const double DefaultAssetSidebarWidth = 300;
-    private const double DefaultToolInspectorWidth = 328;
+    private const double DefaultAssetSidebarWidth = 220;
+    private const double DefaultToolInspectorWidth = 280;
+    private const int PaneLayoutSchemaVersion = 2;
+    private const double AssetSidebarWindowRatio = 0.234375;
+    private const double ToolInspectorWindowRatio = 0.25625;
     private const double MinimumAssetSidebarWidth = 220;
     private const double MaximumAssetSidebarWidth = 320;
     private const double MinimumToolInspectorWidth = 280;
@@ -91,6 +96,8 @@ public sealed partial class MainWindow : Window
     private const double MaximumTerminalSplitRatio = 0.8;
     private double assetSidebarExpandedWidth = DefaultAssetSidebarWidth;
     private double toolInspectorExpandedWidth = DefaultToolInspectorWidth;
+    private bool assetSidebarFollowsWindow = true;
+    private bool toolInspectorFollowsWindow = true;
     private double terminalSplitTopRatio = 0.5;
     private double terminalSplitLeftRatio = 0.5;
     private readonly string layoutStatePath = Path.Combine(
@@ -261,6 +268,7 @@ public sealed partial class MainWindow : Window
         activeTerminalView = NativeTerminalView;
         RebuildTerminalSplitLayout();
         UpdateTerminalEmptyState();
+        UpdateToolInspectorSessionState();
         UpdateAssetEmptyState();
         ViewModel.LoadAssetsCommand.Execute(null);
         ViewModel.LoadAccountSessionCommand.Execute(null);
@@ -320,20 +328,80 @@ public sealed partial class MainWindow : Window
     {
         var showSftp = string.Equals(tool, "SFTP", StringComparison.Ordinal);
         var showDocker = string.Equals(tool, "Docker", StringComparison.Ordinal);
-        var showSnippets = string.Equals(tool, "Snippets", StringComparison.Ordinal);
-        if (!showSftp && !showDocker && !showSnippets)
+        if (!showSftp && !showDocker)
         {
             showSftp = true;
         }
 
         SftpToolPanel.Visibility = showSftp ? Visibility.Visible : Visibility.Collapsed;
         DockerToolPanel.Visibility = showDocker ? Visibility.Visible : Visibility.Collapsed;
-        SnippetsToolPanel.Visibility = showSnippets ? Visibility.Visible : Visibility.Collapsed;
         SftpToolTabButton.IsChecked = showSftp;
         DockerToolTabButton.IsChecked = showDocker;
-        SnippetsToolTabButton.IsChecked = showSnippets;
         isDockerInspectorVisible = showDocker;
         UpdateDockerRefreshTimer();
+    }
+
+    private async void ShowSnippetsClick(object sender, RoutedEventArgs e)
+    {
+        await ShowSnippetsManagerAsync();
+    }
+
+    private async Task ShowSnippetsManagerAsync()
+    {
+        if (isSnippetsManagerOpen)
+        {
+            return;
+        }
+
+        isSnippetsManagerOpen = true;
+        try
+        {
+            EnsureSnippetsDialogAtWindowRoot();
+            SnippetsDialog.XamlRoot = Root.XamlRoot;
+            await SnippetsDialog.ShowAsync();
+        }
+        finally
+        {
+            isSnippetsManagerOpen = false;
+        }
+    }
+
+    private void EnsureSnippetsDialogAtWindowRoot()
+    {
+        // This command belongs to the global toolbar. Its modal must not inherit
+        // the connected-session or right-inspector visibility state, otherwise
+        // a collapsed ancestor leaves only an invisible modal input shield.
+        if (SnippetsDialog.Parent is Panel owner && !ReferenceEquals(owner, Root))
+        {
+            owner.Children.Remove(SnippetsDialog);
+            Root.Children.Add(SnippetsDialog);
+            Grid.SetRow(SnippetsDialog, 0);
+            Grid.SetRowSpan(SnippetsDialog, 4);
+            Grid.SetColumn(SnippetsDialog, 0);
+            Grid.SetColumnSpan(SnippetsDialog, 3);
+        }
+    }
+
+    private async Task RunWithSnippetsManagerSuspendedAsync(Func<Task> action)
+    {
+        var reopenManager = isSnippetsManagerOpen;
+        if (reopenManager)
+        {
+            SnippetsDialog.Hide();
+            await Task.Yield();
+        }
+
+        try
+        {
+            await action();
+        }
+        finally
+        {
+            if (reopenManager)
+            {
+                await ShowSnippetsManagerAsync();
+            }
+        }
     }
 
     private void MainWindowActivated(object sender, WindowActivatedEventArgs args)
@@ -925,11 +993,11 @@ public sealed partial class MainWindow : Window
         package.SetText(host);
         Clipboard.SetContent(package);
         CurrentHostCopyGlyph.Glyph = "\uE73E";
-        CurrentHostCopyFeedback.Text = "已复制";
+        ToolTipService.SetToolTip(CurrentHostCopyButton, "已复制当前资产 IP");
         AutomationProperties.SetHelpText(CurrentHostCopyButton, "当前资产 IP 已复制");
         await Task.Delay(1200);
         CurrentHostCopyGlyph.Glyph = "\uE8C8";
-        CurrentHostCopyFeedback.Text = "复制";
+        ToolTipService.SetToolTip(CurrentHostCopyButton, "复制当前资产 IP");
     }
 
     private void ShowMonitorDetailsClick(object sender, RoutedEventArgs e)
@@ -3141,15 +3209,81 @@ public sealed partial class MainWindow : Window
             // 100%, 150%, and 200% DPI displays.
             DispatcherQueue.TryEnqueue(QueueTerminalResizeAfterDpiChange);
         }
+        else if (message == WindowMessageNcHitTest)
+        {
+            var fallback = DefSubclassProc(hWnd, message, wParam, lParam);
+            if (fallback.ToInt32() == HitTestClient &&
+                IsScreenPointInsideElement(lParam, SynchronizationStatusDragRegion))
+            {
+                return new IntPtr(HitTestCaption);
+            }
+            return fallback;
+        }
 
         return DefSubclassProc(hWnd, message, wParam, lParam);
     }
 
+    private bool IsScreenPointInsideElement(IntPtr packedScreenPoint, FrameworkElement element)
+    {
+        if (element.XamlRoot is null || element.ActualWidth <= 0 || element.ActualHeight <= 0)
+        {
+            return false;
+        }
+
+        var packed = packedScreenPoint.ToInt64();
+        var screenX = unchecked((short)(packed & 0xFFFF));
+        var screenY = unchecked((short)((packed >> 16) & 0xFFFF));
+        var clientOrigin = new NativeScreenPoint();
+        if (!ClientToScreen(windowHandle, ref clientOrigin))
+        {
+            return false;
+        }
+
+        var scale = GetDpiScale(windowHandle);
+        var origin = element.TransformToVisual(Root)
+            .TransformPoint(new Windows.Foundation.Point(0, 0));
+        var left = clientOrigin.X + origin.X * scale;
+        var top = clientOrigin.Y + origin.Y * scale;
+        return screenX >= left && screenX < left + element.ActualWidth * scale &&
+               screenY >= top && screenY < top + element.ActualHeight * scale;
+    }
+
     private void ApplyResponsivePaneRules(double availableWidth)
     {
+        // Preserve every title-bar command at the supported minimum width by
+        // collapsing only the account caption. Its icon, tooltip and automation
+        // name continue to expose the full action meaning.
+        AccountEntryText.Visibility = availableWidth < CompactAccountEntryWidth
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+
         if (isTerminalFullscreen)
         {
             return;
+        }
+
+        if (assetSidebarFollowsWindow)
+        {
+            assetSidebarExpandedWidth = Math.Clamp(
+                availableWidth * AssetSidebarWindowRatio,
+                MinimumAssetSidebarWidth,
+                MaximumAssetSidebarWidth);
+            if (AssetSidebar.Visibility == Visibility.Visible)
+            {
+                AssetSidebarColumn.Width = new GridLength(assetSidebarExpandedWidth);
+            }
+        }
+
+        if (toolInspectorFollowsWindow)
+        {
+            toolInspectorExpandedWidth = Math.Clamp(
+                availableWidth * ToolInspectorWindowRatio,
+                MinimumToolInspectorWidth,
+                MaximumToolInspectorWidth);
+            if (ToolInspector.Visibility == Visibility.Visible)
+            {
+                ToolInspectorColumn.Width = new GridLength(toolInspectorExpandedWidth);
+            }
         }
 
         if (availableWidth < 1180 && ToolInspector.Visibility == Visibility.Visible)
@@ -3371,6 +3505,7 @@ public sealed partial class MainWindow : Window
     private void AssetSidebarSplitterDragDelta(object sender, DragDeltaEventArgs e)
     {
         if (AssetSidebar.Visibility != Visibility.Visible) return;
+        assetSidebarFollowsWindow = false;
         var toolWidth = GetVisiblePaneWidth(ToolInspector, ToolInspectorColumn);
         var maximum = Math.Max(
             MinimumAssetSidebarWidth,
@@ -3385,6 +3520,7 @@ public sealed partial class MainWindow : Window
     private void ToolInspectorSplitterDragDelta(object sender, DragDeltaEventArgs e)
     {
         if (ToolInspector.Visibility != Visibility.Visible) return;
+        toolInspectorFollowsWindow = false;
         var assetWidth = GetVisiblePaneWidth(AssetSidebar, AssetSidebarColumn);
         var maximum = Math.Max(
             MinimumToolInspectorWidth,
@@ -3424,14 +3560,21 @@ public sealed partial class MainWindow : Window
                 ApplyDefaultPaneLayout();
                 return;
             }
-            assetSidebarExpandedWidth = Math.Clamp(
-                state.AssetSidebarWidth,
-                MinimumAssetSidebarWidth,
-                MaximumAssetSidebarWidth);
-            toolInspectorExpandedWidth = Math.Clamp(
-                state.ToolInspectorWidth,
-                MinimumToolInspectorWidth,
-                MaximumToolInspectorWidth);
+            var migrateLegacyDefaultWidths = state.Version != PaneLayoutSchemaVersion;
+            assetSidebarExpandedWidth = migrateLegacyDefaultWidths
+                ? MinimumAssetSidebarWidth
+                : Math.Clamp(
+                    state.AssetSidebarWidth,
+                    MinimumAssetSidebarWidth,
+                    MaximumAssetSidebarWidth);
+            toolInspectorExpandedWidth = migrateLegacyDefaultWidths
+                ? MinimumToolInspectorWidth
+                : Math.Clamp(
+                    state.ToolInspectorWidth,
+                    MinimumToolInspectorWidth,
+                    MaximumToolInspectorWidth);
+            assetSidebarFollowsWindow = false;
+            toolInspectorFollowsWindow = false;
             terminalSplitTopRatio = Math.Clamp(
                 state.TerminalSplitTopRatio ?? 0.5,
                 MinimumTerminalSplitRatio,
@@ -3471,8 +3614,10 @@ public sealed partial class MainWindow : Window
     {
         // Match the desktop information architecture: keep the terminal wide
         // on first launch while leaving session tools immediately available.
-        AssetSidebar.Visibility = Visibility.Collapsed;
-        AssetSidebarColumn.Width = new GridLength(CollapsedPaneWidth);
+        assetSidebarFollowsWindow = false;
+        toolInspectorFollowsWindow = false;
+        AssetSidebar.Visibility = Visibility.Visible;
+        AssetSidebarColumn.Width = new GridLength(assetSidebarExpandedWidth);
         ToolInspector.Visibility = Visibility.Visible;
         ToolInspectorColumn.Width = new GridLength(toolInspectorExpandedWidth);
         UpdateAssetSidebarVisualState();
@@ -3496,7 +3641,8 @@ public sealed partial class MainWindow : Window
                 AppWindow.Presenter is OverlappedPresenter
                 {
                     State: OverlappedPresenterState.Maximized,
-                });
+                },
+                PaneLayoutSchemaVersion);
             File.WriteAllText(layoutStatePath, JsonSerializer.Serialize(state));
         }
         catch (IOException) { }
@@ -3652,7 +3798,8 @@ public sealed partial class MainWindow : Window
         double? TerminalSplitLeftRatio = null,
         double? WindowWidth = null,
         double? WindowHeight = null,
-        bool? WindowMaximized = null);
+        bool? WindowMaximized = null,
+        int? Version = null);
 
     private enum PanePreference
     {
@@ -3729,6 +3876,11 @@ public sealed partial class MainWindow : Window
             {
                 activeDockerLogWindow?.StopAndClose();
             }
+            if (e.PropertyName == nameof(MainWindowViewModel.IsConnected))
+            {
+                UpdateToolInspectorSessionState();
+                UpdateTerminalEmptyState();
+            }
             UpdateMonitorRefreshTimer();
             UpdateDockerRefreshTimer();
         }
@@ -3767,6 +3919,16 @@ public sealed partial class MainWindow : Window
         {
             AnimateFeedbackOpacity(DockerFeedbackLayer, ViewModel.IsDockerFeedbackFadingOut ? 0 : 1);
         }
+    }
+
+    private void UpdateToolInspectorSessionState()
+    {
+        ConnectedToolInspectorContent.Visibility = ViewModel.IsConnected
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        DisconnectedToolInspectorContent.Visibility = ViewModel.IsConnected
+            ? Visibility.Collapsed
+            : Visibility.Visible;
     }
 
     private void UpdateSftpFeedbackVisual()
@@ -4351,19 +4513,19 @@ public sealed partial class MainWindow : Window
             };
             var saveButton = new Button
             {
-                Content = "保存到远端",
-                IsEnabled = ViewModel.CanEditSftpPreview,
+                Content = "保存",
+                IsEnabled = ViewModel.CanSaveSftpPreview,
                 Style = ResourceStyle("OrbitWideActionButtonStyle"),
             };
             var revertButton = new Button
             {
-                Content = "还原修改",
-                IsEnabled = ViewModel.CanEditSftpPreview,
+                Content = "还原",
+                IsEnabled = ViewModel.IsSftpPreviewDirty,
                 Style = ResourceStyle("OrbitWideActionButtonStyle"),
             };
             var copyButton = new Button
             {
-                Content = "复制内容",
+                Content = "复制",
                 Style = ResourceStyle("OrbitWideActionButtonStyle"),
             };
             var discardButton = new Button
@@ -4388,8 +4550,13 @@ public sealed partial class MainWindow : Window
                     return;
                 }
 
+                saveButton.IsEnabled = false;
+                status.Text = "正在核对远端文件并安全保存…";
                 await ViewModel.SaveSftpPreviewAsync(CancellationToken.None);
                 status.Text = ViewModel.SftpPreviewStatus;
+                saveButton.IsEnabled = ViewModel.CanSaveSftpPreview;
+                revertButton.IsEnabled = ViewModel.IsSftpPreviewDirty;
+                editor.IsReadOnly = !ViewModel.CanEditSftpPreview;
             };
             revertButton.Click += (_, _) =>
             {
@@ -4404,25 +4571,31 @@ public sealed partial class MainWindow : Window
                 Clipboard.SetContent(package);
                 status.Text = "内容已复制到剪贴板。";
             };
+            editor.TextChanged += (_, _) =>
+            {
+                saveButton.IsEnabled = ViewModel.CanSaveSftpPreview;
+                revertButton.IsEnabled = ViewModel.IsSftpPreviewDirty;
+            };
 
-            var actions = new Grid { ColumnSpacing = 8, RowSpacing = 8 };
-            actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var actions = new Grid { ColumnSpacing = 8, RowSpacing = 8, HorizontalAlignment = HorizontalAlignment.Stretch };
+            actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             actions.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             actions.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            Grid.SetColumn(revertButton, 1);
-            Grid.SetColumn(copyButton, 2);
+            Grid.SetColumn(revertButton, 0);
+            Grid.SetColumn(copyButton, 1);
+            Grid.SetColumn(saveButton, 2);
             Grid.SetRow(discardButton, 1);
             Grid.SetRow(keepEditingButton, 1);
             Grid.SetColumn(keepEditingButton, 1);
-            actions.Children.Add(saveButton);
             actions.Children.Add(revertButton);
             actions.Children.Add(copyButton);
+            actions.Children.Add(saveButton);
             actions.Children.Add(discardButton);
             actions.Children.Add(keepEditingButton);
 
-            var content = new StackPanel { Spacing = 10, MinWidth = 680 };
+            var content = new StackPanel { Spacing = 10, MinWidth = 560 };
             content.Children.Add(new TextBlock
             {
                 Text = selected?.Path ?? ViewModel.SftpPathText,
@@ -4432,15 +4605,15 @@ public sealed partial class MainWindow : Window
             });
             content.Children.Add(encoding);
             content.Children.Add(status);
-            content.Children.Add(actions);
             content.Children.Add(editor);
+            content.Children.Add(actions);
 
             var dialog = new ContentDialog
             {
                 XamlRoot = Root.XamlRoot,
                 Title = string.Concat("文本预览 · ", selected?.Name ?? "远程文件"),
                 Content = content,
-                CloseButtonText = "关闭编辑器",
+                CloseButtonText = "关闭",
                 DefaultButton = ContentDialogButton.Close,
             };
             var allowDiscard = false;
@@ -4869,7 +5042,7 @@ public sealed partial class MainWindow : Window
 
     private async void CreateSnippetClick(object sender, RoutedEventArgs e)
     {
-        await ShowSnippetEditorAsync(null);
+        await RunWithSnippetsManagerSuspendedAsync(() => ShowSnippetEditorAsync(null));
     }
 
     private async void CreateAssetClick(object sender, RoutedEventArgs e)
@@ -5191,15 +5364,7 @@ public sealed partial class MainWindow : Window
 
         if (asset.Transport == ServerTransport.RemoteDesktop)
         {
-            ConnectionProgressOverlay.Visibility = Visibility.Visible;
-            try
-            {
-                await LaunchSavedRemoteDesktopAssetAsync(asset);
-            }
-            finally
-            {
-                ConnectionProgressOverlay.Visibility = Visibility.Collapsed;
-            }
+            await LaunchSavedRemoteDesktopAssetAsync(asset);
             return;
         }
 
@@ -5806,7 +5971,7 @@ public sealed partial class MainWindow : Window
     {
         if (ViewModel.SelectedSnippet is { } selected)
         {
-            await ShowSnippetEditorAsync(selected);
+            await RunWithSnippetsManagerSuspendedAsync(() => ShowSnippetEditorAsync(selected));
         }
     }
 
@@ -5814,7 +5979,7 @@ public sealed partial class MainWindow : Window
     {
         if (SelectContextSnippet(sender) && ViewModel.SelectedSnippet is { } selected)
         {
-            await ShowSnippetEditorAsync(selected);
+            await RunWithSnippetsManagerSuspendedAsync(() => ShowSnippetEditorAsync(selected));
         }
     }
 
@@ -5822,23 +5987,23 @@ public sealed partial class MainWindow : Window
     {
         if (SelectContextSnippet(sender))
         {
-            await InsertSelectedSnippetIntoTerminalAsync();
+            await RunWithSnippetsManagerSuspendedAsync(InsertSelectedSnippetIntoTerminalAsync);
         }
     }
 
-    private void SnippetContextExecuteClick(object sender, RoutedEventArgs e)
+    private async void SnippetContextExecuteClick(object sender, RoutedEventArgs e)
     {
         if (SelectContextSnippet(sender))
         {
-            ExecuteSnippetClick(sender, e);
+            await RunWithSnippetsManagerSuspendedAsync(ExecuteSelectedSnippetAsync);
         }
     }
 
-    private void SnippetContextDeleteClick(object sender, RoutedEventArgs e)
+    private async void SnippetContextDeleteClick(object sender, RoutedEventArgs e)
     {
         if (SelectContextSnippet(sender))
         {
-            DeleteSnippetClick(sender, e);
+            await RunWithSnippetsManagerSuspendedAsync(DeleteSelectedSnippetAsync);
         }
     }
 
@@ -5935,6 +6100,11 @@ public sealed partial class MainWindow : Window
 
     private async void DeleteSnippetClick(object sender, RoutedEventArgs e)
     {
+        await RunWithSnippetsManagerSuspendedAsync(DeleteSelectedSnippetAsync);
+    }
+
+    private async Task DeleteSelectedSnippetAsync()
+    {
         if (isSnippetDialogOpen || ViewModel.SelectedSnippet is not { } selected)
         {
             return;
@@ -5995,6 +6165,11 @@ public sealed partial class MainWindow : Window
     }
 
     private async void ExecuteSnippetClick(object sender, RoutedEventArgs e)
+    {
+        await ExecuteSelectedSnippetAsync();
+    }
+
+    private async Task ExecuteSelectedSnippetAsync()
     {
         var command = await ResolveSelectedSnippetAsync();
         if (command is not null)
@@ -6977,6 +7152,9 @@ public sealed partial class MainWindow : Window
         TerminalEmptyState.Visibility = ViewModel.IsTerminalOpen
             ? Visibility.Collapsed
             : Visibility.Visible;
+        OpenTerminalEmptyButton.Visibility = ViewModel.IsConnected
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         NativeTerminalView.IsInputEnabled = ViewModel.IsTerminalOpen;
 
         // Focus only for the closed -> open transition. Re-running a generic
@@ -7240,17 +7418,44 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (ViewModel.SelectedSftpEntry is not { } entry)
+        var flyout = CreateSftpDirectoryOperationsFlyout(target);
+        flyout.ShowAt(target);
+        QueueDefaultPointerCursorRestore();
+    }
+
+    private void SftpSurfaceContextRequested(UIElement sender, ContextRequestedEventArgs e)
+    {
+        if (sender is not FrameworkElement target)
         {
-            SftpRecentOperationsButton.Flyout?.ShowAt(target);
-            QueueDefaultPointerCursorRestore();
             return;
         }
 
-        var selection = ViewModel.SelectedSftpEntries.Count > 0
-            ? ViewModel.SelectedSftpEntries
-            : [entry];
-        var flyout = CreateSftpOperationsFlyout(entry, selection);
+        var flyout = CreateSftpDirectoryOperationsFlyout(target);
+        if (e.TryGetPosition(target, out var position))
+        {
+            flyout.ShowAt(target, position);
+        }
+        else
+        {
+            flyout.ShowAt(target);
+        }
+        e.Handled = true;
+        QueueDefaultPointerCursorRestore();
+    }
+
+    private MenuFlyout CreateSftpDirectoryOperationsFlyout(FrameworkElement target)
+    {
+        var flyout = new MenuFlyout();
+        var upload = new MenuFlyoutItem { Text = "上传文件…", IsEnabled = ViewModel.IsSftpOpen };
+        upload.Click += UploadSftpFileClick;
+        flyout.Items.Add(upload);
+        flyout.Items.Add(new MenuFlyoutSeparator());
+        var createDirectory = new MenuFlyoutItem { Text = "新建目录…", IsEnabled = ViewModel.IsSftpOpen };
+        createDirectory.Click += CreateSftpDirectoryClick;
+        flyout.Items.Add(createDirectory);
+        var createFile = new MenuFlyoutItem { Text = "新建文件…", IsEnabled = ViewModel.IsSftpOpen };
+        createFile.Click += CreateSftpFileClick;
+        flyout.Items.Add(createFile);
         flyout.Items.Add(new MenuFlyoutSeparator());
         var recent = new MenuFlyoutItem
         {
@@ -7260,8 +7465,7 @@ public sealed partial class MainWindow : Window
         recent.Click += (_, _) => Root.DispatcherQueue.TryEnqueue(() =>
             SftpRecentOperationsButton.Flyout?.ShowAt(target));
         flyout.Items.Add(recent);
-        flyout.ShowAt(target);
-        QueueDefaultPointerCursorRestore();
+        return flyout;
     }
 
     private MenuFlyout CreateSftpOperationsFlyout(
@@ -7531,6 +7735,9 @@ public sealed partial class MainWindow : Window
 
     private const uint WindowMessageGetMinMaxInfo = 0x0024;
     private const uint WindowMessageDpiChanged = 0x02E0;
+    private const uint WindowMessageNcHitTest = 0x0084;
+    private const int HitTestClient = 1;
+    private const int HitTestCaption = 2;
     private const int ArrowCursorResourceId = 32512;
 
     private static double GetDpiScale(IntPtr hWnd)
@@ -7564,6 +7771,13 @@ public sealed partial class MainWindow : Window
         public NativePoint MaximumTrackingSize;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeScreenPoint
+    {
+        public int X;
+        public int Y;
+    }
+
     [DllImport("comctl32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowSubclass(
@@ -7581,6 +7795,10 @@ public sealed partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ClientToScreen(IntPtr hWnd, ref NativeScreenPoint point);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr LoadCursor(IntPtr instanceHandle, IntPtr cursorName);

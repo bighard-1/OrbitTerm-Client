@@ -40,16 +40,28 @@ trap cleanup EXIT
 assert_state() {
   local state="$1"
   local expected="$2"
+  local attempt
+  local fixture_xml
   # A fixture is a fresh, deterministic process per state. This only stops the
   # isolated .smoke package; the production package is never addressed here.
   "$adb_bin" -s "$SERIAL" shell am force-stop "$package"
   "$adb_bin" -s "$SERIAL" shell am start -W -n "$activity" \
     --es com.orbitterm.android.smoke.fixture.STATE "$state" >/dev/null
-  # `am start -W` waits for Activity launch, not Compose's first committed frame.
-  sleep 1
-  "$adb_bin" -s "$SERIAL" shell uiautomator dump "$remote_xml" >/dev/null
-  "$adb_bin" -s "$SERIAL" shell cat "$remote_xml" | grep -Fq "$expected" \
-    || fail "smoke fixture '$state' did not expose '$expected'"
+  # `am start -W` waits for Activity launch, not Compose's first committed
+  # frame. A software-rendered hosted emulator can still be draining work from
+  # the preceding instrumentation suite, so poll the accessibility tree rather
+  # than treating one fixed one-second snapshot as authoritative.
+  for attempt in $(seq 1 10); do
+    "$adb_bin" -s "$SERIAL" shell rm -f "$remote_xml" >/dev/null 2>&1 || true
+    if "$adb_bin" -s "$SERIAL" shell uiautomator dump "$remote_xml" >/dev/null 2>&1; then
+      fixture_xml="$("$adb_bin" -s "$SERIAL" shell cat "$remote_xml" 2>/dev/null || true)"
+      if [[ "$fixture_xml" == *"$expected"* ]]; then
+        return
+      fi
+    fi
+    sleep 1
+  done
+  fail "smoke fixture '$state' did not expose '$expected' after 10 accessibility snapshots"
 }
 
 section "Android isolated smoke fixtures"

@@ -60,3 +60,102 @@ screens without changing SSH, SFTP, Docker, account, or sync behaviour.
 - Asset rows show identity, endpoint, connection state, and edit affordance in
   that order. Cards are single-level surfaces, never nested containers.
 - Settings expose a preview when a visual choice has an observable result.
+
+# OrbitTerm desktop visual system
+
+## Scope and source of truth
+
+This section is the shared visual contract for the native macOS, Windows and
+Linux desktop clients. `shared/ui/desktop-visual-contract-v1.json` contains the
+machine-readable dimensions and responsive rules. Platform-native title-bar
+controls, system fonts, focus visuals, file pickers, accessibility providers,
+keyboard modifier names and protected-storage affordances may differ; product
+hierarchy, visual weight, information order and usable proportions may not.
+
+The desktop genre is a compact professional operations workstation. Windows is
+the structural reference because its pane protection and information density
+best preserve terminal space. macOS is the material reference for colour depth,
+focused authentication and restrained surfaces. Neither platform is copied as
+a skin: every client implements one shared hierarchy with native controls.
+
+## Responsive workstation geometry
+
+- The window is a responsive canvas, not a collection of screenshot-sized
+  rectangles. Width-sensitive elements use available width, a preferred ratio,
+  and explicit minimum and maximum values.
+- The fully expanded three-pane minimum is 980 x 700 logical pixels. The
+  preferred first-launch size is 1280 x 800. Linux additionally supports an
+  820 x 560 compact window for lower-resolution desktops; the side panes must
+  collapse before the terminal is allowed below 560 logical pixels wide.
+- The asset pane prefers 300 logical pixels, may occupy 19–25% of the window,
+  and is clamped to 220–320. The tool inspector prefers 328 logical pixels, may
+  occupy 22–30%, and is clamped to 280–420.
+- When the three expanded panes cannot preserve the terminal minimum, the tool
+  inspector collapses first below 1180 logical pixels and the asset pane below
+  980. A collapsed pane occupies zero layout width and is restored from a
+  24–28 pixel edge affordance layered over the workbench.
+- The top command lane is 36 logical pixels high. The overview lane is compact:
+  34–40 logical pixels, with endpoint and six equal-width monitoring cards plus
+  a fixed 54-pixel detail action. Cards expand and contract with the window.
+  Network throughput is sourced as decimal kilobits per second and promotes
+  consistently through Kbps, Mbps and Gbps; byte-rate labels are not used.
+- The terminal and tool inspector own all remaining height. Status or pre-input
+  controls must not reserve an empty full-width row beneath the tool inspector.
+
+## Fixed information order
+
+1. Native window controls and square rounded OrbitTerm mark.
+2. Add Server, Edit Credentials, Asset Management, Key Management, Port
+   Forwarding, Batch Command, Snippets, Settings, Account.
+3. Current endpoint, CPU, memory, disk, download, upload, TCP latency, details.
+4. Asset pane, tabbed terminal workspace, session tools.
+
+The asset pane contains its heading, grouped assets and search. Asset groups are
+collapsed by default. Synchronization status is visually aligned with the asset
+pane but remains visible when that pane collapses. Session tools expose SFTP,
+and Docker only while a compatible active session exists. Snippets is a global
+top-command destination because users must be able to create, search and sync
+command fragments before opening a session; insertion and execution activate
+only when a compatible SSH session exists.
+
+SFTP uses one compact navigation row: parent directory, editable path, refresh
+and overflow. Upload/create operations live in the overflow and current-folder
+context menu; item-specific open, download, rename, permissions and delete
+operations live in each file row's context menu. The transfer queue is always
+present at the bottom of SFTP but starts collapsed with a one-line summary.
+Transfer failures use a complete, wrapping, actionable message while retaining
+redacted stable error codes; a raw bridge or core exception is never shown to
+the user. Text editing uses the same Revert, Copy, Save and Cancel actions on
+all desktops. List scrolling remains available even when decorative scrollbars
+are hidden.
+Collapsed pane restore controls use the same 12-pixel top inset and 72-pixel
+interaction lane on every desktop.
+
+The Snippets manager always exposes the same primary content: title, command,
+category, asset scope ("All assets" or a concrete restricted count), Insert and
+Execute. Search, history save and create live in the manager header; edit and
+delete remain secondary management actions. Native menus and sheet transitions
+may differ, but no platform may hide a primary action behind selection alone.
+
+## Surfaces and interaction
+
+- Use the shared 4/8/12/16/24 spacing rhythm. Workstation controls use 6–10
+  pixel radii; cards use 10; dialogs use 14–20 according to native presentation.
+- Prefer one-pixel semantic borders and a single surface lightness step. Shadows
+  are reserved for detached dialogs, authentication and floating edge controls.
+- The terminal surface is the visual anchor. Its command pre-input is a rounded
+  bordered card with an icon, plain monospace field and icon-only send action.
+- Authentication is a focused, centred task with a 480–560 pixel card. Account
+  sign-in/registration, master-password setup/unlock and synchronization
+  management are separate states and never appear as one crowded form.
+- Settings use one scrollable sequence of named groups in the same order on all
+  desktop platforms. A native list, group box or preferences row may be used,
+  but a client must not invent a separate two-column information architecture.
+
+## Theme parity
+
+The five application palettes and light/dark/system modes share exact semantic
+roles: page, chrome, panel, metric, input, border, primary text, secondary text,
+accent, success, warning and danger. A platform may translate those colours to
+native brushes, but may not substitute an unrelated system accent. Terminal
+themes remain independent unless the user explicitly enables theme following.

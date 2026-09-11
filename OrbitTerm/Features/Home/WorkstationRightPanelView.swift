@@ -4,7 +4,6 @@ import UniformTypeIdentifiers
 enum WorkstationRightPanelTab: String, CaseIterable, Identifiable {
     case sftp
     case docker
-    case snippets
 
     var id: Self { self }
 
@@ -12,7 +11,6 @@ enum WorkstationRightPanelTab: String, CaseIterable, Identifiable {
         switch self {
         case .sftp: "SFTP"
         case .docker: "Docker"
-        case .snippets: "Snippets"
         }
     }
 
@@ -20,7 +18,6 @@ enum WorkstationRightPanelTab: String, CaseIterable, Identifiable {
         switch self {
         case .sftp: "folder"
         case .docker: "shippingbox"
-        case .snippets: "text.badge.plus"
         }
     }
 }
@@ -28,7 +25,6 @@ enum WorkstationRightPanelTab: String, CaseIterable, Identifiable {
 struct WorkstationRightPanelView: View {
     @Environment(\.appThemePalette) private var palette
     @ObservedObject var sessionManager: SessionManager
-    @ObservedObject var snippetStore: SnippetStore
 
     @Binding var selectedTab: WorkstationRightPanelTab
     @Binding var sftpPathFocusRequest: Int
@@ -123,13 +119,6 @@ struct WorkstationRightPanelView: View {
                     .padding(.vertical, 12)
             }
             .accessibilityLabel("Docker 工具内容")
-        case .snippets:
-            ScrollView(.vertical, showsIndicators: true) {
-                snippetsSection(active)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
-            }
-            .accessibilityLabel("Snippets 工具内容")
         }
     }
 
@@ -208,25 +197,8 @@ struct WorkstationRightPanelView: View {
         )
     }
 
-    @ViewBuilder
-    private func snippetsSection(_ active: WorkspaceSession) -> some View {
-        WorkstationSnippetsCardView(
-            active: active,
-            snippetStore: snippetStore,
-            onInsertCommand: { command, executeImmediately in
-                Task {
-                    await sessionManager.dispatchSnippetCommand(
-                        session: active,
-                        command: command,
-                        executeImmediately: executeImmediately
-                    )
-                }
-            }
-        )
-    }
-
     private var emptyState: some View {
-        Text("连接终端后自动展示监控与 SFTP")
+        Text("连接会话后自动显示 SFTP 与 Docker")
             .font(.caption)
             .foregroundStyle(palette.textSecondary.color)
             .padding(10)

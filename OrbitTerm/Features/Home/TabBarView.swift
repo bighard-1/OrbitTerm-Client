@@ -6,7 +6,6 @@ struct TabBarView: View {
     let activeTabID: UUID?
     let onSelect: (WorkspaceSession) -> Void
     let onClose: (WorkspaceSession) -> Void
-    let onNew: () -> Void
     let onDetach: (WorkspaceSession) -> Void
     let onDisconnect: (WorkspaceSession) -> Void
     let onReconnect: (WorkspaceSession) -> Void
@@ -17,22 +16,6 @@ struct TabBarView: View {
                 ForEach(tabs) { tab in
                     tabItem(tab)
                 }
-
-                Button {
-                    onNew()
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(width: 28, height: 28)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(palette.accentPrimary.color)
-                .background(palette.accentPrimary.color.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(palette.accentPrimary.color.opacity(0.45))
-                }
-                .accessibilityLabel("新建会话")
             }
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
