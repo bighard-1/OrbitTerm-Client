@@ -19,6 +19,17 @@ final class OperationRecoveryPresentationTests: XCTestCase {
         XCTAssertEqual(LoginCooldownPolicy.seconds(failureCount: 7), 120)
         XCTAssertEqual(LoginCooldownPolicy.seconds(failureCount: 99), 300)
     }
+
+    func testLoginUnauthorizedUsesCredentialGuidanceInsteadOfExpiredTokenCopy() {
+        let message = LoginFailurePresentation.message(
+            for: NetworkService.NetworkError.unauthorized(nil)
+        )
+
+        XCTAssertEqual(message, "邮箱账号或登录密码不正确，请检查后重试。")
+        XCTAssertFalse(message.localizedCaseInsensitiveContains("token"))
+        XCTAssertFalse(message.contains("令牌"))
+    }
+
     func testSyncUnauthorizedOffersReauthenticationWithoutRawMessage() {
         let value = OperationRecoveryMapper.sync(.authenticationExpired)
 

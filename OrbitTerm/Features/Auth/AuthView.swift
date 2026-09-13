@@ -324,7 +324,7 @@ struct AuthView: View {
                 let delay = LoginAttemptThrottle.recordFailure(for: canonicalUsername)
                 if delay > 0 { beginCooldown(seconds: delay) }
             }
-            setMessage("失败: \(error.localizedDescription)", kind: .failure)
+            setMessage("失败: \(LoginFailurePresentation.message(for: error))", kind: .failure)
         }
     }
 

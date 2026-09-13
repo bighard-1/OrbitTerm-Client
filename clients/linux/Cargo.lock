@@ -2130,6 +2130,7 @@ dependencies = [
  "orbit-linux-sync",
  "rand 0.10.2",
  "serde_json",
+ "tempfile",
  "uuid",
  "vte4",
  "zeroize",

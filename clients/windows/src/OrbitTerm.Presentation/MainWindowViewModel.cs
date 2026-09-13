@@ -162,6 +162,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private string sftpPreviewOriginalText = string.Empty;
     private string? sftpPreviewPath;
     private SftpMutationSnapshot? sftpPreviewSnapshot;
+    private bool isSftpPreviewSaving;
     private string diagnosticsStatus = "诊断信息已就绪";
     private string credentialHealthStatus = "尚未执行本机凭据健康检查。";
     private SftpDirectoryEntryViewModel? selectedSftpEntry;
@@ -1385,10 +1386,22 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public bool IsSftpPreviewReadOnly => !CanEditSftpPreview;
 
+    public bool IsSftpPreviewSaving
+    {
+        get => isSftpPreviewSaving;
+        private set
+        {
+            if (SetProperty(ref isSftpPreviewSaving, value))
+            {
+                OnPropertyChanged(nameof(CanSaveSftpPreview));
+            }
+        }
+    }
+
     public bool IsSftpPreviewDirty =>
         CanEditSftpPreview && !string.Equals(SftpPreviewText, sftpPreviewOriginalText, StringComparison.Ordinal);
 
-    public bool CanSaveSftpPreview => IsSftpPreviewDirty &&
+    public bool CanSaveSftpPreview => !IsSftpPreviewSaving && IsSftpPreviewDirty &&
         System.Text.Encoding.UTF8.GetByteCount(SftpPreviewText) <= 2 * 1024 * 1024 &&
         !SftpPreviewText.Contains('\0');
 
@@ -1484,6 +1497,18 @@ public sealed class MainWindowViewModel : ObservableObject
             SftpPreviewText = sftpPreviewOriginalText;
             SftpOperationStatus = "Unsaved text changes reverted";
         }
+    }
+
+    public void CloseSftpPreview()
+    {
+        if (IsSftpPreviewSaving)
+        {
+            return;
+        }
+
+        ResetSftpEditor();
+        SftpPreviewStatus = "No SFTP text preview";
+        RefreshCommands();
     }
 
     public string SftpListingSummary
@@ -4517,34 +4542,109 @@ public sealed class MainWindowViewModel : ObservableObject
             return;
         }
 
+        var activeLease = sftpLease!;
         var savedPath = sftpPreviewPath;
-        var result = await orchestrator.WriteSftpTextFileAsync(
-            sftpLease,
-            savedPath,
-            SftpPreviewText,
-            sftpPreviewSnapshot,
-            cancellationToken).ConfigureAwait(true);
-        switch (result)
+        var savedText = SftpPreviewText;
+        var expectedSnapshot = sftpPreviewSnapshot!;
+        IsSftpPreviewSaving = true;
+        PublishSftpFeedback(SftpFeedbackKind.InProgress, "正在保存", savedPath);
+        try
         {
-            case SftpMutationResult.Completed:
-                sftpPreviewOriginalText = SftpPreviewText;
-                sftpPreviewSnapshot = null;
-                SftpOperationStatus = string.Concat("Saved ", savedPath);
-                SftpPreviewStatus = string.Create(
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    $"保存成功：已写入 {System.Text.Encoding.UTF8.GetByteCount(SftpPreviewText)} B。关闭后重新打开可继续编辑。");
-                PublishSftpFeedback(SftpFeedbackKind.Success, "保存完成", savedPath);
-                NotifySftpEditorStateChanged();
-                break;
-            case SftpMutationResult.Failed failed:
-                SftpOperationStatus = FormatSftpMutationFailure(failed);
-                SftpPreviewStatus = string.Concat("保存失败：", SftpOperationStatus);
-                PublishSftpFeedback(SftpFeedbackKind.Error, "保存失败", SftpOperationStatus);
-                break;
+            var result = await Task.Run(
+                async () => await orchestrator.WriteSftpTextFileAsync(
+                    activeLease,
+                    savedPath,
+                    savedText,
+                    expectedSnapshot,
+                    cancellationToken).ConfigureAwait(false),
+                CancellationToken.None).ConfigureAwait(true);
+            switch (result)
+            {
+                case SftpMutationResult.Completed:
+                    sftpPreviewOriginalText = savedText;
+                    SftpPreviewText = savedText;
+                    sftpPreviewSnapshot = await RefreshSavedSftpPreviewSnapshotAsync(
+                        activeLease,
+                        savedPath,
+                        cancellationToken).ConfigureAwait(true);
+                    SftpOperationStatus = string.Concat("Saved ", savedPath);
+                    SftpPreviewStatus = sftpPreviewSnapshot is null
+                        ? "保存成功，但未能刷新远端修订；请重新打开文件后继续编辑。"
+                        : string.Create(
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            $"保存成功：已写入 {System.Text.Encoding.UTF8.GetByteCount(savedText)} B，可继续编辑。");
+                    PublishSftpFeedback(
+                        sftpPreviewSnapshot is null ? SftpFeedbackKind.Warning : SftpFeedbackKind.Success,
+                        sftpPreviewSnapshot is null ? "已保存，等待刷新" : "保存完成",
+                        SftpPreviewStatus);
+                    break;
+                case SftpMutationResult.Failed failed:
+                    SftpOperationStatus = FormatSftpMutationFailure(failed);
+                    SftpPreviewStatus = string.Concat("保存失败：", SftpOperationStatus);
+                    PublishSftpFeedback(SftpFeedbackKind.Error, "保存失败", SftpOperationStatus);
+                    break;
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            SftpOperationStatus = "SFTP text save cancelled";
+            SftpPreviewStatus = "保存已取消，编辑内容仍保留。";
+            PublishSftpFeedback(SftpFeedbackKind.Warning, "保存已取消", savedPath);
+        }
+        catch (Exception error)
+        {
+            SftpOperationStatus = error.Message;
+            SftpPreviewStatus = "保存失败：连接或本机组件发生异常，编辑内容仍保留，可重试。";
+            PublishSftpFeedback(SftpFeedbackKind.Error, "保存失败", SftpPreviewStatus);
+        }
+        finally
+        {
+            IsSftpPreviewSaving = false;
+            NotifySftpEditorStateChanged();
         }
 
         SaveRuntimeStateToSelectedWorkspaceTab();
         RefreshCommands();
+    }
+
+    private async Task<SftpMutationSnapshot?> RefreshSavedSftpPreviewSnapshotAsync(
+        SftpSessionLease lease,
+        string savedPath,
+        CancellationToken cancellationToken)
+    {
+        var parentPath = GetSftpParentPath(savedPath);
+        var result = await Task.Run(
+            async () => await orchestrator.ListSftpDirectoryAsync(
+                lease,
+                parentPath,
+                cancellationToken).ConfigureAwait(false),
+            CancellationToken.None).ConfigureAwait(true);
+        if (result is not SftpDirectoryListResult.Listed listed)
+        {
+            return null;
+        }
+
+        var refreshed = listed.Entries
+            .Select(entry => ToSftpEntryViewModel(listed.Path, entry))
+            .FirstOrDefault(entry => entry is not null &&
+                string.Equals(entry.Path, savedPath, StringComparison.Ordinal));
+        if (refreshed is null)
+        {
+            return null;
+        }
+
+        var visibleEntry = SftpEntries.FirstOrDefault(entry =>
+            string.Equals(entry.Path, savedPath, StringComparison.Ordinal));
+        if (visibleEntry is not null)
+        {
+            var visibleIndex = SftpEntries.IndexOf(visibleEntry);
+            SftpEntries[visibleIndex] = refreshed;
+            SelectedSftpEntry = refreshed;
+            SetSelectedSftpEntries([refreshed]);
+            NotifySftpListingChanged();
+        }
+
+        return ToSftpMutationSnapshot(refreshed);
     }
 
     public string PrepareSftpPreviewCopy()
@@ -9292,6 +9392,7 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(CanEditSftpPreview));
         OnPropertyChanged(nameof(IsSftpPreviewReadOnly));
         OnPropertyChanged(nameof(IsSftpPreviewDirty));
+        OnPropertyChanged(nameof(IsSftpPreviewSaving));
         OnPropertyChanged(nameof(CanSaveSftpPreview));
     }
 

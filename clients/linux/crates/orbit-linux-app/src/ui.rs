@@ -34,7 +34,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 use vte::prelude::*;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 const GTK_TOKENS: &str = include_str!("../../../resources/tokens-gtk.css");
 const APP_STYLES: &str = include_str!("../../../resources/orbitterm.css");
@@ -64,6 +64,82 @@ const EMPTY_ASSET_DESCRIPTION: &str = "添加服务器后，即可从这里安�
 const EMPTY_SESSION_TITLE: &str = "暂无会话";
 const EMPTY_SESSION_DESCRIPTION: &str = "从左侧选择服务器，然后建立连接。";
 const EMPTY_SESSION_TAB_HINT: &str = "建立连接后，会话标签将在这里显示";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DockerLifecycleAction {
+    Start,
+    Stop,
+    Restart,
+    Pause,
+    Unpause,
+    Kill,
+    Remove,
+}
+
+impl DockerLifecycleAction {
+    fn core_name(self) -> &'static str {
+        match self {
+            Self::Start => "start",
+            Self::Stop => "stop",
+            Self::Restart => "restart",
+            Self::Pause => "pause",
+            Self::Unpause => "unpause",
+            Self::Kill => "kill",
+            Self::Remove => "remove",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Start => "启动容器",
+            Self::Stop => "停止容器",
+            Self::Restart => "重启容器",
+            Self::Pause => "暂停容器",
+            Self::Unpause => "恢复容器",
+            Self::Kill => "强制停止容器",
+            Self::Remove => "删除容器",
+        }
+    }
+
+    fn confirmation(self) -> &'static str {
+        match self {
+            Self::Start => "容器服务将开始运行。",
+            Self::Stop => "容器内服务将停止，直到再次启动。",
+            Self::Restart => "容器会短暂中断服务。",
+            Self::Pause => "容器内进程将暂停运行，但不会被删除。",
+            Self::Unpause => "已暂停的容器进程将继续运行。",
+            Self::Kill => "容器进程将被立即强制终止，未保存的数据可能丢失。",
+            Self::Remove => "容器将被永久删除；其未挂载到卷的数据无法恢复。",
+        }
+    }
+
+    fn destructive(self) -> bool {
+        matches!(self, Self::Stop | Self::Restart | Self::Kill | Self::Remove)
+    }
+}
+
+fn docker_available_actions(container: &DockerContainer) -> Vec<DockerLifecycleAction> {
+    let state = container.state.trim().to_ascii_lowercase();
+    let status = container.status.trim().to_ascii_lowercase();
+    if state == "paused" || status.contains("paused") {
+        vec![
+            DockerLifecycleAction::Unpause,
+            DockerLifecycleAction::Stop,
+            DockerLifecycleAction::Kill,
+            DockerLifecycleAction::Remove,
+        ]
+    } else if state == "running" || status.starts_with("up ") || status == "up" {
+        vec![
+            DockerLifecycleAction::Stop,
+            DockerLifecycleAction::Restart,
+            DockerLifecycleAction::Pause,
+            DockerLifecycleAction::Kill,
+            DockerLifecycleAction::Remove,
+        ]
+    } else {
+        vec![DockerLifecycleAction::Start, DockerLifecycleAction::Remove]
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct RdpReconnectState {
@@ -851,6 +927,12 @@ struct ModuleShellWidgets {
     expand_right: gtk::Button,
 }
 
+#[derive(Clone)]
+struct AccountHeaderWidgets {
+    button: gtk::Button,
+    content: adw::ButtonContent,
+}
+
 #[derive(Clone, Copy)]
 struct ModuleFullscreenRestore {
     window_was_fullscreen: bool,
@@ -881,6 +963,9 @@ struct ToolsWidgets {
     sftp_rename: gtk::Button,
     sftp_chmod: gtk::Button,
     sftp_delete: gtk::Button,
+    sftp_selection_bar: gtk::Box,
+    sftp_selection_label: gtk::Label,
+    sftp_clear_selection: gtk::Button,
     sftp_list: gtk::ListBox,
     sftp_status: gtk::Label,
     sftp_transfer_summary: gtk::Label,
@@ -889,10 +974,6 @@ struct ToolsWidgets {
     docker_refresh: gtk::Button,
     docker_list: gtk::ListBox,
     docker_status: gtk::Label,
-    docker_logs: gtk::Button,
-    docker_start: gtk::Button,
-    docker_restart: gtk::Button,
-    docker_stop: gtk::Button,
     docker_containers: Rc<RefCell<Vec<DockerContainer>>>,
     snippet_search: gtk::SearchEntry,
     snippet_list: gtk::ListBox,
@@ -944,6 +1025,7 @@ struct UiContext {
     rdp_pressed_pointer_buttons: Rc<Cell<u16>>,
     rdp_failure_dialogs: Rc<RefCell<HashSet<Uuid>>>,
     module_shell: Rc<RefCell<Option<ModuleShellWidgets>>>,
+    account_header: Rc<RefCell<Option<AccountHeaderWidgets>>>,
     module_fullscreen: Rc<Cell<bool>>,
     module_fullscreen_restore: Rc<RefCell<Option<ModuleFullscreenRestore>>>,
     suppress_close_until: Rc<Cell<Option<Instant>>>,
@@ -1289,6 +1371,7 @@ pub fn build_application_window(application: &adw::Application) {
         rdp_pressed_pointer_buttons: Rc::new(Cell::new(0)),
         rdp_failure_dialogs: Rc::new(RefCell::new(HashSet::new())),
         module_shell: Rc::new(RefCell::new(None)),
+        account_header: Rc::new(RefCell::new(None)),
         module_fullscreen: Rc::new(Cell::new(false)),
         module_fullscreen_restore: Rc::new(RefCell::new(None)),
         suppress_close_until: Rc::new(Cell::new(None)),
@@ -1357,6 +1440,7 @@ pub fn build_application_window(application: &adw::Application) {
     workspace_and_tools.set_resize_end_child(false);
     workspace_and_tools.set_shrink_start_child(false);
     workspace_and_tools.set_shrink_end_child(false);
+    install_horizontal_paned_cursor(&workspace_and_tools);
 
     let main_paned = gtk::Paned::new(Orientation::Horizontal);
     main_paned.add_css_class("workspace-paned");
@@ -1369,6 +1453,7 @@ pub fn build_application_window(application: &adw::Application) {
     main_paned.set_shrink_start_child(false);
     main_paned.set_shrink_end_child(false);
     main_paned.set_vexpand(true);
+    install_horizontal_paned_cursor(&main_paned);
     let workbench_overlay = gtk::Overlay::new();
     workbench_overlay.set_child(Some(&main_paned));
     let expand_left = gtk::Button::builder()
@@ -1648,18 +1733,14 @@ pub fn build_application_window(application: &adw::Application) {
     tools.sftp_list.connect_row_activated(move |_, row| {
         activate_sftp_row(context_for_sftp_row.clone(), row.index());
     });
-    let tools_for_sftp_selection = tools.clone();
-    tools.sftp_list.connect_row_selected(move |_, row| {
-        let selected = row.is_some();
-        for button in [
-            &tools_for_sftp_selection.sftp_download,
-            &tools_for_sftp_selection.sftp_rename,
-            &tools_for_sftp_selection.sftp_chmod,
-            &tools_for_sftp_selection.sftp_delete,
-        ] {
-            button.set_sensitive(selected);
-        }
+    let context_for_sftp_selection = context.clone();
+    tools.sftp_list.connect_row_selected(move |_, _| {
+        update_sftp_selection_actions(&context_for_sftp_selection);
     });
+    let list_for_sftp_clear = tools.sftp_list.clone();
+    tools
+        .sftp_clear_selection
+        .connect_clicked(move |_| list_for_sftp_clear.unselect_all());
     let context_for_sftp_upload = context.clone();
     tools
         .sftp_upload
@@ -1695,20 +1776,8 @@ pub fn build_application_window(application: &adw::Application) {
         .connect_clicked(move |_| begin_docker_refresh(context_for_docker_refresh.clone()));
     let context_for_docker_logs = context.clone();
     tools
-        .docker_logs
-        .connect_clicked(move |_| begin_docker_logs(context_for_docker_logs.clone()));
-    let context_for_docker_start = context.clone();
-    tools
-        .docker_start
-        .connect_clicked(move |_| confirm_docker_action(context_for_docker_start.clone(), "start"));
-    let context_for_docker_restart = context.clone();
-    tools.docker_restart.connect_clicked(move |_| {
-        confirm_docker_action(context_for_docker_restart.clone(), "restart")
-    });
-    let context_for_docker_stop = context.clone();
-    tools
-        .docker_stop
-        .connect_clicked(move |_| confirm_docker_action(context_for_docker_stop.clone(), "stop"));
+        .docker_list
+        .connect_row_activated(move |_, _| begin_docker_logs(context_for_docker_logs.clone()));
 
     refresh_snippet_list(&context);
     let snippet_buttons = [
@@ -1892,14 +1961,22 @@ fn build_header(
     brand_frame.append(&brand);
     start_actions.append(&brand_frame);
 
-    let account = command_button(
-        "登录 / 解锁",
-        "avatar-default-symbolic",
-        "登录 OrbitTerm 账户或解锁端到端加密同步",
-    );
+    let account_content = adw::ButtonContent::builder()
+        .label("登录 / 解锁")
+        .icon_name("system-log-in-symbolic")
+        .build();
+    let account = gtk::Button::builder()
+        .child(&account_content)
+        .tooltip_text("登录 OrbitTerm 账户或解锁端到端加密同步")
+        .build();
+    account.add_css_class("top-command");
     let account_context = context.clone();
     account.connect_clicked(move |_| present_sync_window(account_context.clone()));
     end_actions.append(&account);
+    context.account_header.replace(Some(AccountHeaderWidgets {
+        button: account,
+        content: account_content,
+    }));
 
     let add = top_bar_button("添加服务器", "添加服务器资产");
     add.add_css_class("suggested-action");
@@ -1964,146 +2041,255 @@ fn build_header(
     header
 }
 
+fn set_account_header_logged_in(
+    account_header: &Rc<RefCell<Option<AccountHeaderWidgets>>>,
+    logged_in: bool,
+) {
+    let header = account_header.borrow();
+    let Some(header) = header.as_ref() else {
+        return;
+    };
+    if logged_in {
+        header.content.set_label("个人中心");
+        header.content.set_icon_name("avatar-default-symbolic");
+        header
+            .button
+            .set_tooltip_text(Some("账户已登录；打开个人中心与安全同步会话"));
+    } else {
+        header.content.set_label("登录 / 解锁");
+        header.content.set_icon_name("system-log-in-symbolic");
+        header
+            .button
+            .set_tooltip_text(Some("登录 OrbitTerm 账户或解锁端到端加密同步"));
+    }
+}
+
 fn window_resize_handles_visible(maximized: bool, fullscreen: bool) -> bool {
     !maximized && !fullscreen
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WindowResizeRegion {
+    North,
+    South,
+    West,
+    East,
+    NorthWest,
+    NorthEast,
+    SouthWest,
+    SouthEast,
+}
+
+impl WindowResizeRegion {
+    fn cursor_name(self) -> &'static str {
+        match self {
+            Self::North | Self::South => "ns-resize",
+            Self::West | Self::East => "ew-resize",
+            Self::NorthWest | Self::SouthEast => "nwse-resize",
+            Self::NorthEast | Self::SouthWest => "nesw-resize",
+        }
+    }
+
+    fn surface_edge(self) -> gtk::gdk::SurfaceEdge {
+        match self {
+            Self::North => gtk::gdk::SurfaceEdge::North,
+            Self::South => gtk::gdk::SurfaceEdge::South,
+            Self::West => gtk::gdk::SurfaceEdge::West,
+            Self::East => gtk::gdk::SurfaceEdge::East,
+            Self::NorthWest => gtk::gdk::SurfaceEdge::NorthWest,
+            Self::NorthEast => gtk::gdk::SurfaceEdge::NorthEast,
+            Self::SouthWest => gtk::gdk::SurfaceEdge::SouthWest,
+            Self::SouthEast => gtk::gdk::SurfaceEdge::SouthEast,
+        }
+    }
+}
+
+fn window_resize_region(width: i32, height: i32, x: f64, y: f64) -> Option<WindowResizeRegion> {
+    const EDGE_HIT_WIDTH: f64 = 12.0;
+    const CORNER_HIT_LENGTH: f64 = 24.0;
+    if width <= 0 || height <= 0 || x < 0.0 || y < 0.0 {
+        return None;
+    }
+    let width = f64::from(width);
+    let height = f64::from(height);
+    if x > width || y > height {
+        return None;
+    }
+    let left_corner = x <= CORNER_HIT_LENGTH;
+    let right_corner = x >= width - CORNER_HIT_LENGTH;
+    let top_corner = y <= CORNER_HIT_LENGTH;
+    let bottom_corner = y >= height - CORNER_HIT_LENGTH;
+    if left_corner && top_corner {
+        return Some(WindowResizeRegion::NorthWest);
+    }
+    if right_corner && top_corner {
+        return Some(WindowResizeRegion::NorthEast);
+    }
+    if left_corner && bottom_corner {
+        return Some(WindowResizeRegion::SouthWest);
+    }
+    if right_corner && bottom_corner {
+        return Some(WindowResizeRegion::SouthEast);
+    }
+    if y <= EDGE_HIT_WIDTH {
+        return Some(WindowResizeRegion::North);
+    }
+    if y >= height - EDGE_HIT_WIDTH {
+        return Some(WindowResizeRegion::South);
+    }
+    if x <= EDGE_HIT_WIDTH {
+        return Some(WindowResizeRegion::West);
+    }
+    if x >= width - EDGE_HIT_WIDTH {
+        return Some(WindowResizeRegion::East);
+    }
+    None
+}
+
+fn install_horizontal_paned_cursor(paned: &gtk::Paned) {
+    let motion = gtk::EventControllerMotion::new();
+    motion.set_propagation_phase(gtk::PropagationPhase::Capture);
+    let paned_for_motion = paned.clone();
+    motion.connect_motion(move |_, x, _| {
+        let over_separator = (x - f64::from(paned_for_motion.position())).abs() <= 10.0;
+        paned_for_motion.set_cursor_from_name(over_separator.then_some("col-resize"));
+    });
+    let paned_for_leave = paned.clone();
+    motion.connect_leave(move |_| paned_for_leave.set_cursor_from_name(None));
+    paned.add_controller(motion);
+
+    // GtkPaned's native handle can be difficult to acquire through VNC/RDP
+    // pointer forwarding. Add an explicit capture-phase drag recognizer over
+    // the same 20px separator band. The widget's min/max positions continue
+    // to enforce the sidebar, terminal and inspector minimum widths.
+    let drag = gtk::GestureDrag::builder()
+        .button(1)
+        .propagation_phase(gtk::PropagationPhase::Capture)
+        .build();
+    let drag_origin = Rc::new(Cell::new(None::<i32>));
+    let begin_origin = drag_origin.clone();
+    let begin_paned = paned.clone();
+    drag.connect_drag_begin(move |gesture, x, _| {
+        let position = begin_paned.position();
+        if (x - f64::from(position)).abs() <= 10.0 {
+            begin_origin.set(Some(position));
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+        } else {
+            begin_origin.set(None);
+            gesture.set_state(gtk::EventSequenceState::Denied);
+        }
+    });
+    let update_origin = drag_origin.clone();
+    let update_paned = paned.clone();
+    drag.connect_drag_update(move |_, offset_x, _| {
+        let Some(origin) = update_origin.get() else {
+            return;
+        };
+        let proposed = origin.saturating_add(offset_x.round() as i32);
+        let minimum = update_paned.min_position();
+        let maximum = update_paned.max_position().max(minimum);
+        update_paned.set_position(proposed.clamp(minimum, maximum));
+    });
+    drag.connect_drag_end(move |_, _, _| drag_origin.set(None));
+    paned.add_controller(drag);
+}
+
 fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk::Overlay) {
     use gtk::gdk::prelude::ToplevelExt;
-    use gtk::gdk::{SurfaceEdge, Toplevel};
+    use gtk::gdk::Toplevel;
 
-    let add_handle = |edge: SurfaceEdge,
-                      cursor: &'static str,
-                      halign: Align,
-                      valign: Align,
-                      width: i32,
-                      height: i32| {
-        let handle = gtk::Box::new(Orientation::Horizontal, 0);
-        handle.add_css_class("window-resize-handle");
-        handle.set_halign(halign);
-        handle.set_valign(valign);
-        handle.set_size_request(width, height);
-        handle.set_cursor_from_name(Some(cursor));
-        handle.set_can_target(true);
-        handle.set_tooltip_text(Some("拖动以调整窗口大小"));
-        // Ignoring the gesture is not click-through: remove edge hit targets
-        // in fullscreen/maximized modes so remote window controls receive input.
-        handle.set_visible(window_resize_handles_visible(
-            window.is_maximized(),
-            window.is_fullscreen(),
-        ));
-        let weak_handle = handle.downgrade();
-        window.connect_maximized_notify(move |window| {
-            if let Some(handle) = weak_handle.upgrade() {
-                handle.set_visible(window_resize_handles_visible(
-                    window.is_maximized(),
-                    window.is_fullscreen(),
-                ));
-            }
-        });
-        let weak_handle = handle.downgrade();
-        window.connect_fullscreened_notify(move |window| {
-            if let Some(handle) = weak_handle.upgrade() {
-                handle.set_visible(window_resize_handles_visible(
-                    window.is_maximized(),
-                    window.is_fullscreen(),
-                ));
-            }
-        });
+    // Observe the whole content surface in capture phase. Empty overlay
+    // children do not consistently receive Wayland pointer motion, which made
+    // resizing work while leaving the cursor visually unchanged. A single
+    // surface-wide controller keeps cursor feedback and the native compositor
+    // resize operation on exactly the same hit-test path.
+    let motion = gtk::EventControllerMotion::new();
+    motion.set_propagation_phase(gtk::PropagationPhase::Capture);
+    let motion_overlay = overlay.clone();
+    let motion_window = window.clone();
+    motion.connect_motion(move |_, x, y| {
+        let cursor = window_resize_handles_visible(
+            motion_window.is_maximized(),
+            motion_window.is_fullscreen(),
+        )
+        .then(|| window_resize_region(motion_overlay.width(), motion_overlay.height(), x, y))
+        .flatten()
+        .map(WindowResizeRegion::cursor_name);
+        set_window_resize_cursor(&motion_window, &motion_overlay, cursor);
+    });
+    let leave_overlay = overlay.clone();
+    let leave_window = window.clone();
+    motion.connect_leave(move |_| set_window_resize_cursor(&leave_window, &leave_overlay, None));
+    overlay.add_controller(motion);
 
-        let gesture = gtk::GestureClick::new();
-        gesture.set_button(1);
-        let resize_window = window.clone();
-        gesture.connect_pressed(move |gesture, _, fallback_x, fallback_y| {
-            if resize_window.is_maximized() || resize_window.is_fullscreen() {
-                return;
-            }
-            let Some(event) = gesture.current_event() else {
-                return;
-            };
-            let Some(surface) = event.surface() else {
-                return;
-            };
-            let Ok(toplevel) = surface.downcast::<Toplevel>() else {
-                return;
-            };
-            let (x, y) = event.position().unwrap_or((fallback_x, fallback_y));
-            let device = event.device();
-            toplevel.begin_resize(edge, device.as_ref(), 1, x, y, event.time());
-            gesture.set_state(gtk::EventSequenceState::Claimed);
-        });
-        handle.add_controller(gesture);
-        overlay.add_overlay(&handle);
-    };
+    let gesture = gtk::GestureClick::new();
+    gesture.set_button(1);
+    gesture.set_propagation_phase(gtk::PropagationPhase::Capture);
+    let resize_window = window.clone();
+    let resize_overlay = overlay.clone();
+    gesture.connect_pressed(move |gesture, _, x, y| {
+        if !window_resize_handles_visible(
+            resize_window.is_maximized(),
+            resize_window.is_fullscreen(),
+        ) {
+            return;
+        }
+        let Some(region) =
+            window_resize_region(resize_overlay.width(), resize_overlay.height(), x, y)
+        else {
+            return;
+        };
+        let Some(event) = gesture.current_event() else {
+            return;
+        };
+        let Some(surface) = event.surface() else {
+            return;
+        };
+        let Ok(toplevel) = surface.downcast::<Toplevel>() else {
+            return;
+        };
+        let device = event.device();
+        toplevel.begin_resize(
+            region.surface_edge(),
+            device.as_ref(),
+            1,
+            x,
+            y,
+            event.time(),
+        );
+        gesture.set_state(gtk::EventSequenceState::Claimed);
+    });
+    overlay.add_controller(gesture);
 
-    // Ten-pixel edges and eighteen-pixel corners are easy to discover on
-    // high-DPI displays while
-    // remaining visually transparent. Corners are added after edges so their
-    // diagonal cursor and resize direction win in the overlapping area.
-    add_handle(
-        SurfaceEdge::North,
-        "n-resize",
-        Align::Fill,
-        Align::Start,
-        -1,
-        10,
-    );
-    add_handle(
-        SurfaceEdge::South,
-        "s-resize",
-        Align::Fill,
-        Align::End,
-        -1,
-        10,
-    );
-    add_handle(
-        SurfaceEdge::West,
-        "w-resize",
-        Align::Start,
-        Align::Fill,
-        10,
-        -1,
-    );
-    add_handle(
-        SurfaceEdge::East,
-        "e-resize",
-        Align::End,
-        Align::Fill,
-        10,
-        -1,
-    );
-    add_handle(
-        SurfaceEdge::NorthWest,
-        "nw-resize",
-        Align::Start,
-        Align::Start,
-        18,
-        18,
-    );
-    add_handle(
-        SurfaceEdge::NorthEast,
-        "ne-resize",
-        Align::End,
-        Align::Start,
-        18,
-        18,
-    );
-    add_handle(
-        SurfaceEdge::SouthWest,
-        "sw-resize",
-        Align::Start,
-        Align::End,
-        18,
-        18,
-    );
-    add_handle(
-        SurfaceEdge::SouthEast,
-        "se-resize",
-        Align::End,
-        Align::End,
-        18,
-        18,
-    );
+    let maximized_overlay = overlay.clone();
+    window.connect_maximized_notify(move |window| {
+        if window.is_maximized() {
+            set_window_resize_cursor(window, &maximized_overlay, None);
+        }
+    });
+    let fullscreen_overlay = overlay.clone();
+    window.connect_fullscreened_notify(move |window| {
+        if window.is_fullscreen() {
+            set_window_resize_cursor(window, &fullscreen_overlay, None);
+        }
+    });
+}
+
+fn set_window_resize_cursor(
+    window: &adw::ApplicationWindow,
+    overlay: &gtk::Overlay,
+    cursor_name: Option<&str>,
+) {
+    // A widget cursor is sufficient on X11, but under Wayland (and especially
+    // through remote-desktop pointer forwarding) a descendant may immediately
+    // replace it. Apply the same native cursor to the content root, window and
+    // top-level GDK surface so visual feedback follows the compositor resize.
+    overlay.set_cursor_from_name(cursor_name);
+    window.set_cursor_from_name(cursor_name);
+    if let Some(surface) = window.surface() {
+        let cursor = cursor_name.and_then(|name| gtk::gdk::Cursor::from_name(name, None));
+        surface.set_cursor(cursor.as_ref());
+    }
 }
 
 fn command_button(label: &str, icon_name: &str, tooltip: &str) -> gtk::Button {
@@ -2678,7 +2864,7 @@ fn build_tools(snippet_repository: SnippetRepository) -> ToolsWidgets {
     panel_stack.set_transition_type(gtk::StackTransitionType::SlideLeftRight);
     let tools = gtk::Box::new(Orientation::Vertical, 0);
     tools.add_css_class("tool-panel");
-    tools.set_size_request(328, -1);
+    tools.set_size_request(280, -1);
 
     let heading = gtk::Box::new(Orientation::Horizontal, 8);
     heading.add_css_class("panel-heading");
@@ -2794,7 +2980,7 @@ fn build_tools(snippet_repository: SnippetRepository) -> ToolsWidgets {
 
     let sftp_list = gtk::ListBox::new();
     sftp_list.add_css_class("tool-list");
-    sftp_list.set_selection_mode(gtk::SelectionMode::Single);
+    sftp_list.set_selection_mode(gtk::SelectionMode::Multiple);
     let sftp_scroller = gtk::ScrolledWindow::builder()
         .vexpand(true)
         .min_content_height(180)
@@ -2815,6 +3001,20 @@ fn build_tools(snippet_repository: SnippetRepository) -> ToolsWidgets {
     for button in [&sftp_download, &sftp_rename, &sftp_chmod, &sftp_delete] {
         button.set_sensitive(false);
     }
+    let sftp_selection_bar = gtk::Box::new(Orientation::Horizontal, 6);
+    sftp_selection_bar.add_css_class("sftp-selection-bar");
+    sftp_selection_bar.set_visible(false);
+    let sftp_selection_label = gtk::Label::new(Some("已选 0 项"));
+    sftp_selection_label.set_xalign(0.0);
+    sftp_selection_label.set_hexpand(true);
+    sftp_selection_label.add_css_class("caption");
+    let sftp_clear_selection = gtk::Button::with_label("取消");
+    sftp_clear_selection.add_css_class("flat");
+    sftp_selection_bar.append(&sftp_selection_label);
+    sftp_selection_bar.append(&sftp_clear_selection);
+    sftp_selection_bar.append(&sftp_download);
+    sftp_selection_bar.append(&sftp_delete);
+    sftp_page.append(&sftp_selection_bar);
     let sftp_transfer_summary = gtk::Label::new(Some("传输任务 · 暂无"));
     sftp_transfer_summary.set_xalign(0.0);
     sftp_transfer_summary.add_css_class("heading");
@@ -2834,26 +3034,24 @@ fn build_tools(snippet_repository: SnippetRepository) -> ToolsWidgets {
     docker_page.add_css_class("tool-page");
     let docker_toolbar = gtk::Box::new(Orientation::Horizontal, 6);
     let docker_refresh = gtk::Button::builder()
-        .label("刷新")
         .icon_name("view-refresh-symbolic")
+        .tooltip_text("刷新容器与资源统计")
         .sensitive(false)
         .build();
-    let docker_logs = gtk::Button::with_label("日志");
-    let docker_start = gtk::Button::with_label("启动");
-    let docker_restart = gtk::Button::with_label("重启");
-    let docker_stop = gtk::Button::with_label("停止");
-    for button in [&docker_logs, &docker_start, &docker_restart, &docker_stop] {
-        button.set_sensitive(false);
-    }
+    let docker_title = gtk::Label::new(Some("容器"));
+    docker_title.add_css_class("heading");
+    docker_title.set_xalign(0.0);
+    docker_title.set_hexpand(true);
+    docker_toolbar.append(&docker_title);
     docker_toolbar.append(&docker_refresh);
-    docker_toolbar.append(&docker_logs);
-    docker_toolbar.append(&docker_start);
-    docker_toolbar.append(&docker_restart);
-    docker_toolbar.append(&docker_stop);
     docker_page.append(&docker_toolbar);
     let docker_list = gtk::ListBox::new();
     docker_list.add_css_class("tool-list");
     docker_list.set_selection_mode(gtk::SelectionMode::Single);
+    // GtkListBox defaults to one-click activation. Selection must stay a
+    // harmless inspection action; logs open only on a deliberate double
+    // click or keyboard activation.
+    docker_list.set_activate_on_single_click(false);
     let docker_scroller = gtk::ScrolledWindow::builder()
         .vexpand(true)
         .min_content_height(180)
@@ -2950,6 +3148,9 @@ fn build_tools(snippet_repository: SnippetRepository) -> ToolsWidgets {
         sftp_rename,
         sftp_chmod,
         sftp_delete,
+        sftp_selection_bar,
+        sftp_selection_label,
+        sftp_clear_selection,
         sftp_list,
         sftp_status,
         sftp_transfer_summary,
@@ -2958,10 +3159,6 @@ fn build_tools(snippet_repository: SnippetRepository) -> ToolsWidgets {
         docker_refresh,
         docker_list,
         docker_status,
-        docker_logs,
-        docker_start,
-        docker_restart,
-        docker_stop,
         docker_containers: Rc::new(RefCell::new(Vec::new())),
         snippet_search,
         snippet_list,
@@ -8022,6 +8219,7 @@ fn trigger_background_sync(context: UiContext) {
         let material = match AuthTokenVault.lookup().await {
             Ok(Some(material)) => material,
             Ok(None) => {
+                set_account_header_logged_in(&context.account_header, false);
                 context.sync_status.set_label("登录后可自动同步");
                 context.sync_scheduler.finish_background();
                 return;
@@ -8040,11 +8238,13 @@ fn trigger_background_sync(context: UiContext) {
         let account = match account_fingerprint(&tokens.access_token) {
             Ok(account) => account,
             Err(_) => {
+                set_account_header_logged_in(&context.account_header, false);
                 context.sync_status.set_label("同步登录已失效");
                 context.sync_scheduler.finish_background();
                 return;
             }
         };
+        set_account_header_logged_in(&context.account_header, true);
         let now = match current_unix_ms() {
             Ok(now) => now,
             Err(_) => {
@@ -9519,6 +9719,9 @@ fn render_sftp_listing(context: &UiContext, mut listing: SftpDirectoryListing) {
         let menu_context = context.clone();
         let menu_row = row.clone();
         click.connect_pressed(move |gesture, _, x, y| {
+            if !menu_row.is_selected() {
+                menu_context.tools.sftp_list.unselect_all();
+            }
             menu_context.tools.sftp_list.select_row(Some(&menu_row));
             present_sftp_context_menu(menu_context.clone(), &menu_row, x, y);
             gesture.set_state(gtk::EventSequenceState::Claimed);
@@ -9534,12 +9737,17 @@ fn render_sftp_listing(context: &UiContext, mut listing: SftpDirectoryListing) {
         listing.path,
         context.tools.sftp_entries.borrow().len()
     ));
+    update_sftp_selection_actions(context);
 }
 
 fn present_sftp_context_menu(context: UiContext, row: &gtk::ListBoxRow, x: f64, y: f64) {
-    let Some((entry, _)) = selected_sftp_entry(&context) else {
+    let Some(entry) = usize::try_from(row.index())
+        .ok()
+        .and_then(|index| context.tools.sftp_entries.borrow().get(index).cloned())
+    else {
         return;
     };
+    let selection_count = selected_sftp_entries(&context).len();
     let popover = gtk::Popover::new();
     popover.add_css_class("sftp-context-menu");
     popover.set_parent(row);
@@ -9567,64 +9775,79 @@ fn present_sftp_context_menu(context: UiContext, row: &gtk::ListBoxRow, x: f64, 
         actions.append(&button);
     };
 
-    let row_index = row.index();
-    let open_context = context.clone();
-    add_action(
-        if entry.is_directory() {
-            "打开目录"
-        } else {
-            "预览与编辑"
-        },
-        if entry.is_directory() {
-            "folder-open-symbolic"
-        } else {
-            "document-edit-symbolic"
-        },
-        Rc::new(move || activate_sftp_row(open_context.clone(), row_index)),
-    );
-    if entry.is_directory() {
-        let create_dir = context.clone();
-        add_action(
-            "新建目录",
-            "folder-new-symbolic",
-            Rc::new(move || {
-                prompt_sftp_create(create_dir.clone(), true);
-            }),
-        );
-        let create_file = context.clone();
-        add_action(
-            "新建文件",
-            "document-new-symbolic",
-            Rc::new(move || {
-                prompt_sftp_create(create_file.clone(), false);
-            }),
-        );
-    } else {
+    if selection_count > 1 {
         let download = context.clone();
         add_action(
-            "下载…",
+            &format!("下载所选 {selection_count} 项…"),
             "document-save-symbolic",
             Rc::new(move || begin_sftp_download(download.clone())),
         );
+        let delete = context.clone();
+        add_action(
+            &format!("删除所选 {selection_count} 项…"),
+            "user-trash-symbolic",
+            Rc::new(move || confirm_sftp_delete(delete.clone())),
+        );
+    } else {
+        let row_index = row.index();
+        let open_context = context.clone();
+        add_action(
+            if entry.is_directory() {
+                "打开目录"
+            } else {
+                "预览与编辑"
+            },
+            if entry.is_directory() {
+                "folder-open-symbolic"
+            } else {
+                "document-edit-symbolic"
+            },
+            Rc::new(move || activate_sftp_row(open_context.clone(), row_index)),
+        );
+        if entry.is_directory() {
+            let create_dir = context.clone();
+            add_action(
+                "新建目录",
+                "folder-new-symbolic",
+                Rc::new(move || {
+                    prompt_sftp_create(create_dir.clone(), true);
+                }),
+            );
+            let create_file = context.clone();
+            add_action(
+                "新建文件",
+                "document-new-symbolic",
+                Rc::new(move || {
+                    prompt_sftp_create(create_file.clone(), false);
+                }),
+            );
+        } else {
+            let download = context.clone();
+            add_action(
+                "下载…",
+                "document-save-symbolic",
+                Rc::new(move || begin_sftp_download(download.clone())),
+            );
+        }
+        let rename = context.clone();
+        add_action(
+            "重命名…",
+            "document-edit-symbolic",
+            Rc::new(move || prompt_sftp_rename(rename.clone())),
+        );
+        let chmod = context.clone();
+        add_action(
+            "修改权限…",
+            "changes-prevent-symbolic",
+            Rc::new(move || prompt_sftp_chmod(chmod.clone())),
+        );
+        let delete = context.clone();
+        add_action(
+            "删除…",
+            "user-trash-symbolic",
+            Rc::new(move || confirm_sftp_delete(delete.clone())),
+        );
     }
-    let rename = context.clone();
-    add_action(
-        "重命名…",
-        "document-edit-symbolic",
-        Rc::new(move || prompt_sftp_rename(rename.clone())),
-    );
-    let chmod = context.clone();
-    add_action(
-        "修改权限…",
-        "changes-prevent-symbolic",
-        Rc::new(move || prompt_sftp_chmod(chmod.clone())),
-    );
-    let delete = context.clone();
-    add_action(
-        "删除…",
-        "user-trash-symbolic",
-        Rc::new(move || confirm_sftp_delete(delete.clone())),
-    );
     popover.set_child(Some(&actions));
     popover.popup();
 }
@@ -9679,11 +9902,45 @@ fn activate_sftp_row(context: UiContext, index: i32) {
     });
 }
 
+fn selected_sftp_entries(context: &UiContext) -> Vec<(SftpEntry, String)> {
+    let entries = context.tools.sftp_entries.borrow();
+    context
+        .tools
+        .sftp_list
+        .selected_rows()
+        .into_iter()
+        .filter_map(|row| {
+            let index = usize::try_from(row.index()).ok()?;
+            let entry = entries.get(index)?.clone();
+            let path = join_remote_path(context.tools.sftp_path.text().as_str(), &entry.name);
+            Some((entry, path))
+        })
+        .collect()
+}
+
 fn selected_sftp_entry(context: &UiContext) -> Option<(SftpEntry, String)> {
-    let index = usize::try_from(context.tools.sftp_list.selected_row()?.index()).ok()?;
-    let entry = context.tools.sftp_entries.borrow().get(index)?.clone();
-    let path = join_remote_path(context.tools.sftp_path.text().as_str(), &entry.name);
-    Some((entry, path))
+    let mut selected = selected_sftp_entries(context);
+    (selected.len() == 1).then(|| selected.remove(0))
+}
+
+fn update_sftp_selection_actions(context: &UiContext) {
+    let selected = selected_sftp_entries(context);
+    let count = selected.len();
+    let has_selection = count > 0;
+    let is_single = count == 1;
+    let has_downloadable_file = selected.iter().any(|(entry, _)| !entry.is_directory());
+    context.tools.sftp_selection_bar.set_visible(has_selection);
+    context
+        .tools
+        .sftp_selection_label
+        .set_label(&format!("已选 {count} 项"));
+    context
+        .tools
+        .sftp_download
+        .set_sensitive(has_downloadable_file);
+    context.tools.sftp_rename.set_sensitive(is_single);
+    context.tools.sftp_chmod.set_sensitive(is_single);
+    context.tools.sftp_delete.set_sensitive(has_selection);
 }
 
 fn active_sftp_session(context: &UiContext) -> Option<u64> {
@@ -9963,12 +10220,20 @@ fn prompt_sftp_chmod(context: UiContext) {
 }
 
 fn confirm_sftp_delete(context: UiContext) {
-    let Some((entry, path)) = selected_sftp_entry(&context) else {
+    let selected = selected_sftp_entries(&context);
+    let Some((entry, _)) = selected.first() else {
         return;
     };
+    let selected_count = selected.len();
     let dialog = adw::AlertDialog::builder()
-        .heading(format!("删除 {}？", entry.name))
-        .body(if entry.is_directory() {
+        .heading(if selected_count == 1 {
+            format!("删除 {}？", entry.name)
+        } else {
+            format!("删除所选 {selected_count} 项？")
+        })
+        .body(if selected_count > 1 {
+            "将逐项核对远端修订后删除；非空目录或已变化项目会保留，并在结果中报告。"
+        } else if entry.is_directory() {
             "仅允许删除空目录；删除前会重新核对目录快照。"
         } else {
             "删除前会重新核对文件大小、权限和修改时间。此操作无法撤销。"
@@ -9982,12 +10247,69 @@ fn confirm_sftp_delete(context: UiContext) {
         if dialog.choose_future(Some(&context.window)).await.as_str() != "delete" {
             return;
         }
-        let snapshot = SftpEntrySnapshot::from(&entry);
-        run_sftp_mutation(
-            context,
-            "正在核对快照并删除…",
-            move |core, sftp_id| core.remove_sftp_entry(sftp_id, &path, &snapshot),
-        );
+        if selected.len() == 1 {
+            let (entry, path) = selected.into_iter().next().expect("selection checked");
+            let snapshot = SftpEntrySnapshot::from(&entry);
+            run_sftp_mutation(
+                context,
+                "正在核对快照并删除…",
+                move |core, sftp_id| core.remove_sftp_entry(sftp_id, &path, &snapshot),
+            );
+        } else {
+            run_sftp_batch_delete(context, selected);
+        }
+    });
+}
+
+fn run_sftp_batch_delete(context: UiContext, selected: Vec<(SftpEntry, String)>) {
+    let Some(sftp_id) = active_sftp_session(&context) else {
+        context.tools.sftp_status.set_label("SFTP 会话尚未就绪。");
+        return;
+    };
+    let total = selected.len();
+    context
+        .tools
+        .sftp_status
+        .set_label(&format!("正在逐项核对并删除 {total} 项…"));
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let core = CheckedCoreClient::new();
+        let mut succeeded = 0usize;
+        let mut failures = Vec::new();
+        for (entry, path) in selected {
+            let snapshot = SftpEntrySnapshot::from(&entry);
+            match core.remove_sftp_entry(sftp_id, &path, &snapshot) {
+                Ok(()) => succeeded += 1,
+                Err(error) => {
+                    failures.push(format!("{}：{}", entry.name, describe_sftp_error(&error)))
+                }
+            }
+        }
+        let _ = sender.send((succeeded, failures));
+    });
+    gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
+        match receiver.try_recv() {
+            Ok((succeeded, failures)) => {
+                let failed = failures.len();
+                let detail = failures
+                    .first()
+                    .map_or_else(String::new, |first| format!("；首个失败：{first}"));
+                context.tools.sftp_status.set_label(&format!(
+                    "批量删除完成：成功 {succeeded}/{total}，失败 {failed}{detail}"
+                ));
+                let path = context.tools.sftp_path.text().to_string();
+                begin_sftp_list(context.clone(), path);
+                gtk::glib::ControlFlow::Break
+            }
+            Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                context
+                    .tools
+                    .sftp_status
+                    .set_label("批量删除线程意外退出。");
+                gtk::glib::ControlFlow::Break
+            }
+        }
     });
 }
 
@@ -10027,7 +10349,12 @@ fn begin_sftp_upload(context: UiContext) {
 }
 
 fn begin_sftp_download(context: UiContext) {
-    let Some((entry, remote)) = selected_sftp_entry(&context) else {
+    let selected = selected_sftp_entries(&context);
+    if selected.len() > 1 {
+        begin_sftp_batch_download(context, selected);
+        return;
+    }
+    let Some((entry, remote)) = selected.into_iter().next() else {
         return;
     };
     if entry.is_directory() {
@@ -10064,6 +10391,105 @@ fn begin_sftp_download(context: UiContext) {
             move |core, sftp_id| core.download_sftp_file(sftp_id, &remote, &local),
         );
     });
+}
+
+fn begin_sftp_batch_download(context: UiContext, selected: Vec<(SftpEntry, String)>) {
+    let downloadable = selected
+        .into_iter()
+        .filter(|(entry, _)| !entry.is_directory())
+        .collect::<Vec<_>>();
+    if downloadable.is_empty() {
+        context
+            .tools
+            .sftp_status
+            .set_label("所选项目中没有可直接下载的文件；目录请先进入后选择文件。");
+        return;
+    }
+    let dialog = gtk::FileDialog::builder().title("选择批量下载目录").build();
+    gtk::glib::spawn_future_local(async move {
+        let Ok(folder) = dialog.select_folder_future(Some(&context.window)).await else {
+            return;
+        };
+        let Some(directory) = folder.path() else {
+            context
+                .tools
+                .sftp_status
+                .set_label("无法访问所选下载目录。");
+            return;
+        };
+        let Some(sftp_id) = active_sftp_session(&context) else {
+            context.tools.sftp_status.set_label("SFTP 会话尚未就绪。");
+            return;
+        };
+        let total = downloadable.len();
+        context
+            .tools
+            .sftp_status
+            .set_label(&format!("正在批量下载 {total} 个文件…"));
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let core = CheckedCoreClient::new();
+            let mut succeeded = 0usize;
+            let mut failures = Vec::new();
+            for (entry, remote) in downloadable {
+                let local = unique_local_sftp_download_path(&directory, &entry.name);
+                match core.download_sftp_file(sftp_id, &remote, &local.to_string_lossy()) {
+                    Ok(()) => succeeded += 1,
+                    Err(error) => {
+                        failures.push(format!("{}：{}", entry.name, describe_sftp_error(&error)))
+                    }
+                }
+            }
+            let _ = sender.send((succeeded, failures));
+        });
+        gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
+            match receiver.try_recv() {
+                Ok((succeeded, failures)) => {
+                    let failed = failures.len();
+                    let detail = failures
+                        .first()
+                        .map_or_else(String::new, |first| format!("；首个失败：{first}"));
+                    context.tools.sftp_status.set_label(&format!(
+                        "批量下载完成：成功 {succeeded}/{total}，失败 {failed}{detail}"
+                    ));
+                    context.tools.sftp_list.unselect_all();
+                    gtk::glib::ControlFlow::Break
+                }
+                Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    context
+                        .tools
+                        .sftp_status
+                        .set_label("批量下载线程意外退出。");
+                    gtk::glib::ControlFlow::Break
+                }
+            }
+        });
+    });
+}
+
+fn unique_local_sftp_download_path(directory: &std::path::Path, file_name: &str) -> PathBuf {
+    let requested = directory.join(file_name);
+    if !requested.exists() {
+        return requested;
+    }
+    let source = std::path::Path::new(file_name);
+    let stem = source
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or(file_name);
+    let extension = source.extension().and_then(|value| value.to_str());
+    for index in 1..10_000 {
+        let candidate_name = match extension {
+            Some(extension) => format!("{stem} ({index}).{extension}"),
+            None => format!("{stem} ({index})"),
+        };
+        let candidate = directory.join(candidate_name);
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    directory.join(format!("{stem}-{}", current_unix_ms().unwrap_or(0)))
 }
 
 fn present_sftp_editor(context: UiContext, entry: SftpEntry, path: String, content: String) {
@@ -10225,8 +10651,14 @@ fn begin_docker_refresh(context: UiContext) {
                     if container.state.eq_ignore_ascii_case("running") {
                         state.add_css_class("running");
                     }
+                    let menu = gtk::Button::builder()
+                        .icon_name("view-more-symbolic")
+                        .tooltip_text("容器操作")
+                        .build();
+                    menu.add_css_class("flat");
                     title.append(&name);
                     title.append(&state);
+                    title.append(&menu);
                     let detail = gtk::Label::new(Some(&match stat {
                         Some(stat) => format!(
                             "{} · CPU {:.1}% · MEM {:.1}% · {}",
@@ -10242,7 +10674,11 @@ fn begin_docker_refresh(context: UiContext) {
                             "NET {} · BLOCK {} · {} PIDs",
                             stat.net_io, stat.block_io, stat.pids
                         ),
-                        None => format!("{} · {}", container.running_for, &container.id[..12]),
+                        None => format!(
+                            "{} · {}",
+                            container.running_for,
+                            container.id.chars().take(12).collect::<String>()
+                        ),
                     }));
                     io.add_css_class("caption");
                     io.set_xalign(0.0);
@@ -10251,20 +10687,44 @@ fn begin_docker_refresh(context: UiContext) {
                     body.append(&detail);
                     body.append(&io);
                     row.set_child(Some(&body));
+
+                    let menu_context = context.clone();
+                    let menu_container = container.clone();
+                    let menu_parent = menu.clone();
+                    menu.connect_clicked(move |_| {
+                        present_docker_container_menu(
+                            menu_context.clone(),
+                            menu_container.clone(),
+                            &menu_parent,
+                            None,
+                        );
+                    });
+                    let click = gtk::GestureClick::new();
+                    click.set_button(3);
+                    let click_context = context.clone();
+                    let click_container = container.clone();
+                    let click_row = row.clone();
+                    let click_list = context.tools.docker_list.clone();
+                    click.connect_pressed(move |gesture, _, x, y| {
+                        click_list.select_row(Some(&click_row));
+                        present_docker_container_menu(
+                            click_context.clone(),
+                            click_container.clone(),
+                            &click_row,
+                            Some((x, y)),
+                        );
+                        gesture.set_state(gtk::EventSequenceState::Claimed);
+                    });
+                    row.add_controller(click);
                     context.tools.docker_list.append(&row);
                 }
                 context.tools.docker_containers.replace(containers);
                 if let Some(row) = context.tools.docker_list.row_at_index(0) {
                     context.tools.docker_list.select_row(Some(&row));
                 }
-                let has_selection = !context.tools.docker_containers.borrow().is_empty();
-                context.tools.docker_logs.set_sensitive(has_selection);
-                context.tools.docker_start.set_sensitive(has_selection);
-                context.tools.docker_restart.set_sensitive(has_selection);
-                context.tools.docker_stop.set_sensitive(has_selection);
                 context.tools.docker_refresh.set_sensitive(true);
                 context.tools.docker_status.set_label(&format!(
-                    "{} 个容器 · Host Key 已验证",
+                    "{} 个容器 · 双击查看日志 · 右键管理",
                     context.tools.docker_containers.borrow().len()
                 ));
                 gtk::glib::ControlFlow::Break
@@ -10292,60 +10752,104 @@ fn selected_docker_container(context: &UiContext) -> Option<DockerContainer> {
 }
 
 fn begin_docker_logs(context: UiContext) {
-    let (Some(base_id), Some(container)) = (
-        context
-            .session
-            .borrow()
-            .active()
-            .filter(|runtime| runtime.transport == Transport::Ssh)
-            .and_then(|runtime| runtime.base_session_id),
-        selected_docker_container(&context),
-    ) else {
-        return;
-    };
-    context.tools.docker_status.set_label("正在读取容器日志…");
-    let (sender, receiver) = mpsc::channel();
-    std::thread::spawn(move || {
-        let result = CheckedCoreClient::new().docker_logs(base_id, &container.id, 200);
-        let _ = sender.send(result);
-    });
-    gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
-        match receiver.try_recv() {
-            Ok(Ok(result)) => {
-                context
-                    .tools
-                    .docker_status
-                    .set_label("已读取最近 200 行日志。");
-                present_docker_logs_window(&context.window, &container.name, &result.logs);
-                gtk::glib::ControlFlow::Break
-            }
-            Ok(Err(error)) => {
-                context
-                    .tools
-                    .docker_status
-                    .set_label(&format!("日志读取失败：{error}"));
-                gtk::glib::ControlFlow::Break
-            }
-            Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
-            Err(mpsc::TryRecvError::Disconnected) => gtk::glib::ControlFlow::Break,
-        }
-    });
-}
-
-fn confirm_docker_action(context: UiContext, action: &'static str) {
     let Some(container) = selected_docker_container(&context) else {
         return;
     };
-    let (verb, detail) = match action {
-        "start" => ("启动", "容器服务将开始运行。"),
-        "restart" => ("重启", "容器会短暂中断服务。"),
-        "stop" => ("停止", "容器内服务将停止，直到再次启动。"),
-        _ => return,
+    begin_docker_logs_for(context, container);
+}
+
+fn present_docker_container_menu(
+    context: UiContext,
+    container: DockerContainer,
+    parent: &impl IsA<gtk::Widget>,
+    pointing_to: Option<(f64, f64)>,
+) {
+    let popover = gtk::Popover::new();
+    popover.set_parent(parent);
+    if let Some((x, y)) = pointing_to {
+        popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+    }
+    let actions = gtk::Box::new(Orientation::Vertical, 2);
+    actions.add_css_class("docker-container-menu");
+    let add = |label: &str, destructive: bool, action: Rc<dyn Fn()>| {
+        let button = gtk::Button::with_label(label);
+        button.add_css_class("flat");
+        button.set_halign(Align::Fill);
+        if destructive {
+            button.add_css_class("destructive-action");
+        }
+        let menu = popover.clone();
+        button.connect_clicked(move |_| {
+            menu.popdown();
+            action();
+        });
+        actions.append(&button);
     };
+
+    let logs_context = context.clone();
+    let logs_container = container.clone();
+    add(
+        "查看最近日志",
+        false,
+        Rc::new(move || begin_docker_logs_for(logs_context.clone(), logs_container.clone())),
+    );
+    let copy_context = context.clone();
+    let copy_id = container.id.clone();
+    add(
+        "复制容器 ID",
+        false,
+        Rc::new(move || {
+            if let Some(display) = gtk::gdk::Display::default() {
+                display.clipboard().set_text(&copy_id);
+                copy_context
+                    .tools
+                    .docker_status
+                    .set_label("容器 ID 已复制。");
+            }
+        }),
+    );
+    actions.append(&gtk::Separator::new(Orientation::Horizontal));
+    for action in docker_available_actions(&container) {
+        let action_context = context.clone();
+        let action_container = container.clone();
+        add(
+            action.label(),
+            action.destructive(),
+            Rc::new(move || {
+                confirm_docker_action_for(action_context.clone(), action_container.clone(), action)
+            }),
+        );
+    }
+    actions.append(&gtk::Separator::new(Orientation::Horizontal));
+    let refresh_context = context.clone();
+    add(
+        "刷新容器",
+        false,
+        Rc::new(move || begin_docker_refresh(refresh_context.clone())),
+    );
+    popover.set_child(Some(&actions));
+    popover.popup();
+}
+
+fn begin_docker_logs_for(context: UiContext, container: DockerContainer) {
+    context
+        .tools
+        .docker_status
+        .set_label("容器日志窗口已打开。");
+    present_docker_logs_window(context, container);
+}
+
+fn confirm_docker_action_for(
+    context: UiContext,
+    container: DockerContainer,
+    action: DockerLifecycleAction,
+) {
+    let verb = action.label().trim_end_matches("容器");
     let dialog = adw::AlertDialog::builder()
         .heading(format!("{verb}容器 {}？", container.name))
         .body(format!(
-            "{detail}\n\n该操作通过当前 Host Key 已验证会话执行。"
+            "{}\n\n该操作通过当前 Host Key 已验证会话执行。",
+            action.confirmation()
         ))
         .close_response("cancel")
         .build();
@@ -10353,29 +10857,32 @@ fn confirm_docker_action(context: UiContext, action: &'static str) {
     dialog.add_response("confirm", verb);
     dialog.set_response_appearance(
         "confirm",
-        if action == "start" {
-            adw::ResponseAppearance::Suggested
-        } else {
+        if action.destructive() {
             adw::ResponseAppearance::Destructive
+        } else {
+            adw::ResponseAppearance::Suggested
         },
     );
     gtk::glib::spawn_future_local(async move {
         if dialog.choose_future(Some(&context.window)).await.as_str() == "confirm" {
-            begin_docker_action(context, action);
+            begin_docker_action_for(context, container, action);
         }
     });
 }
 
-fn begin_docker_action(context: UiContext, action: &'static str) {
-    let (Some(base_id), Some(container)) = (
-        context
-            .session
-            .borrow()
-            .active()
-            .filter(|runtime| runtime.transport == Transport::Ssh)
-            .and_then(|runtime| runtime.base_session_id),
-        selected_docker_container(&context),
-    ) else {
+fn begin_docker_action_for(
+    context: UiContext,
+    container: DockerContainer,
+    action: DockerLifecycleAction,
+) {
+    let Some(base_id) = context
+        .session
+        .borrow()
+        .active()
+        .filter(|runtime| runtime.transport == Transport::Ssh)
+        .and_then(|runtime| runtime.base_session_id)
+    else {
+        context.tools.docker_status.set_label("SSH 会话已经关闭。");
         return;
     };
     context
@@ -10384,7 +10891,8 @@ fn begin_docker_action(context: UiContext, action: &'static str) {
         .set_label("正在执行受检 Docker 操作…");
     let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || {
-        let result = CheckedCoreClient::new().docker_action(base_id, &container.id, action);
+        let result =
+            CheckedCoreClient::new().docker_action(base_id, &container.id, action.core_name());
         let _ = sender.send(result);
     });
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
@@ -10459,38 +10967,181 @@ fn format_byte_count(bytes: u64) -> String {
     }
 }
 
-fn present_docker_logs_window(parent: &adw::ApplicationWindow, name: &str, logs: &str) {
+fn refresh_docker_logs_window(
+    context: UiContext,
+    container: DockerContainer,
+    text: gtk::TextView,
+    status: gtk::Label,
+    refresh: gtk::Button,
+    in_flight: Rc<Cell<bool>>,
+) {
+    if in_flight.replace(true) {
+        return;
+    }
+    let Some(base_id) = context
+        .session
+        .borrow()
+        .active()
+        .filter(|runtime| runtime.transport == Transport::Ssh)
+        .and_then(|runtime| runtime.base_session_id)
+    else {
+        in_flight.set(false);
+        status.set_label("会话已切换或断开，日志跟随已停止。");
+        return;
+    };
+    refresh.set_sensitive(false);
+    status.set_label("正在刷新容器日志…");
+    let container_id = container.id.clone();
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let result = CheckedCoreClient::new().docker_logs(base_id, &container_id, 500);
+        let _ = sender.send(result);
+    });
+    gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
+        match receiver.try_recv() {
+            Ok(Ok(result)) => {
+                text.buffer().set_text(&result.logs);
+                status.set_label("日志已更新 · 自动刷新间隔 2 秒");
+                refresh.set_sensitive(true);
+                in_flight.set(false);
+                gtk::glib::ControlFlow::Break
+            }
+            Ok(Err(error)) => {
+                status.set_label(&format!("日志读取失败：{error}"));
+                refresh.set_sensitive(true);
+                in_flight.set(false);
+                gtk::glib::ControlFlow::Break
+            }
+            Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                status.set_label("日志读取线程意外退出。");
+                refresh.set_sensitive(true);
+                in_flight.set(false);
+                gtk::glib::ControlFlow::Break
+            }
+        }
+    });
+}
+
+fn present_docker_logs_window(context: UiContext, container: DockerContainer) {
     let window = gtk::Window::builder()
-        .title(format!("Docker 日志 · {name}"))
-        .transient_for(parent)
-        .modal(true)
+        .title(format!("Docker 日志 · {}", container.name))
+        .transient_for(&context.window)
+        .modal(false)
         .default_width(820)
         .default_height(560)
         .build();
     let root = gtk::Box::new(Orientation::Vertical, 10);
     root.add_css_class("document-window");
-    let heading = gtk::Label::new(Some(&format!("{name} · 最近 200 行")));
+    let heading = gtk::Label::new(Some(&format!(
+        "容器：{}  ·  镜像：{}",
+        container.name, container.image
+    )));
     heading.add_css_class("dialog-title");
     heading.set_xalign(0.0);
+
+    let status = gtk::Label::new(Some("正在建立日志跟随会话…"));
+    status.add_css_class("caption");
+    status.set_xalign(0.0);
+    status.set_hexpand(true);
+
+    let auto_refresh = gtk::CheckButton::with_label("自动刷新");
+    auto_refresh.set_active(true);
+    auto_refresh.set_tooltip_text(Some("每 2 秒读取最近 500 行；同一时间最多一个请求"));
+    let refresh = gtk::Button::builder()
+        .label("立即刷新")
+        .icon_name("view-refresh-symbolic")
+        .tooltip_text("立即刷新容器日志")
+        .build();
+    let copy = gtk::Button::with_label("复制");
+    copy.set_tooltip_text(Some("复制选中内容；没有选区时复制全部日志"));
+    let close = gtk::Button::with_label("关闭");
+    let actions = gtk::Box::new(Orientation::Horizontal, 8);
+    actions.append(&status);
+    actions.append(&auto_refresh);
+    actions.append(&refresh);
+    actions.append(&copy);
+    actions.append(&close);
+
     let text = gtk::TextView::new();
     text.set_editable(false);
-    text.set_cursor_visible(false);
+    text.set_cursor_visible(true);
     text.set_monospace(true);
-    text.buffer().set_text(logs);
+    text.buffer().set_text("正在读取容器日志…");
     let scroll = gtk::ScrolledWindow::builder()
         .hexpand(true)
         .vexpand(true)
         .child(&text)
         .build();
-    let close = gtk::Button::with_label("关闭");
-    close.set_halign(Align::End);
+    scroll.add_css_class("tool-output");
+
     let target = window.clone();
     close.connect_clicked(move |_| target.close());
+    let copy_text = text.clone();
+    let copy_status = status.clone();
+    copy.connect_clicked(move |_| {
+        let buffer = copy_text.buffer();
+        let content = buffer
+            .selection_bounds()
+            .map(|(start, end)| buffer.text(&start, &end, true))
+            .unwrap_or_else(|| buffer.text(&buffer.start_iter(), &buffer.end_iter(), true));
+        if content.is_empty() {
+            copy_status.set_label("当前没有可复制的日志。");
+        } else if let Some(display) = gtk::gdk::Display::default() {
+            display.clipboard().set_text(&content);
+            copy_status.set_label("日志已复制。");
+        }
+    });
+
+    let in_flight = Rc::new(Cell::new(false));
+    let refresh_context = context.clone();
+    let refresh_container = container.clone();
+    let refresh_text = text.clone();
+    let refresh_status = status.clone();
+    let refresh_button = refresh.clone();
+    let refresh_gate = in_flight.clone();
+    refresh.connect_clicked(move |_| {
+        refresh_docker_logs_window(
+            refresh_context.clone(),
+            refresh_container.clone(),
+            refresh_text.clone(),
+            refresh_status.clone(),
+            refresh_button.clone(),
+            refresh_gate.clone(),
+        );
+    });
+
     root.append(&heading);
+    root.append(&actions);
     root.append(&scroll);
-    root.append(&close);
     window.set_child(Some(&root));
     window.present();
+
+    refresh_docker_logs_window(
+        context.clone(),
+        container.clone(),
+        text.clone(),
+        status.clone(),
+        refresh.clone(),
+        in_flight.clone(),
+    );
+    let weak_window = window.downgrade();
+    gtk::glib::timeout_add_local(Duration::from_secs(2), move || {
+        if weak_window.upgrade().is_none() {
+            return gtk::glib::ControlFlow::Break;
+        }
+        if auto_refresh.is_active() {
+            refresh_docker_logs_window(
+                context.clone(),
+                container.clone(),
+                text.clone(),
+                status.clone(),
+                refresh.clone(),
+                in_flight.clone(),
+            );
+        }
+        gtk::glib::ControlFlow::Continue
+    });
 }
 
 fn utility_window(
@@ -12542,6 +13193,7 @@ struct SyncDialogContext {
     background_pending: Rc<RefCell<Option<PendingSyncRun>>>,
     refresh_assets: Rc<dyn Fn()>,
     app_status: gtk::Label,
+    account_header: Rc<RefCell<Option<AccountHeaderWidgets>>>,
     pending: Rc<RefCell<Option<PendingSyncRun>>>,
     summary: gtk::Label,
     detail: gtk::Label,
@@ -12550,6 +13202,9 @@ struct SyncDialogContext {
     resolution_buttons: Rc<RefCell<Vec<gtk::Button>>>,
     retry_buttons: Rc<RefCell<Vec<gtk::Button>>>,
     spinner: gtk::Spinner,
+    unlock_spinner: gtk::Spinner,
+    unlock_feedback: gtk::Label,
+    unlock: gtk::Button,
     login: gtk::Button,
     saved_login: gtk::Button,
     import: gtk::Button,
@@ -12582,6 +13237,15 @@ enum SyncResolutionAction {
 enum SyncAuthInput {
     Login { username: String, password: String },
     Saved(SyncTokens),
+}
+
+impl Drop for SyncAuthInput {
+    fn drop(&mut self) {
+        if let Self::Login { username, password } = self {
+            username.zeroize();
+            password.zeroize();
+        }
+    }
 }
 
 enum QueuedNetworkOutcome {
@@ -12648,9 +13312,14 @@ fn present_sync_window(context: UiContext) {
     auth_card.set_halign(Align::Center);
     let mode = gtk::Box::new(Orientation::Horizontal, 4);
     mode.add_css_class("auth-mode-switch");
+    mode.set_homogeneous(true);
+    mode.set_hexpand(true);
+    mode.set_halign(Align::Fill);
     let login_mode = gtk::ToggleButton::with_label("登录");
+    login_mode.set_hexpand(true);
     login_mode.set_active(true);
     let register_mode = gtk::ToggleButton::with_label("注册");
+    register_mode.set_hexpand(true);
     register_mode.set_group(Some(&login_mode));
     mode.append(&login_mode);
     mode.append(&register_mode);
@@ -12695,6 +13364,18 @@ fn present_sync_window(context: UiContext) {
     unlock_note.set_wrap(true);
     unlock_card.append(&unlock_note);
     append_labeled_widget(&unlock_card, "主密码", &master_password);
+    let unlock_progress = gtk::Box::new(Orientation::Horizontal, 8);
+    unlock_progress.set_halign(Align::Fill);
+    let unlock_spinner = gtk::Spinner::new();
+    unlock_spinner.set_visible(false);
+    let unlock_feedback = gtk::Label::new(Some("输入主密码后将验证账户并生成只读同步预览。"));
+    unlock_feedback.set_xalign(0.0);
+    unlock_feedback.set_hexpand(true);
+    unlock_feedback.set_wrap(true);
+    unlock_feedback.add_css_class("caption");
+    unlock_progress.append(&unlock_spinner);
+    unlock_progress.append(&unlock_feedback);
+    unlock_card.append(&unlock_progress);
     let unlock_actions = gtk::Box::new(Orientation::Horizontal, 8);
     unlock_actions.set_halign(Align::End);
     let auth_back = gtk::Button::with_label("返回");
@@ -12842,6 +13523,7 @@ fn present_sync_window(context: UiContext) {
         background_pending: context.background_pending.clone(),
         refresh_assets: context.refresh_assets.clone(),
         app_status: context.status.clone(),
+        account_header: context.account_header.clone(),
         pending: Rc::new(RefCell::new(None)),
         summary,
         detail,
@@ -12850,6 +13532,9 @@ fn present_sync_window(context: UiContext) {
         resolution_buttons: Rc::new(RefCell::new(Vec::new())),
         retry_buttons: Rc::new(RefCell::new(Vec::new())),
         spinner,
+        unlock_spinner,
+        unlock_feedback,
+        unlock: unlock.clone(),
         login,
         saved_login,
         import,
@@ -12891,6 +13576,7 @@ fn present_sync_window(context: UiContext) {
                         "本机访问令牌、刷新令牌和主密码会话已清除。正式服务暂未提供远端令牌撤销端点；如需切换账户，请直接使用新账户登录。",
                     );
                     context.app_status.set_label("未登录 · 后台同步已暂停");
+                    set_account_header_logged_in(&context.account_header, false);
                 }
                 Err(error) => show_sync_error(
                     &context,
@@ -12918,6 +13604,7 @@ fn present_sync_window(context: UiContext) {
             username: username_for_login.text().to_string(),
             password: password_for_login.text().to_string(),
         }));
+        reset_unlock_feedback(&login_context);
         login_context.page_stack.set_visible_child_name("unlock");
         master_focus.grab_focus();
     });
@@ -12963,6 +13650,7 @@ fn present_sync_window(context: UiContext) {
                         username: username.clone(),
                         password: password.clone(),
                     }));
+                    reset_unlock_feedback(&completion_context);
                     completion_context
                         .summary
                         .set_label("账户创建成功，请输入主密码解锁同步");
@@ -13002,6 +13690,7 @@ fn present_sync_window(context: UiContext) {
                         account_scope: tokens.account_scope.clone(),
                     })));
                     set_sync_busy(&context, false, "");
+                    reset_unlock_feedback(&context);
                     context.page_stack.set_visible_child_name("unlock");
                 }
                 Ok(None) => show_sync_error(&context, "尚未保存云同步登录，请先使用账户密码登录。"),
@@ -13014,17 +13703,22 @@ fn present_sync_window(context: UiContext) {
     let unlock_pending = pending_auth.clone();
     unlock.connect_clicked(move |_| {
         let Some(auth) = unlock_pending.borrow_mut().take() else {
-            show_sync_error(&unlock_context, "账户认证状态已过期，请返回重新登录。");
+            show_unlock_error(&unlock_context, "账户认证状态已过期，请返回重新登录。");
             return;
         };
         begin_cloud_preview(
             unlock_context.clone(),
             auth,
             master_password.text().to_string(),
+            unlock_pending.clone(),
         );
     });
     let back_stack = page_stack.clone();
-    auth_back.connect_clicked(move |_| back_stack.set_visible_child_name("auth"));
+    let back_pending = pending_auth.clone();
+    auth_back.connect_clicked(move |_| {
+        back_pending.borrow_mut().take();
+        back_stack.set_visible_child_name("auth");
+    });
     let legal_parent = window.clone();
     let legal_terms = terms.clone();
     view_terms
@@ -13125,34 +13819,38 @@ fn present_legal_terms_window(parent: &gtk::Window, accepted: gtk::CheckButton) 
     window.present();
 }
 
-fn begin_cloud_preview(context: SyncDialogContext, auth: SyncAuthInput, master_password: String) {
+fn begin_cloud_preview(
+    context: SyncDialogContext,
+    auth: SyncAuthInput,
+    master_password: String,
+    retry_auth: Rc<RefCell<Option<SyncAuthInput>>>,
+) {
     if context.sync_scheduler.background_busy() {
-        show_sync_error(
+        retry_auth.replace(Some(auth));
+        show_unlock_error(
             &context,
             "后台正在恢复离线队列，请稍候片刻后再次执行同步检查。",
         );
         return;
     }
     if master_password.is_empty() {
-        show_sync_error(&context, "请输入用于解密云端配置的主密码。");
+        retry_auth.replace(Some(auth));
+        show_unlock_error(&context, "请输入用于解密云端配置的主密码。");
         return;
     }
-    set_sync_busy(&context, true, "正在通过 HTTPS 登录并生成只读预览…");
+    set_unlock_busy(&context, true, "正在安全登录并检查同步…");
     context.pending.borrow_mut().take();
     let local_assets = context.catalog.borrow().assets().to_vec();
     let sync_state = context.sync_state.clone();
     let sync_operations = context.sync_operations.clone();
     let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || {
+        let master_password = Zeroizing::new(master_password);
         let client = CloudClient::production();
-        let result = client.and_then(|client| {
-            let mut tokens = match auth {
-                SyncAuthInput::Login { username, password } => {
-                    let username = zeroize::Zeroizing::new(username);
-                    let password = zeroize::Zeroizing::new(password);
-                    client.login(&username, &password)?
-                }
-                SyncAuthInput::Saved(tokens) => tokens,
+        let result: Result<PendingSyncRun, SyncError> = client.and_then(|client| {
+            let mut tokens = match &auth {
+                SyncAuthInput::Login { username, password } => client.login(username, password)?,
+                SyncAuthInput::Saved(tokens) => tokens.clone(),
             };
             let fingerprint = account_fingerprint(&tokens.access_token)?;
             process_due_sync_queue(
@@ -13207,7 +13905,6 @@ fn begin_cloud_preview(context: SyncDialogContext, auth: SyncAuthInput, master_p
                 let inventory = client.pull_inventory(&mut tokens)?;
                 append_missing_dirty_inventory(&mut remote, inventory, &dirty_asset_ids);
             }
-            let master_password = zeroize::Zeroizing::new(master_password);
             let preview = build_pull_preview_with_deferred_for_account(
                 remote,
                 &local_assets,
@@ -13225,20 +13922,22 @@ fn begin_cloud_preview(context: SyncDialogContext, auth: SyncAuthInput, master_p
                 master_password,
             })
         });
-        let _ = sender.send(result);
+        let outcome = result.map_err(|error| (error, auth));
+        let _ = sender.send(outcome);
     });
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
         match receiver.try_recv() {
             Ok(Ok(pending)) => {
                 let context = context.clone();
                 gtk::glib::spawn_future_local(async move {
+                    set_unlock_busy(&context, false, "账户与主密码验证完成。");
                     let material = AuthTokenMaterial {
                         access_token: pending.tokens.access_token.clone(),
                         refresh_token: pending.tokens.refresh_token.clone(),
                         account_scope: pending.tokens.account_scope.clone(),
                     };
                     if let Err(error) = context.token_vault.store(&material).await {
-                        show_sync_error(
+                        show_unlock_error(
                             &context,
                             &format!("登录成功，但令牌无法安全保存：{error}"),
                         );
@@ -13250,23 +13949,37 @@ fn begin_cloud_preview(context: SyncDialogContext, auth: SyncAuthInput, master_p
                         pending.master_password.to_string(),
                         now,
                     ) {
-                        show_sync_error(&context, "主密码无法建立安全的应用会话。");
+                        show_unlock_error(&context, "主密码无法建立安全的应用会话。");
                         return;
                     }
                     context
                         .app_status
                         .set_label("同步会话已解锁 · 后台增量拉取已启用");
+                    set_account_header_logged_in(&context.account_header, true);
                     render_sync_preview(&context, pending);
                 });
                 gtk::glib::ControlFlow::Break
             }
-            Ok(Err(error)) => {
-                show_sync_error(&context, &format!("云同步检查失败：{error}"));
+            Ok(Err((error, auth))) => {
+                let message = if matches!(&error, SyncError::Unauthorized) {
+                    match &auth {
+                        SyncAuthInput::Login { .. } => {
+                            "账户或登录密码不正确，请返回重新输入。".to_owned()
+                        }
+                        SyncAuthInput::Saved(_) => {
+                            "已保存的登录已过期，请返回并使用账户密码重新登录。".to_owned()
+                        }
+                    }
+                } else {
+                    format!("云同步检查失败：{error}")
+                };
+                retry_auth.replace(Some(auth));
+                show_unlock_error(&context, &message);
                 gtk::glib::ControlFlow::Break
             }
             Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
             Err(mpsc::TryRecvError::Disconnected) => {
-                show_sync_error(&context, "同步工作线程意外退出。");
+                show_unlock_error(&context, "同步工作线程意外退出，请返回后重新登录。");
                 gtk::glib::ControlFlow::Break
             }
         }
@@ -15059,6 +15772,28 @@ fn set_sync_busy(context: &SyncDialogContext, busy: bool, message: &str) {
     }
 }
 
+fn reset_unlock_feedback(context: &SyncDialogContext) {
+    set_unlock_busy(context, false, "输入主密码后将验证账户并生成只读同步预览。");
+}
+
+fn set_unlock_busy(context: &SyncDialogContext, busy: bool, message: &str) {
+    context.unlock.set_sensitive(!busy);
+    context.unlock_feedback.remove_css_class("error-message");
+    context.unlock_feedback.set_label(message);
+    context.unlock_spinner.set_visible(busy);
+    if busy {
+        context.unlock_spinner.start();
+    } else {
+        context.unlock_spinner.stop();
+    }
+}
+
+fn show_unlock_error(context: &SyncDialogContext, message: &str) {
+    set_unlock_busy(context, false, message);
+    context.unlock_feedback.add_css_class("error-message");
+    context.unlock.grab_focus();
+}
+
 fn show_sync_error(context: &SyncDialogContext, message: &str) {
     set_sync_busy(context, false, "");
     context.import.set_sensitive(false);
@@ -16264,6 +16999,74 @@ mod tests {
     }
 
     #[test]
+    fn window_resize_regions_expose_directional_edge_and_corner_cursors() {
+        let cases = [
+            (
+                (500, 400, 250.0, 4.0),
+                WindowResizeRegion::North,
+                "ns-resize",
+            ),
+            (
+                (500, 400, 250.0, 396.0),
+                WindowResizeRegion::South,
+                "ns-resize",
+            ),
+            (
+                (500, 400, 4.0, 200.0),
+                WindowResizeRegion::West,
+                "ew-resize",
+            ),
+            (
+                (500, 400, 496.0, 200.0),
+                WindowResizeRegion::East,
+                "ew-resize",
+            ),
+            (
+                (500, 400, 4.0, 4.0),
+                WindowResizeRegion::NorthWest,
+                "nwse-resize",
+            ),
+            (
+                (500, 400, 496.0, 4.0),
+                WindowResizeRegion::NorthEast,
+                "nesw-resize",
+            ),
+            (
+                (500, 400, 4.0, 396.0),
+                WindowResizeRegion::SouthWest,
+                "nesw-resize",
+            ),
+            (
+                (500, 400, 496.0, 396.0),
+                WindowResizeRegion::SouthEast,
+                "nwse-resize",
+            ),
+        ];
+        for ((width, height, x, y), expected, cursor) in cases {
+            let region = window_resize_region(width, height, x, y);
+            assert_eq!(region, Some(expected));
+            assert_eq!(region.map(WindowResizeRegion::cursor_name), Some(cursor));
+        }
+        assert_eq!(window_resize_region(500, 400, 250.0, 200.0), None);
+    }
+
+    #[test]
+    fn sftp_batch_download_keeps_existing_local_files() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let first = directory.path().join("report.txt");
+        std::fs::write(&first, b"existing").expect("seed existing download");
+
+        assert_eq!(
+            unique_local_sftp_download_path(directory.path(), "report.txt"),
+            directory.path().join("report (1).txt")
+        );
+        assert_eq!(
+            unique_local_sftp_download_path(directory.path(), "new.txt"),
+            directory.path().join("new.txt")
+        );
+    }
+
+    #[test]
     fn monitor_network_rate_uses_readable_adaptive_units() {
         assert_eq!(format_monitor_network_rate(0.5), "0.5 Kbps");
         assert_eq!(format_monitor_network_rate(64.0), "64.0 Kbps");
@@ -17218,6 +18021,41 @@ mod tests {
     #[test]
     fn terminal_search_escapes_regex_metacharacters_for_literal_matching() {
         assert_eq!(escape_terminal_search("a.b[1]+"), r"a\.b\[1\]\+");
+    }
+
+    #[test]
+    fn docker_actions_match_the_desktop_container_lifecycle() {
+        let container = |state: &str, status: &str| DockerContainer {
+            id: "0123456789abcdef".into(),
+            name: "test".into(),
+            image: "example:latest".into(),
+            state: state.into(),
+            status: status.into(),
+            running_for: "1 minute".into(),
+        };
+        assert_eq!(
+            docker_available_actions(&container("running", "Up 1 minute")),
+            vec![
+                DockerLifecycleAction::Stop,
+                DockerLifecycleAction::Restart,
+                DockerLifecycleAction::Pause,
+                DockerLifecycleAction::Kill,
+                DockerLifecycleAction::Remove,
+            ]
+        );
+        assert_eq!(
+            docker_available_actions(&container("paused", "Up 1 minute (Paused)")),
+            vec![
+                DockerLifecycleAction::Unpause,
+                DockerLifecycleAction::Stop,
+                DockerLifecycleAction::Kill,
+                DockerLifecycleAction::Remove,
+            ]
+        );
+        assert_eq!(
+            docker_available_actions(&container("exited", "Exited (0)")),
+            vec![DockerLifecycleAction::Start, DockerLifecycleAction::Remove,]
+        );
     }
 
     #[test]

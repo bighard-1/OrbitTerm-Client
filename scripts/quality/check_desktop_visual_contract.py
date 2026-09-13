@@ -62,6 +62,11 @@ def require(text: str, fragment: str, label: str) -> None:
         raise SystemExit(f"desktop visual contract failed: {label}: {fragment!r}")
 
 
+def reject(text: str, fragment: str, label: str) -> None:
+    if fragment in text:
+        raise SystemExit(f"desktop visual contract failed: {label}: {fragment!r}")
+
+
 def require_ordered(text: str, fragments: list[str], label: str) -> None:
     cursor = 0
     for fragment in fragments:
@@ -90,14 +95,18 @@ mac_assets = read("OrbitTerm/Features/Home/WorkstationAssetSidebarView.swift")
 mac_right = read("OrbitTerm/Features/Home/WorkstationRightPanelView.swift")
 mac_snippets = read("OrbitTerm/Features/Home/SnippetsPanelView.swift")
 mac_sftp_dialogs = read("OrbitTerm/Features/Home/WorkstationSFTPDialogs.swift")
+mac_sftp_browser = read("OrbitTerm/Features/Home/SFTPBrowserPanels.swift")
+mac_sftp_components = read("OrbitTerm/Features/Home/SFTPBrowserComponents.swift")
 mac_terminal = read("OrbitTerm/Features/Home/SwiftTermTerminalView.swift")
 mac_themes = read("OrbitTerm/Core/Appearance/AppThemeID.swift")
+mac_docker_logs = read("OrbitTerm/Features/Home/DockerLogStreamView.swift")
 
 windows_xaml = read("clients/windows/src/OrbitTerm.App/MainWindow.xaml")
 windows_main = read("clients/windows/src/OrbitTerm.App/MainWindow.xaml.cs")
 windows_view_model = read("clients/windows/src/OrbitTerm.Presentation/MainWindowViewModel.cs")
 windows_snippet_view_model = read("clients/windows/src/OrbitTerm.Presentation/SnippetViewModel.cs")
 windows_tokens = read("clients/windows/src/OrbitTerm.App/Resources/OrbitTermTokens.xaml")
+windows_docker_logs = read("clients/windows/src/OrbitTerm.Presentation/DockerLogSessionController.cs")
 
 linux_ui = read("clients/linux/crates/orbit-linux-app/src/ui.rs")
 linux_css = read("clients/linux/resources/orbitterm.css")
@@ -259,6 +268,8 @@ require(mac_snippets, r"限 \(snippet.assetScope.assetIDs.count) 台资产", "ma
 require(windows_snippet_view_model, '$"限 {EffectiveAssetScope.AssetIds.Count} 台资产"', "Windows restricted Snippet scope")
 require(linux_ui, 'format!("限 {} 台资产"', "Linux restricted Snippet scope")
 require(windows_main, "RunWithSnippetsManagerSuspendedAsync", "Windows nested Snippet editor transition")
+for action in ('Content="新建"', 'Content="编辑"', 'Content="删除"'):
+    require(windows_xaml, action, "Windows explicit Snippet management")
 
 
 # SFTP keeps only navigation, path, refresh and one overflow entry in its
@@ -272,6 +283,35 @@ require(windows_xaml, '<Expander Grid.Row="4" IsExpanded="False"', "Windows coll
 require(linux_ui, "sftp_transfers.set_expanded(false);", "Linux collapsed transfer queue")
 require(windows_xaml, 'ContextRequested="SftpSurfaceContextRequested"', "Windows directory context menu")
 require(linux_ui, 'icon_name("view-more-symbolic")', "Linux compact SFTP overflow")
+
+# Container selection is harmless: logs require a deliberate double click,
+# keyboard activation or explicit menu command. Log polling is bounded and
+# single-flight on all three desktop clients.
+require(
+    linux_ui,
+    "docker_list.set_activate_on_single_click(false);",
+    "Linux deliberate Docker log activation",
+)
+require(
+    mac_docker_logs,
+    "OperationResourceBudget.dockerRefreshIntervalNanoseconds",
+    "macOS bounded Docker log refresh",
+)
+require(
+    windows_docker_logs,
+    "TimeSpan.FromSeconds(2)",
+    "Windows bounded Docker log refresh",
+)
+require(
+    between(
+        linux_ui,
+        "fn present_docker_logs_window",
+        "fn utility_window",
+        "Linux Docker log window",
+    ),
+    "Duration::from_secs(2)",
+    "Linux bounded Docker log refresh",
+)
 for text, label in (
     (mac_sftp_dialogs, "macOS SFTP editor"),
     (windows_main, "Windows SFTP editor"),
@@ -285,6 +325,14 @@ for fragment in (
 ):
     require(windows_xaml, fragment, "Windows hidden decorative SFTP scrollbars")
 require(windows_xaml, 'MaxHeight="104"', "Windows wrapping SFTP feedback")
+require(mac_sftp_browser, "List(selection: $batchState.selectedIDs)", "macOS standard SFTP multi-selection")
+if "onToggleSelection" in mac_sftp_components:
+    raise SystemExit("desktop visual contract failed: macOS SFTP regained permanent row checkboxes")
+require(windows_xaml, 'SelectionMode="Extended"', "Windows standard SFTP multi-selection")
+require(windows_xaml, 'x:Name="SftpSelectionBar"', "Windows contextual SFTP action bar")
+require(linux_ui, "gtk::SelectionMode::Multiple", "Linux SFTP multi-selection")
+require(linux_ui, 'add_css_class("sftp-selection-bar")', "Linux contextual SFTP action bar")
+require(windows_view_model, "RefreshSavedSftpPreviewSnapshotAsync", "Windows continuous SFTP editing")
 
 # Platform-specific rendering fixes remain guarded by deterministic source
 # checks so future refactors cannot silently restore the reported regressions.
@@ -308,10 +356,28 @@ windows_snippets_dialog = between(
     '</ContentDialog>',
     "Windows Snippets dialog",
 )
-for fragment in ('Width="700"', 'MinWidth="660"', 'MaxWidth="760"'):
-    require(windows_snippets_dialog, fragment, "Windows Snippets usable width")
-for cursor_name in ("n-resize", "s-resize", "w-resize", "e-resize", "nw-resize", "se-resize"):
+for fragment in (
+    'Width="620"',
+    'MinWidth="480"',
+    'MaxWidth="700"',
+    'RowDefinitions="Auto,Auto"',
+):
+    require(windows_snippets_dialog, fragment, "Windows Snippets responsive layout")
+reject(windows_snippets_dialog, 'ScrollViewer MinWidth=', "Windows Snippets clipped content width")
+for cursor_name in (
+    "ns-resize",
+    "ew-resize",
+    "nwse-resize",
+    "nesw-resize",
+    "set_window_resize_cursor",
+    "surface.set_cursor",
+    "set_account_header_logged_in",
+    "个人中心",
+):
     require(linux_ui, cursor_name, "Linux discoverable native resize cursor")
+require(linux_ui, "mode.set_homogeneous(true)", "Linux equal-width authentication modes")
+require(linux_ui, "unlock_feedback", "Linux visible unlock progress")
+require(linux_ui, "show_unlock_error", "Linux visible unlock failure")
 linux_footer_button = between(
     linux_css,
     ".compact-footer-button {",
@@ -333,6 +399,35 @@ require(
     "let left = if sidebar_for_bottom_layout.is_visible()",
     "Linux collapsed command input left edge",
 )
+
+
+# Pane dividers keep platform-native hit testing while sharing one visible
+# semantic rule. Collapsed pane affordances use the same icon vocabulary rather
+# than platform-specific vertical text.
+mac_splitter = between(
+    mac_main,
+    "private func workspaceSplitter(",
+    "private func updateResponsivePanels",
+    "macOS workstation splitter",
+)
+for fragment in (".fill(Color.clear)", ".frame(width: 6)", ".frame(width: 1)"):
+    require(mac_splitter, fragment, "macOS one-pixel pane divider")
+for fragment in (
+    'x:Key="OrbitPaneSplitterThumbStyle"',
+    '<Rectangle Width="1"',
+    'PointerEntered="PaneSplitterPointerEntered"',
+    'PointerExited="PaneSplitterPointerExited"',
+):
+    require(windows_xaml, fragment, "Windows one-pixel pane divider")
+for fragment in (
+    "background-image: linear-gradient(",
+    "alpha(@orbit_rule, 0.78) 4px",
+    "alpha(@orbit_accent, 0.72) 4px",
+):
+    require(linux_css, fragment, "Linux one-pixel pane divider")
+for legacy_label in ('Text="服&#x0a;务&#x0a;器"', 'Text="工&#x0a;具"'):
+    reject(windows_xaml, legacy_label, "Windows collapsed pane icon")
+require(windows_xaml, 'ColumnDefinitions="Auto,*"', "Windows monitor caption priority")
 
 
 # macOS owns exactly one endpoint card inside the responsive monitoring strip,

@@ -20,3 +20,6 @@ orbit-linux-sync = { path = "../orbit-linux-sync" }
 zeroize.workspace = true
 rand.workspace = true
 ssh-key.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

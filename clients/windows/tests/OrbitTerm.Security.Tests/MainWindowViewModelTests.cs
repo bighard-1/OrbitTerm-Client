@@ -1199,9 +1199,19 @@ public sealed class MainWindowViewModelTests
         Assert.Equal("/var/log/syslog", coreClient.LastWrittenSftpTextPath);
         Assert.Equal("updated\n", coreClient.LastWrittenSftpTextContent);
         Assert.False(viewModel.IsSftpPreviewDirty);
-        Assert.False(viewModel.CanEditSftpPreview);
+        Assert.True(viewModel.CanEditSftpPreview);
+        Assert.False(viewModel.CanSaveSftpPreview);
         Assert.True(viewModel.GoParentSftpCommand.CanExecute(null));
 
+        viewModel.SftpPreviewText = "updated again\n";
+        await viewModel.SaveSftpPreviewAsync(CancellationToken.None);
+        Assert.Equal(2, coreClient.WriteSftpTextFileCallCount);
+        Assert.Equal("updated again\n", coreClient.LastWrittenSftpTextContent);
+        Assert.True(viewModel.CanEditSftpPreview);
+        Assert.False(viewModel.IsSftpPreviewDirty);
+
+        viewModel.CloseSftpPreview();
+        Assert.True(viewModel.GoParentSftpCommand.CanExecute(null));
         viewModel.GoParentSftpCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.SftpBrowserStatus == "已列出 /var/log");
 
@@ -3100,6 +3110,7 @@ public sealed class MainWindowViewModelTests
         public string? LastRenamedSftpDestinationPath { get; private set; }
         public string? LastRemovedSftpPath { get; private set; }
         public uint LastSftpPermissionsMode { get; private set; }
+        public int WriteSftpTextFileCallCount { get; private set; }
         public string? LastWrittenSftpTextPath { get; private set; }
         public string? LastWrittenSftpTextContent { get; private set; }
         public SftpEntrySnapshot? LastSftpMutationSnapshot { get; private set; }
@@ -3448,6 +3459,7 @@ public sealed class MainWindowViewModelTests
             SftpEntrySnapshot snapshot,
             HostKeyRequestId requestId)
         {
+            WriteSftpTextFileCallCount++;
             LastWrittenSftpTextPath = remotePath;
             LastWrittenSftpTextContent = content;
             LastSftpMutationSnapshot = snapshot;

@@ -607,6 +607,16 @@ enum LoginCooldownPolicy {
     }
 }
 
+enum LoginFailurePresentation {
+    static func message(for error: Error) -> String {
+        if let networkError = error as? NetworkService.NetworkError,
+           case .unauthorized = networkError {
+            return "邮箱账号或登录密码不正确，请检查后重试。"
+        }
+        return error.localizedDescription
+    }
+}
+
 enum OperationalContentPhase: String, Equatable {
     case loading
     case empty

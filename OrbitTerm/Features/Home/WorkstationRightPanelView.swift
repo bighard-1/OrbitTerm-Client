@@ -170,6 +170,14 @@ struct WorkstationRightPanelView: View {
                         await active.sftpManager.download(item: item, to: dst)
                     }
                 },
+                onBatchDownload: { items in
+                    guard !items.isEmpty else { return }
+                    _ = await active.sftpManager.batchDownload(
+                        items: items,
+                        destinationDirectory: SFTPBrowserPathHelper.batchDownloadDirectory(),
+                        maxConcurrent: OperationResourceBudget.sftpMaximumConcurrentTransfers
+                    )
+                },
                 onRename: { item in
                     onRenameSFTPItem(active.id, item)
                 },
@@ -181,6 +189,13 @@ struct WorkstationRightPanelView: View {
                 },
                 onDelete: { item in
                     Task { await active.sftpManager.delete(item: item) }
+                },
+                onBatchDelete: { items in
+                    let paths = SFTPBatchOperationFormatter.remotePaths(
+                        for: items,
+                        currentPath: active.sftpManager.currentPath
+                    )
+                    _ = await active.sftpManager.batchDelete(paths: paths)
                 }
             )
         }

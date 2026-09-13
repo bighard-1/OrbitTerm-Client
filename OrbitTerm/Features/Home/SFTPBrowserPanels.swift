@@ -118,51 +118,52 @@ struct SFTPFileListView: View {
 
     var body: some View {
         ScrollViewReader { proxy in
-            List(manager.items) { item in
-                SFTPFileRow(
-                    item: item,
-                    isSelected: batchState.contains(item),
-                    isPathTarget: manager.highlightedItemID == item.id,
-                    onToggleSelection: { toggleSelection(item) }
-                )
-                .id(item.id)
-                .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
-                .listRowBackground(palette.surfaceReadable.color)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    if batchState.hasSelection {
-                        toggleSelection(item)
-                    } else if item.isDirectory {
-                        Task { await onEnterDirectory(item) }
-                    } else {
-                        Task { await onOpen(item) }
-                    }
-                }
-                .contextMenu {
-                    if !item.isDirectory {
-                        Button("在应用内打开") {
+            List(selection: $batchState.selectedIDs) {
+                ForEach(manager.items) { item in
+                    SFTPFileRow(
+                        item: item,
+                        isSelected: batchState.contains(item),
+                        isPathTarget: manager.highlightedItemID == item.id
+                    )
+                    .tag(item.id)
+                    .id(item.id)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                    .listRowBackground(palette.surfaceReadable.color)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {
+                        if item.isDirectory {
+                            Task { await onEnterDirectory(item) }
+                        } else {
                             Task { await onOpen(item) }
                         }
                     }
+                    .contextMenu {
+                        if !item.isDirectory {
+                            Button("在应用内打开") {
+                                Task { await onOpen(item) }
+                            }
+                        }
 
-                    Button("下载") {
-                        Task { await onDownload(item) }
-                    }
+                        Button("下载") {
+                            Task { await onDownload(item) }
+                        }
 
-                    Button("删除", role: .destructive) {
-                        Task { await onDelete(item) }
-                    }
+                        Button("删除", role: .destructive) {
+                            Task { await onDelete(item) }
+                        }
 
-                    Button("重命名") {
-                        editState.beginRename(item)
-                    }
+                        Button("重命名") {
+                            editState.beginRename(item)
+                        }
 
-                    Button("修改权限") {
-                        editState.beginChmod(item)
-                    }
+                        Button("修改权限") {
+                            editState.beginChmod(item)
+                        }
 
-                    Button(batchState.contains(item) ? "取消选择" : "选择") {
-                        toggleSelection(item)
+                        Divider()
+                        Button(batchState.contains(item) ? "从批量选择中移除" : "加入批量选择") {
+                            toggleSelection(item)
+                        }
                     }
                 }
             }

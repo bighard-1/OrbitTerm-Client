@@ -388,6 +388,11 @@ public sealed partial class MainWindow : Window
         if (reopenManager)
         {
             SnippetsDialog.Hide();
+            // Hide completes the original ShowAsync call, so release the guard
+            // before opening the nested editor and before restoring the manager.
+            // Otherwise the finally block below calls ShowSnippetsManagerAsync
+            // while the stale guard is still true and the manager never returns.
+            isSnippetsManagerOpen = false;
             await Task.Yield();
         }
 
@@ -3666,6 +3671,22 @@ public sealed partial class MainWindow : Window
         ToolInspectorSplitter.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    private void PaneSplitterPointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is Thumb splitter)
+        {
+            splitter.Foreground = ResourceBrush("OrbitAccentBrush");
+        }
+    }
+
+    private void PaneSplitterPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is Thumb splitter)
+        {
+            splitter.Foreground = ResourceBrush("OrbitPanelStrokeBrush");
+        }
+    }
+
     private void ConfigureWindowChrome()
     {
         if (AppWindow.Presenter is OverlappedPresenter presenter)
@@ -4541,8 +4562,14 @@ public sealed partial class MainWindow : Window
                 Style = ResourceStyle("OrbitWideActionButtonStyle"),
             };
 
+            var saveInFlight = false;
             saveButton.Click += async (_, _) =>
             {
+                if (saveInFlight)
+                {
+                    return;
+                }
+
                 ViewModel.SftpPreviewText = editor.Text;
                 if (!ViewModel.CanSaveSftpPreview)
                 {
@@ -4550,13 +4577,31 @@ public sealed partial class MainWindow : Window
                     return;
                 }
 
+                saveInFlight = true;
                 saveButton.IsEnabled = false;
+                revertButton.IsEnabled = false;
+                editor.IsReadOnly = true;
                 status.Text = "正在核对远端文件并安全保存…";
-                await ViewModel.SaveSftpPreviewAsync(CancellationToken.None);
-                status.Text = ViewModel.SftpPreviewStatus;
-                saveButton.IsEnabled = ViewModel.CanSaveSftpPreview;
-                revertButton.IsEnabled = ViewModel.IsSftpPreviewDirty;
-                editor.IsReadOnly = !ViewModel.CanEditSftpPreview;
+                try
+                {
+                    await ViewModel.SaveSftpPreviewAsync(CancellationToken.None);
+                    status.Text = ViewModel.SftpPreviewStatus;
+                }
+                catch (Exception error)
+                {
+                    status.Text = string.Concat("保存失败：", error.Message, "。编辑内容仍保留，可重试。");
+                }
+                finally
+                {
+                    saveInFlight = false;
+                    saveButton.IsEnabled = ViewModel.CanSaveSftpPreview;
+                    revertButton.IsEnabled = ViewModel.IsSftpPreviewDirty;
+                    editor.IsReadOnly = !ViewModel.CanEditSftpPreview;
+                    if (ViewModel.CanEditSftpPreview)
+                    {
+                        editor.Focus(FocusState.Programmatic);
+                    }
+                }
             };
             revertButton.Click += (_, _) =>
             {
@@ -4632,6 +4677,13 @@ public sealed partial class MainWindow : Window
             };
             dialog.Closing += (_, args) =>
             {
+                if (saveInFlight)
+                {
+                    args.Cancel = true;
+                    status.Text = "正在安全保存，请等待操作完成后再关闭。";
+                    return;
+                }
+
                 ViewModel.SftpPreviewText = editor.Text;
                 if (allowDiscard || !ViewModel.IsSftpPreviewDirty)
                 {
@@ -4644,6 +4696,7 @@ public sealed partial class MainWindow : Window
                 keepEditingButton.Visibility = Visibility.Visible;
             };
             await dialog.ShowAsync();
+            ViewModel.CloseSftpPreview();
         }
         finally
         {
@@ -7296,7 +7349,19 @@ public sealed partial class MainWindow : Window
         if (sender is ListView listView)
         {
             ViewModel.SetSelectedSftpEntries(listView.SelectedItems.OfType<SftpDirectoryEntryViewModel>());
+            var hasSelection = listView.SelectedItems.Count > 0;
+            SftpSelectionBar.Visibility = hasSelection ? Visibility.Visible : Visibility.Collapsed;
+            SftpDirectorySummary.Visibility = hasSelection ? Visibility.Collapsed : Visibility.Visible;
         }
+    }
+
+    private void SftpClearSelectionClick(object sender, RoutedEventArgs e)
+    {
+        SftpEntriesList.SelectedItems.Clear();
+        ViewModel.SetSelectedSftpEntries([]);
+        SftpSelectionBar.Visibility = Visibility.Collapsed;
+        SftpDirectorySummary.Visibility = Visibility.Visible;
+        SftpEntriesList.Focus(FocusState.Programmatic);
     }
 
     private void SftpBreadcrumbClick(object sender, RoutedEventArgs e)

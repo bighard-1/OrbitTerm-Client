@@ -26,6 +26,23 @@
             <ColumnDefinition x:Name="ToolInspectorColumn" Width="280" MinWidth="0" />
         </Grid.ColumnDefinitions>
         <Grid.Resources>
+            <!-- Keep a generous native drag target while painting only the
+                 shared one-pixel workstation divider. -->
+            <Style x:Key="OrbitPaneSplitterThumbStyle" TargetType="primitives:Thumb">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Foreground" Value="{StaticResource OrbitPanelStrokeBrush}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="primitives:Thumb">
+                            <Grid Background="Transparent">
+                                <Rectangle Width="1"
+                                           HorizontalAlignment="Center"
+                                           Fill="{TemplateBinding Foreground}" />
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
             <DataTemplate x:Key="MonitorMetricCardTemplate">
                 <Border Height="34"
                         Padding="7,2"
@@ -34,7 +51,7 @@
                         BorderBrush="{StaticResource OrbitPanelStrokeBrush}"
                         BorderThickness="1"
                         CornerRadius="{StaticResource OrbitCardCornerRadius}">
-                    <Grid RowDefinitions="Auto,*" ColumnDefinitions="*,Auto">
+                    <Grid RowDefinitions="Auto,*" ColumnDefinitions="Auto,*">
                         <TextBlock Text="{Binding Label}"
                                    FontSize="12"
                                    Foreground="{StaticResource OrbitMutedTextBrush}"
@@ -44,6 +61,7 @@
                                    Text="{Binding CurrentValue}"
                                    FontSize="12"
                                    FontWeight="SemiBold"
+                                   HorizontalAlignment="Right"
                                    TextTrimming="CharacterEllipsis" />
                         <controls:MonitorTrendLine Grid.Row="1"
                                                    Grid.ColumnSpan="2"
@@ -442,11 +460,17 @@
                     Padding="2,5"
                     ToolTipService.ToolTip="展开服务器资产栏"
                     AutomationProperties.Name="Expand server assets">
-                <TextBlock Text="服&#x0a;务&#x0a;器"
-                           TextAlignment="Center"
-                           FontWeight="SemiBold"
-                           FontSize="12"
-                           LineHeight="15" />
+                <Grid Width="16" Height="14">
+                    <Border BorderBrush="{StaticResource OrbitPrimaryTextBrush}"
+                            BorderThickness="1"
+                            CornerRadius="2" />
+                    <Rectangle Width="1"
+                               Height="10"
+                               Margin="5,0,0,0"
+                               HorizontalAlignment="Left"
+                               VerticalAlignment="Center"
+                               Fill="{StaticResource OrbitPrimaryTextBrush}" />
+                </Grid>
             </Button>
         </Border>
 
@@ -682,8 +706,9 @@
                           Width="10"
                           HorizontalAlignment="Right"
                           VerticalAlignment="Stretch"
-                          Background="{ThemeResource DividerStrokeColorDefaultBrush}"
-                          Opacity="0.55"
+                          Style="{StaticResource OrbitPaneSplitterThumbStyle}"
+                          PointerEntered="PaneSplitterPointerEntered"
+                          PointerExited="PaneSplitterPointerExited"
                           DragDelta="AssetSidebarSplitterDragDelta"
                           DragCompleted="PaneSplitterDragCompleted"
                           AutomationProperties.Name="Resize asset sidebar" />
@@ -1229,19 +1254,19 @@
                     </Grid>
                     <ContentDialog x:Name="SnippetsDialog"
                                    Title="Snippets"
-                                   Width="700"
-                                   MinWidth="660"
-                                   MaxWidth="760"
+                                   Width="620"
+                                   MinWidth="480"
+                                   MaxWidth="700"
                                    CloseButtonText="关闭"
                                    DefaultButton="Close"
                                    AutomationProperties.Name="Snippets 命令片段管理">
-                    <ScrollViewer MinWidth="620" MaxWidth="680" MaxHeight="620"
+                    <ScrollViewer MaxHeight="620"
                                   HorizontalAlignment="Stretch"
                                   VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Spacing="8">
-                    <Grid ColumnDefinitions="*,Auto,Auto,Auto"
-                          ColumnSpacing="8">
+                    <Grid RowDefinitions="Auto,Auto"
+                          RowSpacing="8">
                         <StackPanel Spacing="2">
                         <TextBlock Text="命令片段"
                                    FontWeight="SemiBold"
@@ -1250,31 +1275,37 @@
                                    FontSize="12"
                                    Foreground="{StaticResource OrbitMutedTextBrush}" />
                         </StackPanel>
-                        <Button Grid.Column="1"
-                                Style="{StaticResource OrbitIconButtonStyle}"
+                        <StackPanel Grid.Row="1"
+                                    Orientation="Horizontal"
+                                    Spacing="8"
+                                    HorizontalAlignment="Left">
+                        <Button MinWidth="76"
+                                Content="最近命令"
+                                Padding="10,6"
                                 Command="{Binding SaveLatestCommandAsSnippetCommand}"
                                 ToolTipService.ToolTip="从最近终端命令保存片段"
-                                AutomationProperties.Name="从最近终端命令保存片段">
-                            <FontIcon Glyph="&#xE823;"
-                                      FontSize="14" />
-                        </Button>
-                        <Button Grid.Column="2"
-                                Style="{StaticResource OrbitIconButtonStyle}"
+                                AutomationProperties.Name="从最近终端命令保存片段" />
+                        <Button MinWidth="60"
+                                Content="新建"
+                                Padding="10,6"
                                 Click="CreateSnippetClick"
                                 ToolTipService.ToolTip="新建快捷指令"
-                                AutomationProperties.Name="新建快捷指令">
-                            <FontIcon Glyph="&#xE710;"
-                                      FontSize="14" />
-                        </Button>
-                        <Button Grid.Column="3"
-                                Style="{StaticResource OrbitIconButtonStyle}"
+                                AutomationProperties.Name="新建快捷指令" />
+                        <Button MinWidth="60"
+                                Content="编辑"
+                                Padding="10,6"
                                 Click="EditSnippetClick"
                                 IsEnabled="{Binding HasSelectedSnippet}"
                                 ToolTipService.ToolTip="编辑所选快捷指令"
-                                AutomationProperties.Name="编辑所选快捷指令">
-                            <FontIcon Glyph="&#xE70F;"
-                                      FontSize="14" />
-                        </Button>
+                                AutomationProperties.Name="编辑所选快捷指令" />
+                        <Button MinWidth="60"
+                                Content="删除"
+                                Padding="10,6"
+                                Click="DeleteSnippetClick"
+                                IsEnabled="{Binding HasSelectedSnippet}"
+                                ToolTipService.ToolTip="删除所选快捷指令"
+                                AutomationProperties.Name="删除所选快捷指令" />
+                        </StackPanel>
                     </Grid>
                     <TextBox PlaceholderText="搜索标题 / 命令 / 分类"
                              Text="{Binding SnippetQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
@@ -1305,12 +1336,13 @@
                         </ListView.GroupStyle>
                         <ListView.ItemTemplate>
                             <DataTemplate>
-                                <Border MinHeight="86" Padding="10,8" Margin="0,2,8,2"
+                                <Border MinHeight="108" Padding="10,8" Margin="0,2"
+                                        HorizontalAlignment="Stretch"
                                         CornerRadius="{StaticResource OrbitCornerRadius}"
                                         Background="{StaticResource OrbitPanelBrush}"
                                         BorderBrush="{StaticResource OrbitPanelStrokeBrush}"
                                         BorderThickness="1">
-                                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto"
+                                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto"
                                           ColumnSpacing="6" RowSpacing="3">
                                         <TextBlock Text="{Binding Title}"
                                                    FontWeight="SemiBold"
@@ -1332,9 +1364,9 @@
                                                    FontSize="12"
                                                    Foreground="{StaticResource OrbitMutedTextBrush}"
                                                    TextTrimming="CharacterEllipsis" />
-                                        <StackPanel Grid.Row="2" Grid.Column="1"
+                                        <StackPanel Grid.Row="3" Grid.ColumnSpan="2"
                                                     Orientation="Horizontal" Spacing="6"
-                                                    HorizontalAlignment="Right">
+                                                    HorizontalAlignment="Left">
                                             <Button Content="插入"
                                                     Tag="{Binding}" Click="SnippetContextInsertClick"
                                                     Padding="10,3" MinHeight="26"
@@ -1493,11 +1525,36 @@
                             </Button.Flyout>
                         </Button>
                     </Grid>
-                    <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="2,0">
+                    <Grid x:Name="SftpDirectorySummary" Grid.Row="2" ColumnDefinitions="*,Auto" Margin="2,0">
                         <TextBlock Text="{Binding SftpListingSummary}" Foreground="{StaticResource OrbitMutedTextBrush}" FontSize="12" />
                         <TextBlock Grid.Column="1" Text="{Binding SftpPathText}" Foreground="{StaticResource OrbitMutedTextBrush}"
                                    FontSize="12" TextTrimming="CharacterEllipsis" />
                     </Grid>
+                    <Border x:Name="SftpSelectionBar" Grid.Row="2"
+                            Visibility="Collapsed"
+                            Padding="8,5"
+                            CornerRadius="{StaticResource OrbitCornerRadius}"
+                            Background="{StaticResource OrbitMetricBrush}"
+                            BorderBrush="{StaticResource OrbitPanelStrokeBrush}"
+                            BorderThickness="1">
+                        <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="6">
+                            <TextBlock Text="{Binding SftpSelectionSummary}"
+                                       FontSize="12" FontWeight="SemiBold"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis" />
+                            <Button Grid.Column="1" Content="取消"
+                                    Padding="9,3" MinHeight="27"
+                                    Click="SftpClearSelectionClick" />
+                            <Button Grid.Column="2" Content="下载"
+                                    Padding="9,3" MinHeight="27"
+                                    IsEnabled="{Binding CanDownloadSelectedSftpEntries}"
+                                    Click="DownloadSelectedSftpEntryClick" />
+                            <Button Grid.Column="3" Content="删除"
+                                    Padding="9,3" MinHeight="27"
+                                    IsEnabled="{Binding CanDeleteSelectedSftpEntries}"
+                                    Click="RemoveSelectedSftpEntryClick" />
+                        </Grid>
+                    </Border>
                     <ListView x:Name="SftpEntriesList" Grid.Row="3" ItemsSource="{Binding SftpEntries}"
                               ScrollViewer.VerticalScrollBarVisibility="Hidden"
                               ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -1505,7 +1562,7 @@
                               AutomationProperties.Name="SFTP 当前目录文件列表"
                               AutomationProperties.HelpText="使用方向键选择项目。Enter 打开，F2 重命名，Delete 删除，Shift+F10 打开管理菜单。"
                               MinHeight="120"
-                              SelectionMode="Multiple"
+                              SelectionMode="Extended"
                               SelectionChanged="SftpEntriesSelectionChanged"
                               PointerEntered="SftpEntryPointerEntered"
                               PointerExited="SftpEntryPointerExited"
@@ -1752,11 +1809,17 @@
                     Padding="2,5"
                     ToolTipService.ToolTip="展开会话工具"
                     AutomationProperties.Name="Expand session tools">
-                <TextBlock Text="工&#x0a;具"
-                           TextAlignment="Center"
-                           FontWeight="SemiBold"
-                           FontSize="12"
-                           LineHeight="15" />
+                <Grid Width="16" Height="14">
+                    <Border BorderBrush="{StaticResource OrbitPrimaryTextBrush}"
+                            BorderThickness="1"
+                            CornerRadius="2" />
+                    <Rectangle Width="1"
+                               Height="10"
+                               Margin="0,0,5,0"
+                               HorizontalAlignment="Right"
+                               VerticalAlignment="Center"
+                               Fill="{StaticResource OrbitPrimaryTextBrush}" />
+                </Grid>
             </Button>
         </Border>
 
@@ -1766,8 +1829,9 @@
                           Width="10"
                           HorizontalAlignment="Left"
                           VerticalAlignment="Stretch"
-                          Background="{ThemeResource DividerStrokeColorDefaultBrush}"
-                          Opacity="0.55"
+                          Style="{StaticResource OrbitPaneSplitterThumbStyle}"
+                          PointerEntered="PaneSplitterPointerEntered"
+                          PointerExited="PaneSplitterPointerExited"
                           DragDelta="ToolInspectorSplitterDragDelta"
                           DragCompleted="PaneSplitterDragCompleted"
                           AutomationProperties.Name="Resize tool inspector" />

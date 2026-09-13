@@ -42,6 +42,7 @@ struct MainWorkstationView: View {
     @AppStorage("orbitterm.workstation.pane-width-schema") private var paneWidthSchema: Int = 0
     @State private var leftResizeOrigin: CGFloat?
     @State private var rightResizeOrigin: CGFloat?
+    @State private var hoveredWorkspaceSplitter: WorkspaceSplitterSide?
     @State private var selectedRightPanelTab: WorkstationRightPanelTab = .sftp
     @State private var showingMonitorDetailPanelID: UUID?
     @State private var pendingSFTPRename: PendingSFTPRename?
@@ -564,7 +565,7 @@ struct MainWorkstationView: View {
         .help(label)
     }
 
-    private enum WorkspaceSplitterSide { case left, right }
+    private enum WorkspaceSplitterSide: Equatable { case left, right }
 
     @ViewBuilder
     private func workspaceSplitter(
@@ -573,16 +574,28 @@ struct MainWorkstationView: View {
     ) -> some View {
 #if os(macOS)
         Rectangle()
-            .fill(palette.divider.color)
+            .fill(Color.clear)
             .frame(width: 6)
             .overlay {
                 Rectangle()
-                    .fill(palette.accentPrimary.color.opacity(0.45))
+                    .fill(
+                        hoveredWorkspaceSplitter == side
+                            ? palette.accentPrimary.color.opacity(0.72)
+                            : palette.divider.color
+                    )
                     .frame(width: 1)
             }
             .contentShape(Rectangle())
             .onHover { hovering in
-                if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                if hovering {
+                    hoveredWorkspaceSplitter = side
+                    NSCursor.resizeLeftRight.push()
+                } else {
+                    if hoveredWorkspaceSplitter == side {
+                        hoveredWorkspaceSplitter = nil
+                    }
+                    NSCursor.pop()
+                }
             }
             .gesture(
                 DragGesture(minimumDistance: 0)
