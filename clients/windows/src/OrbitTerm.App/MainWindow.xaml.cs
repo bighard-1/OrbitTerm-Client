@@ -38,8 +38,8 @@ public sealed partial class MainWindow : Window
 {
     public const int MinimumWindowWidth = 980;
     public const int MinimumWindowHeight = 700;
-    private const int DefaultWindowWidth = 1280;
-    private const int DefaultWindowHeight = 800;
+    private const int DefaultWindowWidth = 1360;
+    private const int DefaultWindowHeight = 840;
     private const int CompactAccountEntryWidth = 1080;
     private static readonly ApplicationPaletteOption[] ApplicationPaletteOptions =
     [
@@ -72,6 +72,7 @@ public sealed partial class MainWindow : Window
     private bool hasPromptedForAccountUnlockThisLaunch;
     private readonly HashSet<string> confirmedTelnetTargets = new(StringComparer.Ordinal);
     private bool toolInspectorAutomaticallyCollapsed;
+    private bool? toolInspectorManualVisibilityOverride;
     private bool assetSidebarAutomaticallyCollapsed;
     private Expander? expandedAssetGroup;
     private readonly IntPtr windowHandle;
@@ -79,7 +80,7 @@ public sealed partial class MainWindow : Window
     private const double CollapsedPaneWidth = 0;
     private const double DefaultAssetSidebarWidth = 220;
     private const double DefaultToolInspectorWidth = 280;
-    private const int PaneLayoutSchemaVersion = 2;
+    private const int PaneLayoutSchemaVersion = 3;
     private const double AssetSidebarWindowRatio = 0.234375;
     private const double ToolInspectorWindowRatio = 0.25625;
     private const double MinimumAssetSidebarWidth = 220;
@@ -286,7 +287,7 @@ public sealed partial class MainWindow : Window
                 this,
                 Root.ActualTheme == ElementTheme.Dark || terminalAppearance.AppTheme == "深色"));
         UpdateMonitorRefreshTimer();
-        EnsurePrimaryPanesExpanded();
+        EnsurePrimaryPaneStartupState();
         if (restoreWindowMaximized && AppWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.Maximize();
@@ -512,6 +513,7 @@ public sealed partial class MainWindow : Window
     private void ToggleToolInspectorClick(object sender, RoutedEventArgs e)
     {
         toolInspectorAutomaticallyCollapsed = false;
+        toolInspectorManualVisibilityOverride = ToolInspector.Visibility != Visibility.Visible;
         TogglePane(
             ToolInspector,
             ToolInspectorColumn,
@@ -1108,14 +1110,18 @@ public sealed partial class MainWindow : Window
         });
     }
 
-    private void EnsurePrimaryPanesExpanded()
+    private void EnsurePrimaryPaneStartupState()
     {
         assetSidebarAutomaticallyCollapsed = false;
         toolInspectorAutomaticallyCollapsed = false;
         AssetSidebar.Visibility = Visibility.Visible;
-        ToolInspector.Visibility = Visibility.Visible;
         AssetSidebarColumn.Width = new GridLength(assetSidebarExpandedWidth);
-        ToolInspectorColumn.Width = new GridLength(toolInspectorExpandedWidth);
+        // Session tools are contextual. Keep them out of the startup frame;
+        // a verified SSH connection opens them unless the user has manually
+        // selected a visibility state during this application session.
+        ToolInspector.Visibility = Visibility.Collapsed;
+        ToolInspectorColumn.Width = new GridLength(CollapsedPaneWidth);
+        toolInspectorManualVisibilityOverride = null;
         UpdateAssetSidebarVisualState();
         UpdateToolInspectorVisualState();
     }
@@ -3588,12 +3594,15 @@ public sealed partial class MainWindow : Window
                 state.TerminalSplitLeftRatio ?? 0.5,
                 MinimumTerminalSplitRatio,
                 MaximumTerminalSplitRatio);
-            restoredWindowWidth = Math.Max(
-                MinimumWindowWidth,
-                state.WindowWidth ?? DefaultWindowWidth);
-            restoredWindowHeight = Math.Max(
-                MinimumWindowHeight,
-                state.WindowHeight ?? DefaultWindowHeight);
+            var migrateLegacyDefaultWindow = state.Version != PaneLayoutSchemaVersion &&
+                (state.WindowWidth is null || state.WindowWidth <= 1280) &&
+                (state.WindowHeight is null || state.WindowHeight <= 800);
+            restoredWindowWidth = migrateLegacyDefaultWindow
+                ? DefaultWindowWidth
+                : Math.Max(MinimumWindowWidth, state.WindowWidth ?? DefaultWindowWidth);
+            restoredWindowHeight = migrateLegacyDefaultWindow
+                ? DefaultWindowHeight
+                : Math.Max(MinimumWindowHeight, state.WindowHeight ?? DefaultWindowHeight);
             restoreWindowMaximized = state.WindowMaximized ?? false;
             // Restore the user's explicit pane choices. A saved collapsed state
             // must not be silently replaced by the application's first-launch
@@ -3618,13 +3627,13 @@ public sealed partial class MainWindow : Window
     private void ApplyDefaultPaneLayout()
     {
         // Match the desktop information architecture: keep the terminal wide
-        // on first launch while leaving session tools immediately available.
+        // on first launch. Session tools appear after a live SSH connection.
         assetSidebarFollowsWindow = false;
         toolInspectorFollowsWindow = false;
         AssetSidebar.Visibility = Visibility.Visible;
         AssetSidebarColumn.Width = new GridLength(assetSidebarExpandedWidth);
-        ToolInspector.Visibility = Visibility.Visible;
-        ToolInspectorColumn.Width = new GridLength(toolInspectorExpandedWidth);
+        ToolInspector.Visibility = Visibility.Collapsed;
+        ToolInspectorColumn.Width = new GridLength(CollapsedPaneWidth);
         UpdateAssetSidebarVisualState();
         UpdateToolInspectorVisualState();
     }
@@ -3873,6 +3882,12 @@ public sealed partial class MainWindow : Window
             RebuildTerminalSplitLayout();
             SetActiveTerminalSurface(NativeTerminalView, null);
             RestoreTerminalScrollPosition();
+            UpdateToolInspectorSessionState();
+        }
+
+        if (e.PropertyName == nameof(MainWindowViewModel.AssetTransport))
+        {
+            UpdateToolInspectorSessionState();
         }
 
         if (e.PropertyName == nameof(MainWindowViewModel.TerminalSplitPanes))
@@ -3944,12 +3959,35 @@ public sealed partial class MainWindow : Window
 
     private void UpdateToolInspectorSessionState()
     {
-        ConnectedToolInspectorContent.Visibility = ViewModel.IsConnected
+        var hasSshTools = ViewModel.IsConnected && ViewModel.AssetTransport == ServerTransport.Ssh;
+        ConnectedToolInspectorContent.Visibility = hasSshTools
             ? Visibility.Visible
             : Visibility.Collapsed;
-        DisconnectedToolInspectorContent.Visibility = ViewModel.IsConnected
+        DisconnectedToolInspectorContent.Visibility = hasSshTools
             ? Visibility.Collapsed
             : Visibility.Visible;
+
+        var shouldShow = toolInspectorManualVisibilityOverride ?? hasSshTools;
+        if (shouldShow && ToolInspector.Visibility != Visibility.Visible)
+        {
+            ToolInspector.Visibility = Visibility.Visible;
+            ToolInspectorColumn.Width = new GridLength(toolInspectorExpandedWidth);
+            ProtectTerminalWorkspace(PanePreference.ToolInspector);
+        }
+        else if (!shouldShow && ToolInspector.Visibility == Visibility.Visible)
+        {
+            toolInspectorExpandedWidth = Math.Clamp(
+                ToolInspectorColumn.ActualWidth,
+                MinimumToolInspectorWidth,
+                MaximumToolInspectorWidth);
+            ToolInspector.Visibility = Visibility.Collapsed;
+            ToolInspectorColumn.Width = new GridLength(CollapsedPaneWidth);
+        }
+        if (!shouldShow)
+        {
+            toolInspectorAutomaticallyCollapsed = false;
+        }
+        UpdateToolInspectorVisualState();
     }
 
     private void UpdateSftpFeedbackVisual()
@@ -7349,9 +7387,10 @@ public sealed partial class MainWindow : Window
         if (sender is ListView listView)
         {
             ViewModel.SetSelectedSftpEntries(listView.SelectedItems.OfType<SftpDirectoryEntryViewModel>());
-            var hasSelection = listView.SelectedItems.Count > 0;
-            SftpSelectionBar.Visibility = hasSelection ? Visibility.Visible : Visibility.Collapsed;
-            SftpDirectorySummary.Visibility = hasSelection ? Visibility.Collapsed : Visibility.Visible;
+            var showBatchActions = SftpSelectionPresentationPolicy.ShouldShowBatchActions(
+                listView.SelectedItems.Count);
+            SftpSelectionBar.Visibility = showBatchActions ? Visibility.Visible : Visibility.Collapsed;
+            SftpDirectorySummary.Visibility = showBatchActions ? Visibility.Collapsed : Visibility.Visible;
         }
     }
 

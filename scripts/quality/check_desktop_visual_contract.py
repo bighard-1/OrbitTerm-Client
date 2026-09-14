@@ -88,6 +88,7 @@ def between(text: str, start: str, end: str, label: str) -> str:
 
 mac_main = read("OrbitTerm/Features/Home/MainWorkstationView.swift")
 mac_shell = read("OrbitTerm/App/ContentView.swift")
+mac_app = read("OrbitTerm/App/OrbitTermApp.swift")
 mac_toolbar = read("OrbitTerm/Features/Home/WorkstationToolbarModifier.swift")
 mac_metrics = read("OrbitTerm/Features/Home/WorkstationLayoutMetrics.swift")
 mac_monitor = read("OrbitTerm/Features/Home/WorkstationMonitorCardView.swift")
@@ -123,6 +124,11 @@ require(linux_ui, ".height_request(560)", "Linux compact minimum height")
 require(linux_ui, ".resizable(true)", "Linux resizable native window")
 require(linux_ui, "install_window_resize_handles", "Linux discoverable resize edges")
 require(linux_css, "desktop-only, 820px compact minimum", "Linux documented compact minimum")
+require(mac_app, ".defaultSize(width: 1360, height: 840)", "macOS preferred window size")
+require(windows_main, "DefaultWindowWidth = 1360", "Windows preferred window width")
+require(windows_main, "DefaultWindowHeight = 840", "Windows preferred window height")
+require(linux_ui, ".default_width(1360)", "Linux preferred window width")
+require(linux_ui, ".default_height(840)", "Linux preferred window height")
 
 
 # Side panes open at their safe minimum and remain explicitly user-resizable.
@@ -195,10 +201,10 @@ for forbidden in (
 
 # Endpoint plus six monitoring cards use one semantic order and one explicit
 # latency label, regardless of native graph implementation.
-monitor_labels = ["CPU", "内存", "磁盘", "下载", "上传", "TCP 延迟"]
+monitor_labels = ["CPU", "内存", "磁盘", "下载", "上传", "TCP 延迟 · 失败率"]
 require_ordered(
     between(mac_monitor, "private func metrics(", "private func cpuTitle", "macOS monitor metrics"),
-    ['title: cpuTitle', 'title: "内存', 'title: "磁盘', 'title: "下载"', 'title: "上传"', 'title: "TCP 延迟"'],
+    ['title: cpuTitle', 'title: "内存', 'title: "磁盘', 'title: "下载"', 'title: "上传"', 'title: "TCP 延迟 · 失败率"'],
     "macOS monitor order",
 )
 require_ordered(
@@ -208,7 +214,7 @@ require_ordered(
 )
 require(
     linux_ui,
-    '["CPU", "内存", "磁盘", "下载", "上传", "TCP 延迟"]',
+    '"TCP 延迟 · 失败率"]',
     "Linux monitor order",
 )
 require(mac_monitor, ".frame(height: 34)", "macOS compact monitor height")
@@ -332,7 +338,18 @@ require(windows_xaml, 'SelectionMode="Extended"', "Windows standard SFTP multi-s
 require(windows_xaml, 'x:Name="SftpSelectionBar"', "Windows contextual SFTP action bar")
 require(linux_ui, "gtk::SelectionMode::Multiple", "Linux SFTP multi-selection")
 require(linux_ui, 'add_css_class("sftp-selection-bar")', "Linux contextual SFTP action bar")
+require(mac_sftp_browser + read("OrbitTerm/Features/Home/WorkstationSFTPCardView.swift"), "selectedItemIDs.count > 1", "macOS deliberate SFTP batch actions")
+require(windows_main, "SftpSelectionPresentationPolicy.ShouldShowBatchActions", "Windows deliberate SFTP batch actions")
+require(linux_ui, "sftp_batch_actions_visible(count)", "Linux deliberate SFTP batch actions")
 require(windows_view_model, "RefreshSavedSftpPreviewSnapshotAsync", "Windows continuous SFTP editing")
+
+# Contextual tools stay out of an empty startup workspace, auto-open for a
+# verified SSH session, and never override a manual visibility decision.
+require(mac_main, "@State private var isRightPanelCollapsed = true", "macOS collapsed startup tools")
+require(mac_main, "rightPanelManualVisibility ?? hasLiveSSHToolContext", "macOS manual tool visibility precedence")
+require(windows_main, "toolInspectorManualVisibilityOverride ?? hasSshTools", "Windows manual tool visibility precedence")
+require(linux_ui, "tool_panel_requested_visible(", "Linux manual tool visibility precedence")
+require(linux_ui, "tools.root.set_visible(false);", "Linux collapsed startup tools")
 
 # Platform-specific rendering fixes remain guarded by deterministic source
 # checks so future refactors cannot silently restore the reported regressions.

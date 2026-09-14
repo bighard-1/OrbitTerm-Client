@@ -6,6 +6,26 @@ namespace OrbitTerm.Security.Tests;
 public sealed class TerminalScreenTests
 {
     [Fact]
+    public void NanoCharacterSetAndCursorStyleSequencesDoNotLeakIntoRows()
+    {
+        var screen = new TerminalScreen(new TerminalSize(80, 4));
+
+        screen.Write("\u001b(B\u001b[0;1mHelp\u001b[0m \u001b[2 qWrite Out");
+
+        Assert.Equal("Help Write Out", screen.Snapshot().Rows[0].Text);
+    }
+
+    [Fact]
+    public void StringControlPayloadsDoNotLeakIntoRows()
+    {
+        var screen = new TerminalScreen(new TerminalSize(80, 4));
+
+        screen.Write("before\u001bP1$r0m\u001b\\after");
+
+        Assert.Equal("beforeafter", screen.Snapshot().Rows[0].Text);
+    }
+
+    [Fact]
     public void OscWindowTitleIsCapturedWithoutLeakingIntoTerminalRows()
     {
         var screen = new TerminalScreen(new TerminalSize(80, 4));

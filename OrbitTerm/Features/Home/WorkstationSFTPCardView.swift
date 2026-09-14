@@ -91,7 +91,7 @@ struct WorkstationSFTPCardView: View {
                 directoryActions
             }
 
-            if !selectedItemIDs.isEmpty {
+            if selectedItemIDs.count > 1 {
                 selectionToolbar
             }
 

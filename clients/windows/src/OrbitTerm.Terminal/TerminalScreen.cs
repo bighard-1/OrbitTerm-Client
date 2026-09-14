@@ -14,6 +14,7 @@ public sealed class TerminalScreen
     private readonly List<TerminalScreenRow> history = [];
     private readonly List<Cell[]> rows = [];
     private readonly StringBuilder escape = new();
+    private readonly StringBuilder controlSequenceIntermediates = new();
     private readonly StringBuilder operatingSystemCommand = new();
     private readonly int maximumHistoryLines;
     private TerminalStyle style = TerminalStyle.Default;
@@ -165,6 +166,31 @@ public sealed class TerminalScreen
             return;
         }
 
+        if (escapeState == EscapeState.CharacterSetDesignation)
+        {
+            // ISO-2022 G0-G3 designation (for example ESC ( B) changes the
+            // active character set. OrbitTerm renders Unicode directly, so
+            // consuming the complete sequence is sufficient. Previously its
+            // final "B" leaked into nano and vim screen chrome.
+            escapeState = EscapeState.None;
+            return;
+        }
+
+        if (escapeState == EscapeState.StringSequence)
+        {
+            if (character == '\u001b')
+            {
+                escapeState = EscapeState.StringSequenceEscape;
+            }
+            return;
+        }
+
+        if (escapeState == EscapeState.StringSequenceEscape)
+        {
+            escapeState = character == '\\' ? EscapeState.None : EscapeState.StringSequence;
+            return;
+        }
+
         switch (character)
         {
             case '\u001b':
@@ -204,11 +230,31 @@ public sealed class TerminalScreen
         {
             case '[':
                 escape.Clear();
+                controlSequenceIntermediates.Clear();
                 escapeState = EscapeState.ControlSequence;
                 break;
             case ']':
                 operatingSystemCommand.Clear();
                 escapeState = EscapeState.OperatingSystemCommand;
+                break;
+            case '(':
+            case ')':
+            case '*':
+            case '+':
+            case '-':
+            case '.':
+            case '/':
+            case '#':
+            case '%':
+                escapeState = EscapeState.CharacterSetDesignation;
+                break;
+            case 'P':
+            case 'X':
+            case '^':
+            case '_':
+                // DCS, SOS, PM and APC carry terminal metadata and end at ST
+                // (ESC \\). Suppress their entire payload from the screen.
+                escapeState = EscapeState.StringSequence;
                 break;
             case '7':
                 SaveCursor();
@@ -226,15 +272,33 @@ public sealed class TerminalScreen
     {
         if (character is >= '@' and <= '~')
         {
-            ApplyControlSequence(escape.ToString(), character);
+            if (controlSequenceIntermediates.Length == 0)
+            {
+                ApplyControlSequence(escape.ToString(), character);
+            }
             escape.Clear();
+            controlSequenceIntermediates.Clear();
             escapeState = EscapeState.None;
             return;
         }
 
-        if (escape.Length >= MaximumEscapeSequenceLength || (character is not (>= '0' and <= '9') and not ';' and not '?' and not '>'))
+        if (character is >= ' ' and <= '/')
+        {
+            if (escape.Length + controlSequenceIntermediates.Length < MaximumEscapeSequenceLength)
+            {
+                controlSequenceIntermediates.Append(character);
+                return;
+            }
+            escape.Clear();
+            controlSequenceIntermediates.Clear();
+            escapeState = EscapeState.None;
+            return;
+        }
+
+        if (escape.Length >= MaximumEscapeSequenceLength || character is not (>= '0' and <= '?'))
         {
             escape.Clear();
+            controlSequenceIntermediates.Clear();
             escapeState = EscapeState.None;
             return;
         }
@@ -750,6 +814,9 @@ public sealed class TerminalScreen
         ControlSequence,
         OperatingSystemCommand,
         OperatingSystemCommandEscape,
+        CharacterSetDesignation,
+        StringSequence,
+        StringSequenceEscape,
     }
 }
 

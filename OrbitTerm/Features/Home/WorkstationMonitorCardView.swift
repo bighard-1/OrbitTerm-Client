@@ -352,7 +352,7 @@ struct WorkstationMonitorOverviewStrip: View {
                 history: points.map(\.txRateKBps), ceiling: networkCeiling
             ),
             MonitorOverviewMetric(
-                title: "TCP 延迟", value: latencyValue, current: latest.pingLatencyMs ?? 0,
+                title: "TCP 延迟 · 失败率", value: latencyValue, current: latest.pingLatencyMs ?? 0,
                 history: latency, ceiling: dynamicCeiling(for: latency)
             )
         ]

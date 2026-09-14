@@ -1014,6 +1014,8 @@ struct UiContext {
     background_pending: Rc<RefCell<Option<PendingSyncRun>>>,
     active_tunnels: Rc<RefCell<Vec<ActiveTunnel>>>,
     tools_collapsed: Rc<Cell<bool>>,
+    tools_manual_visibility: Rc<Cell<Option<bool>>>,
+    tools_ssh_context_available: Rc<Cell<bool>>,
     tools_auto_hidden_for_rdp: Rc<Cell<bool>>,
     tools_expand: Rc<RefCell<Option<gtk::Button>>>,
     snippet_window: Rc<RefCell<Option<gtk::Window>>>,
@@ -1121,8 +1123,8 @@ pub fn build_application_window(application: &adw::Application) {
     let window = adw::ApplicationWindow::builder()
         .application(application)
         .title("OrbitTerm")
-        .default_width(1180)
-        .default_height(740)
+        .default_width(1360)
+        .default_height(840)
         // GTK's width/height requests are hard minimums. Keep a compact floor
         // for 1024x600-class desktops; the responsive workbench automatically
         // collapses the tool inspector before the terminal becomes unusable.
@@ -1203,7 +1205,7 @@ pub fn build_application_window(application: &adw::Application) {
     workspace.root.set_size_request(560, -1);
     let tools = build_tools(snippet_repository);
     tools.root.set_size_request(280, -1);
-    tools.root.set_visible(true);
+    tools.root.set_visible(false);
     let vault = CredentialVault;
     let session = Rc::new(RefCell::new(SessionRegistry::default()));
     let (session_events, session_event_receiver) = mpsc::channel();
@@ -1360,6 +1362,8 @@ pub fn build_application_window(application: &adw::Application) {
         background_pending: Rc::new(RefCell::new(None)),
         active_tunnels: Rc::new(RefCell::new(Vec::new())),
         tools_collapsed: Rc::new(Cell::new(false)),
+        tools_manual_visibility: Rc::new(Cell::new(None)),
+        tools_ssh_context_available: Rc::new(Cell::new(false)),
         tools_auto_hidden_for_rdp: Rc::new(Cell::new(false)),
         tools_expand: Rc::new(RefCell::new(None)),
         snippet_window: Rc::new(RefCell::new(None)),
@@ -1479,6 +1483,7 @@ pub fn build_application_window(application: &adw::Application) {
     expand_right.set_margin_top(12);
     workbench_overlay.add_overlay(&expand_right);
     context.tools_expand.replace(Some(expand_right.clone()));
+    apply_tool_panel_visibility(&context);
     context.module_shell.replace(Some(ModuleShellWidgets {
         header: app_header,
         expand_left: expand_left.clone(),
@@ -1533,6 +1538,8 @@ pub fn build_application_window(application: &adw::Application) {
     let expand_right_for_responsive = expand_right.clone();
     let tools_collapsed_for_responsive = context.tools_collapsed.clone();
     let tools_rdp_hidden_for_responsive = context.tools_auto_hidden_for_rdp.clone();
+    let tools_manual_visibility_for_responsive = context.tools_manual_visibility.clone();
+    let tools_ssh_context_for_responsive = context.tools_ssh_context_available.clone();
     let tools_automatically_collapsed_for_responsive = tools_automatically_collapsed.clone();
     gtk::glib::timeout_add_local(Duration::from_millis(50), move || {
         let workbench_width = overlay_for_bottom_layout.width();
@@ -1565,6 +1572,9 @@ pub fn build_application_window(application: &adw::Application) {
                 && tools_automatically_collapsed_for_responsive.get()
                 && !tools_collapsed_for_responsive.get()
                 && !tools_rdp_hidden_for_responsive.get()
+                && tools_manual_visibility_for_responsive
+                    .get()
+                    .unwrap_or_else(|| tools_ssh_context_for_responsive.get())
             {
                 tools_for_bottom_layout.set_visible(true);
                 expand_right_for_responsive.set_visible(false);
@@ -1622,14 +1632,17 @@ pub fn build_application_window(application: &adw::Application) {
     });
     let tools_root = tools.root.clone();
     let tools_collapsed = context.tools_collapsed.clone();
+    let tools_manual_visibility = context.tools_manual_visibility.clone();
     let expand_right_for_collapse = expand_right.clone();
     tools.collapse.connect_clicked(move |_| {
         tools_collapsed.set(true);
+        tools_manual_visibility.set(Some(false));
         tools_root.set_visible(false);
         expand_right_for_collapse.set_visible(true);
     });
     let tools_root = tools.root.clone();
     let tools_collapsed = context.tools_collapsed.clone();
+    let tools_manual_visibility = context.tools_manual_visibility.clone();
     let sidebar_root_for_right_expand = sidebar.root.clone();
     let expand_left_for_right_expand = expand_left.clone();
     let workbench_for_right_expand = workbench_overlay.clone();
@@ -1640,6 +1653,7 @@ pub fn build_application_window(application: &adw::Application) {
             expand_left_for_right_expand.set_visible(true);
         }
         tools_collapsed.set(false);
+        tools_manual_visibility.set(Some(true));
         tools_auto_for_right_expand.set(false);
         tools_root.set_visible(true);
         button.set_visible(false);
@@ -2552,7 +2566,7 @@ fn build_workspace() -> WorkspaceWidgets {
     let monitor_history = Rc::new(RefCell::new(Vec::<MonitorSnapshot>::new()));
     let mut monitor_values = Vec::new();
     let mut monitor_graphs = Vec::new();
-    for (index, label) in ["CPU", "内存", "磁盘", "下载", "上传", "TCP 延迟"]
+    for (index, label) in ["CPU", "内存", "磁盘", "下载", "上传", "TCP 延迟 · 失败率"]
         .into_iter()
         .enumerate()
     {
@@ -3654,18 +3668,33 @@ fn tool_empty_state(title: &str, description: &str, icon: &str) -> adw::StatusPa
 
 fn apply_tool_panel_visibility(context: &UiContext) {
     let auto_hidden = context.tools_auto_hidden_for_rdp.get();
-    let user_collapsed = context.tools_collapsed.get();
+    let requested_visible = tool_panel_requested_visible(
+        context.tools_manual_visibility.get(),
+        context.tools_ssh_context_available.get(),
+    );
     context
         .tools
         .root
-        .set_visible(!auto_hidden && !user_collapsed);
+        .set_visible(!auto_hidden && requested_visible);
     if let Some(expand) = context.tools_expand.borrow().as_ref() {
         // The RDP workspace intentionally has no SSH side tools. Do not leave
         // a misleading restore affordance on the application edge while the
         // remote desktop is active; the user's SSH panel preference is kept
         // and restored on the next non-RDP workspace.
-        expand.set_visible(!auto_hidden && user_collapsed);
+        expand.set_visible(!auto_hidden && !requested_visible);
     }
+}
+
+fn tool_panel_requested_visible(
+    manual_visibility: Option<bool>,
+    ssh_context_available: bool,
+) -> bool {
+    manual_visibility.unwrap_or(ssh_context_available)
+}
+
+fn set_ssh_tool_context_available(context: &UiContext, available: bool) {
+    context.tools_ssh_context_available.set(available);
+    apply_tool_panel_visibility(context);
 }
 
 fn set_rdp_tool_autohide(context: &UiContext, hidden: bool) {
@@ -3743,6 +3772,7 @@ fn select_asset(context: &UiContext, asset_id: Uuid) {
         .workspace
         .input_row
         .set_visible(asset.transport != Transport::Rdp);
+    set_ssh_tool_context_available(context, false);
     set_rdp_tool_autohide(context, asset.transport == Transport::Rdp);
     context.tools.content_stack.set_visible_child_name("empty");
     context.workspace.edit.set_sensitive(true);
@@ -4194,6 +4224,10 @@ fn render_active_workspace(context: &UiContext) {
     if !rdp_connected && context.rdp_input_capture.get() {
         set_rdp_system_shortcut_capture(context, false);
     }
+    set_ssh_tool_context_available(
+        context,
+        transport == Transport::Ssh && phase == WorkspacePhase::Connected,
+    );
     set_rdp_tool_autohide(context, transport == Transport::Rdp);
     context.workspace.heading.set_visible(false);
     context.workspace.connect.set_label(match phase {
@@ -8714,21 +8748,20 @@ fn begin_monitor_refresh(context: UiContext) {
 
 fn render_monitor(context: &UiContext, snapshot: &MonitorSnapshot) {
     let stats = &snapshot.stats;
-    {
+    let latency_summary = {
         let mut history = context.workspace.monitor_history.borrow_mut();
         history.push(snapshot.clone());
         let limit = context.preferences.borrow().monitor_history_samples;
         if history.len() > limit {
             history.remove(0);
         }
-    }
+        format_monitor_latency_summary(&history)
+    };
     context.workspace.monitor_connection.set_label("已验证");
-    context.workspace.monitor_latency.set_label(
-        &stats
-            .ping_latency_ms
-            .map(|value| format!("{value:.0} ms"))
-            .unwrap_or_else(|| "不可用".into()),
-    );
+    context
+        .workspace
+        .monitor_latency
+        .set_label(&latency_summary);
     context
         .workspace
         .monitor_cpu
@@ -8752,6 +8785,23 @@ fn render_monitor(context: &UiContext, snapshot: &MonitorSnapshot) {
     for graph in context.workspace.monitor_graphs.iter() {
         graph.queue_draw();
     }
+}
+
+fn format_monitor_latency_summary(history: &[MonitorSnapshot]) -> String {
+    let recent = history.iter().rev().take(30).collect::<Vec<_>>();
+    if recent.is_empty() {
+        return "-- ms · --%".to_owned();
+    }
+    let failed = recent
+        .iter()
+        .filter(|snapshot| snapshot.stats.ping_latency_ms.is_none())
+        .count();
+    let failure_percent = failed as f64 * 100.0 / recent.len() as f64;
+    recent[0]
+        .stats
+        .ping_latency_ms
+        .map(|value| format!("{value:.0}ms · {failure_percent:.0}%"))
+        .unwrap_or_else(|| format!("-- ms · {failure_percent:.0}%"))
 }
 
 fn present_monitor_detail_window(context: UiContext) {
@@ -9926,10 +9976,13 @@ fn selected_sftp_entry(context: &UiContext) -> Option<(SftpEntry, String)> {
 fn update_sftp_selection_actions(context: &UiContext) {
     let selected = selected_sftp_entries(context);
     let count = selected.len();
-    let has_selection = count > 0;
+    let show_batch_actions = sftp_batch_actions_visible(count);
     let is_single = count == 1;
     let has_downloadable_file = selected.iter().any(|(entry, _)| !entry.is_directory());
-    context.tools.sftp_selection_bar.set_visible(has_selection);
+    context
+        .tools
+        .sftp_selection_bar
+        .set_visible(show_batch_actions);
     context
         .tools
         .sftp_selection_label
@@ -9940,7 +9993,11 @@ fn update_sftp_selection_actions(context: &UiContext) {
         .set_sensitive(has_downloadable_file);
     context.tools.sftp_rename.set_sensitive(is_single);
     context.tools.sftp_chmod.set_sensitive(is_single);
-    context.tools.sftp_delete.set_sensitive(has_selection);
+    context.tools.sftp_delete.set_sensitive(count > 0);
+}
+
+fn sftp_batch_actions_visible(selected_count: usize) -> bool {
+    selected_count > 1
 }
 
 fn active_sftp_session(context: &UiContext) -> Option<u64> {
@@ -17064,6 +17121,21 @@ mod tests {
             unique_local_sftp_download_path(directory.path(), "new.txt"),
             directory.path().join("new.txt")
         );
+    }
+
+    #[test]
+    fn sftp_single_click_never_reveals_batch_transfer_actions() {
+        assert!(!sftp_batch_actions_visible(0));
+        assert!(!sftp_batch_actions_visible(1));
+        assert!(sftp_batch_actions_visible(2));
+    }
+
+    #[test]
+    fn session_tools_auto_open_without_overriding_manual_visibility() {
+        assert!(!tool_panel_requested_visible(None, false));
+        assert!(tool_panel_requested_visible(None, true));
+        assert!(!tool_panel_requested_visible(Some(false), true));
+        assert!(tool_panel_requested_visible(Some(true), false));
     }
 
     #[test]

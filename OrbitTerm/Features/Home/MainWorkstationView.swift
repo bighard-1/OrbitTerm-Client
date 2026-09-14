@@ -30,12 +30,14 @@ struct MainWorkstationView: View {
     @State private var showingPortForwarding = false
     @State private var showingSnippets = false
     @State private var leftSearchText = ""
-    // The workstation sidebars open by default. Individual asset groups own
-    // their own collapsed state in WorkstationAssetSidebarView.
+    // The asset library is persistent chrome. Session tools are contextual:
+    // they start collapsed and open only after a live SSH workspace exists.
     @State private var isLeftPanelCollapsed = false
-    @State private var isRightPanelCollapsed = false
+    @State private var isRightPanelCollapsed = true
     @State private var leftPanelAutomaticallyCollapsed = false
     @State private var rightPanelAutomaticallyCollapsed = false
+    @State private var rightPanelManualVisibility: Bool?
+    @State private var currentWorkbenchWidth: CGFloat = 1360
     @State private var isTerminalFullscreen = false
     @AppStorage("orbitterm.workstation.left.width") private var preferredLeftPanelWidth: Double = 220
     @AppStorage("orbitterm.workstation.right.width") private var preferredRightPanelWidth: Double = 280
@@ -139,6 +141,7 @@ struct MainWorkstationView: View {
                         withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {
                             isRightPanelCollapsed = false
                             rightPanelAutomaticallyCollapsed = false
+                            rightPanelManualVisibility = true
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
@@ -148,6 +151,7 @@ struct MainWorkstationView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .animation(reduceMotion ? nil : .interactiveSpring(response: 0.35, dampingFraction: 0.85), value: isRightPanelCollapsed)
             .onChange(of: proxy.size.width, initial: true) { _, width in
+                currentWorkbenchWidth = width
                 updateResponsivePanels(for: width)
             }
             .onAppear {
@@ -155,6 +159,9 @@ struct MainWorkstationView: View {
                 preferredLeftPanelWidth = 220
                 preferredRightPanelWidth = 280
                 paneWidthSchema = 2
+            }
+            .onChange(of: sessionToolContextKey, initial: true) { _, _ in
+                updateSessionToolVisibility()
             }
         }
 #if os(macOS)
@@ -515,6 +522,7 @@ struct MainWorkstationView: View {
                 withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {
                     isRightPanelCollapsed = true
                     rightPanelAutomaticallyCollapsed = false
+                    rightPanelManualVisibility = false
                 }
             },
             onCreateSFTPItem: { sessionID, kind in
@@ -632,7 +640,7 @@ struct MainWorkstationView: View {
             isRightPanelCollapsed = true
             rightPanelAutomaticallyCollapsed = true
         } else if width >= 1_180, rightPanelAutomaticallyCollapsed {
-            isRightPanelCollapsed = false
+            isRightPanelCollapsed = !(rightPanelManualVisibility ?? hasLiveSSHToolContext)
             rightPanelAutomaticallyCollapsed = false
         }
 
@@ -643,6 +651,23 @@ struct MainWorkstationView: View {
             isLeftPanelCollapsed = false
             leftPanelAutomaticallyCollapsed = false
         }
+    }
+
+    private var hasLiveSSHToolContext: Bool {
+        sessionManager.activeSession?.isConnected == true &&
+            sessionManager.activeSession?.server.transport == .ssh
+    }
+
+    private var sessionToolContextKey: String {
+        let active = sessionManager.activeSession
+        return "\(active?.id.uuidString ?? "none")|\(active?.isConnected == true)|\(active?.server.transport.rawValue ?? "none")"
+    }
+
+    private func updateSessionToolVisibility() {
+        guard rightPanelManualVisibility == nil else { return }
+        let canFitTools = currentWorkbenchWidth >= 1_180
+        isRightPanelCollapsed = !hasLiveSSHToolContext || !canFitTools
+        rightPanelAutomaticallyCollapsed = hasLiveSSHToolContext && !canFitTools
     }
 
     private func deleteServer(_ server: ServerEntry) {

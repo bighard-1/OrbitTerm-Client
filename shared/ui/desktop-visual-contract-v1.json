@@ -4,8 +4,8 @@
   "window": {
     "minimum_width": 980,
     "minimum_height": 700,
-    "preferred_width": 1280,
-    "preferred_height": 800,
+    "preferred_width": 1360,
+    "preferred_height": 840,
     "platform_compact_minimum": {
       "linux": {
         "width": 820,
@@ -86,7 +86,14 @@
     "transfer_queue_initially_expanded": false,
     "scrolling_requires_visible_scrollbar": false,
     "error_message_must_wrap": true,
-    "raw_bridge_error_visible": false
+    "raw_bridge_error_visible": false,
+    "single_click_behavior": "selection_only",
+    "batch_actions_minimum_selection_count": 2
+  },
+  "session_tools": {
+    "startup_without_session": "collapsed",
+    "verified_ssh_connection": "auto_expand_unless_user_overridden",
+    "manual_visibility_wins": true
   },
   "native_exceptions": [
     "window_controls",

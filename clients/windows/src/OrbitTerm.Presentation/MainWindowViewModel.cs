@@ -342,7 +342,7 @@ public sealed class MainWindowViewModel : ObservableObject
         new("disk", "磁盘", snapshot => snapshot.DiskUsedPercent, MonitorSampleMetrics.Disk),
         new("download", "下载", snapshot => snapshot.ReceiveRateKilobitsPerSecond, MonitorSampleMetrics.Download),
         new("upload", "上传", snapshot => snapshot.TransmitRateKilobitsPerSecond, MonitorSampleMetrics.Upload),
-        new("latency", "TCP 延迟", snapshot => snapshot.PingLatencyMilliseconds, MonitorSampleMetrics.Latency),
+        new("latency", "TCP 延迟 · 失败率", snapshot => snapshot.PingLatencyMilliseconds, MonitorSampleMetrics.Latency),
     ];
 
     public MonitorTrendMetricViewModel CpuMonitorTrend => MonitorTrendMetrics[0];
