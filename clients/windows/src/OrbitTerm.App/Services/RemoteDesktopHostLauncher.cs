@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO.Pipes;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using OrbitTerm.Application.Sessions;
@@ -104,11 +105,36 @@ internal sealed class RemoteDesktopHostSession : IDisposable
 
     public Guid AssetId { get; }
     public RemoteDesktopSessionUpdate Current => stateMachine.Current;
+    public bool IsAlive
+    {
+        get
+        {
+            try { return !disposed && !process.HasExited; }
+            catch (InvalidOperationException) { return false; }
+        }
+    }
     public event EventHandler? Exited;
     public event EventHandler<RemoteDesktopSessionUpdate>? StateChanged;
 
     public Task<RemoteDesktopSessionUpdate> WaitForInitialUpdateAsync(CancellationToken cancellationToken) =>
         initialUpdate.Task.WaitAsync(cancellationToken);
+
+    public bool TryActivate()
+    {
+        if (!IsAlive) return false;
+        try
+        {
+            process.Refresh();
+            var handle = process.MainWindowHandle;
+            if (handle == IntPtr.Zero) return false;
+            _ = NativeWindow.ShowWindow(handle, NativeWindow.Restore);
+            return NativeWindow.SetForegroundWindow(handle);
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
 
     private async Task PumpStatusAsync(CancellationToken cancellationToken)
     {
@@ -155,10 +181,12 @@ internal sealed class RemoteDesktopHostSession : IDisposable
         Exited?.Invoke(this, EventArgs.Empty);
     }
 
-    public void Close()
+    public bool RequestClose()
     {
-        try { if (!process.HasExited) process.CloseMainWindow(); } catch { }
+        try { return !process.HasExited && process.CloseMainWindow(); }
+        catch { return false; }
     }
+    public void Close() => _ = RequestClose();
     public void Dispose()
     {
         if (disposed) return;
@@ -169,6 +197,19 @@ internal sealed class RemoteDesktopHostSession : IDisposable
         lifetime.Dispose();
         process.Dispose();
         if (statusPump.IsFaulted) _ = statusPump.Exception;
+    }
+
+    private static class NativeWindow
+    {
+        internal const int Restore = 9;
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool ShowWindow(IntPtr window, int command);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool SetForegroundWindow(IntPtr window);
     }
 }
 

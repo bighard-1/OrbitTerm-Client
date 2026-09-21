@@ -205,6 +205,20 @@ enum SessionReconnectAvailability: Equatable {
     case reconnecting
 }
 
+enum NetworkRouteState: Equatable {
+    case determining
+    case usable
+    case unavailable
+
+    var isUsable: Bool { self == .usable }
+
+    /// A user-initiated connection must not be discarded merely because
+    /// NWPathMonitor has not delivered its first callback yet. The transport
+    /// still performs the authoritative connection check; only a positively
+    /// unavailable route suppresses the attempt.
+    var allowsUserInitiatedConnection: Bool { self != .unavailable }
+}
+
 enum SessionReconnectPolicy {
     static func availability(isNetworkUsable: Bool, reconnecting: Bool) -> SessionReconnectAvailability {
         if reconnecting { return .reconnecting }
@@ -231,10 +245,9 @@ enum SessionReconnectPolicy {
 final class ApplicationNetworkAvailability: ObservableObject {
     static let shared = ApplicationNetworkAvailability()
 
-    // Fail closed until NWPathMonitor publishes its first real route. This may
-    // disable the button for a brief launch interval, but never starts a
-    // connection from an assumed-online state.
-    @Published private(set) var isNetworkUsable = false
+    @Published private(set) var routeState: NetworkRouteState = .determining
+
+    var isNetworkUsable: Bool { routeState.isUsable }
 
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "com.orbitterm.session-network")
@@ -243,7 +256,7 @@ final class ApplicationNetworkAvailability: ObservableObject {
         monitor.pathUpdateHandler = { [weak self] path in
             let usable = path.status == .satisfied
             Task { @MainActor [weak self] in
-                self?.isNetworkUsable = usable
+                self?.routeState = usable ? .usable : .unavailable
             }
         }
         monitor.start(queue: queue)

@@ -1,0 +1,19 @@
+[package]
+name = "orbit-linux-platform"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+glib.workspace = true
+orbit-linux-application = { path = "../orbit-linux-application" }
+orbit-linux-domain = { path = "../orbit-linux-domain" }
+libsecret.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+zeroize.workspace = true

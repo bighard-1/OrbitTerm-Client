@@ -1,0 +1,10 @@
+Package: orbitterm
+Version: 0.1.0
+Section: net
+Priority: optional
+Architecture: amd64
+Maintainer: OrbitTerm
+Depends: libgtk-4-1 (>= 4.14), libadwaita-1-0 (>= 1.5), libvte-2.91-gtk4-0 (>= 0.76), libsecret-1-0 (>= 0.21), libfreerdp3-3 (>= 3.30.0), libwinpr3-3 (>= 3.30.0)
+Description: Secure multi-protocol remote operations workstation
+ Native OrbitTerm desktop client with checked SSH Host Key verification,
+ explicit-risk Telnet, embedded FreeRDP, SFTP, monitor and Docker workflows.

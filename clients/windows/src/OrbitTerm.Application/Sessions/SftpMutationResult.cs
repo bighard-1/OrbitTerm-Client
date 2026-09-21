@@ -27,7 +27,7 @@ public abstract record SftpMutationResult
         string Path,
         string? DestinationPath) : SftpMutationResult;
 
-    public sealed record Failed(string Code, string MessageKey) : SftpMutationResult;
+    public sealed record Failed(string Code, string MessageKey, string? DetailCode = null) : SftpMutationResult;
 
     public static SftpMutationResult FromEnvelope(
         SftpSessionLease lease,
@@ -40,7 +40,8 @@ public abstract record SftpMutationResult
         {
             return new Failed(
                 envelope.Error?.Code ?? "sftp_mutation_failed",
-                envelope.Error?.MessageKey ?? "error.sftp.mutation_failed");
+                envelope.Error?.MessageKey ?? "error.sftp.mutation_failed",
+                envelope.Error?.DetailCode);
         }
 
         var payload = CheckedEnvelopeDecoder.DecodePayload<SftpMutationPayload>(

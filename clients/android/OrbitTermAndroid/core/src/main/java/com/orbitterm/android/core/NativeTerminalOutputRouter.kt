@@ -3,10 +3,12 @@ package com.orbitterm.android.core
 import com.orbitterm.android.domain.performance.RuntimeResourceBudget
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
 
 data class TerminalOutputChunk(
@@ -38,6 +40,7 @@ internal class TerminalOutputBackpressurePipeline(
     private val maxChunkBytes: Int = RuntimeResourceBudget.TERMINAL_OUTPUT_MAX_CHUNK_BYTES,
 ) {
     private val incoming = Channel<TerminalOutputChunk>(capacity = queueCapacity)
+    private val queuedChunks = AtomicInteger()
     private val retiredChannels = ConcurrentHashMap<Long, Unit>()
     private val retirementOrder = ConcurrentLinkedQueue<Long>()
     private val acceptedChunks = AtomicLong()
@@ -51,7 +54,10 @@ internal class TerminalOutputBackpressurePipeline(
 
     // Check retirement again at delivery time: a callback can win the tiny race
     // between its first retirement check and the queue insertion.
-    val output: Flow<TerminalOutputChunk> = incoming.receiveAsFlow().filter(::deliverable)
+    val output: Flow<TerminalOutputChunk> = incoming
+        .receiveAsFlow()
+        .onEach { queuedChunks.decrementAndGet() }
+        .filter(::deliverable)
 
     fun submit(terminalChannelId: Long, bytes: ByteArray) {
         if (bytes.isEmpty()) return
@@ -61,11 +67,17 @@ internal class TerminalOutputBackpressurePipeline(
             truncatedChunks.incrementAndGet()
             truncatedBytes.addAndGet((bytes.size - acceptedSize).toLong())
         }
+        if (!reserveQueueSlot()) {
+            droppedQueueFullChunks.incrementAndGet()
+            droppedQueueFullBytes.addAndGet(bytes.size.toLong())
+            return
+        }
         val chunk = TerminalOutputChunk(terminalChannelId, bytes.copyOf(acceptedSize))
         if (incoming.trySend(chunk).isSuccess) {
             acceptedChunks.incrementAndGet()
             acceptedBytes.addAndGet(chunk.bytes.size.toLong())
         } else {
+            queuedChunks.decrementAndGet()
             droppedQueueFullChunks.incrementAndGet()
             droppedQueueFullBytes.addAndGet(bytes.size.toLong())
         }
@@ -95,6 +107,14 @@ internal class TerminalOutputBackpressurePipeline(
     private fun recordRetired(byteCount: Int) {
         ignoredRetiredChunks.incrementAndGet()
         ignoredRetiredBytes.addAndGet(byteCount.toLong())
+    }
+
+    private fun reserveQueueSlot(): Boolean {
+        while (true) {
+            val current = queuedChunks.get()
+            if (current >= queueCapacity) return false
+            if (queuedChunks.compareAndSet(current, current + 1)) return true
+        }
     }
 
     fun metrics(): TerminalOutputBackpressureMetrics = TerminalOutputBackpressureMetrics(

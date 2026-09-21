@@ -75,6 +75,7 @@ import androidx.compose.ui.state.ToggleableState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.orbitterm.android.domain.assets.ServerAsset
+import com.orbitterm.android.domain.assets.AssetStorageScope
 import com.orbitterm.android.domain.assets.ServerAuthMethod
 import com.orbitterm.android.domain.assets.ServerTransportProtocol
 import com.orbitterm.android.domain.assets.NetworkDeviceProfile
@@ -756,6 +757,17 @@ private fun AssetListItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                Text(
+                    text = if (asset.storageScope == AssetStorageScope.ACCOUNT_SYNCED) "同步" else "本机",
+                    modifier = Modifier
+                        .background(
+                            MaterialTheme.colorScheme.secondaryContainer,
+                            androidx.compose.foundation.shape.RoundedCornerShape(50),
+                        )
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    style = MaterialTheme.typography.labelSmall,
+                )
             }
             Text(
                 text = "${asset.username}@${asset.host}:${asset.port}",
@@ -982,6 +994,31 @@ private fun AssetEditor(
             }
             item {
                 EditorTextField("标签（可选，使用逗号分隔）", state.tags) { value -> onUpdate { it.copy(tags = value) } }
+            }
+            item {
+                Text("保存位置", style = MaterialTheme.typography.titleSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = state.storageScope == AssetStorageScope.ACCOUNT_SYNCED,
+                        enabled = state.isAccountSignedIn,
+                        onClick = { onUpdate { it.copy(storageScope = AssetStorageScope.ACCOUNT_SYNCED) } },
+                        label = { Text("随账户同步") },
+                    )
+                    FilterChip(
+                        selected = state.storageScope == AssetStorageScope.LOCAL_ONLY,
+                        onClick = { onUpdate { it.copy(storageScope = AssetStorageScope.LOCAL_ONLY) } },
+                        label = { Text("仅此设备") },
+                    )
+                }
+                Text(
+                    if (state.storageScope == AssetStorageScope.ACCOUNT_SYNCED) {
+                        "凭据端到端加密后同步；退出账户时隐藏。"
+                    } else {
+                        "保存在当前设备，未登录也可使用，不会上传。"
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
             item {
                 TransportSelector(

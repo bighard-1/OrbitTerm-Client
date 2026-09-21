@@ -564,6 +564,7 @@ fn download_errors_are_stable_and_redacted() {
     );
     let (json, error) = read_and_free(pointer);
     assert_eq!(error["error"]["code"], "sftp_download_failed");
+    assert_eq!(error["error"]["detail_code"], "sftp_permission_denied");
     for forbidden in ["/secret", "private_key", "orbitterm-syslog"] {
         assert!(!json.contains(forbidden));
     }
@@ -627,6 +628,7 @@ fn upload_errors_are_stable_and_redacted() {
     );
     let (json, error) = read_and_free(pointer);
     assert_eq!(error["error"]["code"], "sftp_upload_failed");
+    assert_eq!(error["error"]["detail_code"], "sftp_destination_exists");
     for forbidden in ["/secret", "private_key", "orbitterm-upload.txt"] {
         assert!(!json.contains(forbidden));
     }

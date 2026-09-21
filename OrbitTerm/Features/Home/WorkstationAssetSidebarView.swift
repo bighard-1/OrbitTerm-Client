@@ -25,7 +25,7 @@ struct WorkstationAssetSidebarView: View {
                 ContentUnavailableView(
                     "还没有服务器",
                     systemImage: "server.rack",
-                    description: Text("点击右上角“添加服务器”开始")
+                    description: Text("添加服务器后，即可从这里安全地发起连接。")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -144,6 +144,12 @@ struct WorkstationAssetSidebarView: View {
                         .overlay {
                             Capsule().stroke(palette.borderGlass.color)
                         }
+                        .foregroundStyle(palette.textSecondary.color)
+                    Text(server.storageScope == .accountSynced ? "同步" : "本机")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(palette.accentSecondary.color.opacity(0.12), in: Capsule())
                         .foregroundStyle(palette.textSecondary.color)
                 }
                 HStack(spacing: 6) {
@@ -271,7 +277,14 @@ struct WorkstationPersistentSyncStatusView: View {
             .disabled(isSynchronizing || !session.isUnlocked)
             .help("立即双向同步")
             .accessibilityLabel("立即双向同步")
+            #if os(macOS)
+            WorkstationWindowDragRegion()
+                .frame(minWidth: 8, maxWidth: .infinity)
+                .frame(height: 28)
+                .accessibilityHidden(true)
+            #else
             Spacer(minLength: 8)
+            #endif
         }
         .font(.caption2)
         .foregroundStyle(

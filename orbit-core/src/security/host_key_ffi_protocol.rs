@@ -13,7 +13,7 @@ use super::host_key_challenge_registry::{
 use super::host_key_ffi_error::{HostKeyFfiErrorPayload, HostKeyFfiProtocolError};
 use super::host_key_ffi_lifecycle::{
     HostKeyChallengeAcceptedPayload, HostKeyChallengeStatusPayload, HostKeyCleanupCompletedPayload,
-    HostKeyProtocolVersionPayload,
+    HostKeyProtocolVersionPayload, HostKeyTrustRemovedPayload,
 };
 use super::host_key_verifier::{
     HostKeyBlock, HostKeyBlockReason, HostKeyChallengeReason, SessionSecurityGeneration,
@@ -47,6 +47,7 @@ pub enum HostKeyFfiResultKind {
     HostKeyChallengeAccepted,
     HostKeyChallengeStatus,
     HostKeyCleanupCompleted,
+    HostKeyTrustRemoved,
     HostKeyBlocked,
     HostKeyTrustPersisted,
     HostKeyRejected,
@@ -77,6 +78,7 @@ impl HostKeyFfiResultKind {
         Self::HostKeyChallengeAccepted,
         Self::HostKeyChallengeStatus,
         Self::HostKeyCleanupCompleted,
+        Self::HostKeyTrustRemoved,
         Self::HostKeyBlocked,
         Self::HostKeyTrustPersisted,
         Self::HostKeyRejected,
@@ -108,6 +110,7 @@ pub enum HostKeyFfiResult {
     HostKeyChallengeAccepted(HostKeyChallengeAcceptedPayload),
     HostKeyChallengeStatus(HostKeyChallengeStatusPayload),
     HostKeyCleanupCompleted(HostKeyCleanupCompletedPayload),
+    HostKeyTrustRemoved(HostKeyTrustRemovedPayload),
     HostKeyBlocked(HostKeyBlockedPayload),
     HostKeyTrustPersisted(HostKeyTrustPersistedPayload),
     HostKeyRejected(HostKeyRejectedPayload),
@@ -139,6 +142,7 @@ impl HostKeyFfiResult {
             Self::HostKeyChallengeAccepted(_) => HostKeyFfiResultKind::HostKeyChallengeAccepted,
             Self::HostKeyChallengeStatus(_) => HostKeyFfiResultKind::HostKeyChallengeStatus,
             Self::HostKeyCleanupCompleted(_) => HostKeyFfiResultKind::HostKeyCleanupCompleted,
+            Self::HostKeyTrustRemoved(_) => HostKeyFfiResultKind::HostKeyTrustRemoved,
             Self::HostKeyBlocked(_) => HostKeyFfiResultKind::HostKeyBlocked,
             Self::HostKeyTrustPersisted(_) => HostKeyFfiResultKind::HostKeyTrustPersisted,
             Self::HostKeyRejected(_) => HostKeyFfiResultKind::HostKeyRejected,
@@ -200,6 +204,7 @@ impl HostKeyFfiEnvelope {
             HostKeyFfiResult::HostKeyChallengeAccepted(payload) => payload.validate()?,
             HostKeyFfiResult::HostKeyChallengeStatus(payload) => payload.validate()?,
             HostKeyFfiResult::HostKeyCleanupCompleted(payload) => payload.validate()?,
+            HostKeyFfiResult::HostKeyTrustRemoved(payload) => payload.validate()?,
             HostKeyFfiResult::HostKeyBlocked(payload) => payload.validate()?,
             HostKeyFfiResult::Connected(payload) => payload.validate()?,
             HostKeyFfiResult::ConnectionTestSucceeded(payload) => payload.validate()?,
@@ -255,6 +260,7 @@ impl HostKeyFfiEnvelope {
             HostKeyFfiResult::HostKeyChallengeAccepted(payload) => (Some(to_value(payload)?), None),
             HostKeyFfiResult::HostKeyChallengeStatus(payload) => (Some(to_value(payload)?), None),
             HostKeyFfiResult::HostKeyCleanupCompleted(payload) => (Some(to_value(payload)?), None),
+            HostKeyFfiResult::HostKeyTrustRemoved(payload) => (Some(to_value(payload)?), None),
             HostKeyFfiResult::HostKeyBlocked(payload) => (Some(to_value(payload)?), None),
             HostKeyFfiResult::HostKeyTrustPersisted(payload) => (Some(to_value(payload)?), None),
             HostKeyFfiResult::HostKeyRejected(payload) => (Some(to_value(payload)?), None),
@@ -357,6 +363,9 @@ impl HostKeyFfiEnvelope {
                     }
                     HostKeyFfiResultKind::HostKeyCleanupCompleted => {
                         HostKeyFfiResult::HostKeyCleanupCompleted(from_value(data)?)
+                    }
+                    HostKeyFfiResultKind::HostKeyTrustRemoved => {
+                        HostKeyFfiResult::HostKeyTrustRemoved(from_value(data)?)
                     }
                     HostKeyFfiResultKind::HostKeyBlocked => {
                         HostKeyFfiResult::HostKeyBlocked(from_value(data)?)

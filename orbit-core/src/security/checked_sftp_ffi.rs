@@ -1103,9 +1103,12 @@ fn sftp_download_error_payload(
             request_id,
             None,
         ),
-        OrbitCoreError::SftpFailed(_) => HostKeyFfiErrorPayload::new(
+        OrbitCoreError::SftpFailed(message) => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SftpDownloadFailed,
-            Some("sftp_download_failed"),
+            Some(classify_sftp_transfer_failure(
+                &message,
+                "sftp_download_failed",
+            )),
             request_id,
             None,
         ),
@@ -1144,9 +1147,12 @@ fn sftp_upload_error_payload(
             request_id,
             None,
         ),
-        OrbitCoreError::SftpFailed(_) => HostKeyFfiErrorPayload::new(
+        OrbitCoreError::SftpFailed(message) => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SftpUploadFailed,
-            Some("sftp_upload_failed"),
+            Some(classify_sftp_transfer_failure(
+                &message,
+                "sftp_upload_failed",
+            )),
             request_id,
             None,
         ),
@@ -1158,6 +1164,38 @@ fn sftp_upload_error_payload(
             request_id,
             None,
         ),
+    }
+}
+
+/// Converts backend text into a small, stable and redacted reason vocabulary.
+/// The checked ABI must never expose paths, credentials or server-provided
+/// strings, but desktop clients still need enough information to guide users.
+fn classify_sftp_transfer_failure(message: &str, fallback: &'static str) -> &'static str {
+    let normalized = message.to_ascii_lowercase();
+    if normalized.contains("permission denied") || normalized.contains("access denied") {
+        "sftp_permission_denied"
+    } else if normalized.contains("already exists")
+        || normalized.contains("file exists")
+        || normalized.starts_with("exists ")
+    {
+        "sftp_destination_exists"
+    } else if normalized.contains("no space left") || normalized.contains("disk full") {
+        "sftp_no_space_left"
+    } else if normalized.contains("not found") || normalized.contains("no such file") {
+        "sftp_source_not_found"
+    } else if normalized.contains("connection")
+        && (normalized.contains("closed")
+            || normalized.contains("reset")
+            || normalized.contains("lost"))
+    {
+        "sftp_connection_closed"
+    } else if normalized.contains("open local")
+        || normalized.contains("create local")
+        || normalized.contains("write local")
+    {
+        "sftp_local_io_failed"
+    } else {
+        fallback
     }
 }
 

@@ -21,12 +21,13 @@ final class HostKeyTrustPresentationTests: XCTestCase {
         XCTAssertEqual(presentation.actions, [.cancel])
     }
 
-    func testChangedPresentationHasCopyAndCloseButNoTrustAction() {
+    func testChangedPresentationCanRemoveOnlyThePreviousTrustBeforeReverification() {
         let presentation = HostKeyBlockedPresentation(payload: block(.changed))
 
         XCTAssertEqual(presentation.severity, .changed)
         XCTAssertEqual(presentation.previousFingerprint, "SHA256:previous")
-        XCTAssertEqual(presentation.actions, [.close, .copyFingerprints])
+        XCTAssertEqual(presentation.actions, [.close, .copyFingerprints, .removePreviousTrust])
+        XCTAssertTrue(presentation.canRemovePreviousTrust)
         XCTAssertFalse(presentation.actions.contains(.trustThisHost))
     }
 

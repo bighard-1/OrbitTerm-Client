@@ -607,6 +607,54 @@ enum LoginCooldownPolicy {
     }
 }
 
+enum LoginFailurePresentation {
+    static func message(for error: Error) -> String {
+        if let networkError = error as? NetworkService.NetworkError,
+           case .unauthorized = networkError {
+            return "邮箱账号或登录密码不正确，请检查后重试。"
+        }
+        return error.localizedDescription
+    }
+}
+
+enum AuthInputValidation {
+    static func message(
+        isLoginMode: Bool,
+        username: String,
+        password: String,
+        inviteCode: String,
+        acceptedTerms: Bool
+    ) -> String? {
+        guard acceptedTerms else {
+            return "请先勾选同意使用条款、免责声明与隐私说明。"
+        }
+        let canonicalUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !canonicalUsername.isEmpty else { return "请输入邮箱账号。" }
+        let parts = canonicalUsername.split(separator: "@", omittingEmptySubsequences: false)
+        guard parts.count == 2,
+              !parts[0].isEmpty,
+              parts[1].contains("."),
+              !parts[1].hasPrefix("."),
+              !parts[1].hasSuffix("."),
+              !canonicalUsername.contains(where: \.isWhitespace) else {
+            return "请输入有效的邮箱账号，例如 name@example.com。"
+        }
+        guard !password.isEmpty else { return "请输入登录密码。" }
+        guard !isLoginMode else { return nil }
+        guard password.count >= 12,
+              password.contains(where: \.isUppercase),
+              password.contains(where: \.isLowercase),
+              password.contains(where: \.isNumber),
+              password.contains(where: { !$0.isLetter && !$0.isNumber && !$0.isWhitespace }) else {
+            return "密码至少 12 位，且必须包含大小写字母、数字和特殊字符。"
+        }
+        guard !inviteCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "请输入管理员提供的邀请码。"
+        }
+        return nil
+    }
+}
+
 enum OperationalContentPhase: String, Equatable {
     case loading
     case empty

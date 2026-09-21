@@ -265,6 +265,11 @@ struct AssetManagerView: View {
     }
 
     private func syncServerUpdate(_ server: ServerEntry) {
+        guard server.storageScope == .accountSynced else {
+            noticeKind = .success
+            noticeText = "已仅保存到此设备：\(server.name)"
+            return
+        }
         guard let credentials = try? vault.read(for: server.credentialID),
               let token = session.readToken(),
               let masterPassword = session.readMasterPassword() else { return }

@@ -5,7 +5,9 @@ use std::path::Path;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use thiserror::Error;
 
-use super::host_key::{decode_public_key_base64, HostIdentity, HostKeyState};
+use super::host_key::{
+    decode_public_key_base64, fingerprint_sha256_from_base64, HostIdentity, HostKeyState,
+};
 use super::known_hosts::{
     evaluate_records, pattern_matches_exact_identity, patterns_apply_to_identity, KnownHostMarker,
     KnownHostPattern, KnownHostRecord, KnownHostsFile, KnownHostsMatch, KnownHostsWarning,
@@ -215,6 +217,81 @@ impl KnownHostsStore {
     ) -> Result<usize, KnownHostsStoreError> {
         let algorithm = normalize_algorithm(key_algorithm)?;
         Ok(self.remove_matching_patterns(identity, Some(&algorithm), MarkerFilter::Trusted))
+    }
+
+    /// Removes only the exact trusted host/port/algorithm record whose stored
+    /// key still matches the fingerprint shown to the user. This is the safe
+    /// first half of recovering from an intentionally changed server key: the
+    /// next connection is treated as unknown and must be verified again.
+    pub fn remove_trusted_key_if_fingerprint(
+        &mut self,
+        identity: &HostIdentity,
+        key_algorithm: &str,
+        expected_fingerprint_sha256: &str,
+    ) -> Result<usize, KnownHostsStoreError> {
+        let algorithm = normalize_algorithm(key_algorithm)?;
+        let expected = expected_fingerprint_sha256.trim();
+        if expected.is_empty() || expected.len() > 512 {
+            return Err(KnownHostsStoreError::InvalidFingerprint);
+        }
+
+        let mut exact_identity_record_exists = false;
+        let fingerprint_matches = self.records().any(|record| {
+            if record.marker != KnownHostMarker::None
+                || !record.key_algorithm.eq_ignore_ascii_case(&algorithm)
+                || !record
+                    .patterns
+                    .iter()
+                    .any(|pattern| pattern_matches_exact_identity(pattern, identity))
+            {
+                return false;
+            }
+            exact_identity_record_exists = true;
+            fingerprint_sha256_from_base64(&record.public_key_base64)
+                .is_ok_and(|fingerprint| fingerprint == expected)
+        });
+
+        if !fingerprint_matches {
+            return Err(if exact_identity_record_exists {
+                KnownHostsStoreError::FingerprintMismatch
+            } else {
+                KnownHostsStoreError::TrustedRecordNotFound
+            });
+        }
+
+        let mut removed = 0;
+        let mut index = 0;
+        while index < self.lines.len() {
+            let mut remove_line = false;
+            if let StoredLine::Record { record, dirty } = &mut self.lines[index] {
+                let record_fingerprint_matches = record.marker == KnownHostMarker::None
+                    && record.key_algorithm.eq_ignore_ascii_case(&algorithm)
+                    && fingerprint_sha256_from_base64(&record.public_key_base64)
+                        .is_ok_and(|fingerprint| fingerprint == expected);
+                if record_fingerprint_matches {
+                    let before = record.patterns.len();
+                    record
+                        .patterns
+                        .retain(|pattern| !pattern_matches_exact_identity(pattern, identity));
+                    let removed_from_record = before - record.patterns.len();
+                    if removed_from_record > 0 {
+                        removed += removed_from_record;
+                        *dirty = true;
+                        remove_line = record.patterns.is_empty();
+                    }
+                }
+            }
+            if remove_line {
+                self.lines.remove(index);
+            } else {
+                index += 1;
+            }
+        }
+        self.reindex_records();
+        if removed == 0 {
+            return Err(KnownHostsStoreError::TrustedRecordNotFound);
+        }
+        Ok(removed)
     }
 
     pub fn remove_all_trusted(&mut self, identity: &HostIdentity) -> usize {
@@ -440,6 +517,8 @@ pub enum KnownHostsStoreError {
     PermissionFailed { kind: io::ErrorKind },
     #[error("host public key is invalid")]
     InvalidPublicKey,
+    #[error("host key fingerprint is invalid")]
+    InvalidFingerprint,
     #[error("host key algorithm is invalid")]
     InvalidAlgorithm,
     #[error("host key comment is invalid")]
@@ -452,6 +531,8 @@ pub enum KnownHostsStoreError {
     UnsupportedMarker,
     #[error("the expected trusted host key record was not found")]
     TrustedRecordNotFound,
+    #[error("the trusted host key no longer matches the expected fingerprint")]
+    FingerprintMismatch,
     #[error("a broader host pattern still applies to this identity")]
     AmbiguousHostPattern,
 }

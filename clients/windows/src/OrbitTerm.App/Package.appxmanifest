@@ -8,7 +8,7 @@
   <Identity
     Name="OrbitTerm.Client"
     Publisher="CN=OrbitTerm Development"
-    Version="0.3.0.32" />
+    Version="0.3.0.33" />
 
   <Properties>
     <DisplayName>OrbitTerm</DisplayName>

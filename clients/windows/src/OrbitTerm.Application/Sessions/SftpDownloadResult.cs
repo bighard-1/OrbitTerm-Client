@@ -7,7 +7,7 @@ public abstract record SftpDownloadResult
 {
     public sealed record Downloaded(SftpSessionLease Lease, string Path, ulong ByteLength) : SftpDownloadResult;
 
-    public sealed record Failed(string Code, string MessageKey) : SftpDownloadResult;
+    public sealed record Failed(string Code, string MessageKey, string? DetailCode = null) : SftpDownloadResult;
 
     public static SftpDownloadResult FromEnvelope(SftpSessionLease lease, string path, CheckedEnvelope envelope)
     {
@@ -15,7 +15,8 @@ public abstract record SftpDownloadResult
         {
             return new Failed(
                 envelope.Error?.Code ?? "sftp_download_failed",
-                envelope.Error?.MessageKey ?? "error.sftp.download_failed");
+                envelope.Error?.MessageKey ?? "error.sftp.download_failed",
+                envelope.Error?.DetailCode);
         }
 
         var payload = CheckedEnvelopeDecoder.DecodePayload<SftpDownloadPayload>(

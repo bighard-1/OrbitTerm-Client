@@ -117,24 +117,11 @@ struct SFTPFileRow: View {
     let item: FileItem
     let isSelected: Bool
     let isPathTarget: Bool
-    let onToggleSelection: () -> Void
     @Environment(\.appThemePalette) private var palette
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Button(action: onToggleSelection) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isSelected ? palette.accentPrimary.color : palette.textSecondary.color)
-                    .font(.system(size: 18, weight: .medium))
-                    .frame(width: 28, height: 28)
-                    .clipped()
-            }
-            .buttonStyle(.plain)
-            .frame(width: 28, height: 44, alignment: .top)
-            .clipped()
-            .accessibilityLabel(isSelected ? "取消选择 \(item.name)" : "选择 \(item.name)")
-
             Image(systemName: item.iconName)
                 .foregroundStyle(item.isDirectory ? palette.accentPrimary.color : palette.textSecondary.color)
                 .font(.system(size: 18, weight: .medium))

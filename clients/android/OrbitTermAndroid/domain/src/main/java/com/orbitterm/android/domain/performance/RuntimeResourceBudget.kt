@@ -52,6 +52,11 @@ object PerformanceAcceptanceBaseline {
     const val LONG_DOCKER_LOG_SOURCE_BYTES = 512 * 1024
     const val RAPID_SESSION_SWITCH_COUNT = 32
     const val MAX_OPERATION_MILLIS = 8_000L
+    // The watchdog includes emulator services, Compose/Espresso synchronization,
+    // and memory sampling. Keep it separate from the measured operation budget
+    // so a slow software emulator reports a real assertion instead of aborting
+    // inside Android framework code.
+    const val MAX_DEVICE_TEST_WATCHDOG_MILLIS = 60_000L
     const val MAX_PSS_GROWTH_KB = 48 * 1024
     const val MAX_P95_FRAME_MILLIS = 100L
     const val MIN_FRAME_SAMPLES = 5

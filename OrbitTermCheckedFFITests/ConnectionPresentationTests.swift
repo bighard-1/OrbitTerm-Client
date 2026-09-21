@@ -17,6 +17,32 @@ final class ConnectionPresentationTests: XCTestCase {
         XCTAssertEqual(map(phase: .cancelled).phase, .cancelled)
     }
 
+    func testConnectionLaunchGateCoalescesDoubleActivationAndHonorsLifecycle() {
+        let first = UUID()
+        let second = UUID()
+        var gate = ConnectionLaunchGate()
+
+        XCTAssertTrue(gate.begin(sessionID: first, phase: .idle))
+        XCTAssertFalse(gate.begin(sessionID: first, phase: .idle))
+        XCTAssertTrue(gate.begin(sessionID: second, phase: .disconnected))
+
+        gate.finish(sessionID: first)
+        XCTAssertTrue(gate.begin(sessionID: first, phase: .failed))
+        gate.finish(sessionID: first)
+        gate.finish(sessionID: second)
+
+        for phase in [
+            ConnectionPresentationPhase.connecting,
+            .reconnecting,
+            .awaitingHostKeyDecision,
+            .openingTerminal,
+            .connected,
+            .blocked,
+        ] {
+            XCTAssertFalse(gate.begin(sessionID: UUID(), phase: phase), "unexpected launch for \(phase)")
+        }
+    }
+
     func testPresentationHasAccessibleTextAndDistinctBlockedRole() {
         let blocked = map(phase: .blocked)
         let connected = map(lease: true, channel: true, connected: true)

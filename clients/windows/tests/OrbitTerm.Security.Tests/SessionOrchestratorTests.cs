@@ -511,6 +511,7 @@ public sealed class SessionOrchestratorTests
         var opened = Assert.IsType<SftpOpenResult.Opened>(result);
         Assert.Equal(55UL, opened.Lease.SftpSessionId);
         Assert.Equal("example.com", opened.Lease.Host);
+        Assert.Equal("/home/tester", opened.Lease.HomePath);
         Assert.Equal(1, core.OpenSftpCalls);
     }
 
@@ -750,6 +751,7 @@ public sealed class SessionOrchestratorTests
                 {
                   "base_session_id": "{{baseSessionId}}",
                   "sftp_session_id": "55",
+                  "home_path": "/home/tester",
                   "security_generation": "host_key_verified"
                 }
                 """);
