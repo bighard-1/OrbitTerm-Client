@@ -342,7 +342,7 @@ public sealed class MainWindowViewModel : ObservableObject
         new("disk", "磁盘", snapshot => snapshot.DiskUsedPercent, MonitorSampleMetrics.Disk),
         new("download", "下载", snapshot => snapshot.ReceiveRateKilobitsPerSecond, MonitorSampleMetrics.Download),
         new("upload", "上传", snapshot => snapshot.TransmitRateKilobitsPerSecond, MonitorSampleMetrics.Upload),
-        new("latency", "TCP 延迟 · 失败率", snapshot => snapshot.PingLatencyMilliseconds, MonitorSampleMetrics.Latency),
+        new("latency", "TCP", snapshot => snapshot.PingLatencyMilliseconds, MonitorSampleMetrics.Latency),
     ];
 
     public MonitorTrendMetricViewModel CpuMonitorTrend => MonitorTrendMetrics[0];
@@ -2608,9 +2608,19 @@ public sealed class MainWindowViewModel : ObservableObject
             return false;
         }
 
-        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+        if (string.IsNullOrWhiteSpace(username))
         {
-            AccountStatus = "请输入账户名和密码。";
+            AccountStatus = "请输入邮箱账号。";
+            return false;
+        }
+        if (!IsRegistrationEmail(username.Trim()))
+        {
+            AccountStatus = "请输入有效的邮箱账号，例如 name@example.com。";
+            return false;
+        }
+        if (string.IsNullOrEmpty(password))
+        {
+            AccountStatus = "请输入账户密码。";
             return false;
         }
 
@@ -2771,7 +2781,9 @@ public sealed class MainWindowViewModel : ObservableObject
     private static bool IsRegistrationEmail(string value)
     {
         var parts = value.Split('@', StringSplitOptions.None);
-        return parts.Length == 2 && parts[0].Length > 0 && parts[1].Length > 0;
+        return parts.Length == 2 && parts[0].Length > 0 && parts[1].Length > 0 &&
+            parts[1].Contains('.') && !parts[1].StartsWith('.') && !parts[1].EndsWith('.') &&
+            !value.Any(char.IsWhiteSpace);
     }
 
     private static bool IsStrongAccountPassword(string value) =>

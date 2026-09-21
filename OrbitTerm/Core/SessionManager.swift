@@ -761,6 +761,33 @@ final class SessionManager: ObservableObject {
         checkedHostKeyRoute = nil
     }
 
+    /// Recovers from an intentionally rotated SSH host key without weakening
+    /// verification. The exact old fingerprint must still match the local
+    /// trust store; after removal, the normal connection flow presents the new
+    /// key as an unknown host and requires a second explicit confirmation.
+    func removePreviousHostKeyTrustAndReconnect(_ block: HostKeyBlockedPayload) async -> String? {
+        guard block.reasonCode == .changed,
+              block.canReplace,
+              block.previousFingerprintSHA256 != nil,
+              let route = checkedHostKeyRoute,
+              let workspace = tabs.first(where: { $0.id == route.workspaceID }) else {
+            return "服务器身份变更信息已过期，请重新发起连接。"
+        }
+        do {
+            try KnownHostsTrustMaintenanceService().removeChangedTrust(block)
+        } catch {
+            return "旧信任记录未被移除。请重新连接并确认原指纹仍与弹窗一致。"
+        }
+
+        route.orchestrator.close()
+        checkedHostKeyRoute = nil
+        workspace.updateConnectionState(.connecting, detail: "旧信任已移除，正在重新验证服务器身份")
+        workspace.appendTerminal("[checked] 旧 Host Key 信任已精确移除；正在请求新的首次信任确认")
+        await Task.yield()
+        await connect(session: workspace)
+        return nil
+    }
+
     private func applyCheckedOutcome(
         _ outcome: CheckedTerminalConnectionOutcome,
         route: CheckedHostKeyPresentationRoute

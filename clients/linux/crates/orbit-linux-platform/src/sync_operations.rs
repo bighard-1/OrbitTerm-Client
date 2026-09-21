@@ -17,6 +17,7 @@ const MAX_DETAIL_CHARS: usize = 2_048;
 #[serde(rename_all = "snake_case")]
 pub enum SyncOperationKind {
     KeepLocalUpload,
+    DeleteCloud,
     RestoreCloud,
     UseCloud,
     AcceptDeletion,
@@ -36,13 +37,22 @@ pub enum SyncAuditOutcome {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum QueuedSyncPayload {
     Upload {
-        remote_id: u64,
+        /// Existing records carry a numeric id; new records deliberately omit
+        /// it and are created idempotently by their stable asset UUID.
+        #[serde(default)]
+        remote_id: Option<u64>,
         asset_id: Uuid,
         identity_fingerprint: Option<String>,
         encrypted_blob_base64: String,
         vector_clock: String,
     },
     Restore {
+        asset_id: Uuid,
+        device_id: Uuid,
+        operation_id: Uuid,
+        vector_clock: String,
+    },
+    Delete {
         asset_id: Uuid,
         device_id: Uuid,
         operation_id: Uuid,
@@ -82,6 +92,14 @@ pub struct SyncAuditEvent {
 }
 
 #[derive(Clone, Debug)]
+pub struct SyncOperationDraft {
+    pub kind: SyncOperationKind,
+    pub payload: QueuedSyncPayload,
+    pub local_fingerprint: Option<String>,
+    pub failure_reason: String,
+}
+
+#[derive(Clone, Debug)]
 pub struct SyncOperationRepository {
     path: PathBuf,
 }
@@ -109,51 +127,87 @@ impl SyncOperationRepository {
         local_fingerprint: Option<String>,
         failure_reason: &str,
     ) -> Result<QueuedSyncOperation, PlatformError> {
+        self.enqueue_many(
+            account_fingerprint,
+            vec![SyncOperationDraft {
+                kind,
+                payload,
+                local_fingerprint,
+                failure_reason: failure_reason.to_owned(),
+            }],
+        )?
+        .into_iter()
+        .next()
+        .ok_or(PlatformError::InvalidSyncOperations)
+    }
+
+    /// Validates and persists a group of operations with one secure atomic
+    /// replace. Either every non-duplicate operation is durable or none is.
+    pub fn enqueue_many(
+        &self,
+        account_fingerprint: &str,
+        drafts: Vec<SyncOperationDraft>,
+    ) -> Result<Vec<QueuedSyncOperation>, PlatformError> {
         validate_account_fingerprint(account_fingerprint)?;
-        validate_payload(kind, &payload)?;
-        validate_optional_fingerprint(local_fingerprint.as_deref())?;
+        if drafts.is_empty() {
+            return Ok(Vec::new());
+        }
+        for draft in &drafts {
+            validate_payload(draft.kind, &draft.payload)?;
+            validate_optional_fingerprint(draft.local_fingerprint.as_deref())?;
+        }
         let mut document = self.load_or_create()?;
-        let request_hash = request_hash(account_fingerprint, &payload)?;
-        if let Some(existing) = document
-            .queue
-            .iter()
-            .find(|item| {
-                item.account_fingerprint == account_fingerprint && item.request_hash == request_hash
-            })
-            .cloned()
-        {
-            return Ok(existing);
-        }
-        if document.queue.len() >= MAX_QUEUE_ITEMS {
-            return Err(PlatformError::TooManySyncOperations);
-        }
         let now = current_unix_ms()?;
-        let item = QueuedSyncOperation {
-            id: Uuid::new_v4(),
-            account_fingerprint: account_fingerprint.to_owned(),
-            asset_id: payload.asset_id(),
-            kind,
-            payload,
-            request_hash,
-            local_fingerprint,
-            created_at_unix_ms: now,
-            updated_at_unix_ms: now,
-            attempt_count: 0,
-            next_retry_at_unix_ms: now,
-            last_error: sanitized_detail(failure_reason),
-        };
-        document.queue.push(item.clone());
-        append_audit(
-            &mut document,
-            audit_for(
-                &item,
-                SyncAuditOutcome::Queued,
-                item.last_error.clone(),
-                now,
-            ),
-        );
-        self.save(&document)?;
-        Ok(item)
+        let mut inserted = false;
+        let mut results = Vec::with_capacity(drafts.len());
+        for draft in drafts {
+            let request_hash = request_hash(account_fingerprint, &draft.payload)?;
+            if let Some(existing) = document
+                .queue
+                .iter()
+                .find(|item| {
+                    item.account_fingerprint == account_fingerprint
+                        && item.request_hash == request_hash
+                })
+                .cloned()
+            {
+                results.push(existing);
+                continue;
+            }
+            if document.queue.len() >= MAX_QUEUE_ITEMS {
+                return Err(PlatformError::TooManySyncOperations);
+            }
+            let item = QueuedSyncOperation {
+                id: Uuid::new_v4(),
+                account_fingerprint: account_fingerprint.to_owned(),
+                asset_id: draft.payload.asset_id(),
+                kind: draft.kind,
+                payload: draft.payload,
+                request_hash,
+                local_fingerprint: draft.local_fingerprint,
+                created_at_unix_ms: now,
+                updated_at_unix_ms: now,
+                attempt_count: 0,
+                next_retry_at_unix_ms: now,
+                last_error: sanitized_detail(&draft.failure_reason),
+            };
+            document.queue.push(item.clone());
+            append_audit(
+                &mut document,
+                audit_for(
+                    &item,
+                    SyncAuditOutcome::Queued,
+                    item.last_error.clone(),
+                    now,
+                ),
+            );
+            inserted = true;
+            results.push(item);
+        }
+        if inserted {
+            self.save(&document)?;
+        }
+        Ok(results)
     }
 
     pub fn pending(
@@ -169,6 +223,62 @@ impl SyncOperationRepository {
             .collect();
         items.sort_by_key(|item| (item.created_at_unix_ms, item.id));
         Ok(items)
+    }
+
+    /// Removes uploads that have never produced remote metadata. This is used
+    /// when a user changes a newly-created synchronized asset back to
+    /// local-only before its first network delivery. Existing remote records
+    /// must use a durable `Delete` operation instead.
+    pub fn discard_pending_uploads(
+        &self,
+        account_fingerprint: &str,
+        asset_id: Uuid,
+    ) -> Result<usize, PlatformError> {
+        self.discard_pending_uploads_many(account_fingerprint, &[asset_id])
+    }
+
+    /// Atomically removes the never-delivered uploads for a batch of assets.
+    /// The operation is persisted with one secure replace so a failed batch
+    /// deletion cannot leave only some assets converted to local-only.
+    pub fn discard_pending_uploads_many(
+        &self,
+        account_fingerprint: &str,
+        asset_ids: &[Uuid],
+    ) -> Result<usize, PlatformError> {
+        validate_account_fingerprint(account_fingerprint)?;
+        let mut document = self.load_or_create()?;
+        let before = document.queue.len();
+        document.queue.retain(|item| {
+            !(item.account_fingerprint == account_fingerprint
+                && asset_ids.contains(&item.asset_id)
+                && item.kind == SyncOperationKind::KeepLocalUpload)
+        });
+        let removed = before.saturating_sub(document.queue.len());
+        if removed > 0 {
+            self.save(&document)?;
+        }
+        Ok(removed)
+    }
+
+    pub fn discard_operations(
+        &self,
+        account_fingerprint: &str,
+        asset_id: Uuid,
+        kind: SyncOperationKind,
+    ) -> Result<usize, PlatformError> {
+        validate_account_fingerprint(account_fingerprint)?;
+        let mut document = self.load_or_create()?;
+        let before = document.queue.len();
+        document.queue.retain(|item| {
+            !(item.account_fingerprint == account_fingerprint
+                && item.asset_id == asset_id
+                && item.kind == kind)
+        });
+        let removed = before.saturating_sub(document.queue.len());
+        if removed > 0 {
+            self.save(&document)?;
+        }
+        Ok(removed)
     }
 
     pub fn next_due(
@@ -366,7 +476,9 @@ impl SyncOperationRepository {
 impl QueuedSyncPayload {
     pub fn asset_id(&self) -> Uuid {
         match self {
-            Self::Upload { asset_id, .. } | Self::Restore { asset_id, .. } => *asset_id,
+            Self::Upload { asset_id, .. }
+            | Self::Restore { asset_id, .. }
+            | Self::Delete { asset_id, .. } => *asset_id,
         }
     }
 }
@@ -450,6 +562,9 @@ fn validate_payload(
             SyncOperationKind::KeepLocalUpload,
             QueuedSyncPayload::Upload { .. }
         ) | (
+            SyncOperationKind::DeleteCloud,
+            QueuedSyncPayload::Delete { .. }
+        ) | (
             SyncOperationKind::RestoreCloud,
             QueuedSyncPayload::Restore { .. }
         )
@@ -465,7 +580,7 @@ fn validate_payload(
             encrypted_blob_base64,
             vector_clock,
         } => {
-            if *remote_id == 0
+            if remote_id.is_some_and(|id| id == 0)
                 || asset_id.is_nil()
                 || encrypted_blob_base64.is_empty()
                 || encrypted_blob_base64.len() > MAX_ENCRYPTED_BLOB_BYTES
@@ -478,6 +593,12 @@ fn validate_payload(
             vector_clock
         }
         QueuedSyncPayload::Restore {
+            asset_id,
+            device_id,
+            operation_id,
+            vector_clock,
+        }
+        | QueuedSyncPayload::Delete {
             asset_id,
             device_id,
             operation_id,
@@ -560,7 +681,7 @@ mod tests {
 
     fn upload(asset_id: Uuid) -> QueuedSyncPayload {
         QueuedSyncPayload::Upload {
-            remote_id: 7,
+            remote_id: Some(7),
             asset_id,
             identity_fingerprint: Some("fixture".into()),
             encrypted_blob_base64: "ciphertext".into(),
@@ -607,6 +728,134 @@ mod tests {
         let audit = repository.audit("001122aabbcc", 20).unwrap();
         assert_eq!(audit.len(), 5);
         assert_eq!(audit[0].outcome, SyncAuditOutcome::Completed);
+    }
+
+    #[test]
+    fn pending_upload_can_be_cancelled_before_first_remote_revision() {
+        let directory = tempfile::tempdir().unwrap();
+        let repository = SyncOperationRepository::new(directory.path().join("operations.json"));
+        let asset_id = Uuid::new_v4();
+        repository
+            .enqueue(
+                "001122aabbcc",
+                SyncOperationKind::KeepLocalUpload,
+                upload(asset_id),
+                None,
+                "offline",
+            )
+            .unwrap();
+        assert_eq!(
+            repository
+                .discard_pending_uploads("001122aabbcc", asset_id)
+                .unwrap(),
+            1
+        );
+        assert!(repository.pending("001122aabbcc").unwrap().is_empty());
+    }
+
+    #[test]
+    fn pending_upload_batch_is_cancelled_with_one_persisted_update() {
+        let directory = tempfile::tempdir().unwrap();
+        let repository = SyncOperationRepository::new(directory.path().join("operations.json"));
+        let first = Uuid::new_v4();
+        let second = Uuid::new_v4();
+        let retained = Uuid::new_v4();
+        for asset_id in [first, second, retained] {
+            repository
+                .enqueue(
+                    "001122aabbcc",
+                    SyncOperationKind::KeepLocalUpload,
+                    upload(asset_id),
+                    None,
+                    "offline",
+                )
+                .unwrap();
+        }
+
+        assert_eq!(
+            repository
+                .discard_pending_uploads_many("001122aabbcc", &[first, second])
+                .unwrap(),
+            2
+        );
+        let pending = repository.pending("001122aabbcc").unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].asset_id, retained);
+    }
+
+    #[test]
+    fn enqueue_batch_is_all_or_nothing_when_capacity_is_exceeded() {
+        let directory = tempfile::tempdir().unwrap();
+        let repository = SyncOperationRepository::new(directory.path().join("operations.json"));
+        let mut document = repository.load_or_create().unwrap();
+        for _ in 0..(MAX_QUEUE_ITEMS - 1) {
+            let asset_id = Uuid::new_v4();
+            let payload = upload(asset_id);
+            document.queue.push(QueuedSyncOperation {
+                id: Uuid::new_v4(),
+                account_fingerprint: "001122aabbcc".into(),
+                asset_id,
+                kind: SyncOperationKind::KeepLocalUpload,
+                request_hash: request_hash("001122aabbcc", &payload).unwrap(),
+                payload,
+                local_fingerprint: None,
+                created_at_unix_ms: 1,
+                updated_at_unix_ms: 1,
+                attempt_count: 0,
+                next_retry_at_unix_ms: 1,
+                last_error: None,
+            });
+        }
+        repository.save(&document).unwrap();
+        let drafts = [Uuid::new_v4(), Uuid::new_v4()]
+            .into_iter()
+            .map(|asset_id| SyncOperationDraft {
+                kind: SyncOperationKind::KeepLocalUpload,
+                payload: upload(asset_id),
+                local_fingerprint: None,
+                failure_reason: "offline".into(),
+            })
+            .collect();
+        assert!(matches!(
+            repository.enqueue_many("001122aabbcc", drafts),
+            Err(PlatformError::TooManySyncOperations)
+        ));
+        assert_eq!(
+            repository.pending("001122aabbcc").unwrap().len(),
+            MAX_QUEUE_ITEMS - 1
+        );
+    }
+
+    #[test]
+    fn delete_operation_is_validated_and_deduplicated() {
+        let directory = tempfile::tempdir().unwrap();
+        let repository = SyncOperationRepository::new(directory.path().join("operations.json"));
+        let asset_id = Uuid::new_v4();
+        let payload = QueuedSyncPayload::Delete {
+            asset_id,
+            device_id: Uuid::new_v4(),
+            operation_id: Uuid::new_v4(),
+            vector_clock: r#"{"linux":2}"#.into(),
+        };
+        let first = repository
+            .enqueue(
+                "001122aabbcc",
+                SyncOperationKind::DeleteCloud,
+                payload.clone(),
+                None,
+                "offline",
+            )
+            .unwrap();
+        let second = repository
+            .enqueue(
+                "001122aabbcc",
+                SyncOperationKind::DeleteCloud,
+                payload,
+                None,
+                "retry",
+            )
+            .unwrap();
+        assert_eq!(first.id, second.id);
     }
 
     #[test]

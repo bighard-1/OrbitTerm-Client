@@ -8,33 +8,35 @@ use orbit_linux_bridge::{
     CheckedJumpHostRequest, DockerContainer, MonitorSnapshot, RequestId, SftpDirectoryListing,
     SftpEntry, SftpEntrySnapshot,
 };
-use orbit_linux_domain::{AuthMethod, JumpHostConfiguration, ServerAsset, Transport};
+use orbit_linux_domain::{
+    AssetStorageScope, AuthMethod, JumpHostConfiguration, ServerAsset, Transport,
+};
 use orbit_linux_platform::{
     asset_sync_fingerprint, current_unix_ms, ensure_known_hosts_parent, ensure_private_directory,
     AppPreferences, AssetSyncState, AuthTokenMaterial, AuthTokenVault, CommandSnippet,
     CredentialMaterial, CredentialVault, JsonAssetRepository, PortForwardProfile,
-    PortForwardProfileRepository, PreferencesRepository, QueuedSyncOperation, SnippetAssetScope,
-    SnippetRepository, SnippetScopeMode, SyncAuditOutcome, SyncOperationKind,
-    SyncOperationRepository, SyncStateRepository, XdgPaths,
+    PortForwardProfileRepository, PreferencesRepository, QueuedSyncOperation, QueuedSyncPayload,
+    SnippetAssetScope, SnippetRepository, SnippetScopeMode, SyncAuditOutcome, SyncOperationDraft,
+    SyncOperationKind, SyncOperationRepository, SyncStateRepository, XdgPaths,
 };
 use orbit_linux_session::{
     freerdp_runtime_info, FreeRdpRuntimeStatus, RdpCertificateChallenge, RdpFrame, RdpProfile,
     RdpSession, SessionEvent, SessionEventKind, TelnetProfile, TelnetSession, WorkspacePhase,
 };
 use orbit_linux_sync::{
-    account_fingerprint, build_pull_preview_with_deferred_for_account, CloudClient,
-    KeepLocalAccountContext, RemoteConfig, SyncError, SyncPreview, SyncTokens,
+    account_display_name, account_fingerprint, build_pull_preview_with_deferred_for_account,
+    CloudClient, KeepLocalAccountContext, RemoteConfig, SyncError, SyncPreview, SyncTokens,
 };
 use ssh_key::{Algorithm, HashAlg, LineEnding, PrivateKey};
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 use vte::prelude::*;
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 const GTK_TOKENS: &str = include_str!("../../../resources/tokens-gtk.css");
 const APP_STYLES: &str = include_str!("../../../resources/orbitterm.css");
@@ -662,6 +664,117 @@ fn responsive_workstation_panel_widths(_total_width: i32) -> (i32, i32) {
     (220, 280)
 }
 
+fn adaptive_initial_window_size(work_area_width: i32, work_area_height: i32) -> (i32, i32) {
+    const PREFERRED_WIDTH: i32 = 1280;
+    const PREFERRED_HEIGHT: i32 = 800;
+    const COMPACT_MINIMUM_WIDTH: i32 = 760;
+    const COMPACT_MINIMUM_HEIGHT: i32 = 560;
+    const COMFORTABLE_MINIMUM_WIDTH: i32 = 980;
+    const COMFORTABLE_MINIMUM_HEIGHT: i32 = 700;
+    const WORK_AREA_PERCENT: i32 = 88;
+    const COMPACT_WORK_AREA_PERCENT: i32 = 75;
+
+    if work_area_width <= 0 || work_area_height <= 0 {
+        return (PREFERRED_WIDTH, PREFERRED_HEIGHT);
+    }
+    let compact = work_area_width < PREFERRED_WIDTH || work_area_height < PREFERRED_HEIGHT;
+    let floor_width = if compact {
+        COMPACT_MINIMUM_WIDTH
+    } else {
+        COMFORTABLE_MINIMUM_WIDTH
+    };
+    let floor_height = if compact {
+        COMPACT_MINIMUM_HEIGHT
+    } else {
+        COMFORTABLE_MINIMUM_HEIGHT
+    };
+    // GDK exposes the monitor geometry, while GNOME may reserve a sizeable
+    // top bar and side dock from the maximized work area. Use a more
+    // conservative normal size on compact desktops so maximize always grows
+    // the window instead of shrinking an overlapping normal surface.
+    let work_area_percent = if compact {
+        COMPACT_WORK_AREA_PERCENT
+    } else {
+        WORK_AREA_PERCENT
+    };
+    let requested_width = (work_area_width * work_area_percent / 100).min(PREFERRED_WIDTH);
+    let requested_height = (work_area_height * work_area_percent / 100).min(PREFERRED_HEIGHT);
+    (
+        requested_width
+            .max(floor_width.min(work_area_width))
+            .min(work_area_width),
+        requested_height
+            .max(floor_height.min(work_area_height))
+            .min(work_area_height),
+    )
+}
+
+fn install_adaptive_initial_window_size(window: &adw::ApplicationWindow) {
+    let applied = Rc::new(Cell::new(false));
+    let applied_for_realize = applied.clone();
+    window.connect_realize(move |window| {
+        if applied_for_realize.replace(true) {
+            return;
+        }
+        let Some(surface) = window.surface() else {
+            return;
+        };
+        let display = surface.display();
+        let Some(monitor) = display.monitor_at_surface(&surface) else {
+            return;
+        };
+        let geometry = monitor.geometry();
+        let (width, height) = adaptive_initial_window_size(geometry.width(), geometry.height());
+        window.set_default_size(width, height);
+    });
+}
+
+fn adaptive_initial_window_size_for_default_display() -> (i32, i32) {
+    let Some(display) = gtk::gdk::Display::default() else {
+        return adaptive_initial_window_size(0, 0);
+    };
+    let monitors = display.monitors();
+    let Some(item) = monitors.item(0) else {
+        return adaptive_initial_window_size(0, 0);
+    };
+    let Ok(monitor) = item.downcast::<gtk::gdk::Monitor>() else {
+        return adaptive_initial_window_size(0, 0);
+    };
+    let geometry = monitor.geometry();
+    adaptive_initial_window_size(geometry.width(), geometry.height())
+}
+
+const COMMAND_BUTTON_WIDTH: i32 = 82;
+const COMPACT_COMMAND_BUTTON_WIDTH: i32 = 62;
+const MINIMUM_WINDOW_WIDTH: i32 = 820;
+const COMPACT_MINIMUM_WINDOW_WIDTH: i32 = 760;
+
+fn workstation_command_button_width() -> i32 {
+    let Some(display) = gtk::gdk::Display::default() else {
+        return COMMAND_BUTTON_WIDTH;
+    };
+    let monitors = display.monitors();
+    let Some(item) = monitors.item(0) else {
+        return COMMAND_BUTTON_WIDTH;
+    };
+    let Ok(monitor) = item.downcast::<gtk::gdk::Monitor>() else {
+        return COMMAND_BUTTON_WIDTH;
+    };
+    if monitor.geometry().width() < 1440 {
+        COMPACT_COMMAND_BUTTON_WIDTH
+    } else {
+        COMMAND_BUTTON_WIDTH
+    }
+}
+
+fn workstation_minimum_window_width() -> i32 {
+    if workstation_command_button_width() == COMPACT_COMMAND_BUTTON_WIDTH {
+        COMPACT_MINIMUM_WINDOW_WIDTH
+    } else {
+        MINIMUM_WINDOW_WIDTH
+    }
+}
+
 const ORBIT_LEGAL_TERMS: &str = r#"OrbitTerm 使用条款、免责声明与隐私说明
 生效日期：2026-08-21
 
@@ -1007,6 +1120,8 @@ struct UiContext {
     status: gtk::Label,
     sync_status: gtk::Label,
     refresh_assets: Rc<dyn Fn()>,
+    asset_access_authorized: Rc<Cell<bool>>,
+    active_account_fingerprint: Rc<RefCell<Option<String>>>,
     sync_state: SyncStateRepository,
     sync_operations: SyncOperationRepository,
     sync_scheduler: SyncSchedulerGate,
@@ -1120,19 +1235,25 @@ pub fn install_styles() {
 }
 
 pub fn build_application_window(application: &adw::Application) {
+    // Establish a display-aware normal size before the native surface is
+    // realized. A larger builder default is already clamped by Mutter at that
+    // point and becomes the window's restore geometry, which makes maximize
+    // appear to change only the corner treatment on compact desktops.
+    let (default_width, default_height) = adaptive_initial_window_size_for_default_display();
     let window = adw::ApplicationWindow::builder()
         .application(application)
         .title("OrbitTerm")
-        .default_width(1360)
-        .default_height(840)
+        .default_width(default_width)
+        .default_height(default_height)
         // GTK's width/height requests are hard minimums. Keep a compact floor
         // for 1024x600-class desktops; the responsive workbench automatically
         // collapses the tool inspector before the terminal becomes unusable.
-        .width_request(820)
+        .width_request(workstation_minimum_window_width())
         .height_request(560)
         .resizable(true)
         .build();
     window.add_css_class("orbitterm-window");
+    install_adaptive_initial_window_size(&window);
 
     let paths = match XdgPaths::discover() {
         Ok(paths) => paths,
@@ -1202,9 +1323,7 @@ pub fn build_application_window(application: &adw::Application) {
     for terminal in workspace.terminals.iter() {
         apply_preferences(terminal, &preferences.borrow());
     }
-    workspace.root.set_size_request(560, -1);
     let tools = build_tools(snippet_repository);
-    tools.root.set_size_request(280, -1);
     tools.root.set_visible(false);
     let vault = CredentialVault;
     let session = Rc::new(RefCell::new(SessionRegistry::default()));
@@ -1322,6 +1441,10 @@ pub fn build_application_window(application: &adw::Application) {
         .build();
     search.add_css_class("sidebar-search");
     let asset_count = gtk::Label::new(Some("0 台"));
+    // Synchronized assets fail closed until their owning account is unlocked;
+    // assets absent from the sync ownership index remain usable offline.
+    let asset_access_authorized = Rc::new(Cell::new(false));
+    let active_account_fingerprint = Rc::new(RefCell::new(None::<String>));
     asset_count.add_css_class("asset-count");
 
     let list_for_refresh = asset_list.clone();
@@ -1330,7 +1453,20 @@ pub fn build_application_window(application: &adw::Application) {
     let ids_for_refresh = asset_ids.clone();
     let catalog_for_refresh = catalog.clone();
     let asset_count_for_refresh = asset_count.clone();
+    let asset_access_for_refresh = asset_access_authorized.clone();
+    let active_account_for_refresh = active_account_fingerprint.clone();
+    let sync_state_for_refresh = sync_state.clone();
     let refresh: Rc<dyn Fn()> = Rc::new(move || {
+        let synchronized_owners = sync_state_for_refresh.synchronized_asset_owners();
+        let active_account = active_account_for_refresh.borrow();
+        let visibility = synchronized_owners
+            .as_ref()
+            .ok()
+            .map(|owners| AssetVisibilitySnapshot {
+                synchronized_access_authorized: asset_access_for_refresh.get(),
+                active_account: active_account.as_deref(),
+                synchronized_owners: owners,
+            });
         refresh_asset_list(
             &list_for_refresh,
             &stack_for_refresh,
@@ -1338,6 +1474,7 @@ pub fn build_application_window(application: &adw::Application) {
             search_for_refresh.text().as_str(),
             &ids_for_refresh,
             &asset_count_for_refresh,
+            visibility,
         );
     });
 
@@ -1355,6 +1492,8 @@ pub fn build_application_window(application: &adw::Application) {
         status: status_label.clone(),
         sync_status: sync_status.clone(),
         refresh_assets: refresh.clone(),
+        asset_access_authorized,
+        active_account_fingerprint,
         sync_state,
         sync_operations,
         sync_scheduler: SyncSchedulerGate::default(),
@@ -1442,8 +1581,14 @@ pub fn build_application_window(application: &adw::Application) {
     workspace_and_tools.set_position(680);
     workspace_and_tools.set_resize_start_child(true);
     workspace_and_tools.set_resize_end_child(false);
-    workspace_and_tools.set_shrink_start_child(false);
-    workspace_and_tools.set_shrink_end_child(false);
+    // Keep the 560 px comfortable terminal floor by default. The responsive
+    // coordinator lowers this to 500 px only on compact desktops so an
+    // explicitly requested tool pane is never allocated off-screen.
+    workspace_and_tools.set_shrink_start_child(true);
+    // Side tools collapse before the terminal is allowed below its compact
+    // floor. Allow GtkPaned to reach the responsive threshold instead of
+    // forcing the entire toplevel to the sum of all three natural widths.
+    workspace_and_tools.set_shrink_end_child(true);
     install_horizontal_paned_cursor(&workspace_and_tools);
 
     let main_paned = gtk::Paned::new(Orientation::Horizontal);
@@ -1454,33 +1599,39 @@ pub fn build_application_window(application: &adw::Application) {
     main_paned.set_position(220);
     main_paned.set_resize_start_child(false);
     main_paned.set_resize_end_child(true);
-    main_paned.set_shrink_start_child(false);
-    main_paned.set_shrink_end_child(false);
+    main_paned.set_shrink_start_child(true);
+    main_paned.set_shrink_end_child(true);
     main_paned.set_vexpand(true);
     install_horizontal_paned_cursor(&main_paned);
     let workbench_overlay = gtk::Overlay::new();
     workbench_overlay.set_child(Some(&main_paned));
     let expand_left = gtk::Button::builder()
-        .icon_name("sidebar-show-symbolic")
         .tooltip_text("展开服务器资产栏")
         .halign(Align::Start)
-        .valign(Align::Start)
+        .valign(Align::Fill)
+        .vexpand(true)
         .visible(false)
         .build();
-    expand_left.add_css_class("panel-edge-button");
-    expand_left.set_margin_start(0);
-    expand_left.set_margin_top(12);
+    let expand_left_indicator = gtk::Box::new(Orientation::Vertical, 0);
+    expand_left_indicator.add_css_class("edge-restore-indicator");
+    expand_left_indicator.set_size_request(2, 40);
+    expand_left.set_child(Some(&expand_left_indicator));
+    expand_left.add_css_class("panel-edge-trigger");
+    expand_left.set_width_request(10);
     workbench_overlay.add_overlay(&expand_left);
     let expand_right = gtk::Button::builder()
-        .icon_name("sidebar-show-right-symbolic")
         .tooltip_text("展开会话工具")
         .halign(Align::End)
-        .valign(Align::Start)
+        .valign(Align::Fill)
+        .vexpand(true)
         .visible(false)
         .build();
-    expand_right.add_css_class("panel-edge-button");
-    expand_right.set_margin_end(0);
-    expand_right.set_margin_top(12);
+    let expand_right_indicator = gtk::Box::new(Orientation::Vertical, 0);
+    expand_right_indicator.add_css_class("edge-restore-indicator");
+    expand_right_indicator.set_size_request(2, 40);
+    expand_right.set_child(Some(&expand_right_indicator));
+    expand_right.add_css_class("panel-edge-trigger");
+    expand_right.set_width_request(10);
     workbench_overlay.add_overlay(&expand_right);
     context.tools_expand.replace(Some(expand_right.clone()));
     apply_tool_panel_visibility(&context);
@@ -1493,9 +1644,14 @@ pub fn build_application_window(application: &adw::Application) {
     // client. Keeping it outside the three-pane workbench makes both splitters
     // terminate above the footer and keeps sync state visible when either side
     // panel is collapsed.
-    workspace.input_row.set_halign(Align::Start);
+    workspace.input_row.set_halign(Align::Fill);
+    workspace.input_row.set_hexpand(true);
     workspace.input_row.set_valign(Align::End);
-    workspace.input_row.set_size_request(680, -1);
+    // A width request is a minimum size in GTK. Requesting the current
+    // terminal width here made the normal window as wide as the compositor's
+    // work area, so maximizing changed only the decoration state. Let the
+    // overlay fill the space between the visible side panes instead.
+    workspace.input_row.set_width_request(320);
     workbench_overlay.add_overlay(&workspace.input_row);
     root.append(&workbench_overlay);
     root.append(&sidebar.footer);
@@ -1512,6 +1668,8 @@ pub fn build_application_window(application: &adw::Application) {
     let applying_responsive_layout = Rc::new(Cell::new(false));
     let sidebar_user_sized = Rc::new(Cell::new(false));
     let tools_user_sized = Rc::new(Cell::new(false));
+    let sidebar_manually_collapsed = Rc::new(Cell::new(false));
+    let sidebar_automatically_collapsed = Rc::new(Cell::new(false));
     let tools_automatically_collapsed = Rc::new(Cell::new(false));
     {
         let initialized = responsive_layout_initialized.clone();
@@ -1541,6 +1699,9 @@ pub fn build_application_window(application: &adw::Application) {
     let tools_manual_visibility_for_responsive = context.tools_manual_visibility.clone();
     let tools_ssh_context_for_responsive = context.tools_ssh_context_available.clone();
     let tools_automatically_collapsed_for_responsive = tools_automatically_collapsed.clone();
+    let sidebar_manually_collapsed_for_responsive = sidebar_manually_collapsed.clone();
+    let sidebar_automatically_collapsed_for_responsive = sidebar_automatically_collapsed.clone();
+    let expand_left_for_responsive = expand_left.clone();
     gtk::glib::timeout_add_local(Duration::from_millis(50), move || {
         let workbench_width = overlay_for_bottom_layout.width();
         if workbench_width > 0 && workbench_width != last_workbench_width.get() {
@@ -1580,6 +1741,22 @@ pub fn build_application_window(application: &adw::Application) {
                 expand_right_for_responsive.set_visible(false);
                 tools_automatically_collapsed_for_responsive.set(false);
             }
+
+            if workbench_width < 980
+                && sidebar_for_bottom_layout.is_visible()
+                && !sidebar_manually_collapsed_for_responsive.get()
+            {
+                sidebar_for_bottom_layout.set_visible(false);
+                expand_left_for_responsive.set_visible(true);
+                sidebar_automatically_collapsed_for_responsive.set(true);
+            } else if workbench_width >= 980
+                && sidebar_automatically_collapsed_for_responsive.get()
+                && !sidebar_manually_collapsed_for_responsive.get()
+            {
+                sidebar_for_bottom_layout.set_visible(true);
+                expand_left_for_responsive.set_visible(false);
+                sidebar_automatically_collapsed_for_responsive.set(false);
+            }
         }
         if sidebar_for_bottom_layout.is_visible() && sidebar_for_bottom_layout.width() > 0 {
             last_sidebar_width.set(sidebar_for_bottom_layout.width());
@@ -1597,9 +1774,8 @@ pub fn build_application_window(application: &adw::Application) {
         } else {
             0
         };
-        let input_width = (overlay_for_bottom_layout.width() - left - right).max(320);
         input_for_bottom_layout.set_margin_start(left);
-        input_for_bottom_layout.set_size_request(input_width, -1);
+        input_for_bottom_layout.set_margin_end(right);
         let input_height = if input_for_bottom_layout.is_visible() {
             input_for_bottom_layout.height().max(46)
         } else {
@@ -1612,7 +1788,11 @@ pub fn build_application_window(application: &adw::Application) {
 
     let sidebar_root = sidebar.root.clone();
     let expand_left_for_collapse = expand_left.clone();
+    let sidebar_manually_collapsed_for_collapse = sidebar_manually_collapsed.clone();
+    let sidebar_automatically_collapsed_for_collapse = sidebar_automatically_collapsed.clone();
     sidebar.collapse.connect_clicked(move |_| {
+        sidebar_manually_collapsed_for_collapse.set(true);
+        sidebar_automatically_collapsed_for_collapse.set(false);
         sidebar_root.set_visible(false);
         expand_left_for_collapse.set_visible(true);
     });
@@ -1621,12 +1801,16 @@ pub fn build_application_window(application: &adw::Application) {
     let expand_right_for_left_expand = expand_right.clone();
     let workbench_for_left_expand = workbench_overlay.clone();
     let tools_auto_for_left_expand = tools_automatically_collapsed.clone();
+    let sidebar_manually_collapsed_for_expand = sidebar_manually_collapsed.clone();
+    let sidebar_automatically_collapsed_for_expand = sidebar_automatically_collapsed.clone();
     expand_left.connect_clicked(move |button| {
         if workbench_for_left_expand.width() < 1180 && tools_root_for_left_expand.is_visible() {
             tools_root_for_left_expand.set_visible(false);
             expand_right_for_left_expand.set_visible(true);
             tools_auto_for_left_expand.set(true);
         }
+        sidebar_manually_collapsed_for_expand.set(false);
+        sidebar_automatically_collapsed_for_expand.set(false);
         sidebar_root.set_visible(true);
         button.set_visible(false);
     });
@@ -1647,7 +1831,12 @@ pub fn build_application_window(application: &adw::Application) {
     let expand_left_for_right_expand = expand_left.clone();
     let workbench_for_right_expand = workbench_overlay.clone();
     let tools_auto_for_right_expand = tools_automatically_collapsed.clone();
+    let tools_context_for_right_expand = context.tools_ssh_context_available.clone();
     expand_right.connect_clicked(move |button| {
+        if !tools_context_for_right_expand.get() {
+            button.set_visible(false);
+            return;
+        }
         if workbench_for_right_expand.width() < 1180 && sidebar_root_for_right_expand.is_visible() {
             sidebar_root_for_right_expand.set_visible(false);
             expand_left_for_right_expand.set_visible(true);
@@ -1710,13 +1899,10 @@ pub fn build_application_window(application: &adw::Application) {
     workspace.edit.connect_clicked(move |_| {
         let selected = context_for_edit.session.borrow().selected_asset_id;
         if let Some(asset_id) = selected {
-            present_edit_asset_window(
-                &context_for_edit.window,
-                context_for_edit.catalog.clone(),
-                context_for_edit.vault.clone(),
-                asset_id,
-                context_for_edit.refresh_assets.clone(),
-            );
+            if !require_asset_access(&context_for_edit, asset_id) {
+                return;
+            }
+            present_edit_asset_window(context_for_edit.clone(), asset_id);
         }
     });
 
@@ -1938,14 +2124,14 @@ pub fn build_application_window(application: &adw::Application) {
     install_window_resize_handles(&window, &window_overlay);
     window.set_content(Some(&window_overlay));
     window.present();
-    install_background_sync_scheduler(context);
+    restore_saved_account_on_launch(context);
 }
 
 fn build_header(
-    window: &adw::ApplicationWindow,
-    catalog: Rc<RefCell<Catalog>>,
-    vault: CredentialVault,
-    refresh: Rc<dyn Fn()>,
+    _window: &adw::ApplicationWindow,
+    _catalog: Rc<RefCell<Catalog>>,
+    _vault: CredentialVault,
+    _refresh: Rc<dyn Fn()>,
     context: UiContext,
     search: &gtk::SearchEntry,
 ) -> adw::HeaderBar {
@@ -1957,23 +2143,12 @@ fn build_header(
     // available for future session context.
     header.set_show_title(false);
 
-    let start_actions = gtk::Box::new(Orientation::Horizontal, 4);
+    let compact_command_lane = workstation_command_button_width() == COMPACT_COMMAND_BUTTON_WIDTH;
+    let command_spacing = if compact_command_lane { 2 } else { 4 };
+    let start_actions = gtk::Box::new(Orientation::Horizontal, command_spacing);
     start_actions.add_css_class("header-actions");
-    let end_actions = gtk::Box::new(Orientation::Horizontal, 4);
+    let end_actions = gtk::Box::new(Orientation::Horizontal, command_spacing);
     end_actions.add_css_class("header-actions");
-
-    let brand = gtk::Image::from_icon_name("com.orbitterm.Client");
-    brand.set_pixel_size(20);
-    brand.set_size_request(20, 20);
-    brand.add_css_class("header-brand-icon");
-    let brand_frame = gtk::Box::new(Orientation::Horizontal, 0);
-    brand_frame.add_css_class("header-brand-frame");
-    brand_frame.set_size_request(24, 24);
-    brand_frame.set_halign(Align::Center);
-    brand_frame.set_valign(Align::Center);
-    brand_frame.set_overflow(gtk::Overflow::Hidden);
-    brand_frame.append(&brand);
-    start_actions.append(&brand_frame);
 
     let account_content = adw::ButtonContent::builder()
         .label("登录 / 解锁")
@@ -1983,9 +2158,10 @@ fn build_header(
         .child(&account_content)
         .tooltip_text("登录 OrbitTerm 账户或解锁端到端加密同步")
         .build();
+    account.set_size_request(workstation_command_button_width(), 28);
     account.add_css_class("top-command");
     let account_context = context.clone();
-    account.connect_clicked(move |_| present_sync_window(account_context.clone()));
+    account.connect_clicked(move |_| present_account_entry(account_context.clone()));
     end_actions.append(&account);
     context.account_header.replace(Some(AccountHeaderWidgets {
         button: account,
@@ -1994,10 +2170,8 @@ fn build_header(
 
     let add = top_bar_button("添加服务器", "添加服务器资产");
     add.add_css_class("suggested-action");
-    let parent = window.clone();
-    add.connect_clicked(move |_| {
-        present_add_asset_window(&parent, catalog.clone(), vault.clone(), refresh.clone())
-    });
+    let add_context = context.clone();
+    add.connect_clicked(move |_| present_add_asset_window(add_context.clone()));
     start_actions.append(&add);
 
     let edit = top_bar_button("编辑凭据", "编辑当前选中的服务器资产");
@@ -2007,13 +2181,10 @@ fn build_header(
             edit_context.status.set_label("请先从左侧选择服务器资产");
             return;
         };
-        present_edit_asset_window(
-            &edit_context.window,
-            edit_context.catalog.clone(),
-            edit_context.vault.clone(),
-            asset_id,
-            edit_context.refresh_assets.clone(),
-        );
+        if !require_asset_access(&edit_context, asset_id) {
+            return;
+        }
+        present_edit_asset_window(edit_context.clone(), asset_id);
     });
     start_actions.append(&edit);
 
@@ -2076,6 +2247,735 @@ fn set_account_header_logged_in(
             .button
             .set_tooltip_text(Some("登录 OrbitTerm 账户或解锁端到端加密同步"));
     }
+}
+
+fn present_account_entry(context: UiContext) {
+    if context.active_account_fingerprint.borrow().is_some() {
+        present_account_management_window(context);
+    } else {
+        present_sync_window(context);
+    }
+}
+
+fn present_account_management_window(context: UiContext) {
+    let window = adw::Dialog::builder()
+        .content_width(760)
+        .content_height(680)
+        .follows_content_size(false)
+        .build();
+    let root = gtk::Box::new(Orientation::Vertical, 16);
+    root.add_css_class("account-center");
+    root.set_margin_top(24);
+    root.set_margin_bottom(24);
+    root.set_margin_start(24);
+    root.set_margin_end(24);
+
+    let title = gtk::Label::new(Some("个人信息管理"));
+    title.add_css_class("dialog-title");
+    title.set_xalign(0.0);
+    root.append(&title);
+
+    let account_card = gtk::Box::new(Orientation::Horizontal, 12);
+    account_card.add_css_class("form-card");
+    let avatar = gtk::Image::from_icon_name("avatar-default-symbolic");
+    avatar.set_pixel_size(32);
+    avatar.set_valign(Align::Start);
+    let identity = gtk::Box::new(Orientation::Vertical, 4);
+    identity.set_hexpand(true);
+    let identity_title = gtk::Label::new(Some("当前账户"));
+    identity_title.add_css_class("heading");
+    identity_title.set_xalign(0.0);
+    let account = context
+        .active_account_fingerprint
+        .borrow()
+        .clone()
+        .unwrap_or_else(|| "身份读取中".to_owned());
+    // The account fingerprint is an internal partition key. It is deliberately
+    // never exposed as the user's identity; legacy sessions without a stored
+    // username receive a neutral label until the next successful sign-in.
+    let identity_value = gtk::Label::new(Some("已保存账户"));
+    identity_value.set_xalign(0.0);
+    identity_value.set_selectable(true);
+    let identity_note = gtk::Label::new(Some(
+        "登录凭据保存在系统密钥环；主密码只驻留于当前应用会话。",
+    ));
+    identity_note.add_css_class("caption");
+    identity_note.set_xalign(0.0);
+    identity_note.set_wrap(true);
+    identity.append(&identity_title);
+    identity.append(&identity_value);
+    identity.append(&identity_note);
+    account_card.append(&avatar);
+    account_card.append(&identity);
+    root.append(&account_card);
+    let identity_value_for_lookup = identity_value.clone();
+    gtk::glib::spawn_future_local(async move {
+        let Ok(Some(material)) = AuthTokenVault.lookup().await else {
+            return;
+        };
+        let visible_name = if material.username.trim().is_empty() {
+            account_display_name(&material.access_token)
+        } else {
+            Some(material.username.trim().to_owned())
+        };
+        if let Some(visible_name) = visible_name {
+            identity_value_for_lookup.set_label(&visible_name);
+        }
+    });
+
+    let security_card = settings_section("账户与同步");
+    let unlocked = current_unix_ms()
+        .ok()
+        .is_some_and(|now| context.sync_session.password_for(&account, now).is_some());
+    let status = gtk::Label::new(Some(if unlocked {
+        "账户已登录 · 主密码会话已解锁 · 后台增量同步可用"
+    } else {
+        "账户已登录 · 主密码会话已锁定"
+    }));
+    status.set_xalign(0.0);
+    status.set_wrap(true);
+    status.add_css_class("security-note");
+    security_card.append(&status);
+
+    let operations = gtk::Box::new(Orientation::Horizontal, 8);
+    operations.set_halign(Align::End);
+    let diagnostics = gtk::Button::with_label("复制脱敏诊断");
+    let lock = gtk::Button::with_label("锁定工作站");
+    lock.set_sensitive(unlocked);
+    operations.append(&diagnostics);
+    operations.append(&lock);
+    security_card.append(&operations);
+    root.append(&security_card);
+
+    let login_password_card = settings_section("登录密码");
+    let login_password_note = gtk::Label::new(Some(
+        "修改后，其他设备需要重新登录。新密码至少 12 位，并包含大小写字母、数字和特殊字符。",
+    ));
+    login_password_note.set_xalign(0.0);
+    login_password_note.set_wrap(true);
+    login_password_note.add_css_class("caption");
+    login_password_card.append(&login_password_note);
+    let current_login_password = gtk::PasswordEntry::builder()
+        .placeholder_text("当前登录密码")
+        .show_peek_icon(true)
+        .build();
+    let new_login_password = gtk::PasswordEntry::builder()
+        .placeholder_text("新登录密码")
+        .show_peek_icon(true)
+        .build();
+    let confirm_login_password = gtk::PasswordEntry::builder()
+        .placeholder_text("确认新登录密码")
+        .show_peek_icon(true)
+        .build();
+    append_labeled_widget(
+        &login_password_card,
+        "当前登录密码",
+        &current_login_password,
+    );
+    append_labeled_widget(&login_password_card, "新登录密码", &new_login_password);
+    append_labeled_widget(
+        &login_password_card,
+        "确认新登录密码",
+        &confirm_login_password,
+    );
+    let login_password_feedback = gtk::Label::new(None);
+    login_password_feedback.set_xalign(0.0);
+    login_password_feedback.set_wrap(true);
+    login_password_feedback.add_css_class("caption");
+    let change_login_password = gtk::Button::with_label("更新登录密码");
+    change_login_password.add_css_class("suggested-action");
+    change_login_password.set_halign(Align::End);
+    login_password_card.append(&login_password_feedback);
+    login_password_card.append(&change_login_password);
+    root.append(&login_password_card);
+
+    let master_password_card = settings_section("主密码");
+    let master_password_note = gtk::Label::new(Some(
+        "轮换会在本机重新加密全部云端资产与最近删除记录；服务器只接收新密文。完成后，其他设备必须使用新主密码重新解锁。",
+    ));
+    master_password_note.set_xalign(0.0);
+    master_password_note.set_wrap(true);
+    master_password_note.add_css_class("caption");
+    master_password_card.append(&master_password_note);
+    let current_master_password = gtk::PasswordEntry::builder()
+        .placeholder_text("当前主密码")
+        .show_peek_icon(true)
+        .build();
+    let new_master_password = gtk::PasswordEntry::builder()
+        .placeholder_text("新主密码")
+        .show_peek_icon(true)
+        .build();
+    let confirm_master_password = gtk::PasswordEntry::builder()
+        .placeholder_text("确认新主密码")
+        .show_peek_icon(true)
+        .build();
+    let master_login_password = gtk::PasswordEntry::builder()
+        .placeholder_text("确认当前登录密码")
+        .show_peek_icon(true)
+        .build();
+    append_labeled_widget(
+        &master_password_card,
+        "当前主密码",
+        &current_master_password,
+    );
+    append_labeled_widget(&master_password_card, "新主密码", &new_master_password);
+    append_labeled_widget(
+        &master_password_card,
+        "确认新主密码",
+        &confirm_master_password,
+    );
+    append_labeled_widget(
+        &master_password_card,
+        "确认当前登录密码",
+        &master_login_password,
+    );
+    let master_password_feedback = gtk::Label::new(None);
+    master_password_feedback.set_xalign(0.0);
+    master_password_feedback.set_wrap(true);
+    master_password_feedback.add_css_class("caption");
+    let rotate_master_password = gtk::Button::with_label("轮换主密码并重新加密云端配置");
+    rotate_master_password.add_css_class("suggested-action");
+    rotate_master_password.set_halign(Align::End);
+    rotate_master_password.set_sensitive(unlocked);
+    master_password_card.append(&master_password_feedback);
+    master_password_card.append(&rotate_master_password);
+    root.append(&master_password_card);
+
+    let leave_card = settings_section("账户操作");
+    let leave_note = gtk::Label::new(Some(
+        "退出或切换账户会断开受该账户保护的会话，并清除本机令牌和主密码会话；本机资产不会被删除。",
+    ));
+    leave_note.set_xalign(0.0);
+    leave_note.set_wrap(true);
+    leave_note.add_css_class("caption");
+    leave_card.append(&leave_note);
+    let leave_actions = gtk::Box::new(Orientation::Horizontal, 8);
+    leave_actions.set_halign(Align::End);
+    let switch_account = gtk::Button::with_label("切换账号");
+    let logout = gtk::Button::with_label("退出登录");
+    logout.add_css_class("destructive-action");
+    leave_actions.append(&switch_account);
+    leave_actions.append(&logout);
+    leave_card.append(&leave_actions);
+    root.append(&leave_card);
+
+    let close = gtk::Button::with_label("关闭");
+    close.set_halign(Align::End);
+    root.append(&close);
+
+    let page = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vscrollbar_policy(gtk::PolicyType::Automatic)
+        .child(&root)
+        .build();
+    window.set_child(Some(&page));
+
+    let diagnostics_context = context.clone();
+    diagnostics.connect_clicked(move |_| {
+        let account_name = diagnostics_context
+            .active_account_fingerprint
+            .borrow()
+            .as_ref()
+            .map(|_| "已登录账户")
+            .unwrap_or("未登录");
+        let report = format!(
+            "OrbitTerm Linux 脱敏诊断\n账户状态：{account_name}\n同步状态：{}\n应用状态：{}\n隐私：不包含令牌、密码、私钥、命令或远端内容。",
+            diagnostics_context.sync_status.text(),
+            diagnostics_context.status.text()
+        );
+        if let Some(display) = gtk::gdk::Display::default() {
+            display.clipboard().set_text(&report);
+            diagnostics_context.status.set_label("脱敏诊断已复制");
+        }
+    });
+
+    let lock_context = context.clone();
+    let lock_window = window.clone();
+    lock.connect_clicked(move |_| {
+        lock_context.sync_session.lock();
+        lock_context.background_pending.borrow_mut().take();
+        set_asset_access_authorized(&lock_context, false);
+        lock_context
+            .status
+            .set_label("已登录 · 主密码已锁定 · 同步资产已保护");
+        lock_context
+            .sync_status
+            .set_label("主密码已锁定 · 后台增量同步暂停");
+        lock_window.close();
+    });
+
+    let password_context = context.clone();
+    let password_button = change_login_password.clone();
+    let current_password_field = current_login_password.clone();
+    let new_password_field = new_login_password.clone();
+    let confirm_password_field = confirm_login_password.clone();
+    let password_feedback = login_password_feedback.clone();
+    change_login_password.connect_clicked(move |_| {
+        let current_password = current_password_field.text().to_string();
+        let new_password = new_password_field.text().to_string();
+        if new_password != confirm_password_field.text() {
+            password_feedback.set_label("两次输入的新登录密码不一致。");
+            password_feedback.add_css_class("error-message");
+            return;
+        }
+        if registration_validation_error("account@example.com", &new_password, "valid", true)
+            .is_some()
+        {
+            password_feedback.set_label("新密码至少 12 位，并包含大小写字母、数字和特殊字符。");
+            password_feedback.add_css_class("error-message");
+            return;
+        }
+        password_button.set_sensitive(false);
+        password_feedback.remove_css_class("error-message");
+        password_feedback.set_label("正在更新登录密码…");
+        change_linux_login_password(
+            password_context.clone(),
+            current_password,
+            new_password,
+            password_button.clone(),
+            password_feedback.clone(),
+            current_password_field.clone(),
+            new_password_field.clone(),
+            confirm_password_field.clone(),
+        );
+    });
+
+    let rotation_context = context.clone();
+    let rotation_button = rotate_master_password.clone();
+    let current_master_field = current_master_password.clone();
+    let new_master_field = new_master_password.clone();
+    let confirm_master_field = confirm_master_password.clone();
+    let master_login_field = master_login_password.clone();
+    let rotation_feedback = master_password_feedback.clone();
+    rotate_master_password.connect_clicked(move |_| {
+        let current_master = current_master_field.text().to_string();
+        let new_master = new_master_field.text().to_string();
+        if new_master != confirm_master_field.text() {
+            rotation_feedback.set_label("两次输入的新主密码不一致。");
+            rotation_feedback.add_css_class("error-message");
+            return;
+        }
+        if current_master.is_empty()
+            || new_master.is_empty()
+            || master_login_field.text().is_empty()
+        {
+            rotation_feedback.set_label("请完整填写当前主密码、新主密码和当前登录密码。");
+            rotation_feedback.add_css_class("error-message");
+            return;
+        }
+        let active_account = rotation_context.active_account_fingerprint.borrow().clone();
+        let session_master = active_account.as_deref().and_then(|account| {
+            current_unix_ms()
+                .ok()
+                .and_then(|now| rotation_context.sync_session.password_for(account, now))
+        });
+        if session_master.as_ref().map(|saved| saved.as_str()) != Some(current_master.as_str()) {
+            rotation_feedback.set_label("当前主密码不正确。");
+            rotation_feedback.add_css_class("error-message");
+            return;
+        }
+        rotation_button.set_sensitive(false);
+        rotation_feedback.remove_css_class("error-message");
+        rotation_feedback.set_label("正在安全轮换并重新加密云端配置…");
+        rotate_linux_master_password(
+            rotation_context.clone(),
+            current_master,
+            new_master,
+            master_login_field.text().to_string(),
+            rotation_button.clone(),
+            rotation_feedback.clone(),
+            current_master_field.clone(),
+            new_master_field.clone(),
+            confirm_master_field.clone(),
+            master_login_field.clone(),
+        );
+    });
+
+    let switch_context = context.clone();
+    let switch_window = window.clone();
+    switch_account.connect_clicked(move |_| {
+        confirm_leave_account(switch_context.clone(), &switch_window, true);
+    });
+    let logout_context = context.clone();
+    let logout_window = window.clone();
+    logout.connect_clicked(move |_| {
+        confirm_leave_account(logout_context.clone(), &logout_window, false);
+    });
+    let close_window = window.clone();
+    close.connect_clicked(move |_| {
+        close_window.close();
+    });
+    window.present(Some(&context.window));
+}
+
+#[allow(clippy::too_many_arguments)]
+fn change_linux_login_password(
+    _context: UiContext,
+    current_password: String,
+    new_password: String,
+    button: gtk::Button,
+    feedback: gtk::Label,
+    current_field: gtk::PasswordEntry,
+    new_field: gtk::PasswordEntry,
+    confirm_field: gtk::PasswordEntry,
+) {
+    gtk::glib::spawn_future_local(async move {
+        let material = match AuthTokenVault.lookup().await {
+            Ok(Some(material)) => material,
+            Ok(None) => {
+                button.set_sensitive(true);
+                feedback.set_label("登录会话已失效，请退出后重新登录。");
+                feedback.add_css_class("error-message");
+                return;
+            }
+            Err(error) => {
+                button.set_sensitive(true);
+                feedback.set_label(&format!("无法读取系统密钥环：{error}"));
+                feedback.add_css_class("error-message");
+                return;
+            }
+        };
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let current_password = Zeroizing::new(current_password);
+            let new_password = Zeroizing::new(new_password);
+            let mut tokens = SyncTokens {
+                access_token: material.access_token.clone(),
+                refresh_token: material.refresh_token.clone(),
+                account_scope: material.account_scope.clone(),
+                username: material.username.clone(),
+            };
+            let result = CloudClient::production().and_then(|client| {
+                client.change_login_password(&mut tokens, &current_password, &new_password)?;
+                Ok(tokens)
+            });
+            let _ = sender.send(result);
+        });
+        gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
+            match receiver.try_recv() {
+                Ok(Ok(tokens)) => {
+                    let button = button.clone();
+                    let feedback = feedback.clone();
+                    let current_field = current_field.clone();
+                    let new_field = new_field.clone();
+                    let confirm_field = confirm_field.clone();
+                    gtk::glib::spawn_future_local(async move {
+                        let material = AuthTokenMaterial {
+                            access_token: tokens.access_token.clone(),
+                            refresh_token: tokens.refresh_token.clone(),
+                            account_scope: tokens.account_scope.clone(),
+                            username: tokens.username.clone(),
+                        };
+                        button.set_sensitive(true);
+                        match AuthTokenVault.store(&material).await {
+                            Ok(()) => {
+                                current_field.set_text("");
+                                new_field.set_text("");
+                                confirm_field.set_text("");
+                                feedback.remove_css_class("error-message");
+                                feedback.set_label("登录密码已更新；其他设备需要重新登录。");
+                            }
+                            Err(error) => {
+                                feedback.add_css_class("error-message");
+                                feedback.set_label(&format!(
+                                    "密码已更新，但新登录令牌未能保存：{error}。请重新登录。"
+                                ));
+                            }
+                        }
+                    });
+                    gtk::glib::ControlFlow::Break
+                }
+                Ok(Err(error)) => {
+                    button.set_sensitive(true);
+                    feedback.add_css_class("error-message");
+                    feedback.set_label(&format!("登录密码更新失败：{error}"));
+                    gtk::glib::ControlFlow::Break
+                }
+                Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    button.set_sensitive(true);
+                    feedback.add_css_class("error-message");
+                    feedback.set_label("密码更新工作线程意外退出，请重试。");
+                    gtk::glib::ControlFlow::Break
+                }
+            }
+        });
+    });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rotate_linux_master_password(
+    context: UiContext,
+    current_master_password: String,
+    new_master_password: String,
+    current_login_password: String,
+    button: gtk::Button,
+    feedback: gtk::Label,
+    current_field: gtk::PasswordEntry,
+    new_field: gtk::PasswordEntry,
+    confirm_field: gtk::PasswordEntry,
+    login_field: gtk::PasswordEntry,
+) {
+    gtk::glib::spawn_future_local(async move {
+        let material = match AuthTokenVault.lookup().await {
+            Ok(Some(material)) => material,
+            Ok(None) => {
+                button.set_sensitive(true);
+                feedback.set_label("登录会话已失效，请退出后重新登录。");
+                feedback.add_css_class("error-message");
+                return;
+            }
+            Err(error) => {
+                button.set_sensitive(true);
+                feedback.set_label(&format!("无法读取系统密钥环：{error}"));
+                feedback.add_css_class("error-message");
+                return;
+            }
+        };
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let current_master_password = Zeroizing::new(current_master_password);
+            let new_master_password = Zeroizing::new(new_master_password);
+            let current_login_password = Zeroizing::new(current_login_password);
+            let mut tokens = SyncTokens {
+                access_token: material.access_token.clone(),
+                refresh_token: material.refresh_token.clone(),
+                account_scope: material.account_scope.clone(),
+                username: material.username.clone(),
+            };
+            let result = CloudClient::production().and_then(|client| {
+                client.rotate_master_password(
+                    &mut tokens,
+                    &current_master_password,
+                    &new_master_password,
+                    &current_login_password,
+                )?;
+                Ok((tokens, new_master_password.to_string()))
+            });
+            let _ = sender.send(result);
+        });
+        gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
+            match receiver.try_recv() {
+                Ok(Ok((tokens, new_master_password))) => {
+                    let account = account_fingerprint(&tokens.access_token);
+                    let material = AuthTokenMaterial {
+                        access_token: tokens.access_token.clone(),
+                        refresh_token: tokens.refresh_token.clone(),
+                        account_scope: tokens.account_scope.clone(),
+                        username: tokens.username.clone(),
+                    };
+                    let context = context.clone();
+                    let button = button.clone();
+                    let feedback = feedback.clone();
+                    let current_field = current_field.clone();
+                    let new_field = new_field.clone();
+                    let confirm_field = confirm_field.clone();
+                    let login_field = login_field.clone();
+                    gtk::glib::spawn_future_local(async move {
+                        button.set_sensitive(true);
+                        let Ok(account) = account else {
+                            feedback.add_css_class("error-message");
+                            feedback.set_label("主密码已轮换，但新会话身份无法验证，请重新登录。");
+                            return;
+                        };
+                        if let Err(error) = AuthTokenVault.store(&material).await {
+                            feedback.add_css_class("error-message");
+                            feedback.set_label(&format!(
+                                "主密码已轮换，但新登录令牌未能保存：{error}。请重新登录。"
+                            ));
+                            return;
+                        }
+                        if !context.sync_session.unlock(
+                            account,
+                            new_master_password,
+                            current_unix_ms().unwrap_or(0),
+                        ) {
+                            feedback.add_css_class("error-message");
+                            feedback.set_label("主密码已轮换，请重新启动并使用新主密码解锁。");
+                            return;
+                        }
+                        current_field.set_text("");
+                        new_field.set_text("");
+                        confirm_field.set_text("");
+                        login_field.set_text("");
+                        feedback.remove_css_class("error-message");
+                        feedback.set_label("主密码已轮换，云端配置已重新加密。");
+                        context
+                            .sync_status
+                            .set_label("主密码已轮换 · 后台同步已恢复");
+                    });
+                    gtk::glib::ControlFlow::Break
+                }
+                Ok(Err(error)) => {
+                    button.set_sensitive(true);
+                    feedback.add_css_class("error-message");
+                    feedback.set_label(&format!("主密码轮换失败：{error}"));
+                    gtk::glib::ControlFlow::Break
+                }
+                Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    button.set_sensitive(true);
+                    feedback.add_css_class("error-message");
+                    feedback.set_label("主密码轮换工作线程意外退出，请重试。");
+                    gtk::glib::ControlFlow::Break
+                }
+            }
+        });
+    });
+}
+
+fn confirm_leave_account(context: UiContext, parent: &adw::Dialog, switch_account: bool) {
+    let dialog = adw::AlertDialog::builder()
+        .heading(if switch_account {
+            "切换账号？"
+        } else {
+            "退出登录？"
+        })
+        .body("将断开受当前账户保护的会话，并清除本机登录令牌与主密码会话。本机资产不会被删除。")
+        .close_response("cancel")
+        .build();
+    dialog.add_response("cancel", "取消");
+    dialog.add_response(
+        "confirm",
+        if switch_account {
+            "切换账号"
+        } else {
+            "退出登录"
+        },
+    );
+    dialog.set_response_appearance("confirm", adw::ResponseAppearance::Destructive);
+    let parent = parent.clone();
+    gtk::glib::spawn_future_local(async move {
+        if dialog.choose_future(Some(&parent)).await.as_str() != "confirm" {
+            return;
+        }
+        context.sync_session.lock();
+        context.background_pending.borrow_mut().take();
+        match AuthTokenVault.clear().await {
+            Ok(()) => {
+                if let Some(application) = context.window.application() {
+                    application.withdraw_notification("sync-action-required");
+                }
+                set_asset_access_authorized(&context, false);
+                set_active_account_fingerprint(&context, None);
+                set_account_header_logged_in(&context.account_header, false);
+                context
+                    .status
+                    .set_label("未登录 · 本地资产可用 · 同步资产已隐藏");
+                context.sync_status.set_label("未登录 · 本地资产可用");
+                (context.refresh_assets)();
+                parent.close();
+                if switch_account {
+                    present_sync_window(context);
+                }
+            }
+            Err(error) => context
+                .status
+                .set_label(&format!("退出未完成：无法清除系统密钥环令牌：{error}")),
+        }
+    });
+}
+
+fn asset_is_accessible(
+    asset: &ServerAsset,
+    synchronized_owners: &HashMap<Uuid, HashSet<String>>,
+    active_account: Option<&str>,
+    synchronized_access_authorized: bool,
+) -> bool {
+    match asset.storage_scope {
+        AssetStorageScope::LocalOnly => true,
+        AssetStorageScope::AccountSynced => {
+            synchronized_access_authorized
+                && active_account.is_some_and(|account| {
+                    synchronized_owners
+                        .get(&asset.id)
+                        .is_some_and(|owners| owners.contains(account))
+                })
+        }
+        AssetStorageScope::Unspecified => {
+            let Some(owners) = synchronized_owners.get(&asset.id) else {
+                return true;
+            };
+            synchronized_access_authorized
+                && active_account.is_some_and(|account| owners.contains(account))
+        }
+    }
+}
+
+fn asset_is_accessible_for_context(context: &UiContext, asset_id: Uuid) -> bool {
+    let Some(asset) = context
+        .catalog
+        .borrow()
+        .assets()
+        .iter()
+        .find(|asset| asset.id == asset_id)
+        .cloned()
+    else {
+        return false;
+    };
+    let owners = match context.sync_state.synchronized_asset_owners() {
+        Ok(owners) => owners,
+        Err(_) => return asset.storage_scope == AssetStorageScope::LocalOnly,
+    };
+    asset_is_accessible(
+        &asset,
+        &owners,
+        context.active_account_fingerprint.borrow().as_deref(),
+        context.asset_access_authorized.get(),
+    )
+}
+
+fn set_active_account_fingerprint(context: &UiContext, account: Option<String>) {
+    context.active_account_fingerprint.replace(account);
+    (context.refresh_assets)();
+}
+
+fn set_asset_access_authorized(context: &UiContext, authorized: bool) {
+    if context.asset_access_authorized.get() == authorized {
+        (context.refresh_assets)();
+        return;
+    }
+    context.asset_access_authorized.set(authorized);
+    if !authorized {
+        let session_ids = context
+            .session
+            .borrow()
+            .sessions
+            .keys()
+            .copied()
+            .filter(|asset_id| !asset_is_accessible_for_context(context, *asset_id))
+            .collect::<Vec<_>>();
+        let selected_is_hidden = context
+            .session
+            .borrow()
+            .selected_asset_id
+            .is_some_and(|asset_id| !asset_is_accessible_for_context(context, asset_id));
+        if selected_is_hidden {
+            context.session.borrow_mut().selected_asset_id = None;
+        }
+        for asset_id in session_ids {
+            disconnect_workspace(context.clone(), asset_id, true);
+        }
+        if context.session.borrow().active_workspace_id.is_none() {
+            context.workspace.edit.set_sensitive(false);
+            context.workspace.connect.set_sensitive(false);
+            set_ssh_tool_context_available(context, false);
+            render_active_workspace(context);
+            refresh_session_tabs(context);
+        }
+    }
+    (context.refresh_assets)();
+}
+
+fn require_asset_access(context: &UiContext, asset_id: Uuid) -> bool {
+    if asset_is_accessible_for_context(context, asset_id) {
+        return true;
+    }
+    context
+        .status
+        .set_label("请先登录并解锁账户，再访问服务器资产。");
+    present_sync_window(context.clone());
+    false
 }
 
 fn window_resize_handles_visible(maximized: bool, fullscreen: bool) -> bool {
@@ -2246,20 +3146,28 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
             resize_window.is_maximized(),
             resize_window.is_fullscreen(),
         ) {
+            // Capture-phase gestures must explicitly release non-resize
+            // presses. Leaving the sequence undecided can starve HeaderBar's
+            // native maximize/minimize buttons and WindowHandle drag regions.
+            gesture.set_state(gtk::EventSequenceState::Denied);
             return;
         }
         let Some(region) =
             window_resize_region(resize_overlay.width(), resize_overlay.height(), x, y)
         else {
+            gesture.set_state(gtk::EventSequenceState::Denied);
             return;
         };
         let Some(event) = gesture.current_event() else {
+            gesture.set_state(gtk::EventSequenceState::Denied);
             return;
         };
         let Some(surface) = event.surface() else {
+            gesture.set_state(gtk::EventSequenceState::Denied);
             return;
         };
         let Ok(toplevel) = surface.downcast::<Toplevel>() else {
+            gesture.set_state(gtk::EventSequenceState::Denied);
             return;
         };
         let device = event.device();
@@ -2324,17 +3232,18 @@ fn top_bar_button(label: &str, tooltip: &str) -> gtk::Button {
     // follows the same information weight while retaining native button,
     // focus, hover and disabled-state rendering.
     let button = gtk::Button::with_label(label);
+    button.set_size_request(workstation_command_button_width(), 28);
     button.set_tooltip_text(Some(tooltip));
     button.add_css_class("top-command");
     button
 }
 
 fn build_sidebar(
-    window: &adw::ApplicationWindow,
-    catalog: Rc<RefCell<Catalog>>,
+    _window: &adw::ApplicationWindow,
+    _catalog: Rc<RefCell<Catalog>>,
     widgets: (&gtk::SearchEntry, &gtk::ListBox, &gtk::Stack, &gtk::Label),
-    vault: CredentialVault,
-    refresh: Rc<dyn Fn()>,
+    _vault: CredentialVault,
+    _refresh: Rc<dyn Fn()>,
     sync_status: &gtk::Label,
     sync_context: UiContext,
 ) -> SidebarWidgets {
@@ -2346,7 +3255,6 @@ fn build_sidebar(
     sidebar.add_css_class("asset-sidebar");
     let sidebar_root = gtk::Box::new(Orientation::Vertical, 0);
     sidebar_root.add_css_class("asset-sidebar-root");
-    sidebar_root.set_size_request(220, -1);
 
     let heading = gtk::Box::new(Orientation::Horizontal, 8);
     heading.add_css_class("panel-heading");
@@ -2366,13 +3274,10 @@ fn build_sidebar(
             edit_context.status.set_label("请先选择服务器资产");
             return;
         };
-        present_edit_asset_window(
-            &edit_context.window,
-            edit_context.catalog.clone(),
-            edit_context.vault.clone(),
-            asset_id,
-            edit_context.refresh_assets.clone(),
-        );
+        if !require_asset_access(&edit_context, asset_id) {
+            return;
+        }
+        present_edit_asset_window(edit_context.clone(), asset_id);
     });
     let add = gtk::Button::builder()
         .icon_name("list-add-symbolic")
@@ -2384,10 +3289,8 @@ fn build_sidebar(
         .tooltip_text("收起服务器资产栏")
         .build();
     collapse.add_css_class("flat");
-    let parent = window.clone();
-    add.connect_clicked(move |_| {
-        present_add_asset_window(&parent, catalog.clone(), vault.clone(), refresh.clone())
-    });
+    let add_context = sync_context.clone();
+    add.connect_clicked(move |_| present_add_asset_window(add_context.clone()));
     heading.append(&label);
     heading.append(asset_count);
     heading.append(&edit);
@@ -2409,6 +3312,13 @@ fn build_sidebar(
         .build();
     empty.add_css_class("compact-status");
     stack.add_named(&empty, Some("empty"));
+    let signed_out = adw::StatusPage::builder()
+        .icon_name("system-lock-screen-symbolic")
+        .title("无法确认资产归属")
+        .description("同步状态文件不可用；为避免跨账户暴露，资产暂时保持隐藏。")
+        .build();
+    signed_out.add_css_class("compact-status");
+    stack.add_named(&signed_out, Some("signed-out"));
     sidebar.append(stack);
 
     let footer = gtk::Box::new(Orientation::Horizontal, 7);
@@ -2426,12 +3336,12 @@ fn build_sidebar(
     sync_status.set_max_width_chars(90);
     let sync = gtk::Button::builder()
         .icon_name("view-refresh-symbolic")
-        .tooltip_text("打开账户与同步")
+        .tooltip_text("立即同步")
         .build();
     sync.add_css_class("flat");
     sync.add_css_class("compact-footer-button");
     let sync_context_for_footer = sync_context.clone();
-    sync.connect_clicked(move |_| present_sync_window(sync_context_for_footer.clone()));
+    sync.connect_clicked(move |_| trigger_manual_sync(sync_context_for_footer.clone()));
     footer.append(&sync);
     let drag_handle = gtk::WindowHandle::new();
     drag_handle.set_hexpand(true);
@@ -2566,7 +3476,7 @@ fn build_workspace() -> WorkspaceWidgets {
     let monitor_history = Rc::new(RefCell::new(Vec::<MonitorSnapshot>::new()));
     let mut monitor_values = Vec::new();
     let mut monitor_graphs = Vec::new();
-    for (index, label) in ["CPU", "内存", "磁盘", "下载", "上传", "TCP 延迟 · 失败率"]
+    for (index, label) in ["CPU", "内存", "磁盘", "下载", "上传", "TCP"]
         .into_iter()
         .enumerate()
     {
@@ -2576,6 +3486,9 @@ fn build_workspace() -> WorkspaceWidgets {
         metric.set_size_request(0, 26);
         let metric_header = gtk::Box::new(Orientation::Horizontal, 4);
         let name = gtk::Label::new(Some(label));
+        if index == 5 {
+            name.set_tooltip_text(Some("TCP 延迟 · 探测失败率"));
+        }
         name.add_css_class("caption");
         name.set_xalign(0.0);
         name.set_hexpand(true);
@@ -2626,6 +3539,7 @@ fn build_workspace() -> WorkspaceWidgets {
         monitor_graphs.push(graph);
     }
     let monitor_detail = command_button("详情", "view-list-symbolic", "查看系统信息与监控详情");
+    monitor_detail.set_sensitive(false);
     monitor.append(&monitor_detail);
     let monitor_connection = gtk::Label::new(Some("未连接"));
 
@@ -2667,7 +3581,7 @@ fn build_workspace() -> WorkspaceWidgets {
     terminal_grid.set_margin_bottom(12);
     let mut terminals = Vec::new();
     let mut terminal_frames = Vec::new();
-    for pane in 0..MAX_TERMINAL_PANES {
+    for _pane in 0..MAX_TERMINAL_PANES {
         let terminal = vte::Terminal::new();
         terminal.add_css_class("terminal");
         terminal.set_hexpand(true);
@@ -2678,7 +3592,6 @@ fn build_workspace() -> WorkspaceWidgets {
         frame.add_css_class("terminal-frame");
         frame.set_hexpand(true);
         frame.set_vexpand(true);
-        frame.set_tooltip_text(Some(&format!("终端分屏 {}", pane + 1)));
         frame.append(&terminal);
         terminals.push(terminal);
         terminal_frames.push(frame);
@@ -2878,7 +3791,6 @@ fn build_tools(snippet_repository: SnippetRepository) -> ToolsWidgets {
     panel_stack.set_transition_type(gtk::StackTransitionType::SlideLeftRight);
     let tools = gtk::Box::new(Orientation::Vertical, 0);
     tools.add_css_class("tool-panel");
-    tools.set_size_request(280, -1);
 
     let heading = gtk::Box::new(Orientation::Horizontal, 8);
     heading.add_css_class("panel-heading");
@@ -3681,7 +4593,9 @@ fn apply_tool_panel_visibility(context: &UiContext) {
         // a misleading restore affordance on the application edge while the
         // remote desktop is active; the user's SSH panel preference is kept
         // and restored on the next non-RDP workspace.
-        expand.set_visible(!auto_hidden && !requested_visible);
+        expand.set_visible(
+            !auto_hidden && context.tools_ssh_context_available.get() && !requested_visible,
+        );
     }
 }
 
@@ -3689,7 +4603,7 @@ fn tool_panel_requested_visible(
     manual_visibility: Option<bool>,
     ssh_context_available: bool,
 ) -> bool {
-    manual_visibility.unwrap_or(ssh_context_available)
+    ssh_context_available && manual_visibility.unwrap_or(true)
 }
 
 fn set_ssh_tool_context_available(context: &UiContext, available: bool) {
@@ -3703,6 +4617,9 @@ fn set_rdp_tool_autohide(context: &UiContext, hidden: bool) {
 }
 
 fn select_asset(context: &UiContext, asset_id: Uuid) {
+    if !require_asset_access(context, asset_id) {
+        return;
+    }
     if context.module_fullscreen.get() {
         exit_module_fullscreen(context);
     }
@@ -3735,7 +4652,7 @@ fn select_asset(context: &UiContext, asset_id: Uuid) {
 
     refresh_snippet_list(context);
 
-    update_endpoint(context, &asset);
+    reset_monitor_presentation(context, Some(asset.host.trim()));
     context.workspace.title.set_label(&asset.name);
     context.workspace.subtitle.set_label(&format!(
         "{} · {}",
@@ -3829,6 +4746,59 @@ fn update_endpoint(context: &UiContext, asset: &ServerAsset) {
     if let Some(sidebar) = context.sidebar.borrow().as_ref() {
         sidebar.edit.set_sensitive(true);
     }
+}
+
+fn reset_monitor_presentation(context: &UiContext, endpoint: Option<&str>) {
+    context.workspace.monitor_history.borrow_mut().clear();
+    context.workspace.monitor_endpoint.set_label(
+        endpoint
+            .filter(|value| !value.is_empty())
+            .unwrap_or("尚未选择"),
+    );
+    context
+        .workspace
+        .monitor_copy_endpoint
+        .set_sensitive(endpoint.is_some_and(|value| !value.is_empty()));
+    context.workspace.monitor_connection.set_label("未连接");
+    for label in [
+        &context.workspace.monitor_cpu,
+        &context.workspace.monitor_memory,
+        &context.workspace.monitor_disk,
+        &context.workspace.monitor_download,
+        &context.workspace.monitor_upload,
+        &context.workspace.monitor_latency,
+    ] {
+        label.set_label("—");
+    }
+    context.workspace.monitor_detail.set_sensitive(false);
+    for graph in context.workspace.monitor_graphs.iter() {
+        graph.queue_draw();
+    }
+}
+
+fn render_empty_workspace(context: &UiContext) {
+    reset_monitor_presentation(context, None);
+    context.workspace.heading.set_visible(false);
+    context.workspace.empty_title.set_label(EMPTY_SESSION_TITLE);
+    context
+        .workspace
+        .empty_description
+        .set_label(EMPTY_SESSION_DESCRIPTION);
+    context
+        .workspace
+        .content_stack
+        .set_visible_child_name("empty");
+    context.workspace.input_row.set_visible(true);
+    context.workspace.input.set_sensitive(false);
+    context.workspace.send.set_sensitive(false);
+    context.workspace.connect.set_sensitive(false);
+    context.workspace.disconnect.set_sensitive(false);
+    context.workspace.edit.set_sensitive(false);
+    context.workspace.split_menu.set_sensitive(false);
+    context.workspace.terminal_fullscreen.set_sensitive(false);
+    context.tools.content_stack.set_visible_child_name("empty");
+    set_ssh_tool_context_available(context, false);
+    set_rdp_tool_autohide(context, false);
 }
 
 fn refresh_session_tabs(context: &UiContext) {
@@ -4166,6 +5136,7 @@ fn render_active_workspace(context: &UiContext) {
             )
         })
     }) else {
+        render_empty_workspace(context);
         return;
     };
     let asset = context
@@ -4178,7 +5149,18 @@ fn render_active_workspace(context: &UiContext) {
     let Some(asset) = asset else {
         return;
     };
-    update_endpoint(context, &asset);
+    match phase {
+        WorkspacePhase::Connected => update_endpoint(context, &asset),
+        WorkspacePhase::Disconnected | WorkspacePhase::Failed | WorkspacePhase::Closed => {
+            reset_monitor_presentation(context, None);
+        }
+        WorkspacePhase::Starting
+        | WorkspacePhase::Authenticating
+        | WorkspacePhase::AwaitingUserDecision
+        | WorkspacePhase::Reconnecting => {
+            reset_monitor_presentation(context, Some(asset.host.trim()));
+        }
+    }
     context.workspace.title.set_label(&asset.name);
     context.workspace.subtitle.set_label(&format!(
         "{} · {}",
@@ -4261,7 +5243,7 @@ fn render_active_workspace(context: &UiContext) {
                 Transport::Rdp => "NLA",
             }
         } else {
-            workspace_phase_label(phase)
+            "未连接"
         });
     context.workspace.monitor_latency.set_label("—");
     if transport != Transport::Ssh {
@@ -5705,6 +6687,13 @@ fn send_rdp_text(context: &UiContext, text: &str) -> bool {
     accepted
 }
 
+#[derive(Clone, Copy)]
+struct AssetVisibilitySnapshot<'a> {
+    synchronized_access_authorized: bool,
+    active_account: Option<&'a str>,
+    synchronized_owners: &'a HashMap<Uuid, HashSet<String>>,
+}
+
 fn refresh_asset_list(
     list: &gtk::ListBox,
     stack: &gtk::Stack,
@@ -5712,12 +6701,29 @@ fn refresh_asset_list(
     query: &str,
     ids: &Rc<RefCell<Vec<Option<Uuid>>>>,
     asset_count: &gtk::Label,
+    visibility: Option<AssetVisibilitySnapshot<'_>>,
 ) {
     while let Some(child) = list.first_child() {
         list.remove(&child);
     }
     ids.borrow_mut().clear();
-    let filtered = catalog.filtered(query);
+    let Some(visibility) = visibility else {
+        asset_count.set_label("0 台");
+        stack.set_visible_child_name("signed-out");
+        return;
+    };
+    let filtered = catalog
+        .filtered(query)
+        .into_iter()
+        .filter(|asset| {
+            asset_is_accessible(
+                asset,
+                visibility.synchronized_owners,
+                visibility.active_account,
+                visibility.synchronized_access_authorized,
+            )
+        })
+        .collect::<Vec<_>>();
     asset_count.set_label(&format!("{} 台", filtered.len()));
     if filtered.is_empty() {
         stack.set_visible_child_name("empty");
@@ -5742,8 +6748,10 @@ fn refresh_asset_list(
         let header = gtk::Button::new();
         header.add_css_class("flat");
         header.add_css_class("asset-group-header");
+        header.set_hexpand(true);
         header.set_tooltip_text(Some("展开或收起资产分组"));
         let header_body = gtk::Box::new(Orientation::Horizontal, 7);
+        header_body.set_hexpand(true);
         let disclosure = gtk::Image::from_icon_name("pan-end-symbolic");
         let group_label = gtk::Label::new(Some(&group));
         group_label.set_xalign(0.0);
@@ -5785,6 +6793,15 @@ fn refresh_asset_list(
             });
             title_line.append(&name);
             title_line.append(&transport);
+            let scope_label = asset_scope_label(asset, visibility.synchronized_owners);
+            let scope = gtk::Label::new(Some(scope_label));
+            scope.add_css_class("transport-badge");
+            scope.set_tooltip_text(Some(if scope_label == "同步" {
+                "随 OrbitTerm 账户端到端加密同步"
+            } else {
+                "仅保存在当前 Linux 设备"
+            }));
+            title_line.append(&scope);
             let endpoint = gtk::Label::new(Some(&asset.endpoint()));
             endpoint.add_css_class("caption");
             endpoint.set_xalign(0.0);
@@ -5824,7 +6841,22 @@ fn refresh_asset_list(
     stack.set_visible_child_name("assets");
 }
 
+fn asset_scope_label(
+    asset: &ServerAsset,
+    synchronized_owners: &HashMap<Uuid, HashSet<String>>,
+) -> &'static str {
+    match asset.storage_scope {
+        AssetStorageScope::AccountSynced => "同步",
+        AssetStorageScope::LocalOnly => "本机",
+        AssetStorageScope::Unspecified if synchronized_owners.contains_key(&asset.id) => "同步",
+        AssetStorageScope::Unspecified => "本机",
+    }
+}
+
 fn begin_connect(context: UiContext, asset_id: Uuid) {
+    if !require_asset_access(&context, asset_id) {
+        return;
+    }
     cancel_rdp_auto_reconnect(&context, asset_id);
     let is_rdp = context
         .catalog
@@ -8140,19 +9172,20 @@ fn disconnect_workspace(context: UiContext, asset_id: Uuid, remove_tab: bool) {
         registry.sessions.remove(&asset_id);
         if registry.active_workspace_id == Some(asset_id) {
             registry.active_workspace_id = registry.sessions.keys().next().copied();
+            registry.selected_asset_id = registry.active_workspace_id;
         }
         context.rdp_metrics.borrow_mut().remove(&asset_id);
     }
     refresh_session_tabs(&context);
     if was_active {
-        let (active, selected) = {
+        let active = {
             let registry = context.session.borrow();
-            (registry.active_workspace_id, registry.selected_asset_id)
+            registry.active_workspace_id
         };
         if active.is_some() {
             render_active_workspace(&context);
-        } else if let Some(selected) = selected {
-            select_asset(&context, selected);
+        } else {
+            render_empty_workspace(&context);
         }
     }
     if terminal_ids.is_empty() && sftp_id.is_none() && base_id.is_none() {
@@ -8228,6 +9261,33 @@ fn install_monitor_timer(context: UiContext) {
     });
 }
 
+fn restore_saved_account_on_launch(context: UiContext) {
+    gtk::glib::spawn_future_local(async move {
+        match AuthTokenVault.lookup().await {
+            Ok(Some(material)) => {
+                if let Ok(account) = account_fingerprint(&material.access_token) {
+                    set_active_account_fingerprint(&context, Some(account));
+                    set_account_header_logged_in(&context.account_header, true);
+                    set_asset_access_authorized(&context, false);
+                    context
+                        .status
+                        .set_label("已登录 · 请输入主密码解锁同步资产");
+                    context.sync_status.set_label("已保存账户 · 等待主密码解锁");
+                }
+                // A saved account is a resumable signed-in state. Match the
+                // Apple desktop flow by presenting the master-password gate at
+                // launch instead of requiring a trip through Personal Center.
+                present_sync_window(context.clone());
+            }
+            Ok(None) => {}
+            Err(error) => context
+                .sync_status
+                .set_label(&format!("无法读取已保存账户：{error}")),
+        }
+        install_background_sync_scheduler(context);
+    });
+}
+
 fn install_background_sync_scheduler(context: UiContext) {
     let timer_context = context.clone();
     gtk::glib::timeout_add_local(Duration::from_secs(5), move || {
@@ -8245,6 +9305,30 @@ fn install_background_sync_scheduler(context: UiContext) {
     trigger_background_sync(context);
 }
 
+fn trigger_manual_sync(context: UiContext) {
+    let Some(account) = context.active_account_fingerprint.borrow().clone() else {
+        context.sync_status.set_label("请先登录以同步账户数据");
+        present_account_entry(context);
+        return;
+    };
+    let Ok(now) = current_unix_ms() else {
+        context.sync_status.set_label("系统时间异常 · 无法立即同步");
+        return;
+    };
+    if context.sync_session.password_for(&account, now).is_none() {
+        context.sync_status.set_label("请先输入主密码解锁同步");
+        present_account_entry(context);
+        return;
+    }
+    if context.sync_scheduler.background_busy() {
+        context.sync_status.set_label("同步正在进行…");
+        return;
+    }
+    context.sync_session.request_pull_now();
+    context.sync_status.set_label("正在请求立即同步…");
+    trigger_background_sync(context);
+}
+
 fn trigger_background_sync(context: UiContext) {
     if !context.sync_scheduler.try_begin_background() {
         return;
@@ -8254,11 +9338,15 @@ fn trigger_background_sync(context: UiContext) {
             Ok(Some(material)) => material,
             Ok(None) => {
                 set_account_header_logged_in(&context.account_header, false);
-                context.sync_status.set_label("登录后可自动同步");
+                set_asset_access_authorized(&context, false);
+                set_active_account_fingerprint(&context, None);
+                context.sync_status.set_label("未登录 · 本地资产可用");
                 context.sync_scheduler.finish_background();
                 return;
             }
             Err(_) => {
+                set_asset_access_authorized(&context, false);
+                set_active_account_fingerprint(&context, None);
                 context.sync_status.set_label("无法读取同步登录");
                 context.sync_scheduler.finish_background();
                 return;
@@ -8268,17 +9356,21 @@ fn trigger_background_sync(context: UiContext) {
             access_token: material.access_token.clone(),
             refresh_token: material.refresh_token.clone(),
             account_scope: material.account_scope.clone(),
+            username: material.username.clone(),
         };
         let account = match account_fingerprint(&tokens.access_token) {
             Ok(account) => account,
             Err(_) => {
                 set_account_header_logged_in(&context.account_header, false);
+                set_asset_access_authorized(&context, false);
+                set_active_account_fingerprint(&context, None);
                 context.sync_status.set_label("同步登录已失效");
                 context.sync_scheduler.finish_background();
                 return;
             }
         };
         set_account_header_logged_in(&context.account_header, true);
+        set_active_account_fingerprint(&context, Some(account.clone()));
         let now = match current_unix_ms() {
             Ok(now) => now,
             Err(_) => {
@@ -8296,16 +9388,40 @@ fn trigger_background_sync(context: UiContext) {
             }
         };
         if pending.is_empty() {
-            if context.background_pending.borrow().is_some() {
-                context.sync_status.set_label("需要人工处理 · 后台增量暂停");
+            let staged = context.background_pending.borrow_mut().take();
+            if let Some(staged) = staged {
+                let unresolved = staged.preview.unresolved_count();
+                if unresolved == 0 {
+                    context.sync_status.set_label("正在后台安全应用云端增量…");
+                    apply_background_preview(context, staged);
+                    return;
+                }
+                let notification_key = format!(
+                    "{}:{}:{}",
+                    staged.account_fingerprint,
+                    staged
+                        .checkpoint
+                        .as_ref()
+                        .map_or(0, |checkpoint| checkpoint.revision),
+                    unresolved
+                );
+                context.background_pending.replace(Some(staged));
+                context
+                    .sync_status
+                    .set_label(&format!("需要人工处理 · {unresolved} 项冲突或异常"));
+                if context.sync_session.should_notify(notification_key) {
+                    send_manual_sync_notification(&context, unresolved);
+                }
                 context.sync_scheduler.finish_background();
                 return;
             }
             let Some(master_password) = context.sync_session.password_for(&account, now) else {
+                set_asset_access_authorized(&context, false);
                 context.sync_status.set_label("已登录 · 主密码已锁定");
                 context.sync_scheduler.finish_background();
                 return;
             };
+            set_asset_access_authorized(&context, true);
             if !context.sync_session.pull_is_due(now, 30_000) {
                 context.sync_status.set_label("云同步健康 · 后台增量已启用");
                 context.sync_scheduler.finish_background();
@@ -8412,6 +9528,7 @@ fn start_background_pull_worker(
                         access_token: pending.tokens.access_token.clone(),
                         refresh_token: pending.tokens.refresh_token.clone(),
                         account_scope: pending.tokens.account_scope.clone(),
+                        username: pending.tokens.username.clone(),
                     };
                     context.background_pending.replace(Some(pending));
                     context
@@ -8432,6 +9549,11 @@ fn start_background_pull_worker(
             }
             Ok(BackgroundPullOutcome { result: Err(error) }) => {
                 context.sync_scheduler.finish_background();
+                if matches!(&error, SyncError::Unauthorized) {
+                    set_account_header_logged_in(&context.account_header, false);
+                    set_asset_access_authorized(&context, false);
+                    set_active_account_fingerprint(&context, None);
+                }
                 context
                     .sync_status
                     .set_label(&format!("后台增量暂停 · {error}"));
@@ -8586,11 +9708,12 @@ fn start_background_ack(
     });
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
         match receiver.try_recv() {
-            Ok(Ok((tokens, revision))) => {
+            Ok(Ok((tokens, _revision))) => {
                 let material = AuthTokenMaterial {
                     access_token: tokens.access_token.clone(),
                     refresh_token: tokens.refresh_token.clone(),
                     account_scope: tokens.account_scope.clone(),
+                    username: tokens.username.clone(),
                 };
                 let completion_context = context.clone();
                 gtk::glib::spawn_future_local(async move {
@@ -8598,7 +9721,7 @@ fn start_background_ack(
                     completion_context.sync_scheduler.finish_background();
                     completion_context.sync_session.clear_notification();
                     let label = if stored {
-                        format!("同步健康 · 导入 {imported} 项 · 修订 {revision}")
+                        format!("同步健康 · 已导入 {imported} 项")
                     } else {
                         "同步已确认 · 刷新后的登录令牌未保存".to_owned()
                     };
@@ -8608,6 +9731,11 @@ fn start_background_ack(
             }
             Ok(Err(error)) => {
                 context.sync_scheduler.finish_background();
+                if matches!(&error, SyncError::Unauthorized) {
+                    set_account_header_logged_in(&context.account_header, false);
+                    set_asset_access_authorized(&context, false);
+                    set_active_account_fingerprint(&context, None);
+                }
                 context
                     .sync_status
                     .set_label(&format!("后台确认失败 · 游标未推进 · {error}"));
@@ -8645,6 +9773,11 @@ fn start_background_queue_worker(context: UiContext, mut tokens: SyncTokens, acc
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
         match receiver.try_recv() {
             Ok(outcome) => {
+                if matches!(&outcome.result, Err(SyncError::Unauthorized)) {
+                    set_account_header_logged_in(&context.account_header, false);
+                    set_asset_access_authorized(&context, false);
+                    set_active_account_fingerprint(&context, None);
+                }
                 let label = match (&outcome.result, &outcome.remaining) {
                     (Ok(completed), Ok(remaining)) if remaining.is_empty() => {
                         if *completed == 0 {
@@ -8666,6 +9799,7 @@ fn start_background_queue_worker(context: UiContext, mut tokens: SyncTokens, acc
                     access_token: outcome.tokens.access_token.clone(),
                     refresh_token: outcome.tokens.refresh_token.clone(),
                     account_scope: outcome.tokens.account_scope.clone(),
+                    username: outcome.tokens.username.clone(),
                 };
                 let completion_context = context.clone();
                 gtk::glib::spawn_future_local(async move {
@@ -8758,6 +9892,7 @@ fn render_monitor(context: &UiContext, snapshot: &MonitorSnapshot) {
         format_monitor_latency_summary(&history)
     };
     context.workspace.monitor_connection.set_label("已验证");
+    context.workspace.monitor_detail.set_sensitive(true);
     context
         .workspace
         .monitor_latency
@@ -10595,7 +11730,9 @@ fn present_sftp_editor(context: UiContext, entry: SftpEntry, path: String, conte
     root.append(&footer);
     window.set_child(Some(&root));
     let close_target = window.clone();
-    cancel.connect_clicked(move |_| close_target.close());
+    cancel.connect_clicked(move |_| {
+        close_target.close();
+    });
     let revert_editor = editor.clone();
     let revert_status = status.clone();
     revert.connect_clicked(move |_| {
@@ -11246,6 +12383,7 @@ fn present_asset_manager_window(context: UiContext, search: gtk::SearchEntry) {
         .borrow()
         .assets()
         .iter()
+        .filter(|asset| asset_is_accessible_for_context(&context, asset.id))
         .map(|asset| {
             if asset.group.trim().is_empty() {
                 "未分组".to_owned()
@@ -11299,16 +12437,17 @@ fn present_asset_manager_window(context: UiContext, search: gtk::SearchEntry) {
             selected_assets.borrow_mut().clear();
             let query = filter.text().trim().to_lowercase();
             for asset in catalog.borrow().assets().iter().filter(|asset| {
-                query.is_empty()
-                    || format!(
-                        "{} {} {} {}",
-                        asset.name,
-                        asset.host,
-                        asset.group,
-                        asset.tags.join(" ")
-                    )
-                    .to_lowercase()
-                    .contains(&query)
+                asset_is_accessible_for_context(&context, asset.id)
+                    && (query.is_empty()
+                        || format!(
+                            "{} {} {} {}",
+                            asset.name,
+                            asset.host,
+                            asset.group,
+                            asset.tags.join(" ")
+                        )
+                        .to_lowercase()
+                        .contains(&query))
             }) {
                 let row = gtk::Box::new(Orientation::Horizontal, 10);
                 row.add_css_class("management-row");
@@ -11331,13 +12470,7 @@ fn present_asset_manager_window(context: UiContext, search: gtk::SearchEntry) {
                 let asset_id = asset.id;
                 let edit_context = context.clone();
                 edit.connect_clicked(move |_| {
-                    present_edit_asset_window(
-                        &edit_context.window,
-                        edit_context.catalog.clone(),
-                        edit_context.vault.clone(),
-                        asset_id,
-                        edit_context.refresh_assets.clone(),
-                    );
+                    present_edit_asset_window(edit_context.clone(), asset_id);
                 });
                 row.append(&check);
                 row.append(&identity);
@@ -11353,12 +12486,7 @@ fn present_asset_manager_window(context: UiContext, search: gtk::SearchEntry) {
     filter.connect_search_changed(move |_| render_for_filter());
     let add_context = context.clone();
     add.connect_clicked(move |_| {
-        present_add_asset_window(
-            &add_context.window,
-            add_context.catalog.clone(),
-            add_context.vault.clone(),
-            add_context.refresh_assets.clone(),
-        );
+        present_add_asset_window(add_context.clone());
     });
     let checks = selected_assets.clone();
     select_all.connect_clicked(move |_| {
@@ -11464,7 +12592,7 @@ fn confirm_asset_batch_delete(
     let dialog = adw::AlertDialog::builder()
         .heading(heading)
         .body(format!(
-            "将删除 {} 项本机资产：{}。该操作不会直接删除云端记录；同步中心仍会要求明确处理冲突或墓碑。",
+            "将删除 {} 项资产：{}。仅此设备资产只从本机移除；同步资产会先持久化远端回收站操作，离线时自动重试。",
             targets.len(),
             names
         ))
@@ -11477,6 +12605,27 @@ fn confirm_asset_batch_delete(
         if dialog.choose_future(Some(&context.window)).await.as_str() != "delete" {
             return;
         }
+        let mut conversion_plans = Vec::new();
+        for (asset_id, _) in &targets {
+            let asset = context
+                .catalog
+                .borrow()
+                .assets()
+                .iter()
+                .find(|asset| asset.id == *asset_id)
+                .cloned();
+            if asset.as_ref().is_some_and(|asset| {
+                effective_asset_storage_scope(&context, asset) == AssetStorageScope::AccountSynced
+            }) {
+                match prepare_local_conversion(&context, *asset_id) {
+                    Ok(plan) => conversion_plans.push((*asset_id, plan)),
+                    Err(error) => {
+                        status.set_label(&format!("删除前无法准备同步操作：{error}"));
+                        return;
+                    }
+                }
+            }
+        }
         let ids = targets.iter().map(|(id, _)| *id).collect::<HashSet<_>>();
         let removed = match context.catalog.borrow_mut().remove_many(&ids) {
             Ok(removed) => removed,
@@ -11485,6 +12634,54 @@ fn confirm_asset_batch_delete(
                 return;
             }
         };
+        let mut queued_deletions = Vec::new();
+        let mut pending_cancellations: HashMap<String, Vec<Uuid>> = HashMap::new();
+        let queue_result: Result<(), String> = (|| {
+            for (asset_id, plan) in conversion_plans {
+                match plan {
+                    LocalConversionPlan::CancelPendingUpload(account) => {
+                        pending_cancellations
+                            .entry(account)
+                            .or_default()
+                            .push(asset_id);
+                    }
+                    LocalConversionPlan::DeleteRemote(account, payload) => {
+                        context
+                            .sync_operations
+                            .enqueue(
+                                &account,
+                                SyncOperationKind::DeleteCloud,
+                                payload,
+                                None,
+                                "资产已从本机删除，等待移入云端回收站",
+                            )
+                            .map_err(|error| error.to_string())?;
+                        queued_deletions.push((account, asset_id));
+                    }
+                }
+            }
+            for (account, asset_ids) in &pending_cancellations {
+                context
+                    .sync_operations
+                    .discard_pending_uploads_many(account, asset_ids)
+                    .map_err(|error| error.to_string())?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = queue_result {
+            for asset in &removed {
+                let _ = context.catalog.borrow_mut().upsert(asset.clone());
+            }
+            for (account, asset_id) in queued_deletions {
+                let _ = context.sync_operations.discard_operations(
+                    &account,
+                    asset_id,
+                    SyncOperationKind::DeleteCloud,
+                );
+            }
+            status.set_label(&format!("删除已回滚：无法持久化同步操作：{error}"));
+            return;
+        }
         let mut keyring_failures = 0usize;
         for asset in &removed {
             if context.vault.clear(asset.credential_id).await.is_err() {
@@ -11530,7 +12727,9 @@ fn present_key_management_window(context: UiContext) {
         .borrow()
         .assets()
         .iter()
-        .filter(|asset| asset.transport == Transport::Ssh)
+        .filter(|asset| {
+            asset.transport == Transport::Ssh && asset_is_accessible_for_context(&context, asset.id)
+        })
         .cloned()
         .collect::<Vec<_>>();
     let selector_model = gtk::StringList::new(&[]);
@@ -11584,13 +12783,9 @@ fn present_key_management_window(context: UiContext) {
     let list = gtk::ListBox::new();
     list.add_css_class("management-list");
     list.set_selection_mode(gtk::SelectionMode::None);
-    for asset in context
-        .catalog
-        .borrow()
-        .assets()
-        .iter()
-        .filter(|asset| asset.transport == Transport::Ssh)
-    {
+    for asset in context.catalog.borrow().assets().iter().filter(|asset| {
+        asset.transport == Transport::Ssh && asset_is_accessible_for_context(&context, asset.id)
+    }) {
         let row = gtk::Box::new(Orientation::Horizontal, 10);
         row.add_css_class("management-row");
         let configured = asset.auth_method == AuthMethod::Key && !asset.key_reference.is_empty();
@@ -11707,7 +12902,9 @@ fn present_key_custom_sync_window(context: UiContext, source_id: Uuid) {
         .borrow()
         .assets()
         .iter()
-        .filter(|asset| asset.transport == Transport::Ssh)
+        .filter(|asset| {
+            asset.transport == Transport::Ssh && asset_is_accessible_for_context(&context, asset.id)
+        })
         .cloned()
         .collect::<Vec<_>>();
     let Some(source) = assets.iter().find(|asset| asset.id == source_id).cloned() else {
@@ -11865,6 +13062,9 @@ fn shell_single_quote(value: &str) -> String {
 }
 
 fn present_key_setup_window(context: UiContext, asset_id: Uuid) {
+    if !asset_is_accessible_for_context(&context, asset_id) {
+        return;
+    }
     let Some(asset) = context
         .catalog
         .borrow()
@@ -12060,14 +13260,17 @@ fn present_port_forwarding_window(context: UiContext) {
     let profile_name = gtk::Entry::builder()
         .placeholder_text("例如：本地数据库")
         .build();
-    let profile_sync = gtk::Switch::builder().active(true).build();
+    let profile_sync = gtk::Switch::builder()
+        .active(true)
+        .valign(Align::Center)
+        .build();
+    profile_sync.add_css_class("professional-switch");
     for (row, label, widget) in [
         (0, "本机绑定", bind_host.clone().upcast::<gtk::Widget>()),
         (1, "本机端口（0 自动分配）", bind_port.clone().upcast()),
         (2, "目标主机", destination_host.clone().upcast()),
         (3, "目标端口", destination_port.clone().upcast()),
         (4, "配置名称", profile_name.clone().upcast()),
-        (5, "端到端同步配置", profile_sync.clone().upcast()),
     ] {
         let caption = gtk::Label::new(Some(label));
         caption.set_xalign(0.0);
@@ -12075,6 +13278,38 @@ fn present_port_forwarding_window(context: UiContext) {
         form.attach(&widget, 1, row, 1, 1);
     }
     root.append(&form);
+    let sync_row = gtk::Box::new(Orientation::Horizontal, 12);
+    sync_row.add_css_class("settings-toggle-row");
+    let sync_copy = gtk::Box::new(Orientation::Vertical, 2);
+    sync_copy.set_hexpand(true);
+    let sync_title = gtk::Label::new(Some("端到端同步配置"));
+    sync_title.add_css_class("field-label");
+    sync_title.set_xalign(0.0);
+    let sync_subtitle = gtk::Label::new(Some(
+        "开启后，此映射配置随账户加密同步；运行中的隧道始终只保留在本机。",
+    ));
+    sync_subtitle.add_css_class("caption");
+    sync_subtitle.set_xalign(0.0);
+    sync_subtitle.set_wrap(true);
+    sync_copy.append(&sync_title);
+    sync_copy.append(&sync_subtitle);
+    let sync_state = gtk::Label::new(Some("已启用"));
+    sync_state.add_css_class("toggle-state");
+    sync_state.add_css_class("enabled");
+    let sync_state_for_toggle = sync_state.clone();
+    profile_sync.connect_active_notify(move |toggle| {
+        let enabled = toggle.is_active();
+        sync_state_for_toggle.set_label(if enabled { "已启用" } else { "仅本机" });
+        if enabled {
+            sync_state_for_toggle.add_css_class("enabled");
+        } else {
+            sync_state_for_toggle.remove_css_class("enabled");
+        }
+    });
+    sync_row.append(&sync_copy);
+    sync_row.append(&sync_state);
+    sync_row.append(&profile_sync);
+    root.append(&sync_row);
     let status = gtk::Label::new(Some(
         "端口映射只监听本机回环地址，并依附于当前 Host Key 已验证 SSH 会话。",
     ));
@@ -12344,6 +13579,9 @@ fn render_port_forward_profiles(
         return;
     }
     for profile in profiles {
+        if !asset_is_accessible_for_context(&context, profile.asset_id) {
+            continue;
+        }
         let asset_name = context
             .catalog
             .borrow()
@@ -12482,15 +13720,14 @@ fn present_batch_command_window(context: UiContext) {
     target_list.add_css_class("management-list");
     target_list.set_selection_mode(gtk::SelectionMode::None);
     let mut target_checks = Vec::new();
-    for asset in context
-        .catalog
-        .borrow()
-        .assets()
-        .iter()
-        .filter(|asset| asset.transport == Transport::Ssh)
-    {
-        let row = gtk::Box::new(Orientation::Horizontal, 8);
-        row.add_css_class("management-row");
+    for asset in context.catalog.borrow().assets().iter().filter(|asset| {
+        asset.transport == Transport::Ssh && asset_is_accessible_for_context(&context, asset.id)
+    }) {
+        let row = gtk::ListBoxRow::new();
+        row.set_activatable(false);
+        row.set_selectable(false);
+        let row_content = gtk::Box::new(Orientation::Horizontal, 8);
+        row_content.add_css_class("management-row");
         let check = gtk::CheckButton::new();
         check.set_active(
             context
@@ -12512,41 +13749,53 @@ fn present_batch_command_window(context: UiContext) {
         )));
         label.set_xalign(0.0);
         label.set_hexpand(true);
-        row.append(&check);
-        row.append(&label);
+        row_content.append(&check);
+        row_content.append(&label);
+        row.set_child(Some(&row_content));
         target_list.append(&row);
-        target_checks.push((
-            asset.id,
-            if asset.group.is_empty() {
-                "未分组".to_owned()
-            } else {
-                asset.group.clone()
-            },
-            check,
-        ));
+        let group = if asset.group.is_empty() {
+            "未分组".to_owned()
+        } else {
+            asset.group.clone()
+        };
+        let searchable = format!("{} {} {group}", asset.name, asset.endpoint()).to_lowercase();
+        target_checks.push((asset.id, group, searchable, check, row));
     }
     let target_checks = Rc::new(target_checks);
-    let target_toolbar = gtk::Box::new(Orientation::Horizontal, 6);
-    let select_all = gtk::Button::with_label("全选");
-    let select_none = gtk::Button::with_label("清空");
+    let target_toolbar = gtk::Box::new(Orientation::Horizontal, 8);
+    target_toolbar.add_css_class("batch-target-toolbar");
+    let target_search = gtk::SearchEntry::builder()
+        .placeholder_text("搜索名称、地址或分组")
+        .hexpand(true)
+        .build();
+    let select_visible = gtk::Button::with_label("选择当前结果");
+    let select_none = gtk::Button::with_label("清空已选");
     let mut groups = target_checks
         .iter()
-        .map(|(_, group, _)| group.clone())
+        .map(|(_, group, _, _, _)| group.clone())
         .collect::<Vec<_>>();
     groups.sort();
     groups.dedup();
-    groups.insert(0, "选择分组…".into());
+    groups.insert(0, "全部分组".into());
+    let groups = Rc::new(groups);
     let group_refs = groups.iter().map(String::as_str).collect::<Vec<_>>();
     let group_selector = gtk::DropDown::from_strings(&group_refs);
-    let select_group = gtk::Button::with_label("选择分组");
-    target_toolbar.append(&select_all);
-    target_toolbar.append(&select_none);
     target_toolbar.append(&group_selector);
-    target_toolbar.append(&select_group);
+    target_toolbar.append(&target_search);
     root.append(&target_toolbar);
+    let target_actions = gtk::Box::new(Orientation::Horizontal, 8);
+    let selection_summary = gtk::Label::new(Some("已选择 0 台资产"));
+    selection_summary.add_css_class("caption");
+    selection_summary.set_xalign(0.0);
+    selection_summary.set_hexpand(true);
+    target_actions.append(&selection_summary);
+    target_actions.append(&select_visible);
+    target_actions.append(&select_none);
+    root.append(&target_actions);
     root.append(
         &gtk::ScrolledWindow::builder()
             .min_content_height(150)
+            .max_content_height(230)
             .child(&target_list)
             .build(),
     );
@@ -12595,30 +13844,63 @@ fn present_batch_command_window(context: UiContext) {
     actions.append(&run);
     root.append(&actions);
     window.set_child(Some(&root));
+    let update_selection_summary: Rc<dyn Fn()> = {
+        let checks = target_checks.clone();
+        let summary = selection_summary.clone();
+        Rc::new(move || {
+            let selected = checks
+                .iter()
+                .filter(|(_, _, _, check, _)| check.is_active())
+                .count();
+            summary.set_label(&format!("已选择 {selected} 台资产"));
+        })
+    };
+    for (_, _, _, check, _) in target_checks.iter() {
+        let update = update_selection_summary.clone();
+        check.connect_toggled(move |_| update());
+    }
+    update_selection_summary();
+    let refresh_target_filter: Rc<dyn Fn()> = {
+        let checks = target_checks.clone();
+        let selector = group_selector.clone();
+        let search = target_search.clone();
+        let groups = groups.clone();
+        Rc::new(move || {
+            let selected_group = groups
+                .get(selector.selected() as usize)
+                .map(String::as_str)
+                .unwrap_or("全部分组");
+            let query = search.text().trim().to_lowercase();
+            for (_, group, searchable, _, row) in checks.iter() {
+                row.set_visible(
+                    (selected_group == "全部分组" || group == selected_group)
+                        && (query.is_empty() || searchable.contains(&query)),
+                );
+            }
+        })
+    };
+    let refresh = refresh_target_filter.clone();
+    group_selector.connect_selected_notify(move |_| refresh());
+    let refresh = refresh_target_filter.clone();
+    target_search.connect_search_changed(move |_| refresh());
+    refresh_target_filter();
     let checks = target_checks.clone();
-    select_all.connect_clicked(move |_| {
-        for (_, _, check) in checks.iter() {
-            check.set_active(true);
+    let update = update_selection_summary.clone();
+    select_visible.connect_clicked(move |_| {
+        for (_, _, _, check, row) in checks.iter() {
+            if row.is_visible() {
+                check.set_active(true);
+            }
         }
+        update();
     });
     let checks = target_checks.clone();
+    let update = update_selection_summary.clone();
     select_none.connect_clicked(move |_| {
-        for (_, _, check) in checks.iter() {
+        for (_, _, _, check, _) in checks.iter() {
             check.set_active(false);
         }
-    });
-    let checks = target_checks.clone();
-    select_group.connect_clicked(move |_| {
-        let selected = group_selector.selected() as usize;
-        if selected == 0 {
-            return;
-        }
-        let Some(group) = groups.get(selected) else {
-            return;
-        };
-        for (_, asset_group, check) in checks.iter() {
-            check.set_active(asset_group == group);
-        }
+        update();
     });
     let report_store = Rc::new(RefCell::new(String::new()));
     let filter_store = report_store.clone();
@@ -12669,7 +13951,7 @@ fn present_batch_command_window(context: UiContext) {
         }
         let selected = run_checks
             .iter()
-            .filter_map(|(id, _, check)| check.is_active().then_some(*id))
+            .filter_map(|(id, _, _, check, _)| check.is_active().then_some(*id))
             .collect::<Vec<_>>();
         if selected.is_empty() {
             output.buffer().set_text("请至少选择一项 SSH 资产。");
@@ -12981,7 +14263,15 @@ fn present_settings_window(context: UiContext) {
     let open_sync = gtk::Button::with_label("打开账户与同步中心");
     open_sync.set_halign(Align::Start);
     let sync_context = context.clone();
-    open_sync.connect_clicked(move |_| present_sync_window(sync_context.clone()));
+    let settings_window = window.clone();
+    open_sync.connect_clicked(move |_| {
+        settings_window.set_visible(false);
+        let restore_window = settings_window.clone();
+        let restore: Rc<dyn Fn()> = Rc::new(move || restore_window.present());
+        if !present_sync_window_with_close(sync_context.clone(), Some(restore)) {
+            settings_window.present();
+        }
+    });
     security.append(&open_sync);
 
     let backup = settings_section("备份与恢复");
@@ -12996,13 +14286,7 @@ fn present_settings_window(context: UiContext) {
     import_assets.set_halign(Align::Start);
     let import_context = context.clone();
     import_assets.connect_clicked(move |_| {
-        let parent: gtk::Window = import_context.window.clone().upcast();
-        present_bulk_import_window(
-            &parent,
-            import_context.catalog.clone(),
-            import_context.vault.clone(),
-            import_context.refresh_assets.clone(),
-        );
+        present_bulk_import_window(import_context.clone(), None);
     });
     backup.append(&import_assets);
 
@@ -13239,7 +14523,8 @@ fn install_application_palette(palette: &str, dark: bool) {
 
 #[derive(Clone)]
 struct SyncDialogContext {
-    window: gtk::Window,
+    window: adw::Dialog,
+    parent_window: adw::ApplicationWindow,
     catalog: Rc<RefCell<Catalog>>,
     credential_vault: CredentialVault,
     token_vault: AuthTokenVault,
@@ -13250,8 +14535,12 @@ struct SyncDialogContext {
     background_pending: Rc<RefCell<Option<PendingSyncRun>>>,
     refresh_assets: Rc<dyn Fn()>,
     app_status: gtk::Label,
+    sync_status: gtk::Label,
     account_header: Rc<RefCell<Option<AccountHeaderWidgets>>>,
+    set_asset_access_authorized: Rc<dyn Fn(bool)>,
+    active_account_fingerprint: Rc<RefCell<Option<String>>>,
     pending: Rc<RefCell<Option<PendingSyncRun>>>,
+    account_identity: gtk::Label,
     summary: gtk::Label,
     detail: gtk::Label,
     conflicts: gtk::ListBox,
@@ -13261,6 +14550,7 @@ struct SyncDialogContext {
     spinner: gtk::Spinner,
     unlock_spinner: gtk::Spinner,
     unlock_feedback: gtk::Label,
+    auth_feedback: gtk::Label,
     unlock: gtk::Button,
     login: gtk::Button,
     saved_login: gtk::Button,
@@ -13292,17 +14582,122 @@ enum SyncResolutionAction {
 }
 
 enum SyncAuthInput {
-    Login { username: String, password: String },
+    Authenticated(SyncTokens),
     Saved(SyncTokens),
 }
 
-impl Drop for SyncAuthInput {
-    fn drop(&mut self) {
-        if let Self::Login { username, password } = self {
-            username.zeroize();
-            password.zeroize();
-        }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SavedAccountRoute {
+    SignIn,
+    Unlock,
+    AccountCenter,
+}
+
+fn saved_account_route(has_saved_account: bool, session_unlocked: bool) -> SavedAccountRoute {
+    match (has_saved_account, session_unlocked) {
+        (false, _) => SavedAccountRoute::SignIn,
+        (true, false) => SavedAccountRoute::Unlock,
+        (true, true) => SavedAccountRoute::AccountCenter,
     }
+}
+
+fn valid_account_email(value: &str) -> bool {
+    let value = value.trim();
+    let mut parts = value.split('@');
+    let Some(local) = parts.next() else {
+        return false;
+    };
+    let Some(domain) = parts.next() else {
+        return false;
+    };
+    !local.is_empty()
+        && domain.contains('.')
+        && !domain.starts_with('.')
+        && !domain.ends_with('.')
+        && parts.next().is_none()
+        && !value.chars().any(char::is_whitespace)
+}
+
+fn login_validation_error(
+    username: &str,
+    password: &str,
+    terms_accepted: bool,
+) -> Option<&'static str> {
+    if !terms_accepted {
+        return Some("请先勾选同意使用条款、免责声明与隐私说明。");
+    }
+    if username.trim().is_empty() {
+        return Some("请输入邮箱账号。");
+    }
+    if !valid_account_email(username) {
+        return Some("请输入有效的邮箱账号，例如 name@example.com。");
+    }
+    if password.is_empty() {
+        return Some("请输入登录密码。");
+    }
+    None
+}
+
+fn registration_validation_error(
+    username: &str,
+    password: &str,
+    invite_code: &str,
+    terms_accepted: bool,
+) -> Option<&'static str> {
+    if let Some(message) = login_validation_error(username, password, terms_accepted) {
+        return Some(message);
+    }
+    if password.len() < 12
+        || !password.chars().any(char::is_uppercase)
+        || !password.chars().any(char::is_lowercase)
+        || !password.chars().any(|character| character.is_ascii_digit())
+        || !password
+            .chars()
+            .any(|character| !character.is_alphanumeric() && !character.is_whitespace())
+    {
+        return Some("密码至少 12 位，且必须包含大小写字母、数字和特殊字符。");
+    }
+    if invite_code.trim().is_empty() {
+        return Some("请输入管理员提供的邀请码。");
+    }
+    None
+}
+
+fn login_failure_message(error: &SyncError) -> String {
+    match error {
+        SyncError::Unauthorized => "邮箱账号或登录密码不正确，请检查后重试。".into(),
+        SyncError::InvalidLogin => "登录信息格式无效，请检查邮箱账号和登录密码。".into(),
+        SyncError::Network(_) => "无法连接账户服务，请检查网络后重试。".into(),
+        SyncError::ServerRetryable(_) => "账户服务暂时不可用，请稍后重试。".into(),
+        _ => "登录未完成，请稍后重试；本机数据未发生改变。".into(),
+    }
+}
+
+fn registration_failure_message(error: &SyncError) -> String {
+    match error {
+        SyncError::Network(_) => "注册失败：无法连接账户服务，请检查网络后重试。".into(),
+        SyncError::ServerRetryable(_) => "注册失败：账户服务暂时不可用，请稍后重试。".into(),
+        SyncError::Unauthorized | SyncError::InvalidLogin => {
+            "注册失败：注册信息或邀请码未被接受，请检查后重试。".into()
+        }
+        SyncError::Server(message)
+            if ["already", "exists", "registered", "已注册", "已存在"]
+                .iter()
+                .any(|marker| message.to_ascii_lowercase().contains(marker)) =>
+        {
+            "注册失败：该邮箱已注册，请直接登录。".into()
+        }
+        SyncError::Server(_) => "注册失败：注册信息或邀请码未被接受，请检查后重试。".into(),
+        _ => "注册未完成，请稍后重试；本机数据未发生改变。".into(),
+    }
+}
+
+fn sync_account_visible_name(tokens: &SyncTokens) -> String {
+    let stored = tokens.username.trim();
+    if !stored.is_empty() {
+        return stored.to_owned();
+    }
+    account_display_name(&tokens.access_token).unwrap_or_else(|| "已保存账户".to_owned())
 }
 
 enum QueuedNetworkOutcome {
@@ -13327,23 +14722,24 @@ struct BackgroundPullOutcome {
 }
 
 fn present_sync_window(context: UiContext) {
+    let _ = present_sync_window_with_close(context, None);
+}
+
+fn present_sync_window_with_close(context: UiContext, on_closed: Option<Rc<dyn Fn()>>) -> bool {
     if context.sync_scheduler.background_busy() {
         context
             .sync_status
             .set_label("后台同步正在收尾 · 请稍后打开同步中心");
-        return;
+        return false;
     }
     if !context.sync_scheduler.try_open_dialog() {
         context.sync_status.set_label("同步中心已打开");
-        return;
+        return false;
     }
-    let window = gtk::Window::builder()
-        .title("账户与同步")
-        .transient_for(&context.window)
-        .modal(true)
-        .default_width(620)
-        .default_height(600)
-        .resizable(true)
+    let window = adw::Dialog::builder()
+        .content_width(500)
+        .content_height(360)
+        .follows_content_size(false)
         .build();
     let root = gtk::Box::new(Orientation::Vertical, 8);
     root.add_css_class("asset-dialog");
@@ -13353,20 +14749,22 @@ fn present_sync_window(context: UiContext) {
     let heading = gtk::Label::new(Some("OrbitTerm"));
     heading.add_css_class("auth-brand-title");
     heading.set_xalign(0.5);
-    root.append(&heading);
     let intro = gtk::Label::new(Some("欢迎回来，继续你的终端旅程"));
     intro.set_xalign(0.5);
     intro.set_wrap(true);
     intro.add_css_class("caption");
-    root.append(&intro);
 
     let page_stack = gtk::Stack::new();
     page_stack.set_transition_type(gtk::StackTransitionType::SlideLeftRight);
+    page_stack.set_hhomogeneous(false);
+    page_stack.set_vhomogeneous(false);
     page_stack.set_vexpand(true);
-    let auth_card = gtk::Box::new(Orientation::Vertical, 8);
+    let auth_card = gtk::Box::new(Orientation::Vertical, 14);
     auth_card.add_css_class("auth-card");
-    auth_card.set_size_request(480, -1);
+    auth_card.set_size_request(420, -1);
     auth_card.set_halign(Align::Center);
+    auth_card.append(&heading);
+    auth_card.append(&intro);
     let mode = gtk::Box::new(Orientation::Horizontal, 4);
     mode.add_css_class("auth-mode-switch");
     mode.set_homogeneous(true);
@@ -13381,7 +14779,7 @@ fn present_sync_window(context: UiContext) {
     mode.append(&login_mode);
     mode.append(&register_mode);
     auth_card.append(&mode);
-    let username = labeled_entry(&auth_card, "OrbitTerm 账户", "邮箱地址");
+    let username = labeled_entry(&auth_card, "邮箱账号", "name@example.com");
     let login_password = gtk::PasswordEntry::builder()
         .placeholder_text("登录密码")
         .show_peek_icon(true)
@@ -13397,27 +14795,43 @@ fn present_sync_window(context: UiContext) {
     register_fields.set_visible(false);
     auth_card.append(&register_fields);
     let legal_row = gtk::Box::new(Orientation::Horizontal, 6);
-    let view_terms = gtk::Button::with_label("我已阅读并同意《使用条款、免责声明与隐私说明》");
+    legal_row.set_hexpand(true);
+    let legal_consent = gtk::Label::new(Some("已阅读并同意"));
+    legal_consent.set_xalign(0.0);
+    let legal_spacer = gtk::Box::new(Orientation::Horizontal, 0);
+    legal_spacer.set_hexpand(true);
+    let view_terms = gtk::Button::with_label("查看法律条款");
     view_terms.add_css_class("flat");
     legal_row.append(&terms);
+    legal_row.append(&legal_consent);
+    legal_row.append(&legal_spacer);
     legal_row.append(&view_terms);
     auth_card.append(&legal_row);
+    let auth_feedback = gtk::Label::new(None);
+    auth_feedback.set_xalign(0.0);
+    auth_feedback.set_wrap(true);
+    auth_feedback.set_visible(false);
+    auth_feedback.add_css_class("error-message");
+    auth_card.append(&auth_feedback);
 
     page_stack.add_named(&auth_card, Some("auth"));
 
-    let unlock_card = gtk::Box::new(Orientation::Vertical, 8);
+    let unlock_card = gtk::Box::new(Orientation::Vertical, 14);
     unlock_card.add_css_class("auth-card");
-    unlock_card.set_size_request(520, -1);
+    unlock_card.set_size_request(420, -1);
     unlock_card.set_halign(Align::Center);
+    let unlock_mark = gtk::Image::from_icon_name("system-lock-screen-symbolic");
+    unlock_mark.set_pixel_size(40);
+    unlock_mark.set_halign(Align::Center);
+    unlock_mark.add_css_class("auth-security-mark");
+    unlock_card.append(&unlock_mark);
     let unlock_title = gtk::Label::new(Some("解锁端到端加密"));
     unlock_title.add_css_class("auth-card-title");
-    unlock_title.set_xalign(0.0);
+    unlock_title.set_xalign(0.5);
     unlock_card.append(&unlock_title);
-    let unlock_note = gtk::Label::new(Some(
-        "账户认证已完成。请输入独立主密码解密同步数据；主密码不会上传或保存。",
-    ));
-    unlock_note.add_css_class("security-note");
-    unlock_note.set_xalign(0.0);
+    let unlock_note = gtk::Label::new(Some("输入主密码以解锁本次运行的加密同步数据。"));
+    unlock_note.add_css_class("caption");
+    unlock_note.set_xalign(0.5);
     unlock_note.set_wrap(true);
     unlock_card.append(&unlock_note);
     append_labeled_widget(&unlock_card, "主密码", &master_password);
@@ -13425,7 +14839,7 @@ fn present_sync_window(context: UiContext) {
     unlock_progress.set_halign(Align::Fill);
     let unlock_spinner = gtk::Spinner::new();
     unlock_spinner.set_visible(false);
-    let unlock_feedback = gtk::Label::new(Some("输入主密码后将验证账户并生成只读同步预览。"));
+    let unlock_feedback = gtk::Label::new(Some("主密码不会上传或写入磁盘。"));
     unlock_feedback.set_xalign(0.0);
     unlock_feedback.set_hexpand(true);
     unlock_feedback.set_wrap(true);
@@ -13434,9 +14848,10 @@ fn present_sync_window(context: UiContext) {
     unlock_progress.append(&unlock_feedback);
     unlock_card.append(&unlock_progress);
     let unlock_actions = gtk::Box::new(Orientation::Horizontal, 8);
-    unlock_actions.set_halign(Align::End);
+    unlock_actions.set_halign(Align::Fill);
+    unlock_actions.set_homogeneous(true);
     let auth_back = gtk::Button::with_label("返回");
-    let unlock = gtk::Button::with_label("解锁并检查同步");
+    let unlock = gtk::Button::with_label("验证并解锁");
     unlock.add_css_class("suggested-action");
     unlock_actions.append(&auth_back);
     unlock_actions.append(&unlock);
@@ -13445,6 +14860,11 @@ fn present_sync_window(context: UiContext) {
 
     let sync_panel = gtk::Box::new(Orientation::Vertical, 12);
     sync_panel.add_css_class("sync-workspace-card");
+
+    let account_identity = gtk::Label::new(Some("账户状态 · 正在读取"));
+    account_identity.set_xalign(0.0);
+    account_identity.add_css_class("field-label");
+    sync_panel.append(&account_identity);
 
     let progress = gtk::Box::new(Orientation::Horizontal, 8);
     let spinner = gtk::Spinner::new();
@@ -13533,21 +14953,48 @@ fn present_sync_window(context: UiContext) {
     let sync_page = gtk::Box::new(Orientation::Vertical, 12);
     sync_page.append(&sync_panel);
     sync_page.append(&actions);
-    page_stack.add_named(&sync_page, Some("sync"));
-    page_stack.set_visible_child_name("auth");
-    root.append(&page_stack);
-    let page_scroll = gtk::ScrolledWindow::builder()
+    let sync_scroll = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
         .vscrollbar_policy(gtk::PolicyType::Automatic)
-        .child(&root)
+        .child(&sync_page)
         .build();
-    window.set_child(Some(&page_scroll));
+    page_stack.add_named(&sync_scroll, Some("sync"));
+    // Avoid flashing the sign-in form while the saved account in the system
+    // keyring is being classified as signed out, signed in/locked or unlocked.
+    page_stack.set_visible_child_name("unlock");
+    root.append(&page_stack);
+    window.set_child(Some(&root));
+
+    let sizing_window = window.clone();
+    let register_mode_for_sizing = register_mode.clone();
+    page_stack.connect_visible_child_name_notify(move |stack| {
+        match stack.visible_child_name().as_deref() {
+            Some("auth") => {
+                sizing_window.set_content_width(520);
+                sizing_window.set_content_height(if register_mode_for_sizing.is_active() {
+                    540
+                } else {
+                    470
+                });
+            }
+            Some("sync") => {
+                sizing_window.set_content_width(760);
+                sizing_window.set_content_height(680);
+            }
+            _ => {
+                sizing_window.set_content_width(500);
+                sizing_window.set_content_height(360);
+            }
+        }
+    });
 
     let intro_for_mode = intro.clone();
     let register_fields_for_mode = register_fields.clone();
     let login_for_mode = login.clone();
     let saved_for_mode = saved_login.clone();
     let register_for_mode = register.clone();
+    let auth_feedback_for_mode = auth_feedback.clone();
+    let window_for_mode = window.clone();
     register_mode.connect_toggled(move |button| {
         let registering = button.is_active();
         intro_for_mode.set_label(if registering {
@@ -13559,17 +15006,27 @@ fn present_sync_window(context: UiContext) {
         login_for_mode.set_visible(!registering);
         saved_for_mode.set_visible(!registering);
         register_for_mode.set_visible(registering);
+        auth_feedback_for_mode.set_visible(false);
+        window_for_mode.set_content_height(if registering { 540 } else { 470 });
     });
 
     let close_context = context.clone();
-    window.connect_close_request(move |_| {
+    let close_callback = on_closed.clone();
+    window.connect_closed(move |_| {
         close_context.sync_scheduler.close_dialog();
         trigger_background_sync(close_context.clone());
-        gtk::glib::Propagation::Proceed
+        if let Some(callback) = close_callback.as_ref() {
+            callback();
+        }
     });
 
+    let access_context = context.clone();
+    let set_asset_access_authorized: Rc<dyn Fn(bool)> = Rc::new(move |authorized| {
+        set_asset_access_authorized(&access_context, authorized);
+    });
     let dialog_context = SyncDialogContext {
         window: window.clone(),
+        parent_window: context.window.clone(),
         catalog: context.catalog.clone(),
         credential_vault: context.vault.clone(),
         token_vault: AuthTokenVault,
@@ -13580,8 +15037,12 @@ fn present_sync_window(context: UiContext) {
         background_pending: context.background_pending.clone(),
         refresh_assets: context.refresh_assets.clone(),
         app_status: context.status.clone(),
+        sync_status: context.sync_status.clone(),
         account_header: context.account_header.clone(),
+        set_asset_access_authorized,
+        active_account_fingerprint: context.active_account_fingerprint.clone(),
         pending: Rc::new(RefCell::new(None)),
+        account_identity,
         summary,
         detail,
         conflicts,
@@ -13591,6 +15052,7 @@ fn present_sync_window(context: UiContext) {
         spinner,
         unlock_spinner,
         unlock_feedback,
+        auth_feedback,
         unlock: unlock.clone(),
         login,
         saved_login,
@@ -13600,9 +15062,12 @@ fn present_sync_window(context: UiContext) {
     };
     let pending_auth = Rc::new(RefCell::new(None::<SyncAuthInput>));
     let close_target = window.clone();
-    cancel.connect_clicked(move |_| close_target.close());
+    cancel.connect_clicked(move |_| {
+        close_target.close();
+    });
 
     let lock_context = dialog_context.clone();
+    let lock_pending = pending_auth.clone();
     lock_master.connect_clicked(move |_| {
         lock_context.sync_session.lock();
         lock_context.background_pending.borrow_mut().take();
@@ -13612,19 +15077,23 @@ fn present_sync_window(context: UiContext) {
             .detail
             .set_label("后台增量拉取已暂停；离线密文队列仍可按期重试。重新输入主密码即可解锁。");
         lock_context.app_status.set_label("已登录 · 主密码已锁定");
+        (lock_context.set_asset_access_authorized)(false);
+        restore_saved_account_session(lock_context.clone(), lock_pending.clone());
     });
 
     let logout_context = dialog_context.clone();
+    let logout_pending = pending_auth.clone();
     logout.connect_clicked(move |_| {
         logout_context.sync_session.lock();
         logout_context.background_pending.borrow_mut().take();
         logout_context.pending.borrow_mut().take();
         set_sync_busy(&logout_context, true, "正在撤销本机同步令牌…");
         let context = logout_context.clone();
+        let pending_auth = logout_pending.clone();
         gtk::glib::spawn_future_local(async move {
             match context.token_vault.clear().await {
                 Ok(()) => {
-                    if let Some(application) = context.window.application() {
+                    if let Some(application) = context.parent_window.application() {
                         application.withdraw_notification("sync-action-required");
                     }
                     set_sync_busy(&context, false, "");
@@ -13632,8 +15101,15 @@ fn present_sync_window(context: UiContext) {
                     context.detail.set_label(
                         "本机访问令牌、刷新令牌和主密码会话已清除。正式服务暂未提供远端令牌撤销端点；如需切换账户，请直接使用新账户登录。",
                     );
-                    context.app_status.set_label("未登录 · 后台同步已暂停");
+                    context
+                        .app_status
+                        .set_label("未登录 · 本地资产可用 · 后台同步已暂停");
                     set_account_header_logged_in(&context.account_header, false);
+                    (context.set_asset_access_authorized)(false);
+                    context.active_account_fingerprint.replace(None);
+                    pending_auth.borrow_mut().take();
+                    (context.refresh_assets)();
+                    context.page_stack.set_visible_child_name("auth");
                 }
                 Err(error) => show_sync_error(
                     &context,
@@ -13651,19 +15127,62 @@ fn present_sync_window(context: UiContext) {
     let password_for_login = login_password.clone();
     let login_button = dialog_context.login.clone();
     login_button.connect_clicked(move |_| {
-        if !terms_for_login.is_active() {
-            login_context
-                .summary
-                .set_label("请先阅读并同意使用条款与隐私说明");
+        let username = username_for_login.text().to_string();
+        let password = password_for_login.text().to_string();
+        if let Some(message) =
+            login_validation_error(&username, &password, terms_for_login.is_active())
+        {
+            show_auth_error(&login_context, message);
             return;
         }
-        login_pending.replace(Some(SyncAuthInput::Login {
-            username: username_for_login.text().to_string(),
-            password: password_for_login.text().to_string(),
-        }));
-        reset_unlock_feedback(&login_context);
-        login_context.page_stack.set_visible_child_name("unlock");
-        master_focus.grab_focus();
+        clear_auth_error(&login_context);
+        login_context.login.set_sensitive(false);
+        login_context.saved_login.set_sensitive(false);
+        login_context.auth_feedback.set_label("正在验证账户凭据…");
+        login_context
+            .auth_feedback
+            .remove_css_class("error-message");
+        login_context.auth_feedback.set_visible(true);
+        let (sender, receiver) = mpsc::channel();
+        let request_username = username.trim().to_owned();
+        std::thread::spawn(move || {
+            let request_password = Zeroizing::new(password);
+            let result = CloudClient::production()
+                .and_then(|client| client.login(&request_username, &request_password));
+            let _ = sender.send(result);
+        });
+        let completion_context = login_context.clone();
+        let completion_pending = login_pending.clone();
+        let completion_focus = master_focus.clone();
+        gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
+            match receiver.try_recv() {
+                Ok(Ok(tokens)) => {
+                    completion_context.login.set_sensitive(true);
+                    completion_context.saved_login.set_sensitive(true);
+                    clear_auth_error(&completion_context);
+                    completion_pending.replace(Some(SyncAuthInput::Authenticated(tokens)));
+                    reset_unlock_feedback(&completion_context);
+                    completion_context
+                        .page_stack
+                        .set_visible_child_name("unlock");
+                    completion_focus.grab_focus();
+                    gtk::glib::ControlFlow::Break
+                }
+                Ok(Err(error)) => {
+                    completion_context.login.set_sensitive(true);
+                    completion_context.saved_login.set_sensitive(true);
+                    show_auth_error(&completion_context, &login_failure_message(&error));
+                    gtk::glib::ControlFlow::Break
+                }
+                Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    completion_context.login.set_sensitive(true);
+                    completion_context.saved_login.set_sensitive(true);
+                    show_auth_error(&completion_context, "登录工作线程意外退出，请稍后重试。");
+                    gtk::glib::ControlFlow::Break
+                }
+            }
+        });
     });
 
     let register_context = dialog_context.clone();
@@ -13674,24 +15193,32 @@ fn present_sync_window(context: UiContext) {
     let register_terms = terms.clone();
     let register_button = register.clone();
     register.connect_clicked(move |_| {
-        if !register_terms.is_active() {
-            register_context
-                .summary
-                .set_label("请先同意服务条款与隐私说明");
-            return;
-        }
         let username = register_username.text().trim().to_owned();
         let password = register_password.text().to_string();
         let invite = register_invite.text().trim().to_owned();
+        if let Some(message) =
+            registration_validation_error(&username, &password, &invite, register_terms.is_active())
+        {
+            show_auth_error(&register_context, message);
+            return;
+        }
+        clear_auth_error(&register_context);
         register_button.set_sensitive(false);
-        set_sync_busy(&register_context, true, "正在安全创建账户…");
+        register_context
+            .auth_feedback
+            .set_label("正在安全创建账户…");
+        register_context
+            .auth_feedback
+            .remove_css_class("error-message");
+        register_context.auth_feedback.set_visible(true);
         let (sender, receiver) = mpsc::channel();
         let request_username = username.clone();
         let request_password = password.clone();
         std::thread::spawn(move || {
+            let request_password = Zeroizing::new(request_password);
             let result = CloudClient::production().and_then(|client| {
                 client.register(&request_username, &request_password, &invite)?;
-                Ok(())
+                client.login(&request_username, &request_password)
             });
             let _ = sender.send(result);
         });
@@ -13700,13 +15227,10 @@ fn present_sync_window(context: UiContext) {
         let completion_pending = register_pending.clone();
         gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
             match receiver.try_recv() {
-                Ok(Ok(())) => {
+                Ok(Ok(tokens)) => {
                     completion_button.set_sensitive(true);
-                    set_sync_busy(&completion_context, false, "");
-                    completion_pending.replace(Some(SyncAuthInput::Login {
-                        username: username.clone(),
-                        password: password.clone(),
-                    }));
+                    completion_context.auth_feedback.set_visible(false);
+                    completion_pending.replace(Some(SyncAuthInput::Authenticated(tokens)));
                     reset_unlock_feedback(&completion_context);
                     completion_context
                         .summary
@@ -13718,13 +15242,13 @@ fn present_sync_window(context: UiContext) {
                 }
                 Ok(Err(error)) => {
                     completion_button.set_sensitive(true);
-                    show_sync_error(&completion_context, &format!("注册失败：{error}"));
+                    show_auth_error(&completion_context, &registration_failure_message(&error));
                     gtk::glib::ControlFlow::Break
                 }
                 Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
                 Err(_) => {
                     completion_button.set_sensitive(true);
-                    show_sync_error(&completion_context, "注册线程意外退出。");
+                    show_auth_error(&completion_context, "注册线程意外退出，请稍后重试。");
                     gtk::glib::ControlFlow::Break
                 }
             }
@@ -13745,6 +15269,7 @@ fn present_sync_window(context: UiContext) {
                         access_token: tokens.access_token.clone(),
                         refresh_token: tokens.refresh_token.clone(),
                         account_scope: tokens.account_scope.clone(),
+                        username: tokens.username.clone(),
                     })));
                     set_sync_busy(&context, false, "");
                     reset_unlock_feedback(&context);
@@ -13776,7 +15301,7 @@ fn present_sync_window(context: UiContext) {
         back_pending.borrow_mut().take();
         back_stack.set_visible_child_name("auth");
     });
-    let legal_parent = window.clone();
+    let legal_parent = context.window.clone();
     let legal_terms = terms.clone();
     view_terms
         .connect_clicked(move |_| present_legal_terms_window(&legal_parent, legal_terms.clone()));
@@ -13789,12 +15314,16 @@ fn present_sync_window(context: UiContext) {
     retry_all_button
         .connect_clicked(move |_| retry_sync_queue(retry_all_context.clone(), None, true));
     if let Some(pending) = context.background_pending.borrow_mut().take() {
+        dialog_context.account_identity.set_label(&format!(
+            "当前账户 · {} · 会话已解锁",
+            sync_account_visible_name(&pending.tokens)
+        ));
         render_sync_preview(&dialog_context, pending);
         context.sync_session.clear_notification();
     } else {
-        render_sync_timeline(&dialog_context);
+        restore_saved_account_session(dialog_context.clone(), pending_auth.clone());
     }
-    window.present();
+    window.present(Some(&context.window));
     let automatic_context = dialog_context.clone();
     gtk::glib::timeout_add_local(Duration::from_secs(5), move || {
         if !automatic_context.window.is_visible() {
@@ -13819,6 +15348,112 @@ fn present_sync_window(context: UiContext) {
         }
         gtk::glib::ControlFlow::Continue
     });
+    true
+}
+
+fn restore_saved_account_session(
+    context: SyncDialogContext,
+    pending_auth: Rc<RefCell<Option<SyncAuthInput>>>,
+) {
+    context.page_stack.set_visible_child_name("unlock");
+    set_unlock_busy(&context, true, "正在安全恢复已保存账户…");
+    let completion_context = context.clone();
+    gtk::glib::spawn_future_local(async move {
+        match completion_context.token_vault.lookup().await {
+            Ok(Some(material)) => {
+                let tokens = SyncTokens {
+                    access_token: material.access_token.clone(),
+                    refresh_token: material.refresh_token.clone(),
+                    account_scope: material.account_scope.clone(),
+                    username: material.username.clone(),
+                };
+                let visible_account = sync_account_visible_name(&tokens);
+                let account = match account_fingerprint(&tokens.access_token) {
+                    Ok(account) => account,
+                    Err(_) => {
+                        pending_auth.borrow_mut().take();
+                        completion_context.active_account_fingerprint.replace(None);
+                        (completion_context.set_asset_access_authorized)(false);
+                        set_account_header_logged_in(&completion_context.account_header, false);
+                        set_unlock_busy(&completion_context, false, "");
+                        completion_context
+                            .summary
+                            .set_label("已保存的账户身份无法识别");
+                        completion_context
+                            .detail
+                            .set_label("请使用账户密码重新登录；本地资产仍可离线使用。");
+                        completion_context.page_stack.set_visible_child_name("auth");
+                        return;
+                    }
+                };
+                pending_auth.replace(Some(SyncAuthInput::Saved(tokens)));
+                completion_context
+                    .active_account_fingerprint
+                    .replace(Some(account.clone()));
+                set_account_header_logged_in(&completion_context.account_header, true);
+                let unlocked = current_unix_ms().ok().is_some_and(|now| {
+                    completion_context
+                        .sync_session
+                        .password_for(&account, now)
+                        .is_some()
+                });
+                completion_context.account_identity.set_label(&format!(
+                    "当前账户 · {visible_account} · {}",
+                    if unlocked {
+                        "会话已解锁"
+                    } else {
+                        "等待主密码解锁"
+                    }
+                ));
+                set_unlock_busy(&completion_context, false, "");
+                if saved_account_route(true, unlocked) == SavedAccountRoute::AccountCenter {
+                    completion_context
+                        .app_status
+                        .set_label("同步会话已解锁 · 后台增量拉取已启用");
+                    (completion_context.set_asset_access_authorized)(true);
+                    completion_context.summary.set_label("个人中心");
+                    completion_context.detail.remove_css_class("error-message");
+                    completion_context.detail.set_label(
+                        "账户已登录且当前应用会话已解锁。可在此检查同步记录、锁定主密码或退出并切换账户。",
+                    );
+                    completion_context.import.set_sensitive(false);
+                    completion_context.page_stack.set_visible_child_name("sync");
+                    render_sync_timeline(&completion_context);
+                } else {
+                    completion_context
+                        .app_status
+                        .set_label("已登录 · 请输入主密码解锁同步资产");
+                    (completion_context.set_asset_access_authorized)(false);
+                    reset_unlock_feedback(&completion_context);
+                    completion_context
+                        .page_stack
+                        .set_visible_child_name("unlock");
+                }
+            }
+            Ok(None) => {
+                pending_auth.borrow_mut().take();
+                completion_context.active_account_fingerprint.replace(None);
+                (completion_context.set_asset_access_authorized)(false);
+                set_account_header_logged_in(&completion_context.account_header, false);
+                set_unlock_busy(&completion_context, false, "");
+                debug_assert_eq!(saved_account_route(false, false), SavedAccountRoute::SignIn);
+                completion_context.page_stack.set_visible_child_name("auth");
+            }
+            Err(error) => {
+                pending_auth.borrow_mut().take();
+                completion_context.active_account_fingerprint.replace(None);
+                (completion_context.set_asset_access_authorized)(false);
+                set_account_header_logged_in(&completion_context.account_header, false);
+                set_unlock_busy(&completion_context, false, "");
+                completion_context.summary.set_label("无法读取已保存账户");
+                completion_context
+                    .detail
+                    .set_label(&format!("系统密钥环读取失败：{error}"));
+                completion_context.detail.add_css_class("error-message");
+                completion_context.page_stack.set_visible_child_name("auth");
+            }
+        }
+    });
 }
 
 fn append_labeled_widget<W: IsA<gtk::Widget>>(container: &gtk::Box, label: &str, widget: &W) {
@@ -13836,7 +15471,7 @@ fn append_labeled_widget<W: IsA<gtk::Widget>>(container: &gtk::Box, label: &str,
     container.append(&field);
 }
 
-fn present_legal_terms_window(parent: &gtk::Window, accepted: gtk::CheckButton) {
+fn present_legal_terms_window(parent: &impl IsA<gtk::Window>, accepted: gtk::CheckButton) {
     let window = gtk::Window::builder()
         .title("使用条款与隐私说明")
         .transient_for(parent)
@@ -13906,8 +15541,9 @@ fn begin_cloud_preview(
         let client = CloudClient::production();
         let result: Result<PendingSyncRun, SyncError> = client.and_then(|client| {
             let mut tokens = match &auth {
-                SyncAuthInput::Login { username, password } => client.login(username, password)?,
-                SyncAuthInput::Saved(tokens) => tokens.clone(),
+                SyncAuthInput::Authenticated(tokens) | SyncAuthInput::Saved(tokens) => {
+                    tokens.clone()
+                }
             };
             let fingerprint = account_fingerprint(&tokens.access_token)?;
             process_due_sync_queue(
@@ -13992,6 +15628,7 @@ fn begin_cloud_preview(
                         access_token: pending.tokens.access_token.clone(),
                         refresh_token: pending.tokens.refresh_token.clone(),
                         account_scope: pending.tokens.account_scope.clone(),
+                        username: pending.tokens.username.clone(),
                     };
                     if let Err(error) = context.token_vault.store(&material).await {
                         show_unlock_error(
@@ -14013,15 +15650,34 @@ fn begin_cloud_preview(
                         .app_status
                         .set_label("同步会话已解锁 · 后台增量拉取已启用");
                     set_account_header_logged_in(&context.account_header, true);
-                    render_sync_preview(&context, pending);
+                    context
+                        .active_account_fingerprint
+                        .replace(Some(pending.account_fingerprint.clone()));
+                    context.account_identity.set_label(&format!(
+                        "当前账户 · {} · 会话已解锁",
+                        sync_account_visible_name(&pending.tokens)
+                    ));
+                    (context.set_asset_access_authorized)(true);
+                    let unresolved = pending.preview.unresolved_count();
+                    context.background_pending.replace(Some(pending));
+                    context.sync_status.set_label(if unresolved == 0 {
+                        "已解锁 · 正在后台安全同步"
+                    } else {
+                        "已解锁 · 检测到需要处理的同步差异"
+                    });
+                    // Unlocking is an authentication gate, not a mandatory
+                    // per-asset import wizard. Safe pulls continue in the
+                    // background; genuine conflicts remain staged for the
+                    // diagnostics centre and never advance the remote cursor.
+                    context.window.close();
                 });
                 gtk::glib::ControlFlow::Break
             }
             Ok(Err((error, auth))) => {
                 let message = if matches!(&error, SyncError::Unauthorized) {
                     match &auth {
-                        SyncAuthInput::Login { .. } => {
-                            "账户或登录密码不正确，请返回重新输入。".to_owned()
+                        SyncAuthInput::Authenticated(_) => {
+                            "刚建立的登录会话已失效，请返回后重新登录。".to_owned()
                         }
                         SyncAuthInput::Saved(_) => {
                             "已保存的登录已过期，请返回并使用账户密码重新登录。".to_owned()
@@ -14088,13 +15744,19 @@ fn process_due_sync_queue(
             .map_err(|error| SyncError::LocalState(error.to_string()))?;
         match client.execute_queued(tokens, &item.payload) {
             Ok(remote) => {
-                save_remote_state(
-                    sync_state,
-                    account_fingerprint,
-                    &remote,
-                    item.local_fingerprint.clone(),
-                )
-                .map_err(SyncError::LocalState)?;
+                if item.kind == SyncOperationKind::DeleteCloud {
+                    sync_state
+                        .remove_asset(account_fingerprint, item.asset_id)
+                        .map_err(|error| SyncError::LocalState(error.to_string()))?;
+                } else {
+                    save_remote_state(
+                        sync_state,
+                        account_fingerprint,
+                        &remote,
+                        item.local_fingerprint.clone(),
+                    )
+                    .map_err(SyncError::LocalState)?;
+                }
                 operations
                     .mark_completed(
                         account_fingerprint,
@@ -14180,6 +15842,7 @@ fn retry_sync_queue(context: SyncDialogContext, queue_id: Option<Uuid>, force_al
                     access_token: pending.tokens.access_token.clone(),
                     refresh_token: pending.tokens.refresh_token.clone(),
                     account_scope: pending.tokens.account_scope.clone(),
+                    username: pending.tokens.username.clone(),
                 };
                 render_sync_preview(&context, pending);
                 match result {
@@ -14367,7 +16030,8 @@ fn render_sync_timeline(context: &SyncDialogContext) {
         .pending
         .borrow()
         .as_ref()
-        .map(|pending| pending.account_fingerprint.clone());
+        .map(|pending| pending.account_fingerprint.clone())
+        .or_else(|| context.active_account_fingerprint.borrow().clone());
     let Some(account) = account else {
         append_timeline_empty(&context.timeline, "登录后显示当前账户的离线操作与审计记录");
         context.retry_all.set_sensitive(false);
@@ -14482,6 +16146,7 @@ fn append_timeline_empty(list: &gtk::ListBox, message: &str) {
 fn sync_operation_label(kind: SyncOperationKind) -> &'static str {
     match kind {
         SyncOperationKind::KeepLocalUpload => "上传本机版本",
+        SyncOperationKind::DeleteCloud => "删除云端副本",
         SyncOperationKind::RestoreCloud => "恢复云端资产",
         SyncOperationKind::UseCloud => "采用云端版本",
         SyncOperationKind::AcceptDeletion => "接受云端删除",
@@ -15135,6 +16800,7 @@ fn finish_network_resolution(
         access_token: pending.tokens.access_token.clone(),
         refresh_token: pending.tokens.refresh_token.clone(),
         account_scope: pending.tokens.account_scope.clone(),
+        username: pending.tokens.username.clone(),
     };
     let context = context.clone();
     gtk::glib::spawn_future_local(async move {
@@ -15756,6 +17422,7 @@ fn acknowledge_sync_checkpoint(
                         access_token: tokens.access_token.clone(),
                         refresh_token: tokens.refresh_token.clone(),
                         account_scope: tokens.account_scope.clone(),
+                        username: tokens.username.clone(),
                     };
                     if let Err(error) = context.token_vault.store(&material).await {
                         set_sync_busy(&context, false, "");
@@ -15851,6 +17518,18 @@ fn show_unlock_error(context: &SyncDialogContext, message: &str) {
     context.unlock.grab_focus();
 }
 
+fn clear_auth_error(context: &SyncDialogContext) {
+    context.auth_feedback.set_visible(false);
+    context.auth_feedback.set_label("");
+}
+
+fn show_auth_error(context: &SyncDialogContext, message: &str) {
+    context.auth_feedback.set_label(message);
+    context.auth_feedback.add_css_class("error-message");
+    context.auth_feedback.set_visible(true);
+    context.login.grab_focus();
+}
+
 fn show_sync_error(context: &SyncDialogContext, message: &str) {
     set_sync_busy(context, false, "");
     context.import.set_sensitive(false);
@@ -15859,13 +17538,188 @@ fn show_sync_error(context: &SyncDialogContext, message: &str) {
     context.detail.add_css_class("error-message");
 }
 
-fn present_edit_asset_window(
-    parent: &adw::ApplicationWindow,
-    catalog: Rc<RefCell<Catalog>>,
-    vault: CredentialVault,
+fn synchronized_scope_available(context: &UiContext) -> bool {
+    let Some(account) = context.active_account_fingerprint.borrow().clone() else {
+        return false;
+    };
+    current_unix_ms()
+        .ok()
+        .is_some_and(|now| context.sync_session.password_for(&account, now).is_some())
+}
+
+fn append_asset_storage_scope(
+    root: &gtk::Box,
+    initial: AssetStorageScope,
+    synchronized_available: bool,
+) -> gtk::DropDown {
+    let field = gtk::Box::new(Orientation::Vertical, 6);
+    let label = gtk::Label::new(Some("保存位置"));
+    label.set_xalign(0.0);
+    label.add_css_class("field-label");
+    let selector = gtk::DropDown::from_strings(&["随账户同步", "仅此设备"]);
+    selector.set_selected(
+        if initial == AssetStorageScope::AccountSynced && synchronized_available {
+            0
+        } else {
+            1
+        },
+    );
+    let note = gtk::Label::new(Some(if synchronized_available {
+        "随账户同步：凭据端到端加密后同步，退出账户时隐藏。仅此设备：未登录也可使用，不会上传。"
+    } else {
+        "登录并使用主密码解锁后才能选择随账户同步；仅此设备未登录也可使用且不会上传。"
+    }));
+    note.add_css_class("caption");
+    note.set_xalign(0.0);
+    note.set_wrap(true);
+    field.append(&label);
+    field.append(&selector);
+    field.append(&note);
+    root.append(&field);
+    selector
+}
+
+fn selected_asset_storage_scope(selector: &gtk::DropDown) -> AssetStorageScope {
+    if selector.selected() == 0 {
+        AssetStorageScope::AccountSynced
+    } else {
+        AssetStorageScope::LocalOnly
+    }
+}
+
+fn effective_asset_storage_scope(context: &UiContext, asset: &ServerAsset) -> AssetStorageScope {
+    match asset.storage_scope {
+        AssetStorageScope::Unspecified => {
+            let synchronized = context
+                .active_account_fingerprint
+                .borrow()
+                .as_deref()
+                .and_then(|account| context.sync_state.asset(account, asset.id).ok().flatten())
+                .is_some();
+            if synchronized {
+                AssetStorageScope::AccountSynced
+            } else {
+                AssetStorageScope::LocalOnly
+            }
+        }
+        scope => scope,
+    }
+}
+
+async fn prepare_synchronized_asset_upload(
+    context: &UiContext,
+    asset: &ServerAsset,
+    credential: &CredentialMaterial,
+    jump_credential: Option<&CredentialMaterial>,
+) -> Result<(String, QueuedSyncPayload, String), String> {
+    let account = context
+        .active_account_fingerprint
+        .borrow()
+        .clone()
+        .ok_or_else(|| "请先登录并解锁账户后再选择随账户同步。".to_owned())?;
+    let now = current_unix_ms().map_err(|error| error.to_string())?;
+    let master_password = context
+        .sync_session
+        .password_for(&account, now)
+        .ok_or_else(|| "同步会话已锁定，请先在个人中心输入主密码解锁。".to_owned())?;
+    let material = AuthTokenVault
+        .lookup()
+        .await
+        .map_err(|error| format!("无法读取登录会话：{error}"))?
+        .ok_or_else(|| "登录会话不存在，请重新登录。".to_owned())?;
+    let token_account = account_fingerprint(&material.access_token)
+        .map_err(|_| "登录账户身份无效，请重新登录。".to_owned())?;
+    if token_account != account || material.account_scope.is_empty() {
+        return Err("当前登录会话与已解锁账户不一致，请重新登录。".into());
+    }
+    let device_id = context
+        .sync_state
+        .device_id()
+        .map_err(|error| format!("无法读取本机同步身份：{error}"))?;
+    let metadata = context
+        .sync_state
+        .asset(&account, asset.id)
+        .map_err(|error| format!("无法读取远端修订：{error}"))?;
+    let (remote_id, vector_clock) = metadata
+        .map(|state| (Some(state.remote_id), state.vector_clock))
+        .unwrap_or((None, "{}".into()));
+    let payload = CloudClient::production()
+        .map_err(|error| error.to_string())?
+        .prepare_upload_for_account(
+            asset,
+            credential,
+            jump_credential,
+            &master_password,
+            device_id,
+            &material.account_scope,
+            remote_id,
+            None,
+            &vector_clock,
+        )
+        .map_err(|error| format!("无法准备端到端加密同步：{error}"))?;
+    let local_fingerprint =
+        asset_sync_fingerprint(asset).map_err(|error| format!("无法计算资产指纹：{error}"))?;
+    Ok((account, payload, local_fingerprint))
+}
+
+fn enqueue_synchronized_asset_upload(
+    context: &UiContext,
+    account: &str,
+    payload: QueuedSyncPayload,
+    local_fingerprint: String,
+) -> Result<(), String> {
+    context
+        .sync_operations
+        .enqueue(
+            account,
+            SyncOperationKind::KeepLocalUpload,
+            payload,
+            Some(local_fingerprint),
+            "本机资产变更等待同步",
+        )
+        .map_err(|error| format!("无法持久化同步操作：{error}"))?;
+    context
+        .sync_status
+        .set_label("资产已安全保存 · 等待后台同步");
+    Ok(())
+}
+
+enum LocalConversionPlan {
+    CancelPendingUpload(String),
+    DeleteRemote(String, QueuedSyncPayload),
+}
+
+fn prepare_local_conversion(
+    context: &UiContext,
     asset_id: Uuid,
-    refresh: Rc<dyn Fn()>,
-) {
+) -> Result<LocalConversionPlan, String> {
+    let account = context
+        .active_account_fingerprint
+        .borrow()
+        .clone()
+        .ok_or_else(|| "无法确认同步资产所属账户，请重新登录。".to_owned())?;
+    let Some(metadata) = context
+        .sync_state
+        .asset(&account, asset_id)
+        .map_err(|error| format!("无法读取远端修订：{error}"))?
+    else {
+        return Ok(LocalConversionPlan::CancelPendingUpload(account));
+    };
+    let device_id = context
+        .sync_state
+        .device_id()
+        .map_err(|error| format!("无法读取本机同步身份：{error}"))?;
+    let payload = CloudClient::production()
+        .map_err(|error| error.to_string())?
+        .prepare_delete(asset_id, device_id, Uuid::new_v4(), &metadata.vector_clock)
+        .map_err(|error| format!("无法准备远端删除操作：{error}"))?;
+    Ok(LocalConversionPlan::DeleteRemote(account, payload))
+}
+
+fn present_edit_asset_window(context: UiContext, asset_id: Uuid) {
+    let catalog = context.catalog.clone();
+    let vault = context.vault.clone();
+    let refresh = context.refresh_assets.clone();
     let Some(original) = catalog
         .borrow()
         .assets()
@@ -15877,7 +17731,7 @@ fn present_edit_asset_window(
     };
     let dialog = gtk::Window::builder()
         .title("编辑服务器")
-        .transient_for(parent)
+        .transient_for(&context.window)
         .modal(true)
         .default_width(480)
         .default_height(620)
@@ -15896,6 +17750,12 @@ fn present_edit_asset_window(
     group.set_text(&original.group);
     let tags = labeled_entry(&root, "标签", "多个标签用逗号分隔");
     tags.set_text(&original.tags.join(", "));
+    let original_scope = effective_asset_storage_scope(&context, &original);
+    let storage_scope = append_asset_storage_scope(
+        &root,
+        original_scope,
+        synchronized_scope_available(&context),
+    );
     let transport_field = gtk::Box::new(Orientation::Vertical, 6);
     let transport_label = gtk::Label::new(Some("连接协议"));
     transport_label.set_xalign(0.0);
@@ -16131,6 +17991,7 @@ fn present_edit_asset_window(
         updated.username = username.text().trim().to_owned();
         updated.port = parsed_port;
         updated.transport = transport_from_index(transport.selected());
+        updated.storage_scope = selected_asset_storage_scope(&storage_scope);
         updated.auth_method = if updated.transport == Transport::Ssh && auth.selected() == 1 {
             AuthMethod::Key
         } else {
@@ -16234,8 +18095,12 @@ fn present_edit_asset_window(
         let error = error.clone();
         let original_credential_id = original.credential_id;
         let original_name = original.name.clone();
+        let original_for_rollback = original.clone();
+        let context = context.clone();
         gtk::glib::spawn_future_local(async move {
-            let old_primary_material = if primary_credential_update.is_some() {
+            let needs_existing_primary = primary_credential_update.is_some()
+                || updated.storage_scope == AssetStorageScope::AccountSynced;
+            let old_primary_material = if needs_existing_primary {
                 match vault.lookup(updated.credential_id).await {
                     Ok(material) => material,
                     Err(reason) => {
@@ -16248,14 +18113,72 @@ fn present_edit_asset_window(
             } else {
                 None
             };
-            let old_jump_material = if new_jump_material
-                .as_ref()
-                .is_some_and(|(jump_id, _)| Some(*jump_id) == old_jump_id)
-            {
-                match vault.lookup(old_jump_id.expect("matched jump id")).await {
+            let existing_jump_id = updated.jump_host.as_ref().map(|jump| jump.credential_id);
+            let needs_existing_jump = existing_jump_id.is_some()
+                && (updated.storage_scope == AssetStorageScope::AccountSynced
+                    || new_jump_material
+                        .as_ref()
+                        .is_some_and(|(jump_id, _)| Some(*jump_id) == old_jump_id));
+            let old_jump_material = if needs_existing_jump {
+                match vault
+                    .lookup(existing_jump_id.expect("checked jump id"))
+                    .await
+                {
                     Ok(material) => material,
                     Err(reason) => {
                         error.set_label(&format!("无法读取现有跳板机凭据以建立回滚点：{reason}"));
+                        error.set_visible(true);
+                        save_button.set_sensitive(true);
+                        return;
+                    }
+                }
+            } else {
+                None
+            };
+            let prepared_upload = if updated.storage_scope == AssetStorageScope::AccountSynced {
+                let credential = primary_credential_update
+                    .as_ref()
+                    .or(old_primary_material.as_ref())
+                    .ok_or("同步资产缺少可用主凭据");
+                let credential = match credential {
+                    Ok(value) => value,
+                    Err(reason) => {
+                        error.set_label(reason);
+                        error.set_visible(true);
+                        save_button.set_sensitive(true);
+                        return;
+                    }
+                };
+                let jump_credential = new_jump_material
+                    .as_ref()
+                    .map(|(_, material)| material)
+                    .or(old_jump_material.as_ref());
+                match prepare_synchronized_asset_upload(
+                    &context,
+                    &updated,
+                    credential,
+                    jump_credential,
+                )
+                .await
+                {
+                    Ok(prepared) => Some(prepared),
+                    Err(reason) => {
+                        error.set_label(&reason);
+                        error.set_visible(true);
+                        save_button.set_sensitive(true);
+                        return;
+                    }
+                }
+            } else {
+                None
+            };
+            let prepared_delete = if original_scope == AssetStorageScope::AccountSynced
+                && updated.storage_scope == AssetStorageScope::LocalOnly
+            {
+                match prepare_local_conversion(&context, updated.id) {
+                    Ok(value) => Some(value),
+                    Err(reason) => {
+                        error.set_label(&reason);
                         error.set_visible(true);
                         save_button.set_sensitive(true);
                         return;
@@ -16291,7 +18214,7 @@ fn present_edit_asset_window(
                 }
             }
             let new_jump_id = updated.jump_host.as_ref().map(|jump| jump.credential_id);
-            let upsert_result = { catalog.borrow_mut().upsert(updated) };
+            let upsert_result = { catalog.borrow_mut().upsert(updated.clone()) };
             if let Err(reason) = upsert_result {
                 if primary_credential_update.is_some() {
                     if let Some(old) = old_primary_material.as_ref() {
@@ -16314,6 +18237,59 @@ fn present_edit_asset_window(
                     }
                 }
                 error.set_label(&reason.to_string());
+                error.set_visible(true);
+                save_button.set_sensitive(true);
+                return;
+            }
+            let queue_result = if let Some((account, payload, fingerprint)) = prepared_upload {
+                enqueue_synchronized_asset_upload(&context, &account, payload, fingerprint)
+            } else if let Some(plan) = prepared_delete {
+                match plan {
+                    LocalConversionPlan::CancelPendingUpload(account) => context
+                        .sync_operations
+                        .discard_pending_uploads(&account, updated.id)
+                        .map(|_| ())
+                        .map_err(|error| format!("无法取消尚未上传的同步操作：{error}")),
+                    LocalConversionPlan::DeleteRemote(account, payload) => context
+                        .sync_operations
+                        .enqueue(
+                            &account,
+                            SyncOperationKind::DeleteCloud,
+                            payload,
+                            None,
+                            "资产已改为仅此设备，等待删除云端副本",
+                        )
+                        .map(|_| {
+                            context
+                                .sync_status
+                                .set_label("资产已保留在本机 · 等待删除云端副本");
+                        })
+                        .map_err(|error| format!("无法持久化云端删除操作：{error}")),
+                }
+            } else {
+                Ok(())
+            };
+            if let Err(reason) = queue_result {
+                let _ = catalog.borrow_mut().upsert(original_for_rollback);
+                if primary_credential_update.is_some() {
+                    if let Some(old) = old_primary_material.as_ref() {
+                        let _ = vault
+                            .store(original_credential_id, &original_name, old)
+                            .await;
+                    } else {
+                        let _ = vault.clear(original_credential_id).await;
+                    }
+                }
+                if let Some((jump_id, _)) = new_jump_material.as_ref() {
+                    if Some(*jump_id) == old_jump_id {
+                        if let Some(old) = old_jump_material.as_ref() {
+                            let _ = vault.store(*jump_id, "OrbitTerm 跳板机", old).await;
+                        }
+                    } else {
+                        let _ = vault.clear(*jump_id).await;
+                    }
+                }
+                error.set_label(&format!("{reason}；资产修改已回滚。"));
                 error.set_visible(true);
                 save_button.set_sensitive(true);
                 return;
@@ -16489,15 +18465,16 @@ fn parse_batch_assets(value: &str) -> Result<Vec<BatchAssetInput>, String> {
     Ok(items)
 }
 
-fn present_bulk_import_window(
-    parent: &gtk::Window,
-    catalog: Rc<RefCell<Catalog>>,
-    vault: CredentialVault,
-    refresh: Rc<dyn Fn()>,
-) {
+fn present_bulk_import_window(context: UiContext, parent: Option<&gtk::Window>) {
+    let catalog = context.catalog.clone();
+    let vault = context.vault.clone();
+    let refresh = context.refresh_assets.clone();
+    let parent = parent
+        .cloned()
+        .unwrap_or_else(|| context.window.clone().upcast());
     let window = gtk::Window::builder()
         .title("批量添加服务器")
-        .transient_for(parent)
+        .transient_for(&parent)
         .modal(true)
         .default_width(760)
         .default_height(640)
@@ -16513,6 +18490,15 @@ fn present_bulk_import_window(
     guide.set_wrap(true);
     guide.add_css_class("caption");
     root.append(&guide);
+    let storage_scope = append_asset_storage_scope(
+        &root,
+        if synchronized_scope_available(&context) {
+            AssetStorageScope::AccountSynced
+        } else {
+            AssetStorageScope::LocalOnly
+        },
+        synchronized_scope_available(&context),
+    );
     let text = gtk::TextView::new();
     text.set_monospace(true);
     text.buffer().set_text("# 名称,分组,主机,端口,用户名,密码,协议,认证方式,私钥内容,私钥口令,标签\n生产 SSH,生产,10.0.0.10,22,admin,change-me,SSH,密码,,,linux;核心\n测试桌面,测试,10.0.0.20,3389,tester,change-me,RDP,密码,,,desktop");
@@ -16557,6 +18543,7 @@ fn present_bulk_import_window(
                 return;
             }
         };
+        let selected_scope = selected_asset_storage_scope(&storage_scope);
         let mut endpoints = HashSet::new();
         let existing = catalog
             .borrow()
@@ -16594,10 +18581,13 @@ fn present_bulk_import_window(
         let error = error.clone();
         let button = button.clone();
         let target = import_target.clone();
+        let context = context.clone();
         gtk::glib::spawn_future_local(async move {
             let mut inserted = Vec::new();
+            let mut prepared_operations = Vec::new();
             for input in inputs {
                 let mut asset = ServerAsset::new(input.name, input.host, input.username);
+                asset.storage_scope = selected_scope;
                 asset.transport = input.transport;
                 asset.port = input.port;
                 asset.group = input.group;
@@ -16606,6 +18596,29 @@ fn present_bulk_import_window(
                 if asset.auth_method == AuthMethod::Key {
                     asset.key_reference = "批量导入 SSH 私钥".into();
                 }
+                let prepared_upload = if asset.storage_scope == AssetStorageScope::AccountSynced {
+                    match prepare_synchronized_asset_upload(
+                        &context,
+                        &asset,
+                        &input.credential,
+                        None,
+                    )
+                    .await
+                    {
+                        Ok(prepared) => Some(prepared),
+                        Err(reason) => {
+                            for (asset_id, credential_id) in inserted.drain(..) {
+                                let _ = catalog.borrow_mut().remove(asset_id);
+                                let _ = vault.clear(credential_id).await;
+                            }
+                            error.set_label(&format!("同步准备失败，整批已回滚：{reason}"));
+                            button.set_sensitive(true);
+                            return;
+                        }
+                    }
+                } else {
+                    None
+                };
                 if let Err(reason) = vault
                     .store(asset.credential_id, &asset.name, &input.credential)
                     .await
@@ -16631,7 +18644,46 @@ fn present_bulk_import_window(
                     button.set_sensitive(true);
                     return;
                 }
+                if let Some((account, payload, fingerprint)) = prepared_upload {
+                    prepared_operations.push((account, payload, fingerprint));
+                }
                 inserted.push((asset_id, credential_id));
+            }
+            if !prepared_operations.is_empty() {
+                let account = prepared_operations[0].0.clone();
+                if prepared_operations
+                    .iter()
+                    .any(|(candidate, _, _)| candidate != &account)
+                {
+                    for (asset_id, credential_id) in inserted.drain(..) {
+                        let _ = catalog.borrow_mut().remove(asset_id);
+                        let _ = vault.clear(credential_id).await;
+                    }
+                    error.set_label("登录账户在导入期间发生变化，整批已回滚，请重试。");
+                    button.set_sensitive(true);
+                    return;
+                }
+                let drafts = prepared_operations
+                    .into_iter()
+                    .map(|(_, payload, fingerprint)| SyncOperationDraft {
+                        kind: SyncOperationKind::KeepLocalUpload,
+                        payload,
+                        local_fingerprint: Some(fingerprint),
+                        failure_reason: "批量导入资产等待同步".into(),
+                    })
+                    .collect();
+                if let Err(reason) = context.sync_operations.enqueue_many(&account, drafts) {
+                    for (asset_id, credential_id) in inserted.drain(..) {
+                        let _ = catalog.borrow_mut().remove(asset_id);
+                        let _ = vault.clear(credential_id).await;
+                    }
+                    error.set_label(&format!("同步队列写入失败，整批已回滚：{reason}"));
+                    button.set_sensitive(true);
+                    return;
+                }
+                context
+                    .sync_status
+                    .set_label("批量资产已安全保存 · 等待后台同步");
             }
             refresh();
             target.close();
@@ -16640,15 +18692,13 @@ fn present_bulk_import_window(
     window.present();
 }
 
-fn present_add_asset_window(
-    parent: &adw::ApplicationWindow,
-    catalog: Rc<RefCell<Catalog>>,
-    vault: CredentialVault,
-    refresh: Rc<dyn Fn()>,
-) {
+fn present_add_asset_window(context: UiContext) {
+    let catalog = context.catalog.clone();
+    let vault = context.vault.clone();
+    let refresh = context.refresh_assets.clone();
     let dialog = gtk::Window::builder()
         .title("添加服务器")
-        .transient_for(parent)
+        .transient_for(&context.window)
         .modal(true)
         .default_width(480)
         .default_height(680)
@@ -16667,21 +18717,23 @@ fn present_add_asset_window(
     heading_row.append(&bulk);
     root.append(&heading_row);
     let bulk_parent = dialog.clone();
-    let bulk_catalog = catalog.clone();
-    let bulk_vault = vault.clone();
-    let bulk_refresh = refresh.clone();
+    let bulk_context = context.clone();
     bulk.connect_clicked(move |_| {
-        present_bulk_import_window(
-            &bulk_parent,
-            bulk_catalog.clone(),
-            bulk_vault.clone(),
-            bulk_refresh.clone(),
-        );
+        present_bulk_import_window(bulk_context.clone(), Some(&bulk_parent));
     });
 
     let name = labeled_entry(&root, "名称", "例如：生产跳板机");
     let group = labeled_entry(&root, "分组", "例如：生产环境");
     let tags = labeled_entry(&root, "标签", "多个标签用逗号分隔");
+    let storage_scope = append_asset_storage_scope(
+        &root,
+        if synchronized_scope_available(&context) {
+            AssetStorageScope::AccountSynced
+        } else {
+            AssetStorageScope::LocalOnly
+        },
+        synchronized_scope_available(&context),
+    );
     let transport_field = gtk::Box::new(Orientation::Vertical, 6);
     let transport_label = gtk::Label::new(Some("连接协议"));
     transport_label.set_xalign(0.0);
@@ -16902,6 +18954,7 @@ fn present_add_asset_window(
         asset.group = group.text().trim().to_owned();
         asset.tags = parse_asset_tags(tags.text().as_str());
         asset.transport = transport_from_index(transport.selected());
+        asset.storage_scope = selected_asset_storage_scope(&storage_scope);
         asset.port = parsed_port;
         asset.auth_method = if asset.transport == Transport::Ssh && auth.selected() == 1 {
             AuthMethod::Key
@@ -16980,7 +19033,28 @@ fn present_add_asset_window(
         let save_target = dialog_for_save.clone();
         let save_button = save_button.clone();
         let error_label = error.clone();
+        let context = context.clone();
         gtk::glib::spawn_future_local(async move {
+            let prepared_upload = if asset.storage_scope == AssetStorageScope::AccountSynced {
+                match prepare_synchronized_asset_upload(
+                    &context,
+                    &asset,
+                    &credential,
+                    jump_credential.as_ref().map(|(_, material)| material),
+                )
+                .await
+                {
+                    Ok(prepared) => Some(prepared),
+                    Err(reason) => {
+                        error_label.set_label(&reason);
+                        error_label.set_visible(true);
+                        save_button.set_sensitive(true);
+                        return;
+                    }
+                }
+            } else {
+                None
+            };
             if let Err(reason) = vault
                 .store(asset.credential_id, &asset.name, &credential)
                 .await
@@ -17004,6 +19078,7 @@ fn present_add_asset_window(
             }
             let credential_id = asset.credential_id;
             let jump_credential_id = asset.jump_host.as_ref().map(|jump| jump.credential_id);
+            let asset_id = asset.id;
             let upsert_result = { catalog.borrow_mut().upsert(asset) };
             if let Err(reason) = upsert_result {
                 let _ = vault.clear(credential_id).await;
@@ -17014,6 +19089,21 @@ fn present_add_asset_window(
                 error_label.set_visible(true);
                 save_button.set_sensitive(true);
                 return;
+            }
+            if let Some((account, payload, fingerprint)) = prepared_upload {
+                if let Err(reason) =
+                    enqueue_synchronized_asset_upload(&context, &account, payload, fingerprint)
+                {
+                    let _ = catalog.borrow_mut().remove(asset_id);
+                    let _ = vault.clear(credential_id).await;
+                    if let Some(jump_id) = jump_credential_id {
+                        let _ = vault.clear(jump_id).await;
+                    }
+                    error_label.set_label(&format!("{reason}；资产与凭据已回滚。"));
+                    error_label.set_visible(true);
+                    save_button.set_sensitive(true);
+                    return;
+                }
             }
             refresh();
             save_target.close();
@@ -17053,6 +19143,15 @@ mod tests {
         assert_eq!(responsive_workstation_panel_widths(1280), (220, 280));
         assert_eq!(responsive_workstation_panel_widths(1600), (220, 280));
         assert_eq!(responsive_workstation_panel_widths(2200), (220, 280));
+    }
+
+    #[test]
+    fn initial_window_size_uses_display_work_area_without_crowding_small_screens() {
+        assert_eq!(adaptive_initial_window_size(1920, 1080), (1280, 800));
+        assert_eq!(adaptive_initial_window_size(1366, 768), (1024, 576));
+        assert_eq!(adaptive_initial_window_size(1024, 600), (768, 560));
+        assert_eq!(adaptive_initial_window_size(800, 500), (760, 500));
+        assert_eq!(adaptive_initial_window_size(0, 0), (1280, 800));
     }
 
     #[test]
@@ -17135,7 +19234,101 @@ mod tests {
         assert!(!tool_panel_requested_visible(None, false));
         assert!(tool_panel_requested_visible(None, true));
         assert!(!tool_panel_requested_visible(Some(false), true));
-        assert!(tool_panel_requested_visible(Some(true), false));
+        assert!(!tool_panel_requested_visible(Some(true), false));
+    }
+
+    #[test]
+    fn local_assets_remain_available_while_synchronized_assets_require_their_account() {
+        let mut local = ServerAsset::new("local", "local.example", "ops");
+        local.storage_scope = AssetStorageScope::LocalOnly;
+        let mut synchronized = ServerAsset::new("sync", "sync.example", "ops");
+        synchronized.storage_scope = AssetStorageScope::AccountSynced;
+        let mut owners = HashMap::new();
+        owners.insert(synchronized.id, HashSet::from(["account-a".to_owned()]));
+
+        assert!(asset_is_accessible(&local, &owners, None, false));
+        assert!(!asset_is_accessible(&synchronized, &owners, None, false));
+        assert!(!asset_is_accessible(
+            &synchronized,
+            &owners,
+            Some("account-b"),
+            true
+        ));
+        assert!(asset_is_accessible(
+            &synchronized,
+            &owners,
+            Some("account-a"),
+            true
+        ));
+    }
+
+    #[test]
+    fn saved_account_routes_match_the_desktop_unlock_contract() {
+        assert_eq!(saved_account_route(false, false), SavedAccountRoute::SignIn);
+        assert_eq!(saved_account_route(true, false), SavedAccountRoute::Unlock);
+        assert_eq!(
+            saved_account_route(true, true),
+            SavedAccountRoute::AccountCenter
+        );
+    }
+
+    #[test]
+    fn authentication_validation_reports_the_exact_missing_or_invalid_input() {
+        assert_eq!(
+            login_validation_error("user@example.com", "secret", false),
+            Some("请先勾选同意使用条款、免责声明与隐私说明。")
+        );
+        assert_eq!(
+            login_validation_error("", "secret", true),
+            Some("请输入邮箱账号。")
+        );
+        assert_eq!(
+            login_validation_error("not-an-email", "secret", true),
+            Some("请输入有效的邮箱账号，例如 name@example.com。")
+        );
+        assert_eq!(
+            login_validation_error("user@example.com", "", true),
+            Some("请输入登录密码。")
+        );
+        assert_eq!(
+            login_validation_error("user@example.com", "secret", true),
+            None
+        );
+        assert_eq!(
+            registration_validation_error("user@example.com", "weak", "INVITE", true),
+            Some("密码至少 12 位，且必须包含大小写字母、数字和特殊字符。")
+        );
+        assert_eq!(
+            registration_validation_error("user@example.com", "StrongPass1!", "", true),
+            Some("请输入管理员提供的邀请码。")
+        );
+        assert_eq!(
+            login_failure_message(&SyncError::Unauthorized),
+            "邮箱账号或登录密码不正确，请检查后重试。"
+        );
+        assert_eq!(
+            registration_failure_message(&SyncError::Server("username already exists".into())),
+            "注册失败：该邮箱已注册，请直接登录。"
+        );
+    }
+
+    #[test]
+    fn visible_account_identity_never_falls_back_to_internal_fingerprint() {
+        let stored = SyncTokens {
+            access_token: "opaque".into(),
+            refresh_token: String::new(),
+            account_scope: "scope".into(),
+            username: "person@example.com".into(),
+        };
+        assert_eq!(sync_account_visible_name(&stored), "person@example.com");
+
+        let legacy = SyncTokens {
+            access_token: stored.access_token.clone(),
+            refresh_token: stored.refresh_token.clone(),
+            account_scope: stored.account_scope.clone(),
+            username: String::new(),
+        };
+        assert_eq!(sync_account_visible_name(&legacy), "已保存账户");
     }
 
     #[test]

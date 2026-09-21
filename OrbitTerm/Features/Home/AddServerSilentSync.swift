@@ -11,6 +11,9 @@ enum AddServerSilentSync {
         syncService: SyncService,
         now: Date = Date()
     ) async -> String? {
+        guard server.storageScope == .accountSynced else {
+            return "已仅保存到此设备"
+        }
         guard let token, let masterPassword else {
             return "已本地保存，登录后将自动同步"
         }

@@ -105,6 +105,34 @@ pub struct HostKeyCleanupCompletedPayload {
     pub expired_count: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostKeyTrustRemovedPayload {
+    pub host: String,
+    pub normalized_host: String,
+    pub port: u16,
+    pub lookup_token: String,
+    pub key_algorithm: String,
+    pub previous_fingerprint_sha256: String,
+    pub removed_count: u64,
+}
+
+impl HostKeyTrustRemovedPayload {
+    pub(super) fn validate(&self) -> Result<(), HostKeyFfiProtocolError> {
+        validate_host_fields(
+            &self.host,
+            &self.normalized_host,
+            self.port,
+            &self.lookup_token,
+            &self.key_algorithm,
+            &self.previous_fingerprint_sha256,
+        )?;
+        if self.removed_count == 0 {
+            return Err(HostKeyFfiProtocolError::InvalidPayload);
+        }
+        Ok(())
+    }
+}
+
 impl HostKeyCleanupCompletedPayload {
     pub(super) const fn validate(&self) -> Result<(), HostKeyFfiProtocolError> {
         Ok(())

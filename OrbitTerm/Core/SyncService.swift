@@ -157,7 +157,9 @@ final class SyncService: ObservableObject {
                 }
                 return rawID
             })
-            let localAssetIDs = Set(store.servers.map { $0.id.uuidString.lowercased() })
+            let localAssetIDs = Set(store.servers
+                .filter { $0.storageScope == .accountSynced }
+                .map { $0.id.uuidString.lowercased() })
             let remoteOnly = remoteAssetIDs.subtracting(localAssetIDs).count
             let localOnly = localAssetIDs.subtracting(remoteAssetIDs).count
             let nonAssetRecords = remoteItems.count - remoteAssetIDs.count
@@ -191,7 +193,9 @@ final class SyncService: ObservableObject {
         accountID: String
     ) async {
         let recoveryIDs = pendingLocalAssetRecoveryIDs
-        let servers = store.servers.filter { recoveryIDs.contains($0.id) }
+        let servers = store.servers.filter {
+            $0.storageScope == .accountSynced && recoveryIDs.contains($0.id)
+        }
         guard !servers.isEmpty else {
             setPendingLocalAssetRecoveryIDs([])
             lastSyncMessage = "本地暂无可发布资产"

@@ -1,3 +1,4 @@
+using OrbitTerm.Application.Accounts;
 using OrbitTerm.Application.Security;
 using OrbitTerm.Application.Sessions;
 using OrbitTerm.NativeBridge;
@@ -10,6 +11,36 @@ namespace OrbitTerm.Security.Tests;
 
 public sealed class MainWindowViewModelTests
 {
+    [Fact]
+    public void SignedOutProductionWorkspaceKeepsLocalAssetsAndHidesSynchronizedAssets()
+    {
+        var controller = new AccountUnlockController(
+            new EmptyAccountSessionStore(),
+            new UnusedAccountProtocol(),
+            new UnusedUnlockVerifier());
+        var viewModel = CreateViewModel(
+            seedDefaultAsset: false,
+            accountUnlockController: controller);
+        var local = new AssetViewModel(
+            Guid.NewGuid(), Guid.NewGuid(), "Local", "local.example", 22, "ops",
+            ServerTransport.Ssh, false)
+        {
+            StorageScope = AssetStorageScope.LocalOnly,
+        };
+        var synchronized = new AssetViewModel(
+            Guid.NewGuid(), Guid.NewGuid(), "Cloud", "cloud.example", 22, "ops",
+            ServerTransport.Ssh, false)
+        {
+            StorageScope = AssetStorageScope.AccountSynced,
+        };
+
+        Assert.True(viewModel.CanAccessAsset(local));
+        Assert.False(viewModel.CanAccessAsset(synchronized));
+        Assert.Equal("还没有服务器", viewModel.AssetEmptyStateTitle);
+        Assert.Equal("添加服务器后，即可从这里安全地发起连接。", viewModel.AssetEmptyStateDescription);
+        Assert.Equal("本机资产 · 登录后启用加密同步", viewModel.AssetSynchronizationStatus);
+    }
+
     [Fact]
     public void EmptyWorkspaceCopyAndDraftTabMatchDesktopContract()
     {
@@ -2409,7 +2440,7 @@ public sealed class MainWindowViewModelTests
             new MonitorSnapshot(3, 0, 0, 0, 0, 24, 0, 0, [], AvailableMetrics: MonitorSampleMetrics.Latency),
         ]);
 
-        Assert.Equal("24 ms · 失败 33.3%", metric.CurrentValue);
+        Assert.Equal("24 ms · 33.3%", metric.CurrentValue);
         Assert.Contains("探测失败 33.3%", metric.StatisticsSummary, StringComparison.Ordinal);
         Assert.Contains("P50 20 ms", metric.StatisticsSummary, StringComparison.Ordinal);
         Assert.Contains("P95 24 ms", metric.StatisticsSummary, StringComparison.Ordinal);
@@ -2418,7 +2449,7 @@ public sealed class MainWindowViewModelTests
             new MonitorSnapshot(4, 0, 0, 0, 0, 24, 0, 0, [], AvailableMetrics: MonitorSampleMetrics.Latency),
             new MonitorSnapshot(5, 0, 0, 0, 0, null, 0, 0, [], AvailableMetrics: MonitorSampleMetrics.None),
         ]);
-        Assert.Equal("-- ms · 失败 50%", metric.CurrentValue);
+        Assert.Equal("-- ms · 50%", metric.CurrentValue);
     }
 
     [Fact]
@@ -2995,7 +3026,8 @@ public sealed class MainWindowViewModelTests
         bool seedDefaultAsset = true,
         Func<DateTimeOffset>? utcNow = null,
         Action<Action>? dispatch = null,
-        TimeSpan? terminalUiFrameInterval = null)
+        TimeSpan? terminalUiFrameInterval = null,
+        AccountUnlockController? accountUnlockController = null)
     {
         credentialVault ??= new MemoryCredentialVault();
         var orchestrator = new SessionOrchestrator(
@@ -3011,6 +3043,7 @@ public sealed class MainWindowViewModelTests
             assetStore,
             snippetStore,
             dispatch: dispatch,
+            accountUnlockController: accountUnlockController,
             utcNow: utcNow,
             terminalUiFrameInterval: terminalUiFrameInterval ?? TimeSpan.Zero,
             tcpLatencyProbe: static (_, _, _) =>
@@ -3720,6 +3753,37 @@ public sealed class MainWindowViewModelTests
             credential = new CredentialMaterial(string.Empty, string.Empty, string.Empty);
             return ValueTask.CompletedTask;
         }
+    }
+
+    private sealed class EmptyAccountSessionStore : IAccountSessionStore
+    {
+        public ValueTask<AccountSessionRecord?> ReadAsync(CancellationToken cancellationToken) =>
+            ValueTask.FromResult<AccountSessionRecord?>(null);
+
+        public ValueTask SaveAsync(AccountSessionRecord session, CancellationToken cancellationToken) =>
+            ValueTask.CompletedTask;
+
+        public ValueTask ClearAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
+    }
+
+    private sealed class UnusedAccountProtocol : IOrbitAccountProtocol
+    {
+        public ValueTask<AccountLoginResponse> LoginAsync(
+            AccountLoginRequest request,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public ValueTask<AccountLoginResponse> RefreshAsync(
+            AccountRefreshRequest request,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
+    private sealed class UnusedUnlockVerifier : IEncryptedConfigUnlockVerifier
+    {
+        public ValueTask<bool?> VerifyAsync(
+            AccountSessionRecord session,
+            string masterPassword,
+            byte[] rootKey,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
     private sealed class MemoryServerAssetStore : IServerAssetStore

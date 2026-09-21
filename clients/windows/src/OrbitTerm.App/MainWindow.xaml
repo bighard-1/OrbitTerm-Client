@@ -50,7 +50,8 @@
                         Background="{StaticResource OrbitMetricBrush}"
                         BorderBrush="{StaticResource OrbitPanelStrokeBrush}"
                         BorderThickness="1"
-                        CornerRadius="{StaticResource OrbitCardCornerRadius}">
+                        CornerRadius="{StaticResource OrbitCardCornerRadius}"
+                        ToolTipService.ToolTip="{Binding AccessibilityLabel}">
                     <Grid RowDefinitions="Auto,*" ColumnDefinitions="Auto,*">
                         <TextBlock Text="{Binding Label}"
                                    FontSize="12"
@@ -180,15 +181,6 @@
                             Orientation="Horizontal"
                             Spacing="5"
                             VerticalAlignment="Center">
-                    <Border Width="22"
-                            Height="22"
-                            Margin="0,0,3,0"
-                            CornerRadius="7"
-                            Background="{StaticResource OrbitPanelBrush}">
-                        <Image Source="ms-appx:///Assets/Square44x44Logo.png"
-                               Stretch="Uniform"
-                               AutomationProperties.Name="OrbitTerm 标志" />
-                    </Border>
                     <Button Content="添加服务器" Click="CreateAssetClick"
                             Style="{StaticResource OrbitTitleBarButtonStyle}" />
                     <Button Content="编辑凭据" Click="EditAssetClick"
@@ -445,32 +437,33 @@
                 Grid.Column="0"
                 Grid.ColumnSpan="3"
                 Canvas.ZIndex="10"
-                Width="24"
+                Width="10"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Stretch"
                 Background="Transparent"
                 BorderThickness="0"
                 Visibility="Collapsed">
             <Button Click="ToggleAssetSidebarClick"
-                    Width="24"
-                    Height="72"
-                    HorizontalAlignment="Left"
-                    VerticalAlignment="Top"
-                    Margin="0,12,0,0"
-                    Padding="2,5"
+                    Width="10"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Stretch"
+                    Padding="0"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Opacity="0.18"
+                    PointerEntered="PaneEdgeRestorePointerEntered"
+                    PointerExited="PaneEdgeRestorePointerExited"
+                    GotFocus="PaneEdgeRestoreGotFocus"
+                    LostFocus="PaneEdgeRestoreLostFocus"
                     ToolTipService.ToolTip="展开服务器资产栏"
                     AutomationProperties.Name="Expand server assets">
-                <Grid Width="16" Height="14">
-                    <Border BorderBrush="{StaticResource OrbitPrimaryTextBrush}"
-                            BorderThickness="1"
-                            CornerRadius="2" />
-                    <Rectangle Width="1"
-                               Height="10"
-                               Margin="5,0,0,0"
-                               HorizontalAlignment="Left"
-                               VerticalAlignment="Center"
-                               Fill="{StaticResource OrbitPrimaryTextBrush}" />
-                </Grid>
+                <Rectangle Width="2"
+                           Height="40"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           RadiusX="1"
+                           RadiusY="1"
+                           Fill="{StaticResource OrbitAccentBrush}" />
             </Button>
         </Border>
 
@@ -1794,32 +1787,33 @@
                 Grid.Column="0"
                 Grid.ColumnSpan="3"
                 Canvas.ZIndex="10"
-                Width="24"
+                Width="10"
                 HorizontalAlignment="Right"
                 VerticalAlignment="Stretch"
                 Background="Transparent"
                 BorderThickness="0"
                 Visibility="Collapsed">
             <Button Click="ToggleToolInspectorClick"
-                    Width="24"
-                    Height="72"
-                    HorizontalAlignment="Right"
-                    VerticalAlignment="Top"
-                    Margin="0,12,0,0"
-                    Padding="2,5"
+                    Width="10"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Stretch"
+                    Padding="0"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Opacity="0.18"
+                    PointerEntered="PaneEdgeRestorePointerEntered"
+                    PointerExited="PaneEdgeRestorePointerExited"
+                    GotFocus="PaneEdgeRestoreGotFocus"
+                    LostFocus="PaneEdgeRestoreLostFocus"
                     ToolTipService.ToolTip="展开会话工具"
                     AutomationProperties.Name="Expand session tools">
-                <Grid Width="16" Height="14">
-                    <Border BorderBrush="{StaticResource OrbitPrimaryTextBrush}"
-                            BorderThickness="1"
-                            CornerRadius="2" />
-                    <Rectangle Width="1"
-                               Height="10"
-                               Margin="0,0,5,0"
-                               HorizontalAlignment="Right"
-                               VerticalAlignment="Center"
-                               Fill="{StaticResource OrbitPrimaryTextBrush}" />
-                </Grid>
+                <Rectangle Width="2"
+                           Height="40"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           RadiusX="1"
+                           RadiusY="1"
+                           Fill="{StaticResource OrbitAccentBrush}" />
             </Button>
         </Border>
 

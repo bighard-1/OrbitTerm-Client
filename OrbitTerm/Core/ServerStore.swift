@@ -8,6 +8,7 @@ final class ServerStore: ObservableObject {
     @Published var selectedServerID: UUID?
 
     private let legacyDefaultsKey = "orbitterm.servers.v1"
+    private let localDefaultsKey = "orbitterm.servers.device-local.v1"
     private let legacyMigrationFlagKey = "orbitterm.servers.account-scope-migrated.v1"
     private let legacyMigrationOwnerKey = "orbitterm.servers.account-scope-migration-owner.v1"
     private let migrationFlagKey = "orbitterm.credentials.migrated.v1"
@@ -27,6 +28,7 @@ final class ServerStore: ObservableObject {
         guard accountScope != scope else { return }
 
         credentialMigrationOwner.invalidate()
+        _ = persist()
         accountScope = scope
         DeletedServerRegistry.shared.activate(scope: scope)
         load(scope: scope)
@@ -34,9 +36,10 @@ final class ServerStore: ObservableObject {
 
     func deactivateAccount() {
         credentialMigrationOwner.invalidate()
+        _ = persist()
         accountScope = nil
-        servers = []
-        selectedServerID = nil
+        servers = loadLocalServers()
+        selectedServerID = servers.first?.id
         DeletedServerRegistry.shared.deactivate()
     }
 
@@ -50,7 +53,7 @@ final class ServerStore: ObservableObject {
         credentials: ServerCredentials,
         jumpHostCredentials: ServerCredentials? = nil
     ) -> Bool {
-        guard accountScope != nil else { return false }
+        guard server.storageScope == .localOnly || accountScope != nil else { return false }
         guard server.hasDistinctCredentialIDs,
               server.jumpHost == nil || jumpHostCredentials?.isEmpty == false else {
             // A route without its separate hop credential must never become a
@@ -88,7 +91,7 @@ final class ServerStore: ObservableObject {
         if selectedServerID == nil {
             selectedServerID = server.id
         }
-        DeletedServerRegistry.shared.clear(server.id)
+        updateDeletionRegistry(previous: existingServer, current: server)
         if let previousJumpCredentialID,
            previousJumpCredentialID != server.jumpHost?.credentialID {
             try? vault.delete(for: previousJumpCredentialID)
@@ -99,7 +102,7 @@ final class ServerStore: ObservableObject {
 
     @discardableResult
     func addOrUpdate(_ server: ServerEntry) -> Bool {
-        guard accountScope != nil else { return false }
+        guard server.storageScope == .localOnly || accountScope != nil else { return false }
         let existingServer = servers.first(where: { $0.id == server.id })
         guard server.hasDistinctCredentialIDs else { return false }
         if let jumpHost = server.jumpHost {
@@ -120,7 +123,7 @@ final class ServerStore: ObservableObject {
         if selectedServerID == nil {
             selectedServerID = server.id
         }
-        DeletedServerRegistry.shared.clear(server.id)
+        updateDeletionRegistry(previous: existingServer, current: server)
         if let previousJumpCredentialID = existingServer?.jumpHost?.credentialID,
            previousJumpCredentialID != server.jumpHost?.credentialID {
             try? vault.delete(for: previousJumpCredentialID)
@@ -157,6 +160,7 @@ final class ServerStore: ObservableObject {
         guard !synced.isEmpty else { return }
         var table = Dictionary(uniqueKeysWithValues: servers.map { ($0.id, $0) })
         for item in synced {
+            if table[item.id]?.storageScope == .localOnly { continue }
             table[item.id] = item
         }
         servers = table.values.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -184,7 +188,7 @@ final class ServerStore: ObservableObject {
             var table = Dictionary(uniqueKeysWithValues: servers.map { ($0.id, $0) })
             var batchChanged = false
 
-            for item in batch where table[item.id] != item {
+            for item in batch where table[item.id]?.storageScope != .localOnly && table[item.id] != item {
                 table[item.id] = item
                 batchChanged = true
                 changedCount += 1
@@ -216,25 +220,33 @@ final class ServerStore: ObservableObject {
     }
 
     func remove(_ server: ServerEntry) {
-        guard accountScope != nil else { return }
+        guard server.storageScope == .localOnly || accountScope != nil else { return }
         servers.removeAll { $0.id == server.id }
         if selectedServerID == server.id {
             selectedServerID = servers.first?.id
         }
-        DeletedServerRegistry.shared.markDeleted(server.id)
+        if server.storageScope == .accountSynced {
+            DeletedServerRegistry.shared.markDeleted(server.id)
+        } else {
+            DeletedServerRegistry.shared.clear(server.id)
+        }
         deleteCredentials(for: server)
         persist()
     }
 
     func removeMany(_ ids: Set<UUID>) {
-        guard accountScope != nil else { return }
         guard !ids.isEmpty else { return }
-        let removed = servers.filter { ids.contains($0.id) }
-        servers.removeAll { ids.contains($0.id) }
-        if let selected = selectedServerID, ids.contains(selected) {
+        let removed = servers.filter {
+            ids.contains($0.id) && ($0.storageScope == .localOnly || accountScope != nil)
+        }
+        let removedIDs = Set(removed.map(\.id))
+        servers.removeAll { removedIDs.contains($0.id) }
+        if let selected = selectedServerID, removedIDs.contains(selected) {
             selectedServerID = servers.first?.id
         }
-        DeletedServerRegistry.shared.markDeleted(Array(ids))
+        DeletedServerRegistry.shared.markDeleted(
+            removed.filter { $0.storageScope == .accountSynced }.map(\.id)
+        )
         for item in removed {
             deleteCredentials(for: item)
         }
@@ -248,6 +260,7 @@ final class ServerStore: ObservableObject {
             DeletedServerRegistry.shared.clear(id)
             return
         }
+        guard removed.storageScope == .accountSynced else { return }
         servers.removeAll { $0.id == id }
         if selectedServerID == id {
             selectedServerID = servers.first?.id
@@ -258,13 +271,13 @@ final class ServerStore: ObservableObject {
     }
 
     func renameGroup(from oldName: String, to newName: String) {
-        guard accountScope != nil else { return }
         let trimmedNew = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedNew.isEmpty else { return }
         let targetOld = oldName == "未分组" ? "" : oldName
         var changed = false
         for idx in servers.indices {
-            if servers[idx].displayGroup == oldName || servers[idx].group == targetOld {
+            if (servers[idx].storageScope == .localOnly || accountScope != nil) &&
+                (servers[idx].displayGroup == oldName || servers[idx].group == targetOld) {
                 servers[idx].group = trimmedNew
                 changed = true
             }
@@ -273,16 +286,20 @@ final class ServerStore: ObservableObject {
     }
 
     func removeGroup(_ groupName: String) {
-        guard accountScope != nil else { return }
         let target = groupName == "未分组" ? "" : groupName
-        let removed = servers.filter { $0.displayGroup == groupName || $0.group == target }
+        let removed = servers.filter {
+            ($0.storageScope == .localOnly || accountScope != nil) &&
+                ($0.displayGroup == groupName || $0.group == target)
+        }
         guard !removed.isEmpty else { return }
         let removedIDs = Set(removed.map(\.id))
         servers.removeAll { removedIDs.contains($0.id) }
         if let selected = selectedServerID, removedIDs.contains(selected) {
             selectedServerID = servers.first?.id
         }
-        DeletedServerRegistry.shared.markDeleted(Array(removedIDs))
+        DeletedServerRegistry.shared.markDeleted(
+            removed.filter { $0.storageScope == .accountSynced }.map(\.id)
+        )
         for item in removed {
             deleteCredentials(for: item)
         }
@@ -306,11 +323,17 @@ final class ServerStore: ObservableObject {
     }
 
     private func load(scope: AccountScope) {
+        let localServers = loadLocalServers()
         let scopedKey = scope.storageKey("orbitterm.servers.v2")
         if let data = UserDefaults.standard.data(forKey: scopedKey),
            let decoded = try? JSONDecoder().decode([ServerEntry].self, from: data) {
-            servers = decoded
-            selectedServerID = decoded.first?.id
+            let relocatedLocal = mergeLocalServers(
+                localServers,
+                decoded.filter { $0.storageScope == .localOnly }
+            )
+            servers = mergeVisible(accountServers: decoded, localServers: relocatedLocal)
+            selectedServerID = servers.first?.id
+            if relocatedLocal.count != localServers.count { _ = persist() }
             let ownsInterruptedLegacyMigration =
                 UserDefaults.standard.string(forKey: legacyMigrationOwnerKey) == scope.storageIdentifier
             let recoveryEntries: [ServerEntry]
@@ -320,7 +343,7 @@ final class ServerStore: ObservableObject {
                 let activeIDs = Set(decoded.map(\.id))
                 recoveryEntries = legacyEntries.filter { activeIDs.contains($0.id) }
             } else {
-                recoveryEntries = decoded
+                recoveryEntries = decoded.filter { $0.storageScope == .accountSynced }
             }
             migrateLegacyCredentialsIfNeeded(
                 recoveryEntries,
@@ -341,8 +364,8 @@ final class ServerStore: ObservableObject {
               ),
               let data = UserDefaults.standard.data(forKey: legacyDefaultsKey),
               let decoded = try? JSONDecoder().decode([ServerEntry].self, from: data) else {
-            servers = []
-            selectedServerID = nil
+            servers = localServers
+            selectedServerID = localServers.first?.id
             return
         }
 
@@ -350,8 +373,8 @@ final class ServerStore: ObservableObject {
         // any asynchronous Keychain write. If the process dies, only the same
         // authenticated account can resume the migration.
         UserDefaults.standard.set(scope.storageIdentifier, forKey: legacyMigrationOwnerKey)
-        servers = decoded
-        selectedServerID = decoded.first?.id
+        servers = mergeVisible(accountServers: decoded, localServers: localServers)
+        selectedServerID = servers.first?.id
         migrateLegacyCredentialsIfNeeded(decoded, scope: scope, commitsLegacyCache: true)
     }
 
@@ -409,12 +432,62 @@ final class ServerStore: ObservableObject {
 
     @discardableResult
     private func persist() -> Bool {
-        guard let scope = accountScope,
-              let encoded = try? JSONEncoder().encode(servers) else {
+        guard let localEncoded = try? JSONEncoder().encode(
+            servers.filter { $0.storageScope == .localOnly }
+        ) else {
             return false
         }
-        UserDefaults.standard.set(encoded, forKey: scope.storageKey("orbitterm.servers.v2"))
+        UserDefaults.standard.set(localEncoded, forKey: localDefaultsKey)
+        if let scope = accountScope {
+            guard let accountEncoded = try? JSONEncoder().encode(
+                servers.filter { $0.storageScope == .accountSynced }
+            ) else { return false }
+            UserDefaults.standard.set(accountEncoded, forKey: scope.storageKey("orbitterm.servers.v2"))
+        }
         return true
+    }
+
+    private func loadLocalServers() -> [ServerEntry] {
+        guard let data = UserDefaults.standard.data(forKey: localDefaultsKey),
+              let decoded = try? JSONDecoder().decode([ServerEntry].self, from: data) else {
+            return []
+        }
+        return decoded.filter { $0.storageScope == .localOnly }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func mergeVisible(
+        accountServers: [ServerEntry],
+        localServers: [ServerEntry]
+    ) -> [ServerEntry] {
+        var table = Dictionary(uniqueKeysWithValues: accountServers
+            .filter { $0.storageScope == .accountSynced }
+            .map { ($0.id, $0) })
+        // A device-local route always wins an impossible UUID collision so a
+        // cloud pull can never replace data that the user kept off-account.
+        for server in localServers { table[server.id] = server }
+        return table.values.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
+
+    private func mergeLocalServers(
+        _ lhs: [ServerEntry],
+        _ rhs: [ServerEntry]
+    ) -> [ServerEntry] {
+        var table = Dictionary(uniqueKeysWithValues: lhs.map { ($0.id, $0) })
+        for server in rhs where server.storageScope == .localOnly { table[server.id] = server }
+        return Array(table.values)
+    }
+
+    private func updateDeletionRegistry(previous: ServerEntry?, current: ServerEntry) {
+        if previous?.storageScope == .accountSynced && current.storageScope == .localOnly {
+            // Detaching from the account keeps the local route but schedules a
+            // cloud tombstone so other devices do not retain a stale copy.
+            DeletedServerRegistry.shared.markDeleted(current.id)
+        } else {
+            DeletedServerRegistry.shared.clear(current.id)
+        }
     }
 
     private func deleteCredentials(for server: ServerEntry) {

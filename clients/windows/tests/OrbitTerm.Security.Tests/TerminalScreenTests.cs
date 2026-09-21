@@ -16,6 +16,51 @@ public sealed class TerminalScreenTests
     }
 
     [Fact]
+    public void FullWidthNanoChromeUsesDelayedWrapWithoutScrollingTheScreen()
+    {
+        var screen = new TerminalScreen(new TerminalSize(12, 4));
+
+        screen.Write("123456789012");
+        screen.Write("\u001b[1;1Hnano 8.4");
+        screen.Write("\u001b[4;1H^G Help");
+
+        var snapshot = screen.Snapshot();
+        Assert.Equal("nano 8.49012", snapshot.Rows[0].Text);
+        Assert.Equal("^G Help", snapshot.Rows[3].Text);
+        Assert.Equal(0, snapshot.HistoryRowCount);
+    }
+
+    [Fact]
+    public void NanoRedrawCommandsUpdateCellsAndRespectScrollMargins()
+    {
+        var screen = new TerminalScreen(new TerminalSize(12, 5));
+
+        screen.Write("header\u001b[2;5r\u001b[2;1Hone\r\ntwo\r\nthree\r\nfour\r\n");
+        screen.Write("\u001b[3;1H\u001b[2P\u001b[1@X");
+
+        var snapshot = screen.Snapshot();
+        Assert.Equal("header", snapshot.Rows[0].Text);
+        Assert.Equal("two", snapshot.Rows[1].Text);
+        Assert.Equal("Xree", snapshot.Rows[2].Text);
+        Assert.Equal("four", snapshot.Rows[3].Text);
+        Assert.Equal(4, snapshot.Rows.Count);
+        Assert.Equal(0, snapshot.HistoryRowCount);
+    }
+
+    [Fact]
+    public void ResizingKeepsTheDefaultScrollRegionAttachedToTheViewportBottom()
+    {
+        var screen = new TerminalScreen(new TerminalSize(8, 2));
+
+        screen.Resize(new TerminalSize(8, 4));
+        screen.Write("one\r\ntwo\r\nthree\r\nfour");
+
+        var snapshot = screen.Snapshot();
+        Assert.Equal(["one", "two", "three", "four"], snapshot.Rows.Select(row => row.Text));
+        Assert.Equal(0, snapshot.HistoryRowCount);
+    }
+
+    [Fact]
     public void StringControlPayloadsDoNotLeakIntoRows()
     {
         var screen = new TerminalScreen(new TerminalSize(80, 4));

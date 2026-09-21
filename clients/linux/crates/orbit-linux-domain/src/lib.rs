@@ -17,6 +17,10 @@ pub struct ServerAsset {
     pub auth_method: AuthMethod,
     pub transport: Transport,
     pub allow_password_fallback: bool,
+    /// Explicit storage intent. `Unspecified` is retained only for assets
+    /// created by older Linux builds and is resolved through sync ownership.
+    #[serde(default, skip_serializing_if = "AssetStorageScope::is_unspecified")]
+    pub storage_scope: AssetStorageScope,
     pub key_reference: String,
     pub tags: Vec<String>,
     #[serde(default)]
@@ -41,6 +45,7 @@ impl ServerAsset {
             auth_method: AuthMethod::Password,
             transport: Transport::Ssh,
             allow_password_fallback: false,
+            storage_scope: AssetStorageScope::LocalOnly,
             key_reference: String::new(),
             tags: Vec::new(),
             jump_host: None,
@@ -142,6 +147,21 @@ impl ServerAsset {
                 .tags
                 .iter()
                 .any(|tag| tag.to_lowercase().contains(&query))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AssetStorageScope {
+    #[default]
+    Unspecified,
+    AccountSynced,
+    LocalOnly,
+}
+
+impl AssetStorageScope {
+    pub fn is_unspecified(value: &Self) -> bool {
+        *value == Self::Unspecified
     }
 }
 

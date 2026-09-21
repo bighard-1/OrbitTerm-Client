@@ -8,6 +8,8 @@ import com.orbitterm.android.domain.auth.ActiveAccountScopeProvider
 import com.orbitterm.android.domain.assets.AssetRepository
 import com.orbitterm.android.domain.assets.NetworkDeviceProfile
 import com.orbitterm.android.domain.assets.ServerAsset
+import com.orbitterm.android.domain.assets.AssetStorageScope
+import com.orbitterm.android.domain.assets.LOCAL_ASSET_PARTITION
 import com.orbitterm.android.domain.assets.ServerAuthMethod
 import com.orbitterm.android.domain.assets.ServerCredentials
 import com.orbitterm.android.domain.assets.JumpHostConfiguration
@@ -82,6 +84,8 @@ data class AssetEditorUiState(
     val transport: ServerTransportProtocol = ServerTransportProtocol.ssh,
     val networkDeviceProfile: NetworkDeviceProfile = NetworkDeviceProfile.auto,
     val allowPasswordFallback: Boolean = false,
+    val storageScope: AssetStorageScope = AssetStorageScope.LOCAL_ONLY,
+    val isAccountSignedIn: Boolean = false,
     val password: String = "",
     val privateKeyContent: String = "",
     val privateKeyPassphrase: String = "",
@@ -150,20 +154,23 @@ class AssetsViewModel @Inject constructor(
     )
 
     fun createAsset() {
-        val scope = accountScopeController.scope.value ?: return
+        val scope = accountScopeController.scope.value
+        val partition = scope?.storageId ?: LOCAL_ASSET_PARTITION
         val id = UUID.randomUUID().toString()
         editor.value = AssetEditorUiState(
             id = id,
-            credentialID = "${scope.storageId}:$id",
-            jumpCredentialID = "${scope.storageId}:$id:jump",
+            credentialID = "$partition:$id",
+            jumpCredentialID = "$partition:$id:jump",
             isNew = true,
             createdAtUnix = System.currentTimeMillis() / 1_000,
+            storageScope = if (scope == null) AssetStorageScope.LOCAL_ONLY else AssetStorageScope.ACCOUNT_SYNCED,
+            isAccountSignedIn = scope != null,
         )
     }
 
     /** A link can only prefill an editor; the user still reviews and saves it. */
     fun openDeepLink(link: ServerDeepLink, onReviewReady: () -> Unit) {
-        val scope = accountScopeController.scope.value ?: return
+        val scope = accountScopeController.scope.value
         val existing = uiState.value.assets.firstOrNull {
             it.host == link.host && it.port == link.port && it.username == link.username
         }
@@ -174,14 +181,16 @@ class AssetsViewModel @Inject constructor(
         val id = UUID.randomUUID().toString()
         editor.value = AssetEditorUiState(
             id = id,
-            credentialID = "${scope.storageId}:$id",
-            jumpCredentialID = "${scope.storageId}:$id:jump",
+            credentialID = "${scope?.storageId ?: LOCAL_ASSET_PARTITION}:$id",
+            jumpCredentialID = "${scope?.storageId ?: LOCAL_ASSET_PARTITION}:$id:jump",
             isNew = true,
             createdAtUnix = System.currentTimeMillis() / 1_000,
             name = link.suggestedName,
             host = link.host,
             port = link.port.toString(),
             username = link.username,
+            storageScope = if (scope == null) AssetStorageScope.LOCAL_ONLY else AssetStorageScope.ACCOUNT_SYNCED,
+            isAccountSignedIn = scope != null,
         )
         onReviewReady()
     }
@@ -199,7 +208,9 @@ class AssetsViewModel @Inject constructor(
             val jumpCredentials = asset.jumpHost?.let { jump ->
                 withContext(Dispatchers.IO) { credentialStore.read(jump.credentialID) ?: ServerCredentials() }
             }
-            editor.value = asset.toEditorState(credentials, jumpCredentials)
+            editor.value = asset.toEditorState(credentials, jumpCredentials).copy(
+                isAccountSignedIn = accountScopeController.scope.value != null,
+            )
             onReady()
         }
     }
@@ -636,6 +647,7 @@ private fun ServerAsset.toEditorState(
     transport = enumValueOrDefault(transport, ServerTransportProtocol.ssh),
     networkDeviceProfile = enumValueOrDefault(networkDeviceProfile, NetworkDeviceProfile.auto),
     allowPasswordFallback = allowPasswordFallback,
+    storageScope = storageScope,
     password = credentials.password,
     privateKeyContent = credentials.privateKeyContent,
     privateKeyPassphrase = credentials.privateKeyPassphrase,
@@ -664,6 +676,7 @@ private fun AssetEditorUiState.toAsset(): ServerAsset = ServerAsset(
     transport = transport.name,
     networkDeviceProfile = networkDeviceProfile.name,
     allowPasswordFallback = allowPasswordFallback,
+    storageScope = storageScope,
     jumpHost = toJumpHostConfiguration(),
     createdAtUnix = createdAtUnix,
 )

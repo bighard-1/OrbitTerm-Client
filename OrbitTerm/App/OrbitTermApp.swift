@@ -224,9 +224,9 @@ struct OrbitTermApp: App {
                 }
         }
         #if os(macOS)
-        // The workstation's monitoring controls need enough horizontal room on
-        // a first launch.  macOS still preserves a user's later resize choice.
-        .defaultSize(width: 1360, height: 840)
+        // The native geometry adapter refines this preferred size against the
+        // active display's usable work area and preserves later user resizing.
+        .defaultSize(width: 1280, height: 800)
         // Keep the native traffic-light controls while letting the workstation
         // render its own themed top bar below them.
         .windowStyle(.hiddenTitleBar)

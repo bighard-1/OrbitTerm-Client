@@ -106,17 +106,6 @@ struct WorkstationTopBar: View {
             Spacer(minLength: 0)
                 .frame(width: 62)
 
-            Image("OrbitTermLogo")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 22, height: 22)
-                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(palette.borderGlass.color, lineWidth: 1)
-                }
-                .accessibilityLabel("OrbitTerm 标志")
-
 #if DEBUG
             DebugFPSBadge()
 #endif
@@ -182,6 +171,13 @@ struct WorkstationWindowDragRegion: NSViewRepresentable {
     final class DragSurface: NSView {
         override var mouseDownCanMoveWindow: Bool { true }
         override var intrinsicContentSize: NSSize { NSSize(width: -1, height: 0) }
+
+        override func mouseDown(with event: NSEvent) {
+            // Explicit native dragging is more deterministic than relying on
+            // mouseDownCanMoveWindow alone when SwiftUI rebuilds the top or
+            // footer bar during live status updates.
+            window?.performDrag(with: event)
+        }
     }
 
     func makeNSView(context: Context) -> DragSurface {
@@ -367,15 +363,18 @@ struct WorkstationTopStatusBuffer: View {
 }
 
 private struct WorkstationTopBarButtonStyle: ButtonStyle {
+    private let commandWidth: CGFloat = 82
+    private let commandHeight: CGFloat = 28
     let isPrimary: Bool
     @Environment(\.appThemePalette) private var palette
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.caption.weight(.semibold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
             .foregroundStyle(isPrimary ? palette.textOnAccent.color : palette.textPrimary.color)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .frame(width: commandWidth, height: commandHeight)
             .background(
                 isPrimary
                     ? palette.accentPrimary.color.opacity(configuration.isPressed ? 0.78 : 1)
@@ -464,45 +463,56 @@ private struct AccountToolbarMenu: View {
         }
     }
 
-    @Environment(\.appThemePalette) private var palette
     let username: String
     let openAccountSecurity: () -> Void
     let leaveAccount: () -> Void
     @State private var pendingAction: PendingAction?
+    @State private var isShowingMenu = false
 
     var body: some View {
-        Menu {
-            Section {
-                Label(username.isEmpty ? "当前账号" : username, systemImage: "person.crop.circle")
-            }
-            Button {
-                openAccountSecurity()
-            } label: {
-                Label("管理个人信息", systemImage: "person.text.rectangle")
-            }
-            Divider()
-            Button {
-                pendingAction = .switchAccount
-            } label: {
-                Label("切换账号", systemImage: "person.crop.circle.badge.arrow.counterclockwise")
-            }
-            Button(role: .destructive) {
-                pendingAction = .logout
-            } label: {
-                Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
-            }
+        Button {
+            isShowingMenu.toggle()
         } label: {
-            Label("个人中心", systemImage: "person.crop.circle.fill")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(palette.textPrimary.color)
-                .padding(.horizontal, 9)
-                .frame(height: 30)
-                .background(palette.surfaceGlass.color, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay { RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(palette.borderGlass.color) }
+            HStack(spacing: 6) {
+                Image(systemName: "person.crop.circle.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                Text("个人中心")
+            }
+            .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
+        .buttonStyle(WorkstationTopBarButtonStyle(isPrimary: false))
         .accessibilityLabel(username.isEmpty ? "账户菜单" : "账户菜单，当前账号 \(username)")
         .help(username.isEmpty ? "账户菜单" : "当前账号：\(username)")
+        .popover(isPresented: $isShowingMenu, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 8) {
+                Label(username.isEmpty ? "当前账号" : username, systemImage: "person.crop.circle")
+                    .font(.headline)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 4)
+
+                accountAction("管理个人信息", systemImage: "person.text.rectangle") {
+                    isShowingMenu = false
+                    openAccountSecurity()
+                }
+                Divider()
+                accountAction("切换账号", systemImage: "person.crop.circle.badge.arrow.counterclockwise") {
+                    isShowingMenu = false
+                    pendingAction = .switchAccount
+                }
+                accountAction(
+                    "退出登录",
+                    systemImage: "rectangle.portrait.and.arrow.right",
+                    role: .destructive
+                ) {
+                    isShowingMenu = false
+                    pendingAction = .logout
+                }
+            }
+            .padding(12)
+            .frame(width: 272)
+        }
         .confirmationDialog(
             pendingAction?.title ?? "",
             isPresented: Binding(
@@ -519,6 +529,22 @@ private struct AccountToolbarMenu: View {
         } message: {
             Text("将断开当前所有会话并返回登录页。本机资产、片段和待同步操作会继续按原账号隔离保存，不会交给下一个账号。")
         }
+    }
+
+    private func accountAction(
+        _ title: String,
+        systemImage: String,
+        role: ButtonRole? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(role: role, action: action) {
+            Label(title, systemImage: systemImage)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
+        .frame(height: 32)
     }
 }
 

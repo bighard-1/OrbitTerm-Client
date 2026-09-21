@@ -452,6 +452,7 @@ struct QuickKeySetupSheet: View {
     }
 
     private func syncServerUpdate(_ server: ServerEntry, credentials: ServerCredentials) async {
+        guard server.storageScope == .accountSynced else { return }
         guard let token = session.readToken(),
               let masterPassword = session.readMasterPassword() else { return }
         let jumpHostCredentials = server.jumpHost.flatMap { try? vault.read(for: $0.credentialID) }

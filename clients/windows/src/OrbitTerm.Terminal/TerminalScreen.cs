@@ -23,9 +23,15 @@ public sealed class TerminalScreen
     private int cursorRow;
     private int savedCursorColumn;
     private int savedCursorRow;
+    private int scrollTop;
+    private int scrollBottom;
     private EscapeState escapeState;
     private int discardedHistoryLines;
     private bool isAlternateScreen;
+    private bool autoWrapEnabled = true;
+    private bool wrapPending;
+    private bool insertMode;
+    private Cell? lastPrintedCell;
     private MainBufferState? savedMainBuffer;
     private string? windowTitle;
 
@@ -39,6 +45,7 @@ public sealed class TerminalScreen
 
         this.size = size;
         this.maximumHistoryLines = maximumHistoryLines;
+        scrollBottom = checked((int)size.Rows - 1);
         ResetRows();
     }
 
@@ -62,6 +69,7 @@ public sealed class TerminalScreen
             return;
         }
 
+        var scrollRegionWasFullScreen = scrollTop == 0 && scrollBottom == checked((int)size.Rows - 1);
         var existing = rows.Select(row => row.ToArray()).ToArray();
         size = nextSize;
         rows.Clear();
@@ -89,6 +97,17 @@ public sealed class TerminalScreen
         cursorRow = Math.Min(cursorRow, checked((int)size.Rows - 1));
         savedCursorColumn = Math.Min(savedCursorColumn, checked((int)size.Columns - 1));
         savedCursorRow = Math.Min(savedCursorRow, checked((int)size.Rows - 1));
+        if (scrollRegionWasFullScreen)
+        {
+            scrollTop = 0;
+            scrollBottom = checked((int)size.Rows - 1);
+        }
+        else
+        {
+            scrollTop = Math.Clamp(scrollTop, 0, checked((int)size.Rows - 1));
+            scrollBottom = Math.Clamp(scrollBottom, scrollTop, checked((int)size.Rows - 1));
+        }
+        wrapPending = false;
     }
 
     public TerminalScreenSnapshot Snapshot()
@@ -198,12 +217,15 @@ public sealed class TerminalScreen
                 return;
             case '\r':
                 cursorColumn = 0;
+                wrapPending = false;
                 return;
             case '\n':
                 LineFeed();
+                wrapPending = false;
                 return;
             case '\b':
                 cursorColumn = Math.Max(0, cursorColumn - 1);
+                wrapPending = false;
                 return;
             case '\t':
                 var target = Math.Min(checked((int)size.Columns - 1), ((cursorColumn / 8) + 1) * 8);
@@ -264,6 +286,16 @@ public sealed class TerminalScreen
                 break;
             case 'c':
                 Reset();
+                break;
+            case 'D':
+                Index();
+                break;
+            case 'E':
+                cursorColumn = 0;
+                Index();
+                break;
+            case 'M':
+                ReverseIndex();
                 break;
         }
     }
@@ -359,8 +391,12 @@ public sealed class TerminalScreen
         }
 
         var values = ParseParameters(parameters);
+        wrapPending = false;
         switch (command)
         {
+            case '@':
+                InsertCharacters(ParameterOrDefault(values, 0, 1));
+                break;
             case 'A':
                 cursorRow = Math.Max(0, cursorRow - ParameterOrDefault(values, 0, 1));
                 break;
@@ -372,6 +408,14 @@ public sealed class TerminalScreen
                 break;
             case 'D':
                 cursorColumn = Math.Max(0, cursorColumn - ParameterOrDefault(values, 0, 1));
+                break;
+            case 'E':
+                cursorRow = Math.Min(checked((int)size.Rows - 1), cursorRow + ParameterOrDefault(values, 0, 1));
+                cursorColumn = 0;
+                break;
+            case 'F':
+                cursorRow = Math.Max(0, cursorRow - ParameterOrDefault(values, 0, 1));
+                cursorColumn = 0;
                 break;
             case 'G':
                 cursorColumn = Math.Clamp(ParameterOrDefault(values, 0, 1) - 1, 0, checked((int)size.Columns - 1));
@@ -387,8 +431,51 @@ public sealed class TerminalScreen
             case 'K':
                 EraseLine(ParameterOrDefault(values, 0, 0));
                 break;
+            case 'L':
+                InsertLines(ParameterOrDefault(values, 0, 1));
+                break;
+            case 'M':
+                DeleteLines(ParameterOrDefault(values, 0, 1));
+                break;
+            case 'P':
+                DeleteCharacters(ParameterOrDefault(values, 0, 1));
+                break;
+            case 'S':
+                ScrollUp(ParameterOrDefault(values, 0, 1));
+                break;
+            case 'T':
+                ScrollDown(ParameterOrDefault(values, 0, 1));
+                break;
+            case 'X':
+                EraseCharacters(ParameterOrDefault(values, 0, 1));
+                break;
+            case '`':
+                cursorColumn = Math.Clamp(ParameterOrDefault(values, 0, 1) - 1, 0, checked((int)size.Columns - 1));
+                break;
+            case 'a':
+                cursorColumn = Math.Min(checked((int)size.Columns - 1), cursorColumn + ParameterOrDefault(values, 0, 1));
+                break;
+            case 'b':
+                RepeatLastPrintedCharacter(ParameterOrDefault(values, 0, 1));
+                break;
+            case 'd':
+                cursorRow = Math.Clamp(ParameterOrDefault(values, 0, 1) - 1, 0, checked((int)size.Rows - 1));
+                break;
+            case 'e':
+                cursorRow = Math.Min(checked((int)size.Rows - 1), cursorRow + ParameterOrDefault(values, 0, 1));
+                break;
+            case 'h':
+            case 'l':
+                if (values.Contains(4))
+                {
+                    insertMode = command == 'h';
+                }
+                break;
             case 'm':
                 ApplySgr(values);
+                break;
+            case 'r':
+                SetScrollRegion(values);
                 break;
             case 's':
                 SaveCursor();
@@ -407,47 +494,195 @@ public sealed class TerminalScreen
             return;
         }
 
-        if (width == 2 && cursorColumn == size.Columns - 1)
+        if (wrapPending)
         {
+            wrapPending = false;
             cursorColumn = 0;
-            LineFeed();
+            Index();
         }
 
+        if (width == 2 && cursorColumn == size.Columns - 1 && autoWrapEnabled)
+        {
+            cursorColumn = 0;
+            Index();
+        }
+
+        if (insertMode)
+        {
+            InsertCharacters(width);
+        }
         ClearWideCharacterAt(cursorRow, cursorColumn);
-        rows[cursorRow][cursorColumn] = new Cell(rune.ToString(), style, false);
+        var printed = new Cell(rune.ToString(), style, false);
+        rows[cursorRow][cursorColumn] = printed;
+        lastPrintedCell = printed;
         if (width == 2)
         {
-            rows[cursorRow][cursorColumn + 1] = new Cell(string.Empty, style, true);
+            if (cursorColumn + 1 < size.Columns)
+            {
+                rows[cursorRow][cursorColumn + 1] = new Cell(string.Empty, style, true);
+            }
         }
 
-        cursorColumn += width;
-        if (cursorColumn >= size.Columns)
+        var nextColumn = cursorColumn + width;
+        if (nextColumn >= size.Columns)
         {
-            cursorColumn = 0;
-            LineFeed();
+            cursorColumn = checked((int)size.Columns - 1);
+            wrapPending = autoWrapEnabled;
+        }
+        else
+        {
+            cursorColumn = nextColumn;
         }
     }
 
     private void LineFeed()
     {
-        if (cursorRow < size.Rows - 1)
+        Index();
+    }
+
+    private void Index()
+    {
+        wrapPending = false;
+        if (cursorRow < scrollBottom)
         {
             cursorRow++;
             return;
         }
 
-        if (!isAlternateScreen)
+        if (cursorRow != scrollBottom)
         {
-            history.Add(ToSnapshotRow(rows[0], checked((int)size.Columns)));
-            while (history.Count > maximumHistoryLines)
-            {
-                history.RemoveAt(0);
-                discardedHistoryLines++;
-            }
+            cursorRow = Math.Min(checked((int)size.Rows - 1), cursorRow + 1);
+            return;
         }
 
-        rows.RemoveAt(0);
-        rows.Add(CreateRow());
+        ScrollUp(1);
+    }
+
+    private void ReverseIndex()
+    {
+        wrapPending = false;
+        if (cursorRow > scrollTop)
+        {
+            cursorRow--;
+            return;
+        }
+
+        if (cursorRow != scrollTop)
+        {
+            cursorRow = Math.Max(0, cursorRow - 1);
+            return;
+        }
+
+        ScrollDown(1);
+    }
+
+    private void ScrollUp(int count)
+    {
+        var amount = Math.Clamp(count, 1, scrollBottom - scrollTop + 1);
+        for (var index = 0; index < amount; index++)
+        {
+            if (!isAlternateScreen && scrollTop == 0 && scrollBottom == size.Rows - 1)
+            {
+                history.Add(ToSnapshotRow(rows[0], checked((int)size.Columns)));
+                while (history.Count > maximumHistoryLines)
+                {
+                    history.RemoveAt(0);
+                    discardedHistoryLines++;
+                }
+            }
+
+            rows.RemoveAt(scrollTop);
+            rows.Insert(scrollBottom, CreateRow());
+        }
+    }
+
+    private void ScrollDown(int count)
+    {
+        var amount = Math.Clamp(count, 1, scrollBottom - scrollTop + 1);
+        for (var index = 0; index < amount; index++)
+        {
+            rows.RemoveAt(scrollBottom);
+            rows.Insert(scrollTop, CreateRow());
+        }
+    }
+
+    private void SetScrollRegion(IReadOnlyList<int> values)
+    {
+        var top = ParameterOrDefault(values, 0, 1) - 1;
+        var bottom = ParameterOrDefault(values, 1, checked((int)size.Rows)) - 1;
+        if (top < 0 || bottom >= size.Rows || top >= bottom)
+        {
+            return;
+        }
+        scrollTop = top;
+        scrollBottom = bottom;
+        cursorRow = 0;
+        cursorColumn = 0;
+    }
+
+    private void InsertCharacters(int count)
+    {
+        var row = rows[cursorRow];
+        var amount = Math.Clamp(count, 1, checked((int)size.Columns) - cursorColumn);
+        Array.Copy(row, cursorColumn, row, cursorColumn + amount, checked((int)size.Columns) - cursorColumn - amount);
+        ClearCells(row, cursorColumn, cursorColumn + amount - 1);
+    }
+
+    private void DeleteCharacters(int count)
+    {
+        var row = rows[cursorRow];
+        var amount = Math.Clamp(count, 1, checked((int)size.Columns) - cursorColumn);
+        Array.Copy(row, cursorColumn + amount, row, cursorColumn, checked((int)size.Columns) - cursorColumn - amount);
+        ClearCells(row, checked((int)size.Columns) - amount, checked((int)size.Columns) - 1);
+    }
+
+    private void EraseCharacters(int count)
+    {
+        var end = Math.Min(checked((int)size.Columns - 1), cursorColumn + Math.Max(1, count) - 1);
+        ClearCells(rows[cursorRow], cursorColumn, end);
+    }
+
+    private void InsertLines(int count)
+    {
+        if (cursorRow < scrollTop || cursorRow > scrollBottom)
+        {
+            return;
+        }
+        var amount = Math.Clamp(count, 1, scrollBottom - cursorRow + 1);
+        for (var index = 0; index < amount; index++)
+        {
+            rows.RemoveAt(scrollBottom);
+            rows.Insert(cursorRow, CreateRow());
+        }
+    }
+
+    private void DeleteLines(int count)
+    {
+        if (cursorRow < scrollTop || cursorRow > scrollBottom)
+        {
+            return;
+        }
+        var amount = Math.Clamp(count, 1, scrollBottom - cursorRow + 1);
+        for (var index = 0; index < amount; index++)
+        {
+            rows.RemoveAt(cursorRow);
+            rows.Insert(scrollBottom, CreateRow());
+        }
+    }
+
+    private void RepeatLastPrintedCharacter(int count)
+    {
+        if (lastPrintedCell is not { } cell || string.IsNullOrEmpty(cell.Text))
+        {
+            return;
+        }
+        var previousStyle = style;
+        style = cell.Style;
+        for (var index = 0; index < Math.Max(1, count); index++)
+        {
+            PutCharacter(Rune.GetRuneAt(cell.Text, 0));
+        }
+        style = previousStyle;
     }
 
     private void EraseDisplay(int mode)
@@ -626,6 +861,13 @@ public sealed class TerminalScreen
                         RestoreCursor();
                     }
                     break;
+                case 7:
+                    autoWrapEnabled = enabled;
+                    if (!enabled)
+                    {
+                        wrapPending = false;
+                    }
+                    break;
             }
         }
     }
@@ -654,6 +896,9 @@ public sealed class TerminalScreen
         cursorRow = 0;
         savedCursorColumn = 0;
         savedCursorRow = 0;
+        scrollTop = 0;
+        scrollBottom = checked((int)size.Rows - 1);
+        wrapPending = false;
         ResetRows();
     }
 
@@ -687,6 +932,9 @@ public sealed class TerminalScreen
         savedCursorColumn = Math.Clamp(main.SavedCursorColumn, 0, checked((int)size.Columns - 1));
         savedCursorRow = Math.Clamp(main.SavedCursorRow, 0, checked((int)size.Rows - 1));
         discardedHistoryLines = main.DiscardedHistoryLines;
+        scrollTop = 0;
+        scrollBottom = checked((int)size.Rows - 1);
+        wrapPending = false;
     }
 
     private void Reset()
@@ -698,6 +946,12 @@ public sealed class TerminalScreen
         cursorRow = 0;
         savedCursorColumn = 0;
         savedCursorRow = 0;
+        scrollTop = 0;
+        scrollBottom = checked((int)size.Rows - 1);
+        autoWrapEnabled = true;
+        wrapPending = false;
+        insertMode = false;
+        lastPrintedCell = null;
         ResetRows();
     }
 

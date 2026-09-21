@@ -5,7 +5,6 @@ import AppKit
 
 struct MainWorkstationView: View {
     @Environment(\.appThemePalette) private var palette
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var serverStore: ServerStore
     #if os(macOS)
@@ -37,7 +36,7 @@ struct MainWorkstationView: View {
     @State private var leftPanelAutomaticallyCollapsed = false
     @State private var rightPanelAutomaticallyCollapsed = false
     @State private var rightPanelManualVisibility: Bool?
-    @State private var currentWorkbenchWidth: CGFloat = 1360
+    @State private var currentWorkbenchWidth: CGFloat = 1280
     @State private var isTerminalFullscreen = false
     @AppStorage("orbitterm.workstation.left.width") private var preferredLeftPanelWidth: Double = 220
     @AppStorage("orbitterm.workstation.right.width") private var preferredRightPanelWidth: Double = 280
@@ -45,6 +44,8 @@ struct MainWorkstationView: View {
     @State private var leftResizeOrigin: CGFloat?
     @State private var rightResizeOrigin: CGFloat?
     @State private var hoveredWorkspaceSplitter: WorkspaceSplitterSide?
+    @State private var hoveredRestoreEdge: WorkspaceSplitterSide?
+    @FocusState private var focusedRestoreEdge: WorkspaceSplitterSide?
     @State private var selectedRightPanelTab: WorkstationRightPanelTab = .sftp
     @State private var showingMonitorDetailPanelID: UUID?
     @State private var pendingSFTPRename: PendingSFTPRename?
@@ -111,6 +112,29 @@ struct MainWorkstationView: View {
                     // workstation or squeeze the terminal pre-input bar and
                     // independent synchronization status bar out of view.
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .overlay(alignment: .leading) {
+                        if !isTerminalFullscreen, isLeftPanelCollapsed {
+                            workstationEdgeRestoreTrigger(
+                                side: .left,
+                                label: "展开服务器侧栏"
+                            ) {
+                                isLeftPanelCollapsed = false
+                                leftPanelAutomaticallyCollapsed = false
+                            }
+                        }
+                    }
+                    .overlay(alignment: .trailing) {
+                        if !isTerminalFullscreen, isRightPanelCollapsed {
+                            workstationEdgeRestoreTrigger(
+                                side: .right,
+                                label: "展开会话工具"
+                            ) {
+                                isRightPanelCollapsed = false
+                                rightPanelAutomaticallyCollapsed = false
+                                rightPanelManualVisibility = true
+                            }
+                        }
+                    }
                     if !isTerminalFullscreen {
                         WorkstationPersistentSyncStatusView(
                             serverStore: serverStore,
@@ -118,38 +142,8 @@ struct MainWorkstationView: View {
                         )
                     }
                 }
-
-                if !isTerminalFullscreen, isLeftPanelCollapsed {
-                    workstationEdgeRestoreButton(
-                        systemImage: "sidebar.left",
-                        label: "展开服务器侧栏"
-                    ) {
-                        withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {
-                            isLeftPanelCollapsed = false
-                            leftPanelAutomaticallyCollapsed = false
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .padding(.top, 12)
-                }
-
-                if !isTerminalFullscreen, isRightPanelCollapsed {
-                    workstationEdgeRestoreButton(
-                        systemImage: "sidebar.right",
-                        label: "展开会话工具"
-                    ) {
-                        withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {
-                            isRightPanelCollapsed = false
-                            rightPanelAutomaticallyCollapsed = false
-                            rightPanelManualVisibility = true
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(.top, 12)
-                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .animation(reduceMotion ? nil : .interactiveSpring(response: 0.35, dampingFraction: 0.85), value: isRightPanelCollapsed)
             .onChange(of: proxy.size.width, initial: true) { _, width in
                 currentWorkbenchWidth = width
                 updateResponsivePanels(for: width)
@@ -425,10 +419,8 @@ struct MainWorkstationView: View {
                 #endif
             }(),
             onCollapse: {
-                withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {
-                    isLeftPanelCollapsed = true
-                    leftPanelAutomaticallyCollapsed = false
-                }
+                isLeftPanelCollapsed = true
+                leftPanelAutomaticallyCollapsed = false
             },
             onAddServer: { showingAddServer = true },
             onEditServer: { server in editingServer = server },
@@ -519,11 +511,9 @@ struct MainWorkstationView: View {
                 #endif
             }(),
             onCollapse: {
-                withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {
-                    isRightPanelCollapsed = true
-                    rightPanelAutomaticallyCollapsed = false
-                    rightPanelManualVisibility = false
-                }
+                isRightPanelCollapsed = true
+                rightPanelAutomaticallyCollapsed = false
+                rightPanelManualVisibility = false
             },
             onCreateSFTPItem: { sessionID, kind in
                 pendingSFTPCreate = PendingSFTPCreate(sessionID: sessionID, kind: kind)
@@ -552,28 +542,41 @@ struct MainWorkstationView: View {
     private func toggleTerminalFullscreen() { }
 #endif
 
-    private func workstationEdgeRestoreButton(
-        systemImage: String,
+    private func workstationEdgeRestoreTrigger(
+        side: WorkspaceSplitterSide,
         label: String,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .frame(width: 24, height: 72)
+        let active = hoveredRestoreEdge == side || focusedRestoreEdge == side
+        return Button(action: action) {
+            Rectangle()
+                .fill(active ? palette.accentPrimary.color : palette.textSecondary.color)
+                .frame(width: 2, height: 40)
+                .opacity(active ? 0.92 : 0.18)
+                .frame(width: 10)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(palette.textPrimary.color)
-        .background(palette.surfaceGlassStrong.color, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(palette.borderGlass.color, lineWidth: 1)
+        .frame(width: 10)
+        .frame(maxHeight: .infinity)
+        .background {
+            if active {
+                palette.accentPrimary.color.opacity(0.08)
+            } else {
+                Color.clear
+            }
         }
-        .shadow(color: .black.opacity(0.14), radius: 8, y: 2)
+        .focused($focusedRestoreEdge, equals: side)
+        .onHover { hovering in
+            hoveredRestoreEdge = hovering ? side : (hoveredRestoreEdge == side ? nil : hoveredRestoreEdge)
+        }
         .accessibilityLabel(label)
+        .accessibilityHint("点击展开，不会自动打开")
         .help(label)
     }
 
-    private enum WorkspaceSplitterSide: Equatable { case left, right }
+    private enum WorkspaceSplitterSide: Hashable { case left, right }
 
     @ViewBuilder
     private func workspaceSplitter(

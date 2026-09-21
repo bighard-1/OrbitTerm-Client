@@ -289,7 +289,8 @@ struct WorkstationMonitorOverviewStrip: View {
     }
 
     private func overviewMetric(_ metric: MonitorOverviewMetric) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        let accessibilityTitle = metric.title == "TCP" ? "TCP 延迟与探测失败率" : metric.title
+        return VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 4) {
                 Text(metric.title)
                     .lineLimit(1)
@@ -315,7 +316,8 @@ struct WorkstationMonitorOverviewStrip: View {
                 .stroke(palette.borderGlass.color, lineWidth: 1)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(metric.title)，当前 \(metric.value)，最近变化")
+        .accessibilityLabel("\(accessibilityTitle)，当前 \(metric.value)，最近变化")
+        .help("\(accessibilityTitle)：\(metric.value)")
     }
 
     private func metrics(for panel: MonitorPanelState, latest: MonitorPoint) -> [MonitorOverviewMetric] {
@@ -324,9 +326,9 @@ struct WorkstationMonitorOverviewStrip: View {
         let latency = points.compactMap(\.pingLatencyMs)
         let recent = points.filter { $0.time >= Date().addingTimeInterval(-300) }
         let failure = recent.isEmpty
-            ? "失败 --"
+            ? "--%"
             : String(
-                format: "失败 %.1f%%",
+                format: "%.1f%%",
                 TCPLatencySamplePolicy.statistics(samples: recent.map(\.pingLatencyMs)).failurePercent ?? 0
             )
         let latencyValue = latest.pingLatencyMs.map { String(format: "%.0f ms · %@", $0, failure) } ?? "-- ms · \(failure)"
@@ -352,7 +354,7 @@ struct WorkstationMonitorOverviewStrip: View {
                 history: points.map(\.txRateKBps), ceiling: networkCeiling
             ),
             MonitorOverviewMetric(
-                title: "TCP 延迟 · 失败率", value: latencyValue, current: latest.pingLatencyMs ?? 0,
+                title: "TCP", value: latencyValue, current: latest.pingLatencyMs ?? 0,
                 history: latency, ceiling: dynamicCeiling(for: latency)
             )
         ]

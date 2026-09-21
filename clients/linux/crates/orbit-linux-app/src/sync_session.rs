@@ -74,6 +74,10 @@ impl SecureSyncSession {
         self.inner.borrow_mut().last_pull_unix_ms = now_unix_ms;
     }
 
+    pub(crate) fn request_pull_now(&self) {
+        self.inner.borrow_mut().last_pull_unix_ms = 0;
+    }
+
     pub(crate) fn should_notify(&self, key: String) -> bool {
         let mut state = self.inner.borrow_mut();
         if state.notification_key.as_ref() == Some(&key) {
@@ -134,5 +138,16 @@ mod tests {
         assert!(!session.should_notify("conflict:2".into()));
         session.clear_notification();
         assert!(session.should_notify("conflict:2".into()));
+    }
+
+    #[test]
+    fn manual_sync_request_makes_the_next_pull_due_without_locking_the_session() {
+        let session = SecureSyncSession::default();
+        assert!(session.unlock("account-a".into(), "master".into(), 100));
+        session.record_pull(1_000);
+        assert!(!session.pull_is_due(1_001, 30_000));
+        session.request_pull_now();
+        assert!(session.pull_is_due(30_000, 30_000));
+        assert!(session.password_for("account-a", 1_002).is_some());
     }
 }

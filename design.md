@@ -83,17 +83,26 @@ a skin: every client implements one shared hierarchy with native controls.
 - The window is a responsive canvas, not a collection of screenshot-sized
   rectangles. Width-sensitive elements use available width, a preferred ratio,
   and explicit minimum and maximum values.
-- The fully expanded three-pane minimum is 980 x 700 logical pixels. The
-  preferred first-launch size is 1280 x 800. Linux additionally supports an
-  820 x 560 compact window for lower-resolution desktops; the side panes must
-  collapse before the terminal is allowed below 560 logical pixels wide.
+- The fully expanded three-pane comfortable minimum is 980 x 700 logical
+  pixels. Every desktop also supports an 820 x 560 compact floor. A first
+  launch targets 1280 x 800, or 88% of the active display's usable work area
+  when that is smaller; the side panes must collapse before the terminal is
+  allowed below 560 logical pixels wide. Native per-monitor DPI scaling owns
+  clarity. The app never silently shrinks the user's terminal font.
+- Windows uses a 980-pixel command-lane floor while the complete fixed-width
+  global command set is visible. Unlike macOS and Linux, its client-drawn title
+  bar shares horizontal space with the native caption-button reserve; allowing
+  a narrower manual resize would conceal Settings or Personal Center. Displays
+  narrower than that remain supported by clamping to the usable work area.
 - The asset pane prefers 300 logical pixels, may occupy 19–25% of the window,
   and is clamped to 220–320. The tool inspector prefers 328 logical pixels, may
   occupy 22–30%, and is clamped to 280–420.
 - When the three expanded panes cannot preserve the terminal minimum, the tool
   inspector collapses first below 1180 logical pixels and the asset pane below
-  980. A collapsed pane occupies zero layout width and is restored from a
-  24–28 pixel edge affordance layered over the workbench.
+  980. A collapsed pane occupies zero layout width. Its restore control is a
+  10-pixel edge hit lane with a restrained 2-pixel state marker that strengthens
+  only on pointer hover or keyboard focus; it never floats over workspace
+  controls and clicking, rather than hovering, performs the expansion.
 - The top command lane is 36 logical pixels high. The overview lane is compact:
   34–40 logical pixels, with endpoint and six equal-width monitoring cards plus
   a fixed 54-pixel detail action. Cards expand and contract with the window.
@@ -104,11 +113,19 @@ a skin: every client implements one shared hierarchy with native controls.
 
 ## Fixed information order
 
-1. Native window controls and square rounded OrbitTerm mark.
+1. Native window controls and draggable chrome. Product identity remains in the
+   operating system's app icon, Dock/taskbar and application menu rather than a
+   second logo inserted into the workstation command lane.
 2. Add Server, Edit Credentials, Asset Management, Key Management, Port
    Forwarding, Batch Command, Snippets, Settings, Account.
 3. Current endpoint, CPU, memory, disk, download, upload, TCP latency, details.
 4. Asset pane, tabbed terminal workspace, session tools.
+
+Global command buttons use one shared 82-by-28 logical-pixel footprint and a
+single text line. Short labels do not collapse the hit target, and long labels
+do not increase the command lane height. The account entry follows the same
+footprint, uses a native avatar plus the `个人中心` label, and makes the entire
+rectangle clickable so signing in cannot reflow or weaken the title bar target.
 
 The asset pane contains its heading, grouped assets and search. Asset groups are
 collapsed by default. Synchronization status is visually aligned with the asset
@@ -117,6 +134,11 @@ and Docker only while a compatible active session exists. Snippets is a global
 top-command destination because users must be able to create, search and sync
 command fragments before opening a session; insertion and execution activate
 only when a compatible SSH session exists.
+
+The presence of a verified SSH session is a hard prerequisite for session
+tools: ending or closing that session collapses the pane even if it had
+previously been opened. The compact 500-pixel terminal floor is used only while
+a user explicitly opens the tool pane below the comfortable window breakpoint.
 
 SFTP uses one compact navigation row: parent directory, editable path, refresh
 and overflow. Upload/create operations live in the overflow and current-folder
@@ -128,8 +150,20 @@ redacted stable error codes; a raw bridge or core exception is never shown to
 the user. Text editing uses the same Revert, Copy, Save and Cancel actions on
 all desktops. List scrolling remains available even when decorative scrollbars
 are hidden.
-Collapsed pane restore controls use the same 12-pixel top inset and 72-pixel
-interaction lane on every desktop.
+Collapsed pane restore controls use a zero-obstruction 10-pixel edge hit lane
+with a 2-by-40-pixel reveal indicator on every desktop.
+
+The overview uses the short `TCP` label with a compact
+`latency · failure-rate` value; full wording remains in accessibility text and
+the detail view. Persistent synchronization health never exposes a numeric
+remote revision. Revision identifiers remain in synchronization diagnostics,
+audit history and conflict resolution where they are actionable.
+
+The synchronization icon in the persistent footer means `立即同步`. When an
+account is unlocked it requests a fresh pull directly and reports progress in
+place; when authentication or the master password is required it opens only the
+corresponding focused gate. It never opens the full synchronization management
+centre merely as a side effect of clicking refresh.
 
 The Snippets manager always exposes the same primary content: title, command,
 category, asset scope ("All assets" or a concrete restricted count), Insert and
@@ -148,6 +182,19 @@ may differ, but no platform may hide a primary action behind selection alone.
 - Authentication is a focused, centred task with a 480–560 pixel card. Account
   sign-in/registration, master-password setup/unlock and synchronization
   management are separate states and never appear as one crowded form.
+- Sign-in and registration share one equal-width two-state switch, email and
+  password fields, a short legal-consent row with a separately clickable legal
+  document action, one primary action and an inline status slot. Master-password
+  unlock uses a native lock/shield symbol, one explanation, one secure field,
+  inline progress/error feedback and equal secondary/primary actions. Product
+  logos are omitted inside these focused cards because the native application
+  shell already establishes identity.
+- A changed SSH Host Key remains blocking. When the core reports a replaceable
+  changed record, the UI may offer `移除旧信任并重新验证` only after displaying
+  old and presented fingerprints. The action atomically removes the exact
+  host/port/algorithm record only if the old fingerprint still matches, then
+  reconnects as an unknown host and requires a second explicit trust decision;
+  it never accepts the presented replacement key automatically.
 - Settings use one scrollable sequence of named groups in the same order on all
   desktop platforms. A native list, group box or preferences row may be used,
   but a client must not invent a separate two-column information architecture.

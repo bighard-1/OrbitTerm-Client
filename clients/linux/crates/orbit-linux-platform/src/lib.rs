@@ -2,7 +2,7 @@ use orbit_linux_application::{AssetRepository, RepositoryError};
 use orbit_linux_domain::ServerAsset;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::io::{self, Write};
@@ -15,7 +15,7 @@ use zeroize::Zeroize;
 mod sync_operations;
 pub use sync_operations::{
     current_unix_ms, QueuedSyncOperation, QueuedSyncPayload, SyncAuditEvent, SyncAuditOutcome,
-    SyncOperationKind, SyncOperationRepository,
+    SyncOperationDraft, SyncOperationKind, SyncOperationRepository,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -539,6 +539,22 @@ impl SyncStateRepository {
         Ok(revisions)
     }
 
+    /// Returns the non-secret account ownership index for every asset that has
+    /// participated in synchronization. Assets absent from this index are
+    /// local-only and remain available while signed out.
+    pub fn synchronized_asset_owners(
+        &self,
+    ) -> Result<HashMap<Uuid, HashSet<String>>, PlatformError> {
+        let document = self.load_or_create()?;
+        let mut owners = HashMap::<Uuid, HashSet<String>>::new();
+        for (account, state) in document.accounts {
+            for asset_id in state.assets.keys() {
+                owners.entry(*asset_id).or_default().insert(account.clone());
+            }
+        }
+        Ok(owners)
+    }
+
     pub fn save_asset(
         &self,
         account_fingerprint: &str,
@@ -571,6 +587,24 @@ impl SyncStateRepository {
         };
         if should_replace {
             account.assets.insert(asset_id, metadata);
+            secure_atomic_json_write(&self.path, &document)?;
+        }
+        Ok(())
+    }
+
+    pub fn remove_asset(
+        &self,
+        account_fingerprint: &str,
+        asset_id: Uuid,
+    ) -> Result<(), PlatformError> {
+        validate_account_fingerprint(account_fingerprint)?;
+        let mut document = self.load_or_create()?;
+        let removed = document
+            .accounts
+            .get_mut(account_fingerprint)
+            .and_then(|account| account.assets.remove(&asset_id))
+            .is_some();
+        if removed {
             secure_atomic_json_write(&self.path, &document)?;
         }
         Ok(())
@@ -638,7 +672,13 @@ fn validate_asset_sync_state(metadata: &AssetSyncState) -> Result<(), PlatformEr
 /// Returns a stable digest of non-secret local asset fields. This prevents a stored
 /// remote revision from masking later local edits without persisting any credential.
 pub fn asset_sync_fingerprint(asset: &ServerAsset) -> Result<String, PlatformError> {
-    let encoded = serde_json::to_vec(asset)?;
+    // Storage intent is a client-side routing policy, not portable asset
+    // content. Excluding it preserves fingerprints created by older builds and
+    // avoids manufacturing a conflict when a legacy record gains an explicit
+    // scope during migration.
+    let mut stable = asset.clone();
+    stable.storage_scope = orbit_linux_domain::AssetStorageScope::Unspecified;
+    let encoded = serde_json::to_vec(&stable)?;
     Ok(format!("{:x}", Sha256::digest(encoded)))
 }
 
@@ -750,6 +790,11 @@ pub struct AuthTokenMaterial {
     pub refresh_token: String,
     #[serde(default)]
     pub account_scope: String,
+    /// User-visible account name. Older keyring records legitimately omit it;
+    /// a successful password login backfills the value without exposing it in
+    /// ordinary files or diagnostics.
+    #[serde(default)]
+    pub username: String,
 }
 
 impl AuthTokenMaterial {
@@ -761,6 +806,8 @@ impl AuthTokenMaterial {
             || self.refresh_token.contains('\0')
             || self.account_scope.len() > 128
             || self.account_scope.contains('\0')
+            || self.username.len() > 255
+            || self.username.chars().any(char::is_control)
         {
             return Err(PlatformError::InvalidAuthToken);
         }
@@ -773,6 +820,7 @@ impl Drop for AuthTokenMaterial {
         self.access_token.zeroize();
         self.refresh_token.zeroize();
         self.account_scope.zeroize();
+        self.username.zeroize();
     }
 }
 
@@ -1142,12 +1190,14 @@ mod tests {
             access_token: "header.payload.signature".into(),
             refresh_token: "refresh".into(),
             account_scope: "a".repeat(64),
+            username: "operator@example.com".into(),
         };
         assert!(valid.validate().is_ok());
         let invalid = AuthTokenMaterial {
             access_token: "token\0suffix".into(),
             refresh_token: String::new(),
             account_scope: String::new(),
+            username: String::new(),
         };
         assert!(matches!(
             invalid.validate(),
@@ -1225,6 +1275,42 @@ mod tests {
                 .remote_id,
             7
         );
+    }
+
+    #[test]
+    fn synchronized_asset_ownership_distinguishes_local_only_assets() {
+        let directory = tempfile::tempdir().unwrap();
+        let repository = SyncStateRepository::new(directory.path().join("sync/state.json"));
+        let synchronized = Uuid::new_v4();
+        let local_only = Uuid::new_v4();
+        let metadata = AssetSyncState {
+            remote_id: 7,
+            vector_clock: r#"{"linux":1}"#.into(),
+            state: "active".into(),
+            server_revision: 3,
+            applied: true,
+            local_fingerprint: None,
+        };
+
+        repository
+            .save_asset("001122aabbcc", synchronized, metadata.clone())
+            .unwrap();
+        repository
+            .save_asset("ffeeddccbbaa", synchronized, metadata)
+            .unwrap();
+
+        let owners = repository.synchronized_asset_owners().unwrap();
+        assert_eq!(owners[&synchronized].len(), 2);
+        assert!(!owners.contains_key(&local_only));
+    }
+
+    #[test]
+    fn storage_scope_does_not_change_portable_asset_fingerprint() {
+        let mut asset = ServerAsset::new("节点", "node.example", "ops");
+        asset.storage_scope = orbit_linux_domain::AssetStorageScope::LocalOnly;
+        let local = asset_sync_fingerprint(&asset).unwrap();
+        asset.storage_scope = orbit_linux_domain::AssetStorageScope::AccountSynced;
+        assert_eq!(asset_sync_fingerprint(&asset).unwrap(), local);
     }
 
     #[test]

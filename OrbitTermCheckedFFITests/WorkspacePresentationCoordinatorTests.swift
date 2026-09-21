@@ -61,4 +61,23 @@ final class WorkspacePresentationCoordinatorTests: XCTestCase {
         XCTAssertEqual(SFTPInitialPathPolicy.preferredPath(username: "root"), "/root")
         XCTAssertEqual(SFTPInitialPathPolicy.preferredPath(username: "bad/name"), "/")
     }
+
+    func testWorkstationInitialSizeUsesAvailableDisplayWithoutCrowding() {
+        XCTAssertEqual(
+            WorkstationLayoutMetrics.initialWindowSize(for: CGSize(width: 1_920, height: 1_080)),
+            CGSize(width: 1_280, height: 800)
+        )
+        XCTAssertEqual(
+            WorkstationLayoutMetrics.initialWindowSize(for: CGSize(width: 1_366, height: 768)),
+            CGSize(width: 1_202, height: 675)
+        )
+        XCTAssertEqual(
+            WorkstationLayoutMetrics.initialWindowSize(for: CGSize(width: 1_024, height: 600)),
+            CGSize(width: 901, height: 560)
+        )
+        XCTAssertEqual(
+            WorkstationLayoutMetrics.initialWindowSize(for: CGSize(width: 800, height: 500)),
+            CGSize(width: 800, height: 500)
+        )
+    }
 }

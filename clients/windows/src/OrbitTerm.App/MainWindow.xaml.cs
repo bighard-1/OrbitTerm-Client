@@ -36,11 +36,16 @@ namespace OrbitTerm.App;
 
 public sealed partial class MainWindow : Window
 {
+    // The nine fixed 82 px global commands plus the native caption-button
+    // reserve require 946 logical px. A 980 px floor keeps Settings and
+    // Personal Center fully visible while still fitting a 1024 px desktop.
     public const int MinimumWindowWidth = 980;
-    public const int MinimumWindowHeight = 700;
-    private const int DefaultWindowWidth = 1360;
-    private const int DefaultWindowHeight = 840;
-    private const int CompactAccountEntryWidth = 1080;
+    public const int MinimumWindowHeight = 560;
+    private const int ComfortableMinimumWindowWidth = 980;
+    private const int ComfortableMinimumWindowHeight = 700;
+    private const int DefaultWindowWidth = 1280;
+    private const int DefaultWindowHeight = 800;
+    private const double InitialWorkAreaRatio = 0.88;
     private static readonly ApplicationPaletteOption[] ApplicationPaletteOptions =
     [
         new("天空糖果"),
@@ -80,7 +85,9 @@ public sealed partial class MainWindow : Window
     private const double CollapsedPaneWidth = 0;
     private const double DefaultAssetSidebarWidth = 220;
     private const double DefaultToolInspectorWidth = 280;
-    private const int PaneLayoutSchemaVersion = 3;
+    private const int PaneLayoutSchemaVersion = 4;
+    private const double LegacyDefaultWindowWidth = 1360;
+    private const double LegacyDefaultWindowHeight = 840;
     private const double AssetSidebarWindowRatio = 0.234375;
     private const double ToolInspectorWindowRatio = 0.25625;
     private const double MinimumAssetSidebarWidth = 220;
@@ -145,6 +152,7 @@ public sealed partial class MainWindow : Window
     private double restoredWindowWidth = DefaultWindowWidth;
     private double restoredWindowHeight = DefaultWindowHeight;
     private bool restoreWindowMaximized;
+    private bool hasSavedWindowGeometry;
 
     public MainWindow(
         SessionOrchestrator orchestrator,
@@ -197,11 +205,10 @@ public sealed partial class MainWindow : Window
         RestorePaneLayout();
         var initialDpiScale = GetDpiScale(windowHandle);
         var workArea = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
-        var requestedWidth = (int)Math.Ceiling(restoredWindowWidth * initialDpiScale);
-        var requestedHeight = (int)Math.Ceiling(restoredWindowHeight * initialDpiScale);
-        AppWindow.Resize(new SizeInt32(
-            Math.Min(workArea.Width, Math.Max((int)Math.Ceiling(MinimumWindowWidth * initialDpiScale), requestedWidth)),
-            Math.Min(workArea.Height, Math.Max((int)Math.Ceiling(MinimumWindowHeight * initialDpiScale), requestedHeight))));
+        AppWindow.Resize(CalculateInitialWindowSize(
+            workArea,
+            initialDpiScale,
+            hasSavedWindowGeometry ? (restoredWindowWidth, restoredWindowHeight) : null));
         ViewModel = new MainWindowViewModel(
             orchestrator,
             credentialVault,
@@ -3209,9 +3216,12 @@ public sealed partial class MainWindow : Window
         {
             var minMaxInfo = Marshal.PtrToStructure<MinMaxInfo>(lParam);
             var dpiScale = GetDpiScale(hWnd);
+            var workArea = DisplayArea.GetFromWindowId(
+                AppWindow.Id,
+                DisplayAreaFallback.Primary).WorkArea;
             minMaxInfo.MinimumTrackingSize = new NativePoint(
-                (int)Math.Ceiling(MinimumWindowWidth * dpiScale),
-                (int)Math.Ceiling(MinimumWindowHeight * dpiScale));
+                Math.Min(workArea.Width, (int)Math.Ceiling(MinimumWindowWidth * dpiScale)),
+                Math.Min(workArea.Height, (int)Math.Ceiling(MinimumWindowHeight * dpiScale)));
             Marshal.StructureToPtr(minMaxInfo, lParam, false);
         }
         else if (message == WindowMessageDpiChanged)
@@ -3223,7 +3233,10 @@ public sealed partial class MainWindow : Window
         else if (message == WindowMessageNcHitTest)
         {
             var fallback = DefSubclassProc(hWnd, message, wParam, lParam);
-            if (fallback.ToInt32() == HitTestClient &&
+            // These are deliberately empty surfaces. Resolve them directly as
+            // native caption targets instead of depending on the order in
+            // which WinUI child hit testing and DefSubclassProc happen to run.
+            if (IsScreenPointInsideElement(lParam, TitleBarDragRegion) ||
                 IsScreenPointInsideElement(lParam, SynchronizationStatusDragRegion))
             {
                 return new IntPtr(HitTestCaption);
@@ -3261,12 +3274,11 @@ public sealed partial class MainWindow : Window
 
     private void ApplyResponsivePaneRules(double availableWidth)
     {
-        // Preserve every title-bar command at the supported minimum width by
-        // collapsing only the account caption. Its icon, tooltip and automation
-        // name continue to expose the full action meaning.
-        AccountEntryText.Visibility = availableWidth < CompactAccountEntryWidth
-            ? Visibility.Collapsed
-            : Visibility.Visible;
+        // The native minimum-width contract now guarantees enough room for
+        // every fixed command. Never collapse the account label: Settings and
+        // Personal Center remain visually stable at the smallest supported
+        // manually resized width.
+        AccountEntryText.Visibility = Visibility.Visible;
 
         if (isTerminalFullscreen)
         {
@@ -3594,9 +3606,16 @@ public sealed partial class MainWindow : Window
                 state.TerminalSplitLeftRatio ?? 0.5,
                 MinimumTerminalSplitRatio,
                 MaximumTerminalSplitRatio);
+            var legacyDefaultGeometry = state.WindowWidth is not null &&
+                state.WindowHeight is not null &&
+                Math.Abs(state.WindowWidth.Value - LegacyDefaultWindowWidth) < 1 &&
+                Math.Abs(state.WindowHeight.Value - LegacyDefaultWindowHeight) < 1;
             var migrateLegacyDefaultWindow = state.Version != PaneLayoutSchemaVersion &&
-                (state.WindowWidth is null || state.WindowWidth <= 1280) &&
-                (state.WindowHeight is null || state.WindowHeight <= 800);
+                (((state.WindowWidth is null || state.WindowWidth <= DefaultWindowWidth) &&
+                  (state.WindowHeight is null || state.WindowHeight <= DefaultWindowHeight)) ||
+                 legacyDefaultGeometry);
+            hasSavedWindowGeometry = !migrateLegacyDefaultWindow &&
+                state.WindowWidth is > 0 && state.WindowHeight is > 0;
             restoredWindowWidth = migrateLegacyDefaultWindow
                 ? DefaultWindowWidth
                 : Math.Max(MinimumWindowWidth, state.WindowWidth ?? DefaultWindowWidth);
@@ -3630,6 +3649,7 @@ public sealed partial class MainWindow : Window
         // on first launch. Session tools appear after a live SSH connection.
         assetSidebarFollowsWindow = false;
         toolInspectorFollowsWindow = false;
+        hasSavedWindowGeometry = false;
         AssetSidebar.Visibility = Visibility.Visible;
         AssetSidebarColumn.Width = new GridLength(assetSidebarExpandedWidth);
         ToolInspector.Visibility = Visibility.Collapsed;
@@ -3695,6 +3715,29 @@ public sealed partial class MainWindow : Window
             splitter.Foreground = ResourceBrush("OrbitPanelStrokeBrush");
         }
     }
+
+    private void SetPaneEdgeRestoreEmphasis(object sender, bool emphasized)
+    {
+        if (sender is Button button)
+        {
+            button.Opacity = emphasized ? 0.95 : 0.18;
+            button.Background = emphasized
+                ? ResourceBrush("OrbitAccentSoftBrush")
+                : new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
+        }
+    }
+
+    private void PaneEdgeRestorePointerEntered(object sender, PointerRoutedEventArgs e) =>
+        SetPaneEdgeRestoreEmphasis(sender, true);
+
+    private void PaneEdgeRestorePointerExited(object sender, PointerRoutedEventArgs e) =>
+        SetPaneEdgeRestoreEmphasis(sender, (sender as Control)?.FocusState != FocusState.Unfocused);
+
+    private void PaneEdgeRestoreGotFocus(object sender, RoutedEventArgs e) =>
+        SetPaneEdgeRestoreEmphasis(sender, true);
+
+    private void PaneEdgeRestoreLostFocus(object sender, RoutedEventArgs e) =>
+        SetPaneEdgeRestoreEmphasis(sender, false);
 
     private void ConfigureWindowChrome()
     {
@@ -5721,15 +5764,11 @@ public sealed partial class MainWindow : Window
             {
                 var isTelnet = protocolBox.SelectedIndex == 1;
                 var isRemoteDesktop = protocolBox.SelectedIndex == 2;
-                if (isRemoteDesktop)
-                {
-                    storageScopeBox.SelectedIndex = 1;
-                    storageScopeBox.IsEnabled = false;
-                }
-                else
-                {
-                    storageScopeBox.IsEnabled = true;
-                }
+                // RDP connection secrets use the same end-to-end encrypted
+                // credential envelope as SSH assets. Do not silently force an
+                // RDP asset to local-only storage: users must be able to make
+                // the same explicit storage decision for every protocol.
+                storageScopeBox.IsEnabled = true;
                 storageScopeNotice.Text = storageScopeBox.SelectedIndex == 1
                     ? "仅保存在当前 Windows 用户的本机资产库，不上传到 OrbitTerm 账户。请使用加密备份防止设备损坏造成数据丢失。"
                     : ViewModel.IsAccountSignedIn
@@ -6651,7 +6690,7 @@ public sealed partial class MainWindow : Window
         AutomationProperties.SetName(termsAcceptedBox, "同意使用条款、免责声明与隐私说明");
         var termsLinkButton = new Button
         {
-            Content = "《使用条款、免责声明与隐私说明》",
+            Content = "查看法律条款",
             Padding = new Thickness(4, 2, 4, 2),
             Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0)),
             BorderThickness = new Thickness(0),
@@ -6707,7 +6746,15 @@ public sealed partial class MainWindow : Window
             Child = modeGrid,
         };
 
-        var content = new StackPanel { Spacing = 12 };
+        var authIntro = new TextBlock
+        {
+            Text = "欢迎回来，继续你的终端旅程",
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 12,
+            Foreground = ResourceBrush("OrbitMutedTextBrush"),
+        };
+        var content = new StackPanel { Spacing = 12, Width = 480, MaxWidth = 520 };
+        content.Children.Add(authIntro);
         content.Children.Add(modeSurface);
         content.Children.Add(usernameBox);
         content.Children.Add(passwordBox);
@@ -6716,7 +6763,7 @@ public sealed partial class MainWindow : Window
         content.Children.Add(termsRow);
         content.Children.Add(validationText);
         var dialog = CreateThemedDialog(
-            "登录 OrbitTerm 账户",
+            "OrbitTerm",
             content,
             primaryButtonText: "登录",
             closeButtonText: "取消");
@@ -6728,7 +6775,9 @@ public sealed partial class MainWindow : Window
             registerModeButton.IsChecked = !login;
             inviteCodeBox.Visibility = login ? Visibility.Collapsed : Visibility.Visible;
             passwordRequirement.Visibility = login ? Visibility.Collapsed : Visibility.Visible;
-            dialog.Title = login ? "登录 OrbitTerm 账户" : "注册 OrbitTerm 账户";
+            authIntro.Text = login
+                ? "欢迎回来，继续你的终端旅程"
+                : "创建账号，开启安全终端工作台";
             dialog.PrimaryButtonText = login ? "登录" : "注册并登录";
             validationText.Visibility = Visibility.Collapsed;
         }
@@ -6746,11 +6795,11 @@ public sealed partial class MainWindow : Window
             }
             if (isLoginMode)
             {
-                if (!string.IsNullOrWhiteSpace(usernameBox.Text) && !string.IsNullOrWhiteSpace(passwordBox.Password))
+                if (IsValidLoginInput(usernameBox.Text, passwordBox.Password, out var validationMessage))
                 {
                     return;
                 }
-                validationText.Text = "请输入邮箱账号和账户密码。";
+                validationText.Text = validationMessage;
             }
             else if (!IsValidRegistrationInput(usernameBox.Text, passwordBox.Password, inviteCodeBox.Text, out var validationMessage))
             {
@@ -6794,6 +6843,32 @@ public sealed partial class MainWindow : Window
             hasPromptedForAccountUnlockThisLaunch = false;
             await ShowAccountMessageAsync(isLoginMode ? "登录未完成" : "注册未完成", ViewModel.AccountStatus);
         }
+    }
+
+    private static bool IsValidLoginInput(string username, string password, out string message)
+    {
+        if (string.IsNullOrWhiteSpace(username))
+        {
+            message = "请输入邮箱账号。";
+            return false;
+        }
+        var value = username.Trim();
+        var parts = value.Split('@', StringSplitOptions.None);
+        if (parts.Length != 2 || parts[0].Length == 0 || parts[1].Length == 0 ||
+            !parts[1].Contains('.') || parts[1].StartsWith('.') || parts[1].EndsWith('.') ||
+            value.Any(char.IsWhiteSpace))
+        {
+            message = "请输入有效的邮箱账号，例如 name@example.com。";
+            return false;
+        }
+        if (string.IsNullOrEmpty(password))
+        {
+            message = "请输入账户密码。";
+            return false;
+        }
+
+        message = string.Empty;
+        return true;
     }
 
     private static bool IsValidRegistrationInput(
@@ -6846,7 +6921,7 @@ public sealed partial class MainWindow : Window
             FontSize = 12,
             Foreground = ResourceBrush("OrbitMutedTextBrush"),
         };
-        var content = new StackPanel { Spacing = 12 };
+        var content = new StackPanel { Spacing = 12, Width = 480, MaxWidth = 520 };
         content.Children.Add(passwordBox);
         content.Children.Add(confirmationBox);
         content.Children.Add(validationText);
@@ -6947,12 +7022,7 @@ public sealed partial class MainWindow : Window
         };
         progressRow.Children.Add(progressRing);
         progressRow.Children.Add(progressText);
-        var content = new StackPanel { Spacing = 12 };
-        content.Children.Add(new TextBlock
-        {
-            Text = "主密码不会写入磁盘。验证成功后仅在本次应用运行期间保留于受控内存，用于自动加密同步；锁定、退出或关闭应用时立即清零。",
-            TextWrapping = TextWrapping.Wrap,
-        });
+        var content = new StackPanel { Spacing = 12, Width = 480, MaxWidth = 520 };
         content.Children.Add(passwordBox);
         content.Children.Add(validationText);
         content.Children.Add(progressRow);
@@ -6964,9 +7034,9 @@ public sealed partial class MainWindow : Window
         };
         content.Children.Add(switchAccountButton);
         var dialog = CreateThemedDialog(
-            "解锁加密同步数据",
+            "验证主密码",
             content,
-            primaryButtonText: "解锁",
+            primaryButtonText: "验证并解锁",
             closeButtonText: "取消");
         var switchAccountRequested = false;
         switchAccountButton.Click += (_, _) =>
@@ -7848,6 +7918,34 @@ public sealed partial class MainWindow : Window
     {
         var dpi = GetDpiForWindow(hWnd);
         return dpi == 0 ? 1d : dpi / 96d;
+    }
+
+    private static SizeInt32 CalculateInitialWindowSize(
+        RectInt32 workArea,
+        double dpiScale,
+        (double Width, double Height)? savedLogicalSize)
+    {
+        dpiScale = dpiScale > 0 ? dpiScale : 1d;
+        var logicalWorkWidth = Math.Max(1d, workArea.Width / dpiScale);
+        var logicalWorkHeight = Math.Max(1d, workArea.Height / dpiScale);
+        var compact = logicalWorkWidth < DefaultWindowWidth || logicalWorkHeight < DefaultWindowHeight;
+        var floorWidth = compact ? MinimumWindowWidth : ComfortableMinimumWindowWidth;
+        var floorHeight = compact ? MinimumWindowHeight : ComfortableMinimumWindowHeight;
+        var requestedWidth = savedLogicalSize?.Width ??
+            Math.Min(DefaultWindowWidth, Math.Floor(logicalWorkWidth * InitialWorkAreaRatio));
+        var requestedHeight = savedLogicalSize?.Height ??
+            Math.Min(DefaultWindowHeight, Math.Floor(logicalWorkHeight * InitialWorkAreaRatio));
+        var logicalWidth = Math.Clamp(
+            requestedWidth,
+            Math.Min(floorWidth, logicalWorkWidth),
+            logicalWorkWidth);
+        var logicalHeight = Math.Clamp(
+            requestedHeight,
+            Math.Min(floorHeight, logicalWorkHeight),
+            logicalWorkHeight);
+        return new SizeInt32(
+            Math.Max(1, (int)Math.Floor(logicalWidth * dpiScale)),
+            Math.Max(1, (int)Math.Floor(logicalHeight * dpiScale)));
     }
 
     private delegate IntPtr WindowSubclassProc(

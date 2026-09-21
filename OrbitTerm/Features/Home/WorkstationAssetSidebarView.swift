@@ -145,6 +145,12 @@ struct WorkstationAssetSidebarView: View {
                             Capsule().stroke(palette.borderGlass.color)
                         }
                         .foregroundStyle(palette.textSecondary.color)
+                    Text(server.storageScope == .accountSynced ? "同步" : "本机")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(palette.accentSecondary.color.opacity(0.12), in: Capsule())
+                        .foregroundStyle(palette.textSecondary.color)
                 }
                 HStack(spacing: 6) {
                     Text(server.endpointText)

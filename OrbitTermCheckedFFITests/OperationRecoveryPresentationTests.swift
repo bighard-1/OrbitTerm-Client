@@ -30,6 +30,38 @@ final class OperationRecoveryPresentationTests: XCTestCase {
         XCTAssertFalse(message.contains("令牌"))
     }
 
+    func testAuthenticationFormValidationReportsActionableInputErrors() {
+        XCTAssertEqual(
+            AuthInputValidation.message(
+                isLoginMode: true,
+                username: "person@example.com",
+                password: "secret",
+                inviteCode: "",
+                acceptedTerms: false
+            ),
+            "请先勾选同意使用条款、免责声明与隐私说明。"
+        )
+        XCTAssertEqual(
+            AuthInputValidation.message(
+                isLoginMode: true,
+                username: "invalid",
+                password: "secret",
+                inviteCode: "",
+                acceptedTerms: true
+            ),
+            "请输入有效的邮箱账号，例如 name@example.com。"
+        )
+        XCTAssertNil(
+            AuthInputValidation.message(
+                isLoginMode: false,
+                username: "person@example.com",
+                password: "StrongPass1!",
+                inviteCode: "INVITE",
+                acceptedTerms: true
+            )
+        )
+    }
+
     func testSyncUnauthorizedOffersReauthenticationWithoutRawMessage() {
         let value = OperationRecoveryMapper.sync(.authenticationExpired)
 

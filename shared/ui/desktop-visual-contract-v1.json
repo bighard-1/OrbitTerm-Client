@@ -2,20 +2,28 @@
   "schema_version": 1,
   "genre": "compact-professional-operations-workstation",
   "window": {
-    "minimum_width": 980,
-    "minimum_height": 700,
-    "preferred_width": 1360,
-    "preferred_height": 840,
-    "platform_compact_minimum": {
-      "linux": {
-        "width": 820,
-        "height": 560,
-        "collapse_side_panes_first": true
-      }
-    }
+    "comfortable_minimum_width": 980,
+    "comfortable_minimum_height": 700,
+    "compact_minimum_width": 820,
+    "linux_compact_minimum_width": 760,
+    "compact_minimum_height": 560,
+    "windows_command_lane_minimum_width": 980,
+    "preferred_width": 1280,
+    "preferred_height": 800,
+    "initial_work_area_ratio": 0.88,
+    "compact_initial_work_area_ratio": 0.75,
+    "collapse_side_panes_first": true,
+    "automatic_terminal_font_scaling": false
   },
   "chrome": {
     "command_lane_height": 36,
+    "command_button_width": 82,
+    "compact_command_button_width": 62,
+    "command_button_height": 28,
+    "command_button_single_line": true,
+    "workspace_product_logo_visible": false,
+    "system_shell_app_icon_required": true,
+    "account_button_content": "avatar_and_label",
     "overview_lane_min_height": 34,
     "overview_lane_max_height": 40,
     "logo_size": 22,
@@ -33,7 +41,8 @@
       "collapse_below_window_width": 980
     },
     "terminal": {
-      "minimum_width": 560
+      "minimum_width": 560,
+      "compact_minimum_width": 500
     },
     "tools": {
       "preferred_width": 328,
@@ -43,7 +52,10 @@
       "collapse_below_window_width": 1180
     },
     "collapsed_layout_width": 0,
-    "edge_restore_width": 24,
+    "edge_restore_hit_width": 10,
+    "edge_restore_indicator_width": 2,
+    "edge_restore_indicator_height": 40,
+    "edge_restore_reveal": "hover_or_keyboard_focus",
     "splitter_hit_width": 10,
     "splitter_visual_width": 1
   },
@@ -57,6 +69,11 @@
     "network_rate_base_unit": "kilobits_per_second",
     "network_rate_display_units": ["Kbps", "Mbps", "Gbps"]
   },
+  "status_footer": {
+    "show_remote_revision": false,
+    "synchronization_action": "run_now",
+    "reason": "remote revisions belong in synchronization diagnostics and conflict resolution, not the persistent health summary"
+  },
   "spacing": [4, 8, 12, 16, 24],
   "radii": {
     "control": 6,
@@ -68,7 +85,15 @@
     "card_min_width": 480,
     "card_max_width": 560,
     "form_horizontal_padding": 24,
-    "form_vertical_padding": 26
+    "form_vertical_padding": 26,
+    "separate_states": ["sign_in_or_register", "master_password", "sync_management"],
+    "persistent_product_logo": false,
+    "security_gate_icon": "native_lock_shield"
+  },
+  "host_key_rotation": {
+    "changed_key_is_blocking": true,
+    "recovery": "remove_exact_previous_fingerprint_then_reconnect_as_unknown",
+    "automatic_replacement_trust": false
   },
   "snippets": {
     "card_fields": ["title", "command", "category", "asset_scope"],

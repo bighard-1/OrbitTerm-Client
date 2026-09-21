@@ -48,6 +48,7 @@
 		13D1330ECE0E17F6F27753EA /* MasterPasswordGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */; };
 		1604F0E7940AA5C1F37ACB69 /* ApplicationOperationLifecyclePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB132EE6006010051D48C71F /* ApplicationOperationLifecyclePolicy.swift */; };
 		166B59A8E24960CC5E398252 /* WorkstationLayoutMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91CF5B57FA41C8FB507E27B6 /* WorkstationLayoutMetrics.swift */; };
+		16A4F8D0C7B94E72813F5601 /* WorkstationLayoutMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91CF5B57FA41C8FB507E27B6 /* WorkstationLayoutMetrics.swift */; };
 		16BA0EEF9A6CF0B76D52DC1F /* SyncModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 995C008B81C1BCF2CC6B5122 /* SyncModels.swift */; };
 		178C38DEDA6E06CA911BF38B /* MasterPasswordRotationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06DA37BAF41E86E707C8281D /* MasterPasswordRotationService.swift */; };
 		18619758F4910BBBEF71E2D8 /* AddServerConnectionTester.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8477779BBFFBE8F7C7B613F /* AddServerConnectionTester.swift */; };
@@ -1533,6 +1534,7 @@
 				40B4D116C9C7C02F64B7A4E3 /* TerminalThemeIsolationTests.swift in Sources */,
 				082F783302A56581D9180327 /* TerminalThemeReadability.swift in Sources */,
 				DABC75C038ACB08641745289 /* WorkspacePresentationCoordinator.swift in Sources */,
+				16A4F8D0C7B94E72813F5601 /* WorkstationLayoutMetrics.swift in Sources */,
 				B554193CA4D83D3B8E28E97E /* WorkspacePresentationCoordinatorTests.swift in Sources */,
 				ED43FC68E55A20D6C7953CCF /* WorkspaceToolCoordinator.swift in Sources */,
 				433759DCC2AAEC99FD217BAB /* WorkspaceToolCoordinatorTests.swift in Sources */,

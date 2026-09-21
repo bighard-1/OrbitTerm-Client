@@ -144,7 +144,8 @@ struct ContentView: View {
         }
         #endif
         #if os(macOS)
-        .frame(minWidth: 980, minHeight: 700)
+        .frame(minWidth: 820, minHeight: 560)
+        .background(WorkstationWindowGeometryInstaller())
         #endif
         .alert(
             SyncConflictPresentation.title,
@@ -796,7 +797,10 @@ private struct MainShellView: View {
                 onRetrySave: {
                     Task { await sessionManager.retryCheckedHostKeySave() }
                 },
-                onClose: sessionManager.closeCheckedHostKeyPresentation
+                onClose: sessionManager.closeCheckedHostKeyPresentation,
+                onRemovePreviousTrust: { block in
+                    await sessionManager.removePreviousHostKeyTrustAndReconnect(block)
+                }
             )
             #if os(macOS)
             .frame(minWidth: 520, minHeight: 420)

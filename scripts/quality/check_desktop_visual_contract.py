@@ -95,12 +95,15 @@ mac_monitor = read("OrbitTerm/Features/Home/WorkstationMonitorCardView.swift")
 mac_assets = read("OrbitTerm/Features/Home/WorkstationAssetSidebarView.swift")
 mac_right = read("OrbitTerm/Features/Home/WorkstationRightPanelView.swift")
 mac_snippets = read("OrbitTerm/Features/Home/SnippetsPanelView.swift")
+mac_batch = read("OrbitTerm/Features/Home/BatchCommandRunnerView.swift")
 mac_sftp_dialogs = read("OrbitTerm/Features/Home/WorkstationSFTPDialogs.swift")
 mac_sftp_browser = read("OrbitTerm/Features/Home/SFTPBrowserPanels.swift")
 mac_sftp_components = read("OrbitTerm/Features/Home/SFTPBrowserComponents.swift")
 mac_terminal = read("OrbitTerm/Features/Home/SwiftTermTerminalView.swift")
 mac_themes = read("OrbitTerm/Core/Appearance/AppThemeID.swift")
 mac_docker_logs = read("OrbitTerm/Features/Home/DockerLogStreamView.swift")
+mac_host_key = read("OrbitTerm/Features/Security/HostKeyTrustViews.swift")
+mac_host_key_provider = read("OrbitTerm/Core/CheckedFFI/CheckedFFIProviders.swift")
 
 windows_xaml = read("clients/windows/src/OrbitTerm.App/MainWindow.xaml")
 windows_main = read("clients/windows/src/OrbitTerm.App/MainWindow.xaml.cs")
@@ -108,27 +111,36 @@ windows_view_model = read("clients/windows/src/OrbitTerm.Presentation/MainWindow
 windows_snippet_view_model = read("clients/windows/src/OrbitTerm.Presentation/SnippetViewModel.cs")
 windows_tokens = read("clients/windows/src/OrbitTerm.App/Resources/OrbitTermTokens.xaml")
 windows_docker_logs = read("clients/windows/src/OrbitTerm.Presentation/DockerLogSessionController.cs")
+windows_batch = read("clients/windows/src/OrbitTerm.App/Controls/BatchCommandWindow.xaml")
 
 linux_ui = read("clients/linux/crates/orbit-linux-app/src/ui.rs")
 linux_css = read("clients/linux/resources/orbitterm.css")
 linux_flatpak = read("clients/linux/packaging/flatpak/com.orbitterm.Client.json")
+shared_contract = read("shared/ui/desktop-visual-contract-v1.json")
+core_header = read("orbit-core/include/orbit_core.h")
 
 
 # Supported window floor. Native title bars may change the default outer size,
 # but every desktop must preserve the same usable minimum workbench.
-require(mac_shell, ".frame(minWidth: 980, minHeight: 700)", "macOS minimum window")
-require(windows_main, "public const int MinimumWindowWidth = 980;", "Windows minimum width")
-require(windows_main, "public const int MinimumWindowHeight = 700;", "Windows minimum height")
-require(linux_ui, ".width_request(820)", "Linux compact minimum width")
+require(mac_shell, ".frame(minWidth: 820, minHeight: 560)", "macOS compact minimum window")
+require(mac_shell, "WorkstationWindowGeometryInstaller", "macOS display-aware window geometry")
+require(windows_main, "public const int MinimumWindowWidth = 980;", "Windows command-lane minimum width")
+require(windows_main, "public const int MinimumWindowHeight = 560;", "Windows compact minimum height")
+require(linux_ui, "const MINIMUM_WINDOW_WIDTH: i32 = 820;", "Linux standard minimum width")
+require(linux_ui, "const COMPACT_MINIMUM_WINDOW_WIDTH: i32 = 760;", "Linux compact minimum width")
 require(linux_ui, ".height_request(560)", "Linux compact minimum height")
 require(linux_ui, ".resizable(true)", "Linux resizable native window")
 require(linux_ui, "install_window_resize_handles", "Linux discoverable resize edges")
-require(linux_css, "desktop-only, 820px compact minimum", "Linux documented compact minimum")
-require(mac_app, ".defaultSize(width: 1360, height: 840)", "macOS preferred window size")
-require(windows_main, "DefaultWindowWidth = 1360", "Windows preferred window width")
-require(windows_main, "DefaultWindowHeight = 840", "Windows preferred window height")
-require(linux_ui, ".default_width(1360)", "Linux preferred window width")
-require(linux_ui, ".default_height(840)", "Linux preferred window height")
+require(linux_css, "760px Linux compact floor", "Linux documented compact minimum")
+require(mac_app, ".defaultSize(width: 1280, height: 800)", "macOS preferred window size")
+require(mac_metrics, "initialWorkAreaRatio: CGFloat = 0.88", "macOS work-area ratio")
+require(windows_main, "DefaultWindowWidth = 1280", "Windows preferred window width")
+require(windows_main, "DefaultWindowHeight = 800", "Windows preferred window height")
+require(windows_main, "InitialWorkAreaRatio = 0.88", "Windows work-area ratio")
+require(linux_ui, "const PREFERRED_WIDTH: i32 = 1280;", "Linux preferred window width")
+require(linux_ui, "const PREFERRED_HEIGHT: i32 = 800;", "Linux preferred window height")
+require(linux_ui, "const COMPACT_WORK_AREA_PERCENT: i32 = 75;", "Linux compact work-area ratio")
+require(linux_ui, "adaptive_initial_window_size", "Linux display-aware window geometry")
 
 
 # Side panes open at their safe minimum and remain explicitly user-resizable.
@@ -157,7 +169,8 @@ for fragment in (
 for fragment in (
     "(220, 280)",
     "set_wide_handle(true)",
-    ".max(560)",
+    "set_position((estimated_inner_width - responsive_tools).max(560))",
+    "workbench_width < 1180",
 ):
     require(linux_ui, fragment, "Linux responsive pane contract")
 
@@ -199,12 +212,64 @@ for forbidden in (
         raise SystemExit("desktop visual contract failed: Linux global commands regained decorative icons")
 
 
+# Batch command target selection follows the same mature interaction on every
+# desktop: group selection filters the inventory, search narrows that result,
+# and bulk actions operate on the visible result without losing prior choices.
+for text, fragments, platform in (
+    (
+        mac_batch,
+        (
+            'Picker("筛选分组"',
+            'TextField("搜索名称、地址或分组"',
+            'Button("选择当前结果")',
+            'Button("清空已选")',
+        ),
+        "macOS",
+    ),
+    (
+        windows_batch,
+        (
+            'AutomationProperties.Name="筛选资产分组"',
+            'PlaceholderText="搜索名称、地址或状态"',
+            'Content="全选当前结果"',
+            'Content="清空已选"',
+        ),
+        "Windows",
+    ),
+    (
+        linux_ui,
+        (
+            'gtk::Button::with_label("选择当前结果")',
+            'gtk::Button::with_label("清空已选")',
+            '.placeholder_text("搜索名称、地址或分组")',
+            'groups.insert(0, "全部分组".into())',
+        ),
+        "Linux",
+    ),
+):
+    for fragment in fragments:
+        require(text, fragment, f"{platform} batch target filtering")
+require(mac_toolbar, ".frame(width: commandWidth, height: commandHeight)", "macOS fixed command button geometry")
+require(windows_tokens, '<Setter Property="Width" Value="82" />', "Windows fixed command button width")
+require(linux_ui, "const COMMAND_BUTTON_WIDTH: i32 = 82;", "Linux preferred command button width")
+require(linux_ui, "const COMPACT_COMMAND_BUTTON_WIDTH: i32 = 62;", "Linux compact command button width")
+require(linux_ui, "workstation_command_button_width()", "Linux responsive command button geometry")
+mac_top_bar = between(mac_toolbar, "struct WorkstationTopBar", "struct WorkstationWindowDragRegion", "macOS top bar")
+windows_top_bar = between(windows_xaml, 'x:Name="AppTitleBar"', 'x:Name="TitleBarDragRegion"', "Windows top bar")
+reject(mac_top_bar, 'Image("OrbitTermLogo")', "macOS redundant workspace logo")
+reject(windows_top_bar, "Square44x44Logo.png", "Windows redundant workspace logo")
+reject(linux_header, "header-brand", "Linux redundant workspace logo")
+require(mac_toolbar, 'Text("个人中心")', "macOS full account label")
+require(mac_toolbar, ".buttonStyle(WorkstationTopBarButtonStyle(isPrimary: false))", "macOS full account hit target")
+require(shared_contract, '"workspace_product_logo_visible": false', "shared restrained workspace branding")
+
+
 # Endpoint plus six monitoring cards use one semantic order and one explicit
 # latency label, regardless of native graph implementation.
-monitor_labels = ["CPU", "内存", "磁盘", "下载", "上传", "TCP 延迟 · 失败率"]
+monitor_labels = ["CPU", "内存", "磁盘", "下载", "上传", "TCP"]
 require_ordered(
     between(mac_monitor, "private func metrics(", "private func cpuTitle", "macOS monitor metrics"),
-    ['title: cpuTitle', 'title: "内存', 'title: "磁盘', 'title: "下载"', 'title: "上传"', 'title: "TCP 延迟 · 失败率"'],
+    ['title: cpuTitle', 'title: "内存', 'title: "磁盘', 'title: "下载"', 'title: "上传"', 'title: "TCP"'],
     "macOS monitor order",
 )
 require_ordered(
@@ -214,7 +279,7 @@ require_ordered(
 )
 require(
     linux_ui,
-    '"TCP 延迟 · 失败率"]',
+    '"TCP"]',
     "Linux monitor order",
 )
 require(mac_monitor, ".frame(height: 34)", "macOS compact monitor height")
@@ -350,6 +415,13 @@ require(mac_main, "rightPanelManualVisibility ?? hasLiveSSHToolContext", "macOS 
 require(windows_main, "toolInspectorManualVisibilityOverride ?? hasSshTools", "Windows manual tool visibility precedence")
 require(linux_ui, "tool_panel_requested_visible(", "Linux manual tool visibility precedence")
 require(linux_ui, "tools.root.set_visible(false);", "Linux collapsed startup tools")
+require(
+    linux_ui,
+    "ssh_context_available && manual_visibility.unwrap_or(true)",
+    "Linux verified-session prerequisite for tools",
+)
+require(linux_ui, "fn render_empty_workspace", "Linux deterministic session teardown presentation")
+reject(linux_ui, "同步健康 · 导入 {imported} 项 · 修订 {revision}", "Linux sync footer revision")
 
 # Platform-specific rendering fixes remain guarded by deterministic source
 # checks so future refactors cannot silently restore the reported regressions.
@@ -403,14 +475,53 @@ linux_footer_button = between(
 )
 for fragment in ("border: none;", "box-shadow: none;", "background: transparent;"):
     require(linux_footer_button, fragment, "Linux borderless synchronization action")
+require(linux_ui, "trigger_manual_sync(sync_context_for_footer.clone())", "Linux footer runs synchronization directly")
+require(linux_ui, "request_pull_now()", "Linux manual synchronization bypasses the background interval")
+
+# Changed Host Keys remain blocked until the exact previous trust record is
+# removed and the replacement key passes a fresh unknown-host confirmation.
+require(core_header, "orbit_known_hosts_remove_trusted_v1", "checked Host Key maintenance ABI")
+require(mac_host_key, 'Button("移除旧信任并重新验证")', "macOS changed Host Key recovery action")
+require(mac_host_key_provider, "removeChangedTrust", "macOS exact previous-fingerprint removal")
+require(mac_host_key, "不会自动信任新指纹", "macOS replacement trust safety copy")
+
+# Authentication remains a focused three-state flow rather than embedding the
+# full synchronization centre into the sign-in and master-password forms.
+require(windows_main, 'Text = "欢迎回来，继续你的终端旅程"', "Windows focused account introduction")
+require(windows_main, '"验证主密码"', "Windows master-password title parity")
+require(linux_ui, 'gtk::PasswordEntry::builder()', "Linux native secure authentication field")
+require(linux_ui, 'gtk::Button::with_label("验证并解锁")', "Linux master-password action parity")
+require(linux_ui, 'gtk::Button::with_label("查看法律条款")', "Linux concise legal action")
 
 
-# Restore rails share the same top inset and height. Linux command pre-input
-# uses zero left offset when the asset pane is not part of layout.
-require(mac_main, ".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)", "macOS left restore placement")
-require(mac_main, ".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)", "macOS right restore placement")
-require(windows_xaml, 'Height="72"', "Windows restore rail height")
-require(linux_ui, ".valign(Align::Start)", "Linux restore rail placement")
+# Collapsed panes restore from a full-height 10-pixel edge lane. The persistent
+# marker is only two pixels wide and strengthens on hover/focus, so it cannot
+# cover terminal toolbar actions.
+for fragment in (
+    "private func workstationEdgeRestoreTrigger(",
+    ".frame(width: 2, height: 40)",
+    ".frame(width: 10)",
+    "focusedRestoreEdge",
+    ".onHover",
+):
+    require(mac_main, fragment, "macOS edge restore trigger")
+for fragment in (
+    'x:Name="AssetSidebarRail"',
+    'x:Name="ToolInspectorRail"',
+    'Width="10"',
+    'Height="40"',
+    'PointerEntered="PaneEdgeRestorePointerEntered"',
+    'GotFocus="PaneEdgeRestoreGotFocus"',
+):
+    require(windows_xaml, fragment, "Windows edge restore trigger")
+for fragment in (
+    'add_css_class("panel-edge-trigger")',
+    ".set_width_request(10)",
+    'add_css_class("edge-restore-indicator")',
+    ".set_size_request(2, 40)",
+    ".valign(Align::Fill)",
+):
+    require(linux_ui, fragment, "Linux edge restore trigger")
 require(
     linux_ui,
     "let left = if sidebar_for_bottom_layout.is_visible()",

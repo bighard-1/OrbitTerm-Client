@@ -1,11 +1,11 @@
 /* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4
- * Hallmark · macrostructure: Workbench · variation: global Snippets + compact contextual SFTP · theme: shared five-palette system
+ * Hallmark · macrostructure: Workbench · variation: zero-obstruction edge restore lanes + display-aware startup geometry · theme: shared five-palette system
  * genre: modern-minimal
  * audience: operations and development professionals · use: manage assets, files and sessions without losing terminal context
  * tone: technical utilitarian · palette anchor: Adwaita cobalt accent · enrichment: none
  * nav: desktop asset sidebar · footer: status line
  * contrast: pass (40–41) · honest: pass (46) · chrome: pass (47) · tokens: pass (48)
- * responsive: desktop-only, 820px compact minimum · icons: pass (30) · slop: pass (native-app applicable gates)
+ * responsive: desktop-only, 760px Linux compact floor · 820px shared comfortable floor · icons: pass (30) · slop: pass (native-app applicable gates)
  * mobile: not applicable (native desktop client) · interactive states: GTK native + explicit focus/disabled
  */
 .orbitterm-window {
@@ -29,27 +29,13 @@
 
 .header-actions { margin: 0; }
 
-.header-brand-frame {
-  min-width: 24px;
-  min-height: 24px;
-  margin: 0 5px 0 0;
-  border-radius: 7px;
-  background-color: @orbit_terminal;
-}
-
-.header-brand-icon { margin: 0; }
-
-.auth-mark-frame {
-  min-width: 58px;
-  min-height: 58px;
-  border-radius: 14px;
-  background-color: @orbit_terminal;
-}
-
 .top-command {
   border-radius: 7px;
+  /* Runtime selects the shared 82px width, or the 76px compact width on
+   * low-resolution desktops. Keep CSS from overriding that native request. */
+  min-width: 0;
   min-height: 28px;
-  padding: 0 10px;
+  padding: 0 6px;
   font-size: 12px;
 }
 
@@ -80,7 +66,9 @@ button label,
 }
 
 .asset-sidebar-root {
-  min-width: 220px;
+  /* 220px remains the first-launch width; a smaller intrinsic floor lets the
+   * compositor provide a genuine normal/maximized geometry on compact desks. */
+  min-width: 180px;
   background-color: @orbit_surface;
   border-right: 1px solid @orbit_rule;
 }
@@ -114,19 +102,46 @@ button label,
   min-height: 32px;
 }
 
-.persistent-context-bar .active-endpoint { min-width: 360px; }
-.persistent-context-bar .sidebar-footer { min-width: 300px; }
+.persistent-context-bar .active-endpoint { min-width: 220px; }
+.persistent-context-bar .sidebar-footer { min-width: 200px; }
 
-.panel-edge-button {
-  min-width: 28px;
-  min-height: 72px;
+.panel-edge-trigger {
+  min-width: 10px;
+  min-height: 0;
   padding: 0;
-  border-radius: 0 9px 9px 0;
-  background-color: alpha(@orbit_surface, 0.94);
-  box-shadow: 0 2px 8px alpha(black, 0.14);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
-.panel-edge-button:last-child { border-radius: 9px 0 0 9px; }
+.panel-edge-trigger .edge-restore-indicator {
+  min-width: 2px;
+  min-height: 40px;
+  padding: 0;
+  opacity: 0.18;
+  border-radius: 1px;
+  background-color: @orbit_muted;
+}
+
+.panel-edge-trigger:hover,
+.panel-edge-trigger:focus-visible {
+  background-color: alpha(@orbit_accent, 0.08);
+}
+
+.panel-edge-trigger:hover .edge-restore-indicator,
+.panel-edge-trigger:focus-visible .edge-restore-indicator {
+  opacity: 0.95;
+  background-color: @orbit_accent;
+}
+
+.panel-edge-trigger:active .edge-restore-indicator {
+  opacity: 1;
+}
+
+.panel-edge-trigger:disabled {
+  opacity: 0.35;
+}
 
 .collapsed-context-chip {
   min-width: 300px;
@@ -674,7 +689,8 @@ paned > separator:focus {
 
 .tool-switcher {
   margin: 0 8px 8px 8px;
-  min-width: 282px;
+  /* The inspector opens at 280px but may contract on low-resolution desks. */
+  min-width: 220px;
 }
 
 .tool-switcher button {
@@ -811,13 +827,13 @@ paned > separator:focus {
 .management-row:last-child { border-bottom: 0; }
 
 .sync-dialog {
-  min-width: 480px;
+  min-width: 420px;
 }
 
 .auth-card {
-  min-width: 480px;
-  margin: 8px 40px 12px 40px;
-  padding: 26px 24px;
+  min-width: 420px;
+  margin: 8px 16px 12px 16px;
+  padding: 22px 20px;
   border-radius: 20px;
   box-shadow: 0 12px 28px alpha(black, 0.14);
 }
@@ -830,6 +846,14 @@ paned > separator:focus {
 .auth-brand-title {
   font-size: 24px;
   font-weight: 800;
+}
+
+.auth-security-mark {
+  min-width: 56px;
+  min-height: 56px;
+  border-radius: 28px;
+  background-color: @orbit_paper_2;
+  color: @orbit_accent;
 }
 
 .auth-shell { padding-top: 16px; }
@@ -856,6 +880,32 @@ paned > separator:focus {
 .auth-card .suggested-action {
   min-height: 44px;
   border-radius: 12px;
+}
+
+.settings-toggle-row {
+  padding: 11px 12px;
+  border: 1px solid @orbit_rule;
+  border-radius: 10px;
+  background-color: @orbit_paper_2;
+}
+
+.settings-toggle-row .toggle-state {
+  min-width: 44px;
+  color: @orbit_muted;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.settings-toggle-row .toggle-state.enabled {
+  color: @orbit_success;
+}
+
+.professional-switch {
+  margin-left: 4px;
+}
+
+.batch-target-toolbar dropdown {
+  min-width: 150px;
 }
 
 .sync-workspace-card { margin-top: 4px; }

@@ -1,6 +1,8 @@
 use base64::engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD};
 use base64::Engine;
-use orbit_linux_domain::{AuthMethod, JumpHostConfiguration, ServerAsset, Transport};
+use orbit_linux_domain::{
+    AssetStorageScope, AuthMethod, JumpHostConfiguration, ServerAsset, Transport,
+};
 use orbit_linux_platform::{CredentialMaterial, QueuedSyncPayload};
 use reqwest::blocking::{Client, Response};
 use reqwest::StatusCode;
@@ -25,6 +27,8 @@ pub struct SyncTokens {
     pub refresh_token: String,
     #[serde(default)]
     pub account_scope: String,
+    #[serde(default)]
+    pub username: String,
 }
 
 impl SyncTokens {
@@ -34,6 +38,8 @@ impl SyncTokens {
             || self.refresh_token.len() > 16 * 1024
             || self.access_token.contains('\0')
             || self.refresh_token.contains('\0')
+            || self.username.len() > 255
+            || self.username.chars().any(char::is_control)
         {
             return Err(SyncError::InvalidToken);
         }
@@ -46,6 +52,7 @@ impl Drop for SyncTokens {
         self.access_token.zeroize();
         self.refresh_token.zeroize();
         self.account_scope.zeroize();
+        self.username.zeroize();
     }
 }
 
@@ -103,6 +110,7 @@ impl CloudClient {
             access_token: response.access_token.or(response.token).unwrap_or_default(),
             refresh_token: response.refresh_token.unwrap_or_default(),
             account_scope: account_storage_identifier(username)?,
+            username: username.trim().to_owned(),
         };
         tokens.validate()?;
         Ok(tokens)
@@ -129,6 +137,113 @@ impl CloudClient {
         };
         let _: serde_json::Value = self.post_json("/api/v1/auth/register", &request, None)?;
         Ok(())
+    }
+
+    pub fn change_login_password(
+        &self,
+        tokens: &mut SyncTokens,
+        current_password: &str,
+        new_password: &str,
+    ) -> Result<(), SyncError> {
+        validate_password_secret(current_password)?;
+        validate_password_secret(new_password)?;
+        let request = PasswordChangeRequest {
+            current_password,
+            new_password,
+        };
+        let response: LoginData =
+            self.post_authorized_with_refresh(tokens, "/api/v1/auth/password", &request)?;
+        self.apply_login_response(tokens, response)
+    }
+
+    /// Rotates the account master password without exposing plaintext to the
+    /// service. Active and recently deleted records are downloaded as one
+    /// snapshot, decrypted locally, then atomically replaced with new opaque
+    /// ciphertext by the established cross-platform endpoint.
+    pub fn rotate_master_password(
+        &self,
+        tokens: &mut SyncTokens,
+        current_master_password: &str,
+        new_master_password: &str,
+        current_login_password: &str,
+    ) -> Result<(), SyncError> {
+        validate_password_secret(current_master_password)?;
+        validate_password_secret(new_master_password)?;
+        validate_password_secret(current_login_password)?;
+        if current_master_password == new_master_password {
+            return Err(SyncError::UnchangedMasterPassword);
+        }
+
+        let mut snapshot = self.pull_inventory(tokens)?;
+        let mut offset = 0_usize;
+        loop {
+            let page = self.get_trash_page_with_refresh(tokens, offset)?;
+            let count = page.items.len();
+            snapshot.extend(page.items);
+            offset = offset.saturating_add(count);
+            if count == 0 || offset >= page.total {
+                break;
+            }
+        }
+        let mut ids = std::collections::HashSet::new();
+        if snapshot.iter().any(|item| !ids.insert(item.id)) {
+            return Err(SyncError::DuplicateRemoteConfiguration);
+        }
+
+        let needs_v2 = snapshot.iter().try_fold(false, |found, item| {
+            let encrypted = BASE64.decode(item.encrypted_blob_base64.as_bytes())?;
+            Ok::<_, SyncError>(found || orbit_core::is_config_v2(&encrypted))
+        })?;
+        let mut v2_root = if needs_v2 {
+            validate_account_scope(&tokens.account_scope)?;
+            Some(
+                orbit_core::derive_config_root_key_v2(
+                    current_master_password.as_bytes(),
+                    tokens.account_scope.as_bytes(),
+                )
+                .map_err(|_| SyncError::DecryptFailed)?,
+            )
+        } else {
+            None
+        };
+        let replacements = snapshot
+            .iter()
+            .map(|item| {
+                let encrypted = BASE64.decode(item.encrypted_blob_base64.as_bytes())?;
+                let mut plaintext = if orbit_core::is_config_v2(&encrypted) {
+                    orbit_core::decrypt_config_v2(
+                        v2_root.as_ref().ok_or(SyncError::AccountScopeUnavailable)?,
+                        &encrypted,
+                    )
+                    .map_err(|_| SyncError::DecryptFailed)?
+                } else {
+                    orbit_core::decrypt_config(current_master_password.to_owned(), encrypted)
+                        .map_err(|_| SyncError::DecryptFailed)?
+                };
+                let replacement =
+                    orbit_core::encrypt_config(new_master_password.to_owned(), plaintext.clone())
+                        .map_err(|_| SyncError::EncryptFailed);
+                plaintext.zeroize();
+                Ok(MasterKeyRotationItemRequest {
+                    id: item.id,
+                    expected_vector_clock: item.vector_clock.clone(),
+                    encrypted_blob_base64: BASE64.encode(replacement?),
+                })
+            })
+            .collect::<Result<Vec<_>, SyncError>>();
+        if let Some(root) = v2_root.as_mut() {
+            root.zeroize();
+        }
+        let request = MasterKeyRotationRequest {
+            current_login_password,
+            items: replacements?,
+        };
+        let response: LoginData = self.post_authorized_with_refresh(
+            tokens,
+            "/api/v1/config/master-key/rotate",
+            &request,
+        )?;
+        self.apply_login_response(tokens, response)
     }
 
     pub fn pull_inventory(&self, tokens: &mut SyncTokens) -> Result<Vec<RemoteConfig>, SyncError> {
@@ -288,6 +403,88 @@ impl CloudClient {
         )
     }
 
+    /// Builds the same durable encrypted upsert used for an edited cloud
+    /// record, but without inventing a server numeric id. The stable UUID is
+    /// sent on creation and makes an offline replay idempotent.
+    pub fn prepare_new_upload_for_account(
+        &self,
+        local_asset: &ServerAsset,
+        local_credential: &CredentialMaterial,
+        jump_host_credential: Option<&CredentialMaterial>,
+        master_password: &str,
+        device_id: Uuid,
+        account_scope: &str,
+    ) -> Result<QueuedSyncPayload, SyncError> {
+        self.prepare_upload_for_account(
+            local_asset,
+            local_credential,
+            jump_host_credential,
+            master_password,
+            device_id,
+            account_scope,
+            None,
+            None,
+            "{}",
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn prepare_upload_for_account(
+        &self,
+        local_asset: &ServerAsset,
+        local_credential: &CredentialMaterial,
+        jump_host_credential: Option<&CredentialMaterial>,
+        master_password: &str,
+        device_id: Uuid,
+        account_scope: &str,
+        remote_id: Option<u64>,
+        identity_fingerprint: Option<String>,
+        vector_clock: &str,
+    ) -> Result<QueuedSyncPayload, SyncError> {
+        validate_account_scope(account_scope)?;
+        if local_asset.storage_scope != AssetStorageScope::AccountSynced
+            || remote_id.is_some_and(|id| id == 0)
+        {
+            return Err(SyncError::InvalidPortable);
+        }
+        let portable = portable_from_local(local_asset, local_credential, jump_host_credential)?;
+        let mut plaintext = serde_json::to_vec(&portable)?;
+        let mut root = orbit_core::derive_config_root_key_v2(
+            master_password.as_bytes(),
+            account_scope.as_bytes(),
+        )
+        .map_err(|_| SyncError::EncryptFailed)?;
+        let encrypted =
+            orbit_core::encrypt_config_v2(&root, &plaintext).map_err(|_| SyncError::EncryptFailed);
+        root.zeroize();
+        plaintext.zeroize();
+        Ok(QueuedSyncPayload::Upload {
+            remote_id,
+            asset_id: local_asset.id,
+            identity_fingerprint,
+            encrypted_blob_base64: BASE64.encode(encrypted?),
+            vector_clock: bump_vector_clock(vector_clock, device_id)?,
+        })
+    }
+
+    pub fn prepare_delete(
+        &self,
+        asset_id: Uuid,
+        device_id: Uuid,
+        operation_id: Uuid,
+        vector_clock: &str,
+    ) -> Result<QueuedSyncPayload, SyncError> {
+        if asset_id.is_nil() || device_id.is_nil() || operation_id.is_nil() {
+            return Err(SyncError::InvalidPortable);
+        }
+        Ok(QueuedSyncPayload::Delete {
+            asset_id,
+            device_id,
+            operation_id,
+            vector_clock: bump_vector_clock(vector_clock, device_id)?,
+        })
+    }
+
     fn prepare_keep_local_internal(
         &self,
         local_asset: &ServerAsset,
@@ -323,7 +520,7 @@ impl CloudClient {
         plaintext.zeroize();
         let encrypted = encrypted?;
         Ok(QueuedSyncPayload::Upload {
-            remote_id: remote.id,
+            remote_id: Some(remote.id),
             asset_id: local_asset.id,
             identity_fingerprint: remote.identity_fingerprint.clone(),
             encrypted_blob_base64: BASE64.encode(encrypted),
@@ -371,13 +568,13 @@ impl CloudClient {
                 vector_clock,
             } => {
                 let request = UploadConfigRequest {
-                    id: Some(*remote_id),
+                    id: *remote_id,
                     // The server already resolves this existing record by its numeric ID.
                     // Omitting asset_id keeps uploads compatible with legacy records whose
                     // UUID was persisted with upper-case hex digits: UUIDs are
                     // case-insensitive, but older server releases compare this field as a
                     // case-sensitive string before applying the update.
-                    asset_id: None,
+                    asset_id: remote_id.is_none().then(|| asset_id.to_string()),
                     identity_fingerprint: identity_fingerprint.clone(),
                     encrypted_blob_base64: encrypted_blob_base64.clone(),
                     vector_clock: vector_clock.clone(),
@@ -418,10 +615,39 @@ impl CloudClient {
                 };
                 (*asset_id, response)
             }
+            QueuedSyncPayload::Delete {
+                asset_id,
+                device_id,
+                operation_id,
+                vector_clock,
+            } => {
+                let request = AssetMutationRequest {
+                    device_id: device_id.to_string(),
+                    operation_id: operation_id.to_string(),
+                    vector_clock: vector_clock.clone(),
+                    confirmation: None,
+                };
+                let canonical = asset_id.to_string();
+                let path = format!("/api/v1/config/assets/{canonical}/delete");
+                let response = match self.post_authorized_with_refresh(tokens, &path, &request) {
+                    Err(SyncError::IncrementalUnavailable) => {
+                        let legacy = canonical.to_uppercase();
+                        let legacy_path = format!("/api/v1/config/assets/{legacy}/delete");
+                        self.post_authorized_with_refresh(tokens, &legacy_path, &request)?
+                    }
+                    result => result?,
+                };
+                (*asset_id, response)
+            }
         };
         validate_remote_asset(&response, asset_id)?;
         if matches!(payload, QueuedSyncPayload::Restore { .. })
             && response.state.as_deref().unwrap_or("active") != "active"
+        {
+            return Err(SyncError::InvalidMutationResponse);
+        }
+        if matches!(payload, QueuedSyncPayload::Delete { .. })
+            && response.state.as_deref() != Some("deleted")
         {
             return Err(SyncError::InvalidMutationResponse);
         }
@@ -461,6 +687,63 @@ impl CloudClient {
             tokens.refresh_token = refresh;
         }
         tokens.validate()
+    }
+
+    fn apply_login_response(
+        &self,
+        tokens: &mut SyncTokens,
+        response: LoginData,
+    ) -> Result<(), SyncError> {
+        let access = response.access_token.or(response.token).unwrap_or_default();
+        if access.is_empty() || access.len() > 16 * 1024 || access.contains('\0') {
+            return Err(SyncError::InvalidToken);
+        }
+        tokens.access_token.zeroize();
+        tokens.access_token = access;
+        if let Some(refresh) = response.refresh_token.filter(|value| !value.is_empty()) {
+            tokens.refresh_token.zeroize();
+            tokens.refresh_token = refresh;
+        }
+        tokens.validate()
+    }
+
+    fn get_trash_page_with_refresh(
+        &self,
+        tokens: &mut SyncTokens,
+        offset: usize,
+    ) -> Result<TrashConfigPage, SyncError> {
+        tokens.validate()?;
+        match self.get_trash_page(&tokens.access_token, offset) {
+            Ok(page) => Ok(page),
+            Err(SyncError::Unauthorized) if !tokens.refresh_token.is_empty() => {
+                self.refresh(tokens)?;
+                self.get_trash_page(&tokens.access_token, offset)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn get_trash_page(
+        &self,
+        access_token: &str,
+        offset: usize,
+    ) -> Result<TrashConfigPage, SyncError> {
+        let url = format!(
+            "{}/api/v1/config/trash?limit=500&offset={offset}",
+            self.endpoint
+        );
+        let response = self.execute_with_retry(|| {
+            self.client
+                .get(&url)
+                .bearer_auth(access_token)
+                .header("Accept", "application/json")
+                .send()
+        })?;
+        let page: TrashConfigPage = decode_api_response(response)?;
+        if page.items.len() > 500 || page.total > MAX_REMOTE_ITEMS {
+            return Err(SyncError::InventoryTooLarge);
+        }
+        Ok(page)
     }
 
     fn get_inventory(&self, access_token: &str) -> Result<Vec<RemoteConfig>, SyncError> {
@@ -583,6 +866,13 @@ fn validate_login(username: &str, password: &str) -> Result<(), SyncError> {
     Ok(())
 }
 
+fn validate_password_secret(password: &str) -> Result<(), SyncError> {
+    if password.is_empty() || password.len() > 16 * 1024 || password.contains('\0') {
+        return Err(SyncError::InvalidLogin);
+    }
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 struct ApiEnvelope<T> {
     success: bool,
@@ -604,6 +894,25 @@ struct RegisterRequest<'a> {
 }
 
 #[derive(Serialize)]
+struct PasswordChangeRequest<'a> {
+    current_password: &'a str,
+    new_password: &'a str,
+}
+
+#[derive(Serialize)]
+struct MasterKeyRotationItemRequest {
+    id: u64,
+    expected_vector_clock: String,
+    encrypted_blob_base64: String,
+}
+
+#[derive(Serialize)]
+struct MasterKeyRotationRequest<'a> {
+    current_login_password: &'a str,
+    items: Vec<MasterKeyRotationItemRequest>,
+}
+
+#[derive(Serialize)]
 struct RefreshRequest<'a> {
     refresh_token: &'a str,
 }
@@ -618,6 +927,12 @@ struct LoginData {
 #[derive(Deserialize)]
 struct PullConfigData {
     items: Vec<RemoteConfig>,
+}
+
+#[derive(Deserialize)]
+struct TrashConfigPage {
+    items: Vec<RemoteConfig>,
+    total: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -684,6 +999,23 @@ pub fn account_fingerprint(access_token: &str) -> Result<String, SyncError> {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect())
+}
+
+/// Returns a user-facing account name only when the signed token contains a
+/// bounded email/username claim. Account isolation must continue to use
+/// `account_fingerprint`; this value is presentation metadata only.
+pub fn account_display_name(access_token: &str) -> Option<String> {
+    let payload = access_token.split('.').nth(1)?;
+    let decoded = URL_SAFE_NO_PAD.decode(payload).ok()?;
+    let claims: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
+    ["email", "username", "preferred_username"]
+        .iter()
+        .filter_map(|key| claims.get(key).and_then(serde_json::Value::as_str))
+        .map(str::trim)
+        .find(|value| {
+            !value.is_empty() && value.len() <= 255 && !value.chars().any(char::is_control)
+        })
+        .map(ToOwned::to_owned)
 }
 
 pub fn account_storage_identifier(username: &str) -> Result<String, SyncError> {
@@ -1240,6 +1572,7 @@ fn portable_to_candidate(
         auth_method,
         transport,
         allow_password_fallback: portable.allow_password_fallback,
+        storage_scope: AssetStorageScope::AccountSynced,
         key_reference,
         tags: portable.tags.clone(),
         jump_host,
@@ -1388,6 +1721,10 @@ pub enum SyncError {
     InvalidLogin,
     #[error("主密码不能为空或超过长度限制")]
     InvalidMasterPassword,
+    #[error("新主密码不能与当前主密码相同")]
+    UnchangedMasterPassword,
+    #[error("云端配置快照存在重复记录")]
+    DuplicateRemoteConfiguration,
     #[error("同步令牌不合法")]
     InvalidToken,
     #[error("登录已过期，请重新登录")]
@@ -1666,6 +2003,53 @@ mod tests {
     }
 
     #[test]
+    fn account_upload_and_delete_preserve_stable_asset_identity() {
+        let scope = account_storage_identifier("test.user@example.com").unwrap();
+        let mut asset = ServerAsset::new("fixture", "127.0.0.1", "tester");
+        asset.storage_scope = AssetStorageScope::AccountSynced;
+        let credential = CredentialMaterial::password("fixture-password");
+        let device_id = Uuid::new_v4();
+        let client = CloudClient::for_endpoint("http://127.0.0.1:9").unwrap();
+        let upload = client
+            .prepare_upload_for_account(
+                &asset,
+                &credential,
+                None,
+                "master",
+                device_id,
+                &scope,
+                Some(42),
+                None,
+                r#"{"peer":3}"#,
+            )
+            .unwrap();
+        assert_eq!(upload.asset_id(), asset.id);
+        let QueuedSyncPayload::Upload {
+            remote_id,
+            vector_clock,
+            ..
+        } = upload
+        else {
+            panic!("expected upload");
+        };
+        assert_eq!(remote_id, Some(42));
+        assert!(vector_clock.contains(&device_id.to_string()));
+
+        let operation_id = Uuid::new_v4();
+        let delete = client
+            .prepare_delete(asset.id, device_id, operation_id, &vector_clock)
+            .unwrap();
+        assert_eq!(delete.asset_id(), asset.id);
+        assert!(matches!(
+            delete,
+            QueuedSyncPayload::Delete {
+                operation_id: actual,
+                ..
+            } if actual == operation_id
+        ));
+    }
+
+    #[test]
     fn recognizes_known_account_scoped_auxiliary_records_without_blocking_assets() {
         let scope = account_storage_identifier("test.user@example.com").unwrap();
         let plaintext = br#"{"kind":"orbit_port_forwards","version":1,"updatedAtUnix":1770000000,"profiles":[],"tombstones":[]}"#;
@@ -1890,6 +2274,20 @@ mod tests {
     }
 
     #[test]
+    fn account_display_name_prefers_bounded_email_and_never_uses_uid() {
+        let email = format!(
+            "x.{}.y",
+            URL_SAFE_NO_PAD.encode(br#"{"uid":42,"email":"operator@example.com"}"#)
+        );
+        let uid_only = format!("x.{}.y", URL_SAFE_NO_PAD.encode(br#"{"uid":42}"#));
+        assert_eq!(
+            account_display_name(&email).as_deref(),
+            Some("operator@example.com")
+        );
+        assert_eq!(account_display_name(&uid_only), None);
+    }
+
+    #[test]
     fn incremental_pull_recovers_one_reset_and_paginates() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let endpoint: &'static str =
@@ -1933,6 +2331,7 @@ mod tests {
             access_token: "token".into(),
             refresh_token: String::new(),
             account_scope: String::new(),
+            username: String::new(),
         };
         let batch = client.pull_changes(&mut tokens, 9).unwrap();
         assert_eq!(batch.next_cursor, 7);
@@ -1970,6 +2369,7 @@ mod tests {
             access_token: "token".into(),
             refresh_token: String::new(),
             account_scope: String::new(),
+            username: String::new(),
         };
         assert_eq!(client.acknowledge(&mut tokens, device_id, 17).unwrap(), 17);
         server.join().unwrap();
@@ -2017,6 +2417,7 @@ mod tests {
             access_token: "token".into(),
             refresh_token: String::new(),
             account_scope: String::new(),
+            username: String::new(),
         };
         let response = client
             .keep_local(
@@ -2066,6 +2467,7 @@ mod tests {
             access_token: "token".into(),
             refresh_token: String::new(),
             account_scope: String::new(),
+            username: String::new(),
         };
         let response = client
             .keep_local(
@@ -2118,6 +2520,7 @@ mod tests {
             access_token: "token".into(),
             refresh_token: String::new(),
             account_scope: String::new(),
+            username: String::new(),
         };
         let response = client
             .restore_asset(&mut tokens, &remote, device_id, operation_id)
@@ -2174,6 +2577,7 @@ mod tests {
             access_token: "token".into(),
             refresh_token: String::new(),
             account_scope: String::new(),
+            username: String::new(),
         };
         let response = client
             .restore_asset(&mut tokens, &remote, device_id, operation_id)
@@ -2210,7 +2614,7 @@ mod tests {
         });
         let client = CloudClient::for_endpoint(endpoint).unwrap();
         let payload = QueuedSyncPayload::Upload {
-            remote_id: 23,
+            remote_id: Some(23),
             asset_id,
             identity_fingerprint: Some("fixture".into()),
             encrypted_blob_base64: "stable-ciphertext".into(),
@@ -2220,6 +2624,7 @@ mod tests {
             access_token: "token".into(),
             refresh_token: String::new(),
             account_scope: String::new(),
+            username: String::new(),
         };
         let first = client.execute_queued(&mut tokens, &payload).unwrap();
         let second = client.execute_queued(&mut tokens, &payload).unwrap();
@@ -2249,6 +2654,7 @@ mod tests {
             access_token: "token".into(),
             refresh_token: String::new(),
             account_scope: String::new(),
+            username: String::new(),
         };
         let error = client.pull_inventory(&mut tokens).unwrap_err();
         assert!(matches!(error, SyncError::ServerRetryable(503)));
@@ -2267,6 +2673,7 @@ mod tests {
             access_token: "token".into(),
             refresh_token: String::new(),
             account_scope: String::new(),
+            username: String::new(),
         };
         let error = client.pull_inventory(&mut tokens).unwrap_err();
         assert!(matches!(error, SyncError::Network(_)));
@@ -2283,6 +2690,7 @@ mod tests {
             access_token: "invalid-linux-read-smoke-token".into(),
             refresh_token: String::new(),
             account_scope: String::new(),
+            username: String::new(),
         };
         assert!(matches!(
             client.pull_inventory(&mut tokens),
@@ -2344,6 +2752,7 @@ mod tests {
             access_token: "expired-access".into(),
             refresh_token: "refresh-token".into(),
             account_scope: String::new(),
+            username: String::new(),
         };
         assert!(client.pull_inventory(&mut tokens).unwrap().is_empty());
         assert_eq!(tokens.access_token, "new-access");
