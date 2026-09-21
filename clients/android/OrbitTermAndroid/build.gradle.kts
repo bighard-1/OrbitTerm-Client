@@ -27,10 +27,10 @@ subprojects {
             "io.netty:netty-resolver:4.1.137.Final",
             "io.netty:netty-transport:4.1.137.Final",
             "io.netty:netty-transport-native-unix-common:4.1.137.Final",
-            "org.bouncycastle:bcpg-jdk18on:1.84",
-            "org.bouncycastle:bcpkix-jdk18on:1.84",
-            "org.bouncycastle:bcprov-jdk18on:1.84",
-            "org.bouncycastle:bcutil-jdk18on:1.84",
+            "org.bouncycastle:bcpg-jdk18on:1.86",
+            "org.bouncycastle:bcpkix-jdk18on:1.86",
+            "org.bouncycastle:bcprov-jdk18on:1.86",
+            "org.bouncycastle:bcutil-jdk18on:1.86",
         )
     }
 }
