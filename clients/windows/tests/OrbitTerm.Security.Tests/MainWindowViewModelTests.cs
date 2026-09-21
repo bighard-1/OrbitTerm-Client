@@ -306,25 +306,29 @@ public sealed class MainWindowViewModelTests
         var coreClient = new FakeCheckedCoreClient();
         var viewModel = CreateViewModel(coreClient);
         viewModel.Password = "secret";
-        viewModel.ConnectCommand.Execute(null);
-        await WaitUntilAsync(() => viewModel.IsTerminalOpen);
-        viewModel.AddTerminalSplitCommand.Execute(null);
-        await WaitUntilAsync(() => viewModel.TerminalSplitPanes.Count == 1);
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        Assert.True(viewModel.IsTerminalOpen);
+        await viewModel.AddTerminalSplitCommand.ExecuteAsync(null);
+        Assert.Single(viewModel.TerminalSplitPanes);
+        var backgroundTab = Assert.IsType<WorkspaceTabViewModel>(viewModel.SelectedWorkspaceTab);
         var backgroundPane = viewModel.TerminalSplitPanes[0];
 
-        viewModel.OpenWorkspaceTabCommand.Execute(null);
-        viewModel.NewAssetCommand.Execute(null);
+        await viewModel.OpenWorkspaceTabCommand.ExecuteAsync(null);
+        await viewModel.NewAssetCommand.ExecuteAsync(null);
         viewModel.AssetName = "Second";
         viewModel.Host = "second.example";
         viewModel.Username = "ops";
         viewModel.Password = "secret";
-        viewModel.ConnectCommand.Execute(null);
-        await WaitUntilAsync(() => viewModel.IsTerminalOpen && viewModel.Host == "second.example");
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        Assert.True(viewModel.IsTerminalOpen);
+        Assert.Equal("second.example", viewModel.Host);
         var visibleVersion = viewModel.TerminalSplitOutputVersion;
 
+        Assert.Contains(backgroundTab, viewModel.WorkspaceTabs);
+        Assert.Contains(backgroundPane, backgroundTab.TerminalSplitPanes);
         coreClient.EmitTerminalData(backgroundPane.Lease.TerminalChannelId, "background-ping\r\n");
-        await WaitUntilAsync(() => backgroundPane.Lines.Any(line => line.Text.Contains("background-ping", StringComparison.Ordinal)));
 
+        Assert.Contains(backgroundPane.Lines, line => line.Text.Contains("background-ping", StringComparison.Ordinal));
         Assert.Equal(visibleVersion, viewModel.TerminalSplitOutputVersion);
     }
 
