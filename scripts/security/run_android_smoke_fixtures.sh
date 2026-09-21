@@ -28,6 +28,10 @@ esac
 package="com.orbitterm.android.smoke"
 activity="$package/com.orbitterm.android.smoke.SmokeFixtureActivity"
 remote_xml="/sdcard/orbitterm-smoke-fixture.xml"
+snapshot_attempts="${ORBITTERM_ANDROID_SMOKE_SNAPSHOT_ATTEMPTS:-30}"
+
+[[ "$snapshot_attempts" =~ ^[1-9][0-9]*$ ]] \
+  || fail "ORBITTERM_ANDROID_SMOKE_SNAPSHOT_ATTEMPTS must be a positive integer"
 
 cleanup() {
   "$adb_bin" -s "$SERIAL" shell rm -f "$remote_xml" >/dev/null 2>&1 || true
@@ -51,7 +55,7 @@ assert_state() {
   # frame. A software-rendered hosted emulator can still be draining work from
   # the preceding instrumentation suite, so poll the accessibility tree rather
   # than treating one fixed one-second snapshot as authoritative.
-  for attempt in $(seq 1 10); do
+  for attempt in $(seq 1 "$snapshot_attempts"); do
     "$adb_bin" -s "$SERIAL" shell rm -f "$remote_xml" >/dev/null 2>&1 || true
     if "$adb_bin" -s "$SERIAL" shell uiautomator dump "$remote_xml" >/dev/null 2>&1; then
       fixture_xml="$("$adb_bin" -s "$SERIAL" shell cat "$remote_xml" 2>/dev/null || true)"
@@ -61,7 +65,14 @@ assert_state() {
     fi
     sleep 1
   done
-  fail "smoke fixture '$state' did not expose '$expected' after 10 accessibility snapshots"
+  warn "foreground activity at smoke-fixture failure:"
+  "$adb_bin" -s "$SERIAL" shell dumpsys activity activities 2>/dev/null \
+    | grep -E 'mResumedActivity|topResumedActivity' \
+    | head -4 \
+    || true
+  warn "last accessibility snapshot (isolated fixture data only):"
+  printf '%s\n' "${fixture_xml:-<unavailable>}"
+  fail "smoke fixture '$state' did not expose '$expected' after $snapshot_attempts accessibility snapshots"
 }
 
 section "Android isolated smoke fixtures"
