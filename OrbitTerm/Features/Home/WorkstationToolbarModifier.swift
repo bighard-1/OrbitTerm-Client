@@ -443,6 +443,7 @@ private struct RemoteEndpointMonitorCard: View {
 
 #endif
 
+#if os(macOS)
 private struct AccountToolbarMenu: View {
     enum PendingAction: Hashable, Identifiable {
         case switchAccount
@@ -547,6 +548,7 @@ private struct AccountToolbarMenu: View {
         .frame(height: 32)
     }
 }
+#endif
 
 extension Notification.Name {
     static let orbitTermOpenKeyManagement = Notification.Name("orbitTerm.openKeyManagement")
