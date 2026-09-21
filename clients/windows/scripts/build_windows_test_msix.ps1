@@ -2,7 +2,7 @@ param(
     [string]$RepoRoot = "",
     [string]$DesktopOutput = (Join-Path ([Environment]::GetFolderPath("Desktop")) "OrbitTerm-Windows11-Test"),
     [string]$Dotnet = "C:\Program Files\dotnet\dotnet.exe",
-    [string]$PackageVersion = "0.3.0.32"
+    [string]$PackageVersion = "0.3.0.33"
 )
 
 $ErrorActionPreference = "Stop"
