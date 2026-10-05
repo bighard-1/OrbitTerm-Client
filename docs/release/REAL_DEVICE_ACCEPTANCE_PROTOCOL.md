@@ -1,6 +1,6 @@
 # 真机验收与发布证据协议
 
-更新时间：2026-10-02
+更新时间：2026-10-05
 状态：P0 验收协议；当前尚未通过，不得替代真实设备结果。
 
 ## 证据边界
@@ -14,22 +14,23 @@
 ```zsh
 scripts/performance/preflight_real_device_acceptance.sh \
   --scope tombstones \
+  --platform macos \
   --test-account-confirmed \
   --test-assets-confirmed
 ```
 
 ## P0-1：跨端删除墓碑矩阵
 
-在同一受控测试账户、四个实际客户端（Windows、macOS、iOS、Android）上依次完成以下场景。每一步记录“活动列表、最近删除、本机凭据移除、重复同步结果”四个布尔结论，以及构建提交和运行时间；不要记录资产名称或地址。
+在同一受控测试账户、五个实际客户端（Windows、macOS、iOS、Android、Linux）上依次完成以下场景。各端分别指定 `--platform` 运行预检；每一步记录“活动列表、最近删除、本机凭据移除、重复同步结果”四个布尔结论，以及构建提交和运行时间；不要记录资产名称或地址。Linux 的墓碑冲突需明确选择“接受删除”，不得把尚待人工处理的状态记为通过。
 
 | 场景 | 最小步骤 | 通过条件 |
 | --- | --- | --- |
-| `delete_then_pull` | 任一端删除，其他三端双向同步 | 四端活动列表都移除；回收站恰有一条；所有本机凭据已移除 |
+| `delete_then_pull` | 任一端删除，其他四端双向同步或完成明确的墓碑冲突处理 | 五端活动列表都移除；回收站恰有一条；所有本机凭据已移除 |
 | `delete_after_edit` | 一端编辑后，另一端删除，再同步 | 不会把编辑副本重新写入活动列表；出现可恢复的冲突或删除结果 |
 | `offline_delete_then_reconnect` | 离线端删除后恢复网络 | 删除队列可重试并最终收敛；没有重复回收站记录 |
-| `repeat_sync_no_resurrection` | 四端连续执行三次同步 | 已删除资产不会复活；回收站记录不重复 |
+| `repeat_sync_no_resurrection` | 五端各连续执行三次同步 | 已删除资产不会复活；回收站记录不重复 |
 
-任何失败均保持 `cross-platform-asset-tombstones` 为 `in-progress`，附上脱敏的失败分类和复现步骤后再修复；不得将一次成功外推为四端强一致。
+任何失败均保持 `cross-platform-asset-tombstones` 为 `in-progress`，附上脱敏的失败分类和复现步骤后再修复；不得将一次成功外推为五端强一致。
 
 ## P0-2：大传输与交互并发
 
@@ -40,6 +41,7 @@ scripts/performance/preflight_real_device_acceptance.sh \
 ```zsh
 scripts/performance/preflight_real_device_acceptance.sh \
   --scope concurrency \
+  --platform macos \
   --test-account-confirmed \
   --test-assets-confirmed
 ```
@@ -77,4 +79,4 @@ JSON 只允许数值指标，示例字段如下：
 
 ## 归档与关闭
 
-发布负责人核对九份并发记录、完整四端墓碑矩阵、构建 SHA、签名/公证/安装证据后，才可把门禁、技术债和发布清单同时更新为 `complete`。没有证据时应明确写为“未验证”，而非“无已知问题”。
+发布负责人核对九份并发记录、完整五端墓碑矩阵、构建 SHA、签名/公证/安装证据后，才可把门禁、技术债和发布清单同时更新为 `complete`。没有证据时应明确写为“未验证”，而非“无已知问题”。

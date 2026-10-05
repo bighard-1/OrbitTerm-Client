@@ -1,11 +1,5 @@
 import Foundation
 
-extension OrbitCStringResultReader {
-    static let orbitCore = OrbitCStringResultReader { pointer in
-        orbit_free_string(pointer)
-    }
-}
-
 extension OrbitCoreCheckedFFIFunctions {
     static let orbitCore = OrbitCoreCheckedFFIFunctions(
         connect: { call in

@@ -244,6 +244,7 @@ fn header_declares_additive_v1_functions_and_preserves_legacy_abi() {
     for symbol in [
         "orbit_hostkey_challenge_accept_v1",
         "orbit_hostkey_challenge_accept_and_persist_v1",
+        "orbit_known_hosts_remove_trusted_v1",
         "orbit_hostkey_challenge_reject_v1",
         "orbit_hostkey_challenge_status_v1",
         "orbit_hostkey_challenge_cleanup_expired_v1",

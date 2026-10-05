@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "updated_at": "2026-10-02",
+  "updated_at": "2026-10-05",
   "new_feature_freeze": true,
   "allowed_change_kinds": [
     "security",
@@ -52,14 +52,15 @@
     {
       "id": "cross-platform-asset-tombstones",
       "status": "in-progress",
-      "owner_scope": "apple-windows-android-sync",
+      "owner_scope": "apple-windows-android-linux-sync",
       "exit_criteria": "One delete removes the asset from every active inventory, keeps one trash record, removes local credentials, and never resurrects after repeated sync.",
       "evidence_plan": {
         "required_platforms": [
           "windows",
           "macos",
           "ios",
-          "android"
+          "android",
+          "linux"
         ],
         "required_scenarios": [
           "delete_then_pull",

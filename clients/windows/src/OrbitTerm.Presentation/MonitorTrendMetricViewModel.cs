@@ -79,13 +79,14 @@ public sealed class MonitorTrendMetricViewModel : ObservableObject
             ? values[^1] is double currentLatency
                 ? string.Create(
                     System.Globalization.CultureInfo.InvariantCulture,
-                    $"{currentLatency:0.#} ms · 失败 {probeFailure:0.#}%")
+                    $"{currentLatency:0.#} ms · {probeFailure:0.#}%")
                 : string.Create(
                     System.Globalization.CultureInfo.InvariantCulture,
-                    $"-- ms · 失败 {probeFailure:0.#}%")
+                    $"-- ms · {probeFailure:0.#}%")
             : FormatValue(latest);
         Sparkline = BuildSparkline(values, available.Min(), available.Max());
-        AccessibilityLabel = string.Concat(Label, "，当前 ", CurrentValue, "，保留 ", available.Length, " 个采样点");
+        var accessibilityName = Key == "latency" ? "TCP 延迟与探测失败率" : Label;
+        AccessibilityLabel = string.Concat(accessibilityName, "，当前 ", CurrentValue, "，保留 ", available.Length, " 个采样点");
         StatisticsSummary = string.Concat(
             "最小 ", FormatValue(available.Min()),
             " · 平均 ", FormatValue(available.Average()),

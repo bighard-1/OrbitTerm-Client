@@ -11,6 +11,7 @@ struct AddServerInitialState {
     let transport: ServerTransportProtocol
     let networkDeviceProfile: NetworkDeviceProfile
     let allowPasswordFallback: Bool
+    let storageScope: ServerAssetStorageScope
     let password: String
     let privateKeyContent: String
     let privateKeyPassphrase: String
@@ -32,6 +33,7 @@ struct AddServerInitialState {
             transport: transport,
             networkDeviceProfile: server.networkDeviceProfile,
             allowPasswordFallback: server.allowPasswordFallback,
+            storageScope: server.storageScope,
             password: credentials?.password ?? "",
             privateKeyContent: privateKey,
             privateKeyPassphrase: credentials?.privateKeyPassphrase ?? "",
@@ -52,6 +54,7 @@ struct AddServerInitialState {
             transport: .ssh,
             networkDeviceProfile: .auto,
             allowPasswordFallback: true,
+            storageScope: .accountSynced,
             password: "",
             privateKeyContent: "",
             privateKeyPassphrase: "",

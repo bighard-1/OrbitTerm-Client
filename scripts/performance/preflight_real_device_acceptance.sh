@@ -6,12 +6,13 @@ set -euo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 scope=""
+platform=""
 account_confirmed=false
 assets_confirmed=false
 
 usage() {
   cat <<'EOF'
-usage: preflight_real_device_acceptance.sh --scope <tombstones|concurrency> [--test-account-confirmed] [--test-assets-confirmed]
+usage: preflight_real_device_acceptance.sh --scope <tombstones|concurrency> --platform <macos|ios|android|windows|linux|windows-10|windows-11> [--test-account-confirmed] [--test-assets-confirmed]
 
 The confirmation flags are an operator attestation only. Do not pass an
 account name, device identifier, host, credential, or other secret.
@@ -21,6 +22,7 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --scope) scope="${2:-}"; shift 2 ;;
+    --platform) platform="${2:-}"; shift 2 ;;
     --test-account-confirmed) account_confirmed=true; shift ;;
     --test-assets-confirmed) assets_confirmed=true; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -33,6 +35,11 @@ case "$scope" in
   *) usage >&2; exit 2 ;;
 esac
 
+case "$scope:$platform" in
+  tombstones:macos|tombstones:ios|tombstones:android|tombstones:windows|tombstones:linux|concurrency:macos|concurrency:windows-10|concurrency:windows-11) ;;
+  *) usage >&2; exit 2 ;;
+esac
+
 ready=true
 report() {
   local label="$1"
@@ -42,7 +49,7 @@ report() {
   [[ "$status" == "READY" ]] || ready=false
 }
 
-printf 'Real-device acceptance preflight (%s)\n' "$scope"
+printf 'Real-device acceptance preflight (%s / %s)\n' "$scope" "$platform"
 
 if [[ -z "$(git -C "$root_dir" status --porcelain)" ]]; then
   report "candidate worktree" "READY" "clean candidate revision"
@@ -62,49 +69,58 @@ else
   report "test assets" "MISSING" "operator must confirm disposable, non-production test assets"
 fi
 
-if [[ "$(uname -s)" == "Darwin" ]]; then
-  report "macOS device" "READY" "physical macOS host available"
-else
-  report "macOS device" "MISSING" "run this preflight from a physical macOS host"
-fi
-
-if [[ "$scope" == "tombstones" ]]; then
-  if [[ "$(uname -s)" == "Darwin" ]] && command -v xcrun >/dev/null 2>&1; then
-    # Device Hub's devicectl service is the source used by current Xcode
-    # releases.  xctrace can report a paired device as offline while
-    # devicectl already considers it available; count only availability and
-    # never print a device name, hostname, or identifier.
-    ios_count="$({ xcrun devicectl list devices 2>/dev/null || true; } | awk '
-      /available \(paired\)/ { count += 1 }
-      END { print count + 0 }
-    ')"
-    if (( ios_count >= 1 )); then
-      report "iOS device" "READY" "at least one paired physical iOS/iPadOS device detected by Xcode"
+case "$platform" in
+  macos)
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+      report "macOS device" "READY" "physical macOS host available"
     else
-      report "iOS device" "MISSING" "connect, unlock, and trust one physical iOS/iPadOS device"
+      report "macOS device" "MISSING" "run on a physical macOS host"
     fi
-  else
-    report "iOS device" "MISSING" "run from macOS with Xcode command-line tools"
-  fi
-
-  if command -v adb >/dev/null 2>&1; then
-    android_count="$(adb devices 2>/dev/null | awk 'NR > 1 && $2 == "device" { count += 1 } END { print count + 0 }')"
-    if (( android_count >= 1 )); then
-      report "Android device" "READY" "at least one authorized physical Android device detected"
-    else
-      report "Android device" "MISSING" "connect and authorize one physical Android device"
-    fi
-  else
-    report "Android device" "MISSING" "install Android platform-tools and authorize a physical device"
-  fi
-fi
-
-case "$(uname -s)" in
-  MINGW*|MSYS*|CYGWIN*|Windows_NT)
-    report "Windows device" "READY" "physical Windows host available"
     ;;
-  *)
-    report "Windows device" "MISSING" "run this preflight on the Windows 10/11 test host"
+  ios)
+    if [[ "$(uname -s)" == "Darwin" ]] && command -v xcrun >/dev/null 2>&1; then
+      # Count only availability; never print a device identifier.
+      ios_count="$({ xcrun devicectl list devices 2>/dev/null || true; } | awk '
+        /available \(paired\)/ { count += 1 }
+        END { print count + 0 }
+      ')"
+      if (( ios_count >= 1 )); then
+        report "iOS device" "READY" "at least one paired physical iOS/iPadOS device detected by Xcode"
+      else
+        report "iOS device" "MISSING" "connect, unlock, and trust one physical iOS/iPadOS device"
+      fi
+    else
+      report "iOS device" "MISSING" "run from macOS with Xcode command-line tools"
+    fi
+    ;;
+  android)
+    if command -v adb >/dev/null 2>&1; then
+      android_count="$(adb devices 2>/dev/null | awk 'NR > 1 && $2 == "device" && $1 !~ /^emulator-/ { count += 1 } END { print count + 0 }')"
+      if (( android_count >= 1 )); then
+        report "Android device" "READY" "at least one authorized physical Android device detected"
+      else
+        report "Android device" "MISSING" "connect and authorize one physical Android device"
+      fi
+    else
+      report "Android device" "MISSING" "install Android platform-tools and authorize a physical device"
+    fi
+    ;;
+  windows|windows-10|windows-11)
+    case "$(uname -s)" in
+      MINGW*|MSYS*|CYGWIN*|Windows_NT)
+        report "Windows device" "READY" "Windows host available; confirm the required OS version separately"
+        ;;
+      *)
+        report "Windows device" "MISSING" "run on the Windows test host"
+        ;;
+    esac
+    ;;
+  linux)
+    if [[ "$(uname -s)" == "Linux" ]]; then
+      report "Linux device" "READY" "Linux host available; confirm the desktop session separately"
+    else
+      report "Linux device" "MISSING" "run on the Linux desktop test host"
+    fi
     ;;
 esac
 

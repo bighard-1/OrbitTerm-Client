@@ -766,7 +766,6 @@ pub extern "C" fn orbit_free_string(s: *mut c_char) {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(not(feature = "legacy-network-internal"))]
     use std::ffi::CStr;
     #[cfg(not(feature = "legacy-network-internal"))]
     use std::ptr;

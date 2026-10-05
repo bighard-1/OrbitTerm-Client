@@ -8,6 +8,7 @@ extension SyncService {
         masterPassword: String?,
         accountID: String
     ) async {
+        let servers = servers.filter { $0.storageScope == .accountSynced }
         guard !servers.isEmpty else { return }
         let metadata = SyncMetadataStore.shared
         var syncedCount = 0

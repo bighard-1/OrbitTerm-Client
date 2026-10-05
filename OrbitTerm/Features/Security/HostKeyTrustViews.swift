@@ -7,6 +7,7 @@ struct HostKeyTrustView: View {
     private let onTrust: () -> Void
     private let onRetrySave: () -> Void
     private let onClose: () -> Void
+    private let onRemovePreviousTrust: (HostKeyBlockedPayload) async -> String?
 
     init(
         coordinator: HostKeyTrustCoordinator,
@@ -18,7 +19,10 @@ struct HostKeyTrustView: View {
         onCancel: (() -> Void)? = nil,
         onTrust: (() -> Void)? = nil,
         onRetrySave: (() -> Void)? = nil,
-        onClose: (() -> Void)? = nil
+        onClose: (() -> Void)? = nil,
+        onRemovePreviousTrust: @escaping (HostKeyBlockedPayload) async -> String? = { _ in
+            "当前版本无法维护此信任记录。"
+        }
     ) {
         self.coordinator = coordinator
         self.copyText = copyText
@@ -26,6 +30,7 @@ struct HostKeyTrustView: View {
         self.onTrust = onTrust ?? { Task { await coordinator.trustCurrentChallenge() } }
         self.onRetrySave = onRetrySave ?? { Task { await coordinator.retrySave() } }
         self.onClose = onClose ?? coordinator.close
+        self.onRemovePreviousTrust = onRemovePreviousTrust
     }
 
     var body: some View {
@@ -56,7 +61,8 @@ struct HostKeyTrustView: View {
                 HostKeyBlockedView(
                     presentation: HostKeyBlockedPresentation(payload: block),
                     onClose: onClose,
-                    onCopy: copyText
+                    onCopy: copyText,
+                    onRemovePreviousTrust: { await onRemovePreviousTrust(block) }
                 )
             case .failed(_, .storeSave):
                 HostKeySaveErrorView(
@@ -122,6 +128,10 @@ struct HostKeyBlockedView: View {
     let presentation: HostKeyBlockedPresentation
     let onClose: () -> Void
     let onCopy: (String) -> Void
+    let onRemovePreviousTrust: () async -> String?
+    @State private var showsRemovalConfirmation = false
+    @State private var isRemovingPreviousTrust = false
+    @State private var removalError: String?
 
     var body: some View {
         HostKeyCard(isWarning: true) {
@@ -138,7 +148,42 @@ struct HostKeyBlockedView: View {
                 Button("关闭", action: onClose)
                 Spacer()
                 Button("复制指纹") { onCopy(presentation.copyText) }
+                if presentation.canRemovePreviousTrust {
+                    Button("移除旧信任并重新验证") {
+                        showsRemovalConfirmation = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isRemovingPreviousTrust)
+                }
             }
+            if isRemovingPreviousTrust {
+                ProgressView("正在安全移除旧信任记录…")
+            }
+            if let removalError {
+                Label(removalError, systemImage: "exclamationmark.circle.fill")
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .confirmationDialog(
+            "重新验证这台服务器？",
+            isPresented: $showsRemovalConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("移除旧信任并重新连接", role: .destructive) {
+                isRemovingPreviousTrust = true
+                removalError = nil
+                Task {
+                    let error = await onRemovePreviousTrust()
+                    await MainActor.run {
+                        removalError = error
+                        isRemovingPreviousTrust = false
+                    }
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("请先通过服务器控制台、云厂商后台或管理员等独立渠道核对当前指纹。此操作只移除弹窗中显示的旧指纹，不会自动信任新指纹；重新连接后仍需再次确认。")
         }
     }
 

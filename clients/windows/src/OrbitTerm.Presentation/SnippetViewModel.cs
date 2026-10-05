@@ -12,7 +12,9 @@ public sealed record SnippetViewModel(
     SnippetAssetScope? AssetScope = null)
 {
     public SnippetAssetScope EffectiveAssetScope => SnippetAssetScope.Normalize(AssetScope);
-    public string ScopeDisplay => EffectiveAssetScope.IsRestricted ? "指定资产" : "全部资产";
+    public string ScopeDisplay => EffectiveAssetScope.IsRestricted
+        ? $"限 {EffectiveAssetScope.AssetIds.Count} 台资产"
+        : "全部资产";
     public bool AllowsAsset(Guid assetId) => EffectiveAssetScope.Allows(assetId);
     public SnippetRecord ToRecord() => new(Id, Title, Command, Category, CreatedAt, UpdatedAt, EffectiveAssetScope);
 

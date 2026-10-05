@@ -96,6 +96,22 @@ enum MobileTransportSupportPolicy {
     static let remoteDesktopOnlyHint = "此 RDP 资产可查看和编辑；请在桌面端发起连接"
 }
 
+/// User intent for one asset. This is local policy metadata and is never
+/// embedded in the encrypted portable server payload.
+enum ServerAssetStorageScope: String, Codable, CaseIterable, Identifiable, Sendable {
+    case accountSynced
+    case localOnly
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .accountSynced: return "随账户同步"
+        case .localOnly: return "仅此设备"
+        }
+    }
+}
+
 enum NetworkDeviceProfile: String, Codable, CaseIterable, Identifiable, Sendable {
     case auto
     case huaweiVRP
@@ -148,6 +164,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
     var transport: ServerTransportProtocol
     var networkDeviceProfile: NetworkDeviceProfile
     var allowPasswordFallback: Bool
+    var storageScope: ServerAssetStorageScope
     var credentialID: UUID
     /// Optional single SSH jump host. Its secret is stored independently in
     /// `CredentialVault` under `jumpHost.credentialID`.
@@ -166,6 +183,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         transport: ServerTransportProtocol = .ssh,
         networkDeviceProfile: NetworkDeviceProfile = .auto,
         allowPasswordFallback: Bool = true,
+        storageScope: ServerAssetStorageScope = .accountSynced,
         credentialID: UUID? = nil,
         jumpHost: JumpHostConfiguration? = nil,
         createdAt: Date = Date()
@@ -181,6 +199,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         self.transport = transport
         self.networkDeviceProfile = networkDeviceProfile
         self.allowPasswordFallback = allowPasswordFallback
+        self.storageScope = storageScope
         self.credentialID = credentialID ?? id
         self.jumpHost = jumpHost
         self.createdAt = createdAt
@@ -198,6 +217,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         case transport
         case networkDeviceProfile
         case allowPasswordFallback
+        case storageScope
         case credentialID
         case jumpHost
         case createdAt
@@ -223,6 +243,9 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         transport = try container.decodeIfPresent(ServerTransportProtocol.self, forKey: .transport) ?? .ssh
         networkDeviceProfile = try container.decodeIfPresent(NetworkDeviceProfile.self, forKey: .networkDeviceProfile) ?? .auto
         allowPasswordFallback = try container.decodeIfPresent(Bool.self, forKey: .allowPasswordFallback) ?? true
+        // Apple historically synchronized every asset. Preserve that intent
+        // when decoding legacy rows instead of silently making them local.
+        storageScope = try container.decodeIfPresent(ServerAssetStorageScope.self, forKey: .storageScope) ?? .accountSynced
         credentialID = try container.decodeIfPresent(UUID.self, forKey: .credentialID) ?? id
         jumpHost = try container.decodeIfPresent(JumpHostConfiguration.self, forKey: .jumpHost)
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
@@ -243,6 +266,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         try container.encode(transport, forKey: .transport)
         try container.encode(networkDeviceProfile, forKey: .networkDeviceProfile)
         try container.encode(allowPasswordFallback, forKey: .allowPasswordFallback)
+        try container.encode(storageScope, forKey: .storageScope)
         try container.encode(credentialID, forKey: .credentialID)
         try container.encodeIfPresent(jumpHost, forKey: .jumpHost)
         try container.encode(createdAt, forKey: .createdAt)

@@ -7,6 +7,24 @@ namespace OrbitTerm.Security.Tests;
 public sealed class RemoteAccessPolicyTests
 {
     [Fact]
+    public void RemoteDesktopLaunchGateCoalescesOneAssetButAllowsIndependentTargets()
+    {
+        var gate = new RemoteDesktopLaunchGate();
+        var firstAsset = Guid.NewGuid();
+        var secondAsset = Guid.NewGuid();
+
+        var first = gate.TryAcquire(firstAsset);
+        Assert.NotNull(first);
+        Assert.Null(gate.TryAcquire(firstAsset));
+        using var second = gate.TryAcquire(secondAsset);
+        Assert.NotNull(second);
+
+        first!.Dispose();
+        using var retry = gate.TryAcquire(firstAsset);
+        Assert.NotNull(retry);
+    }
+
+    [Fact]
     public void LocalTunnelDefaultsCanRemainLoopbackOnly()
     {
         var rule = PortForwardingPolicy.Validate(new PortForwardingRule(
@@ -58,6 +76,7 @@ public sealed class RemoteAccessPolicyTests
 
         Assert.Equal(ServerTransport.RemoteDesktop, asset.Transport);
         Assert.Equal("RDP", asset.TransportLabel);
+        Assert.True(asset.IsRemoteDesktop);
         Assert.Equal(record, asset.ToRecord());
     }
 

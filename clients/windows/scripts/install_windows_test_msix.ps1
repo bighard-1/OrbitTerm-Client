@@ -1,6 +1,21 @@
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+$currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$currentPrincipal = [Security.Principal.WindowsPrincipal]::new($currentIdentity)
+$isAdministrator = $currentPrincipal.IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdministrator) {
+    $quotedScriptPath = '"' + $PSCommandPath.Replace('"', '""') + '"'
+    $elevated = Start-Process `
+        -FilePath "PowerShell.exe" `
+        -Verb RunAs `
+        -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File $quotedScriptPath" `
+        -Wait `
+        -PassThru
+    exit $elevated.ExitCode
+}
+
 $folder = Split-Path -Parent $MyInvocation.MyCommand.Path
 $certificate = Join-Path $folder "OrbitTerm-Test-Signing.cer"
 $package = Get-ChildItem $folder -Filter "OrbitTerm_*_x64_Test.msix" -File |
@@ -19,7 +34,7 @@ try {
     Unblock-File -LiteralPath $certificate, $package.FullName -ErrorAction SilentlyContinue
     Import-Certificate `
         -FilePath $certificate `
-        -CertStoreLocation "Cert:\CurrentUser\TrustedPeople" | Out-Null
+        -CertStoreLocation "Cert:\LocalMachine\TrustedPeople" | Out-Null
 
     $signature = Get-AuthenticodeSignature -LiteralPath $package.FullName
     if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
@@ -35,6 +50,13 @@ try {
         throw "A newer OrbitTerm version ($($installed.Version)) is already installed."
     }
 
+    $systemVolume = Get-AppxVolume |
+        Where-Object { $_.IsSystemVolume -and -not $_.IsOffline } |
+        Select-Object -First 1
+    if ($null -eq $systemVolume) {
+        throw "The online Windows system AppX volume could not be resolved."
+    }
+
     Get-Process "OrbitTerm.App", "OrbitTerm.RdpHost" -ErrorAction SilentlyContinue |
         Stop-Process -Force -ErrorAction SilentlyContinue
 
@@ -47,6 +69,7 @@ try {
 
     Add-AppxPackage `
         -Path $package.FullName `
+        -Volume $systemVolume `
         -ForceApplicationShutdown `
         -ForceUpdateFromAnyVersion `
         -ErrorAction Stop

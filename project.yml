@@ -144,6 +144,7 @@ targets:
           - Core/TerminalAppearance/*.swift
           - Core/TerminalInputDispatchPolicy.swift
           - Core/ShellPathResolver.swift
+          - Features/Home/WorkstationLayoutMetrics.swift
           - Features/Home/SnippetVariableResolver.swift
         excludes:
           - Core/CheckedFFI/CredentialVaultCheckedProvider.swift

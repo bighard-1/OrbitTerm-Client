@@ -83,6 +83,12 @@ struct SwiftTermTerminalView: View {
                 )
             }
         }
+#if os(macOS)
+        // Give glyph ascenders, selection and the block cursor a small optical
+        // inset without changing SwiftTerm's own cell metrics.
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+#endif
         // The viewport always receives the selected TerminalTheme background;
         // app chrome surfaces must never show through while SwiftTerm attaches.
         .background(theme.background.swiftUIColor)

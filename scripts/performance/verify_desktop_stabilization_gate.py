@@ -25,7 +25,7 @@ REQUIRED_P0 = {
     "large-transfer-interactive-concurrency",
 }
 ALLOWED_STATUSES = {"not-started", "in-progress", "blocked", "complete"}
-EXPECTED_TOMBSTONE_PLATFORMS = {"windows", "macos", "ios", "android"}
+EXPECTED_TOMBSTONE_PLATFORMS = {"windows", "macos", "ios", "android", "linux"}
 EXPECTED_TOMBSTONE_SCENARIOS = {
     "delete_then_pull",
     "delete_after_edit",
@@ -70,11 +70,11 @@ def validate_blocker_evidence(blockers: list[object]) -> None:
         fail("tombstone blocker is missing its evidence plan")
     tombstone_plan = tombstone["evidence_plan"]
     if require_string_list(tombstone_plan.get("required_platforms"), "tombstone required_platforms") != EXPECTED_TOMBSTONE_PLATFORMS:
-        fail("tombstone evidence plan must cover Windows, macOS, iOS, and Android")
+        fail("tombstone evidence plan must cover Windows, macOS, iOS, Android, and Linux")
     if require_string_list(tombstone_plan.get("required_scenarios"), "tombstone required_scenarios") != EXPECTED_TOMBSTONE_SCENARIOS:
         fail("tombstone evidence plan is missing a required deletion scenario")
     if tombstone_plan.get("minimum_completed_matrix_runs") != 1:
-        fail("tombstone evidence plan must require one completed four-platform matrix")
+        fail("tombstone evidence plan must require one completed five-platform matrix")
 
     concurrency = by_id.get("large-transfer-interactive-concurrency")
     if not isinstance(concurrency, dict) or not isinstance(concurrency.get("evidence_plan"), dict):

@@ -173,6 +173,15 @@ final class ApplicationOperationLifecyclePolicyTests: XCTestCase {
         )
     }
 
+    func testUserInitiatedConnectionIsNotDroppedBeforeFirstPathCallback() {
+        XCTAssertTrue(NetworkRouteState.determining.allowsUserInitiatedConnection)
+        XCTAssertTrue(NetworkRouteState.usable.allowsUserInitiatedConnection)
+        XCTAssertFalse(NetworkRouteState.unavailable.allowsUserInitiatedConnection)
+
+        XCTAssertFalse(NetworkRouteState.determining.isUsable)
+        XCTAssertTrue(NetworkRouteState.usable.isUsable)
+    }
+
     func testLiveSessionRecoveryMarkerPersistsOnlyAConsumableBoolean() throws {
         let suite = "ApplicationOperationLifecyclePolicyTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

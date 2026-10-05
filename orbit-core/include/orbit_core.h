@@ -327,6 +327,13 @@ char *orbit_hostkey_challenge_accept_and_persist_v1(
     const char *known_hosts_path,
     const char *comment
 );
+char *orbit_known_hosts_remove_trusted_v1(
+    const char *host,
+    uint16_t port,
+    const char *key_algorithm,
+    const char *expected_fingerprint_sha256,
+    const char *known_hosts_path
+);
 char *orbit_hostkey_challenge_reject_v1(const char *challenge_id);
 char *orbit_hostkey_challenge_status_v1(const char *challenge_id);
 char *orbit_hostkey_challenge_cleanup_expired_v1(void);

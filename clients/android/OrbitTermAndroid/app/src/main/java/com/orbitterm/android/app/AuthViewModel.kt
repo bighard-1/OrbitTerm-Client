@@ -82,7 +82,11 @@ class AuthViewModel @Inject constructor(
     }
 
     fun login(username: String, password: String) {
-        if (username.isBlank() || password.isBlank() || mutableState.value.isLoading) return
+        if (mutableState.value.isLoading) return
+        loginValidationError(username, password)?.let { message ->
+            mutableState.value = mutableState.value.copy(error = message)
+            return
+        }
         val canonicalUsername = username.trim().lowercase()
         val retryAfter = secureStore.loginRetryAfterSeconds(canonicalUsername)
         if (retryAfter > 0) {
@@ -319,18 +323,29 @@ class AuthViewModel @Inject constructor(
 
 private fun Throwable.authFailureMessage(action: String): String {
     val error = (this as? OrbitServiceFailure)?.error ?: syncError(OrbitErrorCode.Unknown)
+    if (action == "登录" && error.code == OrbitErrorCode.AuthenticationFailed) {
+        return "邮箱账号或登录密码不正确，请检查后重试。"
+    }
     return "${action}失败：${error.userMessage()} 诊断代码：${error.diagnosticCode}。"
 }
 
 internal fun registrationValidationError(username: String, password: String, inviteCode: String): String? = when {
     !username.matches(Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) -> "请输入有效的邮箱账号。"
-    inviteCode.isBlank() -> "请输入管理员提供的邀请码。"
     password.length < 12 ||
         password.none(Char::isUpperCase) ||
         password.none(Char::isLowerCase) ||
         password.none(Char::isDigit) ||
         password.none { !it.isLetterOrDigit() && !it.isWhitespace() } ->
         "密码至少 12 位，并包含大小写字母、数字和特殊字符。"
+    inviteCode.isBlank() -> "请输入管理员提供的邀请码。"
+    else -> null
+}
+
+internal fun loginValidationError(username: String, password: String): String? = when {
+    username.isBlank() -> "请输入邮箱账号。"
+    !username.trim().matches(Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) ->
+        "请输入有效的邮箱账号，例如 name@example.com。"
+    password.isEmpty() -> "请输入登录密码。"
     else -> null
 }
 

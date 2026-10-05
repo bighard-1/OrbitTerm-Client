@@ -209,7 +209,9 @@ extension SyncService {
             }
             guard store.isActiveAccount(accountID) else { return false }
             if remoteItems.isEmpty {
-                let localAssetIDs = Set(store.servers.map { $0.id.uuidString.lowercased() })
+                let localAssetIDs = Set(store.servers
+                    .filter { $0.storageScope == .accountSynced }
+                    .map { $0.id.uuidString.lowercased() })
                 let pendingIDs = Set(
                     SyncPullRecoveryPolicy.localAssetIDsPendingExplicitPublication(
                         localAssetIDs: localAssetIDs,
@@ -280,7 +282,9 @@ extension SyncService {
                 setSyncRecoveryPresentation(OperationRecoveryMapper.syncMasterPasswordMismatch())
                 return false
             }
-            let localAssetIDs = Set(store.servers.map { $0.id.uuidString.lowercased() })
+            let localAssetIDs = Set(store.servers
+                .filter { $0.storageScope == .accountSynced }
+                .map { $0.id.uuidString.lowercased() })
             let pendingIDs = Set(
                 SyncPullRecoveryPolicy.localAssetIDsPendingExplicitPublication(
                     localAssetIDs: localAssetIDs,
@@ -310,7 +314,9 @@ extension SyncService {
             }
             shadowStore.saveMany(portables, accountID: accountID)
             shadowStore.retainOnly(
-                assetIDs: Set(store.servers.map { $0.id.uuidString }),
+                assetIDs: Set(store.servers
+                    .filter { $0.storageScope == .accountSynced }
+                    .map { $0.id.uuidString }),
                 accountID: accountID
             )
             setPendingLocalAssetRecoveryIDs(pendingIDs)
@@ -490,7 +496,9 @@ extension SyncService {
             credentialCount += preparation.credentialWriteCount
             shadowStore.saveMany(preparation.items.map(\.portable), accountID: accountID)
             shadowStore.retainOnly(
-                assetIDs: Set(store.servers.map { $0.id.uuidString }),
+                assetIDs: Set(store.servers
+                    .filter { $0.storageScope == .accountSynced }
+                    .map { $0.id.uuidString }),
                 accountID: accountID
             )
             for prepared in preparation.items {

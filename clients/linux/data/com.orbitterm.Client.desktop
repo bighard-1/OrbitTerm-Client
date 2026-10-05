@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=OrbitTerm
+Comment=Secure multi-server terminal workstation
+Comment[zh_CN]=安全的多服务器终端工作站
+Exec=orbitterm-linux
+Icon=com.orbitterm.Client
+Terminal=false
+Categories=System;TerminalEmulator;
+Keywords=SSH;SFTP;Terminal;Docker;Server;
+StartupNotify=true
+StartupWMClass=com.orbitterm.Client
+DBusActivatable=false

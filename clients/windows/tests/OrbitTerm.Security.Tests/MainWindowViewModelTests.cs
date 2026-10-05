@@ -1,3 +1,4 @@
+using OrbitTerm.Application.Accounts;
 using OrbitTerm.Application.Security;
 using OrbitTerm.Application.Sessions;
 using OrbitTerm.NativeBridge;
@@ -10,6 +11,52 @@ namespace OrbitTerm.Security.Tests;
 
 public sealed class MainWindowViewModelTests
 {
+    [Fact]
+    public void SignedOutProductionWorkspaceKeepsLocalAssetsAndHidesSynchronizedAssets()
+    {
+        var controller = new AccountUnlockController(
+            new EmptyAccountSessionStore(),
+            new UnusedAccountProtocol(),
+            new UnusedUnlockVerifier());
+        var viewModel = CreateViewModel(
+            seedDefaultAsset: false,
+            accountUnlockController: controller);
+        var local = new AssetViewModel(
+            Guid.NewGuid(), Guid.NewGuid(), "Local", "local.example", 22, "ops",
+            ServerTransport.Ssh, false)
+        {
+            StorageScope = AssetStorageScope.LocalOnly,
+        };
+        var synchronized = new AssetViewModel(
+            Guid.NewGuid(), Guid.NewGuid(), "Cloud", "cloud.example", 22, "ops",
+            ServerTransport.Ssh, false)
+        {
+            StorageScope = AssetStorageScope.AccountSynced,
+        };
+
+        Assert.True(viewModel.CanAccessAsset(local));
+        Assert.False(viewModel.CanAccessAsset(synchronized));
+        Assert.Equal("还没有服务器", viewModel.AssetEmptyStateTitle);
+        Assert.Equal("添加服务器后，即可从这里安全地发起连接。", viewModel.AssetEmptyStateDescription);
+        Assert.Equal("本机资产 · 登录后启用加密同步", viewModel.AssetSynchronizationStatus);
+    }
+
+    [Fact]
+    public void EmptyWorkspaceCopyAndDraftTabMatchDesktopContract()
+    {
+        var viewModel = CreateViewModel(seedDefaultAsset: false);
+
+        Assert.Equal("还没有服务器", viewModel.AssetEmptyStateTitle);
+        Assert.Equal("添加服务器后，即可从这里安全地发起连接。", viewModel.AssetEmptyStateDescription);
+        Assert.Equal("暂无会话", viewModel.TerminalEmptyStateLabel);
+        Assert.Equal("从左侧选择服务器，然后建立连接。", viewModel.TerminalEmptyStateDescription);
+
+        var draft = Assert.IsType<WorkspaceTabViewModel>(viewModel.SelectedWorkspaceTab);
+        Assert.False(draft.IsSessionTabVisible);
+        draft.MarkSessionStarted();
+        Assert.True(draft.IsSessionTabVisible);
+    }
+
     [Fact]
     public void LegacyAssetDocumentsReceiveSafeGroupAndTagDefaults()
     {
@@ -259,25 +306,29 @@ public sealed class MainWindowViewModelTests
         var coreClient = new FakeCheckedCoreClient();
         var viewModel = CreateViewModel(coreClient);
         viewModel.Password = "secret";
-        viewModel.ConnectCommand.Execute(null);
-        await WaitUntilAsync(() => viewModel.IsTerminalOpen);
-        viewModel.AddTerminalSplitCommand.Execute(null);
-        await WaitUntilAsync(() => viewModel.TerminalSplitPanes.Count == 1);
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        Assert.True(viewModel.IsTerminalOpen);
+        await viewModel.AddTerminalSplitCommand.ExecuteAsync(null);
+        Assert.Single(viewModel.TerminalSplitPanes);
+        var backgroundTab = Assert.IsType<WorkspaceTabViewModel>(viewModel.SelectedWorkspaceTab);
         var backgroundPane = viewModel.TerminalSplitPanes[0];
 
-        viewModel.OpenWorkspaceTabCommand.Execute(null);
-        viewModel.NewAssetCommand.Execute(null);
+        await viewModel.OpenWorkspaceTabCommand.ExecuteAsync(null);
+        await viewModel.NewAssetCommand.ExecuteAsync(null);
         viewModel.AssetName = "Second";
         viewModel.Host = "second.example";
         viewModel.Username = "ops";
         viewModel.Password = "secret";
-        viewModel.ConnectCommand.Execute(null);
-        await WaitUntilAsync(() => viewModel.IsTerminalOpen && viewModel.Host == "second.example");
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        Assert.True(viewModel.IsTerminalOpen);
+        Assert.Equal("second.example", viewModel.Host);
         var visibleVersion = viewModel.TerminalSplitOutputVersion;
 
+        Assert.Contains(backgroundTab, viewModel.WorkspaceTabs);
+        Assert.Contains(backgroundPane, backgroundTab.TerminalSplitPanes);
         coreClient.EmitTerminalData(backgroundPane.Lease.TerminalChannelId, "background-ping\r\n");
-        await WaitUntilAsync(() => backgroundPane.Lines.Any(line => line.Text.Contains("background-ping", StringComparison.Ordinal)));
 
+        Assert.Contains(backgroundPane.Lines, line => line.Text.Contains("background-ping", StringComparison.Ordinal));
         Assert.Equal(visibleVersion, viewModel.TerminalSplitOutputVersion);
     }
 
@@ -1183,9 +1234,19 @@ public sealed class MainWindowViewModelTests
         Assert.Equal("/var/log/syslog", coreClient.LastWrittenSftpTextPath);
         Assert.Equal("updated\n", coreClient.LastWrittenSftpTextContent);
         Assert.False(viewModel.IsSftpPreviewDirty);
-        Assert.False(viewModel.CanEditSftpPreview);
+        Assert.True(viewModel.CanEditSftpPreview);
+        Assert.False(viewModel.CanSaveSftpPreview);
         Assert.True(viewModel.GoParentSftpCommand.CanExecute(null));
 
+        viewModel.SftpPreviewText = "updated again\n";
+        await viewModel.SaveSftpPreviewAsync(CancellationToken.None);
+        Assert.Equal(2, coreClient.WriteSftpTextFileCallCount);
+        Assert.Equal("updated again\n", coreClient.LastWrittenSftpTextContent);
+        Assert.True(viewModel.CanEditSftpPreview);
+        Assert.False(viewModel.IsSftpPreviewDirty);
+
+        viewModel.CloseSftpPreview();
+        Assert.True(viewModel.GoParentSftpCommand.CanExecute(null));
         viewModel.GoParentSftpCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.SftpBrowserStatus == "已列出 /var/log");
 
@@ -1245,10 +1306,14 @@ public sealed class MainWindowViewModelTests
         await viewModel.CreateSftpDirectoryAsync("archive", CancellationToken.None);
         Assert.Equal("/var/log/archive", coreClient.LastCreatedSftpDirectoryPath);
         Assert.Equal("Created folder /var/log/archive", viewModel.SftpOperationStatus);
+        Assert.True(viewModel.IsSftpFeedbackSuccess);
+        Assert.Equal("文件夹已创建", viewModel.SftpFeedbackTitle);
 
         await viewModel.CreateSftpFileAsync("empty.txt", CancellationToken.None);
         Assert.Equal("/var/log/empty.txt", coreClient.LastCreatedSftpFilePath);
         Assert.Equal("Created file /var/log/empty.txt", viewModel.SftpOperationStatus);
+        Assert.True(viewModel.IsSftpFeedbackSuccess);
+        Assert.Equal("文件已创建", viewModel.SftpFeedbackTitle);
 
         viewModel.SelectedSftpEntry = viewModel.SftpEntries[0];
         await viewModel.RenameSelectedSftpEntryAsync("syslog.old", CancellationToken.None);
@@ -1296,7 +1361,7 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
-    public async Task SftpMultiSelectionSupportsBatchDownloadRetryAndBatchDelete()
+    public async Task SftpMultiSelectionKeepsBothLocalFilesAndSupportsBatchDelete()
     {
         var coreClient = new FakeCheckedCoreClient();
         var viewModel = CreateViewModel(coreClient);
@@ -1326,16 +1391,10 @@ public sealed class MainWindowViewModelTests
             File.WriteAllText(collisionPath, "existing");
             await viewModel.DownloadSelectedSftpEntriesAsync(downloadDirectory, CancellationToken.None);
 
-            Assert.Equal(2, coreClient.DownloadSftpFileCallCount);
+            Assert.Equal(3, coreClient.DownloadSftpFileCallCount);
             Assert.True(Directory.Exists(Path.Combine(downloadDirectory, "folder")));
-            Assert.Contains("失败 1", viewModel.SftpTransferStatus, StringComparison.Ordinal);
-            Assert.True(viewModel.CanRetryLastSftpTransfer);
-
-            File.Delete(collisionPath);
-            viewModel.RetryLastSftpTransferCommand.Execute(null);
-            await WaitUntilAsync(() => coreClient.DownloadSftpFileCallCount == 3);
-            await WaitUntilAsync(() => viewModel.SftpTransferStatus.Contains("成功 1/1", StringComparison.Ordinal));
-            Assert.Contains("成功 1/1", viewModel.SftpTransferStatus, StringComparison.Ordinal);
+            Assert.Contains(Path.Combine(downloadDirectory, "one (1).txt"), coreClient.SftpDownloadLocalPaths);
+            Assert.Contains("成功 3/3", viewModel.SftpTransferStatus, StringComparison.Ordinal);
             Assert.False(viewModel.CanRetryLastSftpTransfer);
         }
         finally
@@ -1431,7 +1490,8 @@ public sealed class MainWindowViewModelTests
     [Fact]
     public async Task SftpQueuesRunConcurrentlyAndRemainIsolatedPerWorkspace()
     {
-        var coreClient = new FakeCheckedCoreClient { SftpUploadDelayMilliseconds = 1_500 };
+        using var uploadReleaseGate = new ManualResetEventSlim(false);
+        var coreClient = new FakeCheckedCoreClient { SftpUploadReleaseGate = uploadReleaseGate };
         var viewModel = CreateViewModel(coreClient);
         viewModel.Password = "secret";
         viewModel.ConnectCommand.Execute(null);
@@ -1479,6 +1539,7 @@ public sealed class MainWindowViewModelTests
             Assert.True(viewModel.IsSftpBatchRunning);
             Assert.Equal(Path.GetFileName(firstPath), Assert.Single(viewModel.SftpTransferTasks).FileName);
 
+            uploadReleaseGate.Set();
             await Task.WhenAll(firstOperation, secondOperation);
             Assert.Equal(2, coreClient.MaxConcurrentSftpUploads);
             Assert.Single(viewModel.CompletedSftpTransferTasks);
@@ -1490,6 +1551,7 @@ public sealed class MainWindowViewModelTests
         }
         finally
         {
+            uploadReleaseGate.Set();
             File.Delete(firstPath);
             File.Delete(secondPath);
             File.Delete(queuedSecondPath);
@@ -2382,7 +2444,7 @@ public sealed class MainWindowViewModelTests
             new MonitorSnapshot(3, 0, 0, 0, 0, 24, 0, 0, [], AvailableMetrics: MonitorSampleMetrics.Latency),
         ]);
 
-        Assert.Equal("24 ms · 失败 33.3%", metric.CurrentValue);
+        Assert.Equal("24 ms · 33.3%", metric.CurrentValue);
         Assert.Contains("探测失败 33.3%", metric.StatisticsSummary, StringComparison.Ordinal);
         Assert.Contains("P50 20 ms", metric.StatisticsSummary, StringComparison.Ordinal);
         Assert.Contains("P95 24 ms", metric.StatisticsSummary, StringComparison.Ordinal);
@@ -2391,7 +2453,7 @@ public sealed class MainWindowViewModelTests
             new MonitorSnapshot(4, 0, 0, 0, 0, 24, 0, 0, [], AvailableMetrics: MonitorSampleMetrics.Latency),
             new MonitorSnapshot(5, 0, 0, 0, 0, null, 0, 0, [], AvailableMetrics: MonitorSampleMetrics.None),
         ]);
-        Assert.Equal("-- ms · 失败 50%", metric.CurrentValue);
+        Assert.Equal("-- ms · 50%", metric.CurrentValue);
     }
 
     [Fact]
@@ -2968,7 +3030,8 @@ public sealed class MainWindowViewModelTests
         bool seedDefaultAsset = true,
         Func<DateTimeOffset>? utcNow = null,
         Action<Action>? dispatch = null,
-        TimeSpan? terminalUiFrameInterval = null)
+        TimeSpan? terminalUiFrameInterval = null,
+        AccountUnlockController? accountUnlockController = null)
     {
         credentialVault ??= new MemoryCredentialVault();
         var orchestrator = new SessionOrchestrator(
@@ -2984,6 +3047,7 @@ public sealed class MainWindowViewModelTests
             assetStore,
             snippetStore,
             dispatch: dispatch,
+            accountUnlockController: accountUnlockController,
             utcNow: utcNow,
             terminalUiFrameInterval: terminalUiFrameInterval ?? TimeSpan.Zero,
             tcpLatencyProbe: static (_, _, _) =>
@@ -3008,7 +3072,10 @@ public sealed class MainWindowViewModelTests
 
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        // The full suite runs in parallel on hosted Windows runners, where
+        // worker-thread scheduling can briefly exceed the local-machine
+        // latency without changing the behavior under test.
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         while (!condition())
         {
             timeout.Token.ThrowIfCancellationRequested();
@@ -3034,9 +3101,11 @@ public sealed class MainWindowViewModelTests
         public int UploadSftpFileCallCount { get; private set; }
         public int DownloadSftpFileCallCount { get; private set; }
         public List<ulong> SftpDownloadSessionIds { get; } = [];
+        public List<string> SftpDownloadLocalPaths { get; } = [];
         public int CancelSftpTransferCallCount { get; private set; }
         public int SftpDownloadDelayMilliseconds { get; init; }
         public int SftpUploadDelayMilliseconds { get; init; }
+        public ManualResetEventSlim? SftpUploadReleaseGate { get; init; }
         private int sftpUploadInFlight;
         private int maxConcurrentSftpUploads;
         public int SftpUploadInFlight => Volatile.Read(ref sftpUploadInFlight);
@@ -3078,6 +3147,7 @@ public sealed class MainWindowViewModelTests
         public string? LastRenamedSftpDestinationPath { get; private set; }
         public string? LastRemovedSftpPath { get; private set; }
         public uint LastSftpPermissionsMode { get; private set; }
+        public int WriteSftpTextFileCallCount { get; private set; }
         public string? LastWrittenSftpTextPath { get; private set; }
         public string? LastWrittenSftpTextContent { get; private set; }
         public SftpEntrySnapshot? LastSftpMutationSnapshot { get; private set; }
@@ -3289,6 +3359,7 @@ public sealed class MainWindowViewModelTests
         {
             DownloadSftpFileCallCount++;
             SftpDownloadSessionIds.Add(sftpSessionId);
+            SftpDownloadLocalPaths.Add(localPath);
             if (SftpDownloadDelayMilliseconds > 0)
             {
                 Thread.Sleep(SftpDownloadDelayMilliseconds);
@@ -3333,6 +3404,11 @@ public sealed class MainWindowViewModelTests
                 if (SftpUploadDelayMilliseconds > 0)
                 {
                     Thread.Sleep(SftpUploadDelayMilliseconds);
+                }
+                if (SftpUploadReleaseGate is { } releaseGate &&
+                    !releaseGate.Wait(TimeSpan.FromSeconds(10)))
+                {
+                    throw new TimeoutException("Timed out waiting to release the deterministic SFTP upload gate.");
                 }
                 if (SftpUploadFailuresRemaining > 0)
                 {
@@ -3420,6 +3496,7 @@ public sealed class MainWindowViewModelTests
             SftpEntrySnapshot snapshot,
             HostKeyRequestId requestId)
         {
+            WriteSftpTextFileCallCount++;
             LastWrittenSftpTextPath = remotePath;
             LastWrittenSftpTextContent = content;
             LastSftpMutationSnapshot = snapshot;
@@ -3680,6 +3757,37 @@ public sealed class MainWindowViewModelTests
             credential = new CredentialMaterial(string.Empty, string.Empty, string.Empty);
             return ValueTask.CompletedTask;
         }
+    }
+
+    private sealed class EmptyAccountSessionStore : IAccountSessionStore
+    {
+        public ValueTask<AccountSessionRecord?> ReadAsync(CancellationToken cancellationToken) =>
+            ValueTask.FromResult<AccountSessionRecord?>(null);
+
+        public ValueTask SaveAsync(AccountSessionRecord session, CancellationToken cancellationToken) =>
+            ValueTask.CompletedTask;
+
+        public ValueTask ClearAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
+    }
+
+    private sealed class UnusedAccountProtocol : IOrbitAccountProtocol
+    {
+        public ValueTask<AccountLoginResponse> LoginAsync(
+            AccountLoginRequest request,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public ValueTask<AccountLoginResponse> RefreshAsync(
+            AccountRefreshRequest request,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
+    private sealed class UnusedUnlockVerifier : IEncryptedConfigUnlockVerifier
+    {
+        public ValueTask<bool?> VerifyAsync(
+            AccountSessionRecord session,
+            string masterPassword,
+            byte[] rootKey,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
     private sealed class MemoryServerAssetStore : IServerAssetStore
