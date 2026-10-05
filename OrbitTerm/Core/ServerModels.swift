@@ -68,6 +68,34 @@ enum ServerTransportProtocol: String, Codable, CaseIterable, Identifiable, Senda
     }
 }
 
+/// RDP records remain portable across every client, but executing a remote
+/// desktop session is intentionally a desktop-only capability. Keep this
+/// policy separate from the sync model so a mobile client never mutates or
+/// drops an RDP asset merely because it cannot open it.
+enum MobileTransportSupportPolicy {
+    static func allowsConnection(
+        _ transport: ServerTransportProtocol,
+        platformSupportsRemoteDesktop: Bool
+    ) -> Bool {
+        transport != .rdp || platformSupportsRemoteDesktop
+    }
+
+    static var currentPlatformSupportsRemoteDesktop: Bool {
+        #if os(macOS)
+        true
+        #else
+        false
+        #endif
+    }
+
+    static func allowsConnection(_ transport: ServerTransportProtocol) -> Bool {
+        allowsConnection(transport, platformSupportsRemoteDesktop: currentPlatformSupportsRemoteDesktop)
+    }
+
+    static let remoteDesktopOnlyLabel = "RDP · 仅桌面端可连接"
+    static let remoteDesktopOnlyHint = "此 RDP 资产可查看和编辑；请在桌面端发起连接"
+}
+
 enum NetworkDeviceProfile: String, Codable, CaseIterable, Identifiable, Sendable {
     case auto
     case huaweiVRP
@@ -409,8 +437,20 @@ final class DeletedServerRegistry {
 
     func activate(scope: AccountScope) {
         lock.lock()
+        defer { lock.unlock() }
         accountScope = scope
-        lock.unlock()
+
+        // v2 persisted Apple UUID strings directly, whose textual form is
+        // uppercase.  Migrate as soon as an account scope becomes active so
+        // every consumer (including `isDeleted`) observes the same portable
+        // lowercase identity as Windows and Android.  Normalizing only in a
+        // snapshot leaves a window where an incoming lowercase record can
+        // bypass a legacy marker and resurrect a deleted asset.
+        let existing = readMapUnlocked()
+        let normalized = normalizedMap(pruned(existing, now: Date().timeIntervalSince1970))
+        if normalized != existing {
+            persistUnlocked(normalized)
+        }
     }
 
     func deactivate() {
@@ -431,7 +471,7 @@ final class DeletedServerRegistry {
         var map = readMapUnlocked()
         let now = Date().timeIntervalSince1970
         for id in ids {
-            map[id.uuidString] = now
+            map[canonicalAssetID(id)] = now
         }
         persistUnlocked(pruned(map, now: now))
     }
@@ -441,14 +481,15 @@ final class DeletedServerRegistry {
         defer { lock.unlock() }
 
         var map = readMapUnlocked()
-        map.removeValue(forKey: id.uuidString)
+        map.removeValue(forKey: canonicalAssetID(id))
         persistUnlocked(map)
     }
 
     func isDeleted(idString: String) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return readMapUnlocked()[idString] != nil
+        guard let canonicalID = canonicalAssetID(idString) else { return false }
+        return readMapUnlocked()[canonicalID] != nil
     }
 
     func snapshot() -> [String: TimeInterval] {
@@ -456,9 +497,12 @@ final class DeletedServerRegistry {
         defer { lock.unlock() }
 
         let now = Date().timeIntervalSince1970
-        let map = pruned(readMapUnlocked(), now: now)
-        persistUnlocked(map)
-        return map
+        let normalized = normalizedMap(pruned(readMapUnlocked(), now: now))
+        // Persist the canonical form as well as returning it. Otherwise a
+        // legacy uppercase marker remains on disk and later callers that do
+        // not happen to request a snapshot can miss the tombstone.
+        persistUnlocked(normalized)
+        return normalized
     }
 
     private func readMapUnlocked() -> [String: TimeInterval] {
@@ -478,5 +522,25 @@ final class DeletedServerRegistry {
 
     private func pruned(_ map: [String: TimeInterval], now: TimeInterval) -> [String: TimeInterval] {
         map.filter { now - $0.value <= retention }
+    }
+
+    private func normalizedMap(_ map: [String: TimeInterval]) -> [String: TimeInterval] {
+        var normalized: [String: TimeInterval] = [:]
+        for (rawID, deletedAt) in map {
+            guard let canonicalID = canonicalAssetID(rawID) else { continue }
+            normalized[canonicalID] = max(normalized[canonicalID] ?? 0, deletedAt)
+        }
+        return normalized
+    }
+
+    private func canonicalAssetID(_ id: UUID) -> String {
+        id.uuidString.lowercased()
+    }
+
+    private func canonicalAssetID(_ rawID: String) -> String? {
+        guard let id = UUID(uuidString: rawID.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return nil
+        }
+        return canonicalAssetID(id)
     }
 }

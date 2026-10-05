@@ -56,7 +56,7 @@
 | B16 | 个人中心分组 | 账户与安全→设置与偏好→运维工具→帮助与信息→当前会话的顺序一致 | `MobileMoreView`、`MoreScreen` |
 | B17 | 主题 | 浅/深/跟随系统、五套品牌配色、终端 ANSI 主题与字号范围一致 | `AppThemeManager.swift`、`OrbitTheme.kt` |
 | B18 | 同步 | 资产、跳板、SSH 密钥、端口映射和 Snippets 均使用账户隔离的 E2EE 语义；运行态不同步 | `SyncService`、`ApplicationSyncCoordinator` |
-| B19 | RDP 移动端 | iOS 与 Android 当前都只保存/同步 RDP 资产，不把 RDP 伪装成 SSH；当前 FreeRDP 图形工作区为 macOS 能力 | `SessionManager.swift`、Android “RDP · 仅同步” |
+| B19 | RDP 移动端 | iOS 与 Android 均保留 RDP 资产的保存、同步、查看与编辑，但不提供连接、快捷连接或滑动连接入口，也不把 RDP 伪装成 SSH；iOS RDP 行不再是可连接按钮，Android 将其呈现为中性能力边界而非错误；FreeRDP 图形工作区仅为 macOS 能力 | `MobileTransportSupportPolicy`、`ServerListView.swift`、`SessionManager.swift`、Android “RDP · 仅桌面端可连接” |
 | B20 | 剪贴板分级 | 两端均禁止凭据和私钥进入剪贴板；终端内容与主机指纹使用 60 秒条件清除，用户后续复制的其他内容不会被误清理 | `SecureClipboard.swift`、`SensitiveClipboard.kt` |
 | B21 | 敏感画面 | 两端在离开活跃场景或锁定后不向任务预览暴露解密内容；Android 用 `FLAG_SECURE`，iOS 用覆盖层、录屏检测与截图后短期输入清理 | `SensitiveScreenProtection.swift`、`MainActivity.kt` |
 | B22 | 外部连接审核 | 两端均只把无凭据的 `ssh://` / `orbitterm://connect` 解析为服务器审核草稿；现有资产也不会自动连接，未解锁或审核未就绪时保留待处理请求 | `DeepLinkManager.swift`、`DeepLinkCoordinator.kt`、`ContentView.swift`、`AssetsViewModel.kt` |

@@ -132,6 +132,8 @@ fun AssetsRoute(
             onDeleteGroup = viewModel::deleteGroup,
             operationError = uiState.operationError,
             onDismissOperationError = viewModel::dismissOperationError,
+            operationNotice = uiState.operationNotice,
+            onDismissOperationNotice = viewModel::dismissOperationNotice,
             expandedGroups = uiState.expandedGroups,
             onToggleGroupExpansion = viewModel::toggleGroupExpansion,
             bulkImport = uiState.bulkImport,
@@ -188,6 +190,8 @@ private fun AssetList(
     onDeleteGroup: (String) -> Unit,
     operationError: String?,
     onDismissOperationError: () -> Unit,
+    operationNotice: String?,
+    onDismissOperationNotice: () -> Unit,
     expandedGroups: Set<String>,
     onToggleGroupExpansion: (String) -> Unit,
     bulkImport: AssetBulkImportUiState,
@@ -337,6 +341,17 @@ private fun AssetList(
                                     style = MaterialTheme.typography.bodySmall,
                                 )
                                 TextButton(onClick = onDismissOperationError) { Text("关闭") }
+                            }
+                        }
+                        operationNotice?.let { message ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    message,
+                                    modifier = Modifier.weight(1f),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                TextButton(onClick = onDismissOperationNotice) { Text("知道了") }
                             }
                         }
                     }
@@ -736,10 +751,11 @@ private fun AssetListItem(
     onClick: () -> Unit,
     onEdit: () -> Unit,
 ) {
+    val connectionSupported = AndroidTransportSupportPolicy.allowsCheckedConnection(asset.transport, telnetEnabled)
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().then(
+            if (batchMode || connectionSupported) Modifier.clickable(onClick = onClick) else Modifier,
+        ),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
         border = CardDefaults.outlinedCardBorder(),
@@ -770,11 +786,14 @@ private fun AssetListItem(
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
-            if (!AndroidTransportSupportPolicy.allowsCheckedConnection(asset.transport, telnetEnabled)) {
+            if (!connectionSupported) {
                 Text(
                     text = AndroidTransportSupportPolicy.compatibilityLabel(asset.transport),
                     modifier = Modifier.padding(top = 6.dp),
-                    color = MaterialTheme.colorScheme.error,
+                    // RDP on mobile is an intentional product boundary, not a
+                    // failed or unsafe connection. Reserve error red for an
+                    // actual operation that needs recovery.
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.labelMedium,
                 )
             }
@@ -798,6 +817,7 @@ private fun AssetListItem(
                 Text(
                     when {
                         isConnected -> "打开会话"
+                        !connectionSupported -> "仅桌面端可连接"
                         else -> "点击连接"
                     },
                     color = MaterialTheme.colorScheme.primary,

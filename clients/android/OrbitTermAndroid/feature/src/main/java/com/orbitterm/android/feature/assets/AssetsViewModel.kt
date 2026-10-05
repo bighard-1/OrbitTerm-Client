@@ -45,6 +45,7 @@ data class AssetsUiState(
     val editor: AssetEditorUiState? = null,
     val connection: AssetConnectionUiState? = null,
     val operationError: String? = null,
+    val operationNotice: String? = null,
     val activeAssetIds: Set<String> = emptySet(),
     /** Mirrors iOS: groups are collapsed until the user explicitly expands them. */
     val expandedGroups: Set<String> = emptySet(),
@@ -116,13 +117,19 @@ class AssetsViewModel @Inject constructor(
     private val editor = MutableStateFlow<AssetEditorUiState?>(null)
     private val connection = MutableStateFlow<AssetConnectionUiState?>(null)
     private val operationError = MutableStateFlow<String?>(null)
+    private val operationNotice = MutableStateFlow<String?>(null)
     private val expandedGroups = MutableStateFlow<Set<String>>(emptySet())
     private val bulkImport = MutableStateFlow(AssetBulkImportUiState())
     private val activeAssetIds = terminalSessionController.activeSessions
         .map { sessions -> sessions.mapTo(linkedSetOf()) { it.assetId } }
         .distinctUntilChanged()
-    private val listPresentation = combine(activeAssetIds, expandedGroups, bulkImport) { activeIds, expanded, bulk ->
-        AssetListPresentation(activeIds, expanded, bulk)
+    private val listPresentation = combine(activeAssetIds, expandedGroups, bulkImport, operationNotice) {
+            activeIds,
+            expanded,
+            bulk,
+            notice,
+        ->
+        AssetListPresentation(activeIds, expanded, bulk, notice)
     }
 
     val uiState: StateFlow<AssetsUiState> = combine(
@@ -139,6 +146,7 @@ class AssetsViewModel @Inject constructor(
             editor = editorState,
             connection = connectionState,
             operationError = operationError,
+            operationNotice = presentation.operationNotice,
             activeAssetIds = presentation.activeAssetIds,
             expandedGroups = presentation.expandedGroups,
             bulkImport = presentation.bulkImport,
@@ -317,6 +325,10 @@ class AssetsViewModel @Inject constructor(
 
     fun dismissOperationError() {
         operationError.value = null
+    }
+
+    fun dismissOperationNotice() {
+        operationNotice.value = null
     }
 
     fun showBulkImport() {
@@ -526,6 +538,7 @@ class AssetsViewModel @Inject constructor(
                 }
             }.onSuccess {
                 editor.value = null
+                operationNotice.value = DELETION_QUEUED_NOTICE
                 syncRequests.requestSync()
             }.onFailure {
                 editor.value = draft.copy(
@@ -548,7 +561,10 @@ class AssetsViewModel @Inject constructor(
                         assetMutations.delete(asset)
                     }
                 }
-            }.onSuccess { syncRequests.requestSync() }
+            }.onSuccess {
+                operationNotice.value = deletionNotice(targets.size)
+                syncRequests.requestSync()
+            }
                 .onFailure { operationError.value = "批量删除失败，请稍后重试。" }
         }
     }
@@ -580,7 +596,10 @@ class AssetsViewModel @Inject constructor(
                         assetMutations.delete(asset)
                     }
                 }
-            }.onSuccess { syncRequests.requestSync() }
+            }.onSuccess {
+                operationNotice.value = deletionNotice(targets.size)
+                syncRequests.requestSync()
+            }
                 .onFailure { operationError.value = "删除分组失败，请稍后重试。" }
         }
     }
@@ -612,10 +631,18 @@ class AssetsViewModel @Inject constructor(
     }
 }
 
+private const val DELETION_QUEUED_NOTICE = "已移入最近删除。本机凭据已移除；删除状态将在后台同步。"
+
+private fun deletionNotice(count: Int): String = when (count) {
+    1 -> DELETION_QUEUED_NOTICE
+    else -> "已将 $count 项资产移入最近删除。本机凭据已移除；删除状态将在后台同步。"
+}
+
 private data class AssetListPresentation(
     val activeAssetIds: Set<String>,
     val expandedGroups: Set<String>,
     val bulkImport: AssetBulkImportUiState,
+    val operationNotice: String?,
 )
 
 private fun ServerAsset.toEditorState(

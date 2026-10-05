@@ -1,6 +1,6 @@
 {
-  "schema_version": 1,
-  "updated_at": "2026-08-20",
+  "schema_version": 2,
+  "updated_at": "2026-10-02",
   "new_feature_freeze": true,
   "allowed_change_kinds": [
     "security",
@@ -26,18 +26,65 @@
     "themes",
     "shortcuts"
   ],
+  "evidence_contract": {
+    "manifest_schema_version": 1,
+    "storage": "restricted-release-evidence-store",
+    "forbidden_fields": [
+      "account",
+      "endpoint",
+      "host",
+      "path",
+      "command",
+      "terminal_output",
+      "credential",
+      "token",
+      "private_key",
+      "device_udid"
+    ],
+    "required_metadata": [
+      "build_commit",
+      "platform",
+      "scenario",
+      "run"
+    ]
+  },
   "p0_blockers": [
     {
       "id": "cross-platform-asset-tombstones",
       "status": "in-progress",
       "owner_scope": "apple-windows-android-sync",
-      "exit_criteria": "One delete removes the asset from every active inventory, keeps one trash record, removes local credentials, and never resurrects after repeated sync."
+      "exit_criteria": "One delete removes the asset from every active inventory, keeps one trash record, removes local credentials, and never resurrects after repeated sync.",
+      "evidence_plan": {
+        "required_platforms": [
+          "windows",
+          "macos",
+          "ios",
+          "android"
+        ],
+        "required_scenarios": [
+          "delete_then_pull",
+          "delete_after_edit",
+          "offline_delete_then_reconnect",
+          "repeat_sync_no_resurrection"
+        ],
+        "minimum_completed_matrix_runs": 1
+      }
     },
     {
       "id": "large-transfer-interactive-concurrency",
       "status": "in-progress",
       "owner_scope": "desktop-sftp-terminal-monitoring",
-      "exit_criteria": "The three-asset six-pane 3-GiB transfer scenario passes three consecutive runs on Windows 10, Windows 11, and macOS without UI stalls, blank panes, stale monitoring, or unbounded memory growth."
+      "exit_criteria": "The three-asset six-pane 3-GiB transfer scenario passes three consecutive runs on Windows 10, Windows 11, and macOS without UI stalls, blank panes, stale monitoring, or unbounded memory growth.",
+      "evidence_plan": {
+        "required_platforms": [
+          "windows-10",
+          "windows-11",
+          "macos"
+        ],
+        "scenario": "three-assets-six-panes-3-gib-transfer",
+        "runs_per_platform": 3,
+        "minimum_duration_seconds": 900
+      }
     }
   ],
   "external_release_blockers": [
@@ -46,4 +93,3 @@
     "macos-signing-notarization-evidence"
   ]
 }
-

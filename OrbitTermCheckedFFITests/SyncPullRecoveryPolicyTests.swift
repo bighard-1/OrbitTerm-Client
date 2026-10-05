@@ -176,6 +176,79 @@ final class SyncPullRecoveryPolicyTests: XCTestCase {
         XCTAssertEqual(merged.map(\.recordID), [202])
     }
 
+    func testCanonicalAssetIdentityRejectsMalformedValues() {
+        XCTAssertEqual(
+            SyncPullRecoveryPolicy.canonicalAssetID("  ABCDEF00-1234-5678-9ABC-DEF012345678  "),
+            "abcdef00-1234-5678-9abc-def012345678"
+        )
+        XCTAssertNil(SyncPullRecoveryPolicy.canonicalAssetID("asset-a"))
+    }
+
+    func testRemoteAssetIdentityMustMatchPortablePayload() {
+        let assetID = UUID().uuidString
+        XCTAssertTrue(SyncPullRecoveryPolicy.remoteAssetIDMatchesPortable(
+            "  \(assetID.uppercased())  ",
+            portableID: assetID.lowercased()
+        ))
+        XCTAssertFalse(SyncPullRecoveryPolicy.remoteAssetIDMatchesPortable(
+            UUID().uuidString,
+            portableID: assetID
+        ))
+        XCTAssertFalse(SyncPullRecoveryPolicy.remoteAssetIDMatchesPortable(
+            "not-an-asset-id",
+            portableID: assetID
+        ))
+        XCTAssertTrue(SyncPullRecoveryPolicy.remoteAssetIDMatchesPortable(nil, portableID: assetID))
+    }
+
+    func testMobileTransportPolicyKeepsRDPPortableButDesktopOnly() {
+        XCTAssertFalse(MobileTransportSupportPolicy.allowsConnection(.rdp, platformSupportsRemoteDesktop: false))
+        XCTAssertTrue(MobileTransportSupportPolicy.allowsConnection(.rdp, platformSupportsRemoteDesktop: true))
+        XCTAssertTrue(MobileTransportSupportPolicy.allowsConnection(.ssh, platformSupportsRemoteDesktop: false))
+        XCTAssertEqual(MobileTransportSupportPolicy.remoteDesktopOnlyLabel, "RDP · 仅桌面端可连接")
+        XCTAssertEqual(
+            MobileTransportSupportPolicy.remoteDesktopOnlyHint,
+            "此 RDP 资产可查看和编辑；请在桌面端发起连接"
+        )
+    }
+
+    func testLegacyAppleTombstoneMigratesAndMatchesLowercaseRemoteAssetID() throws {
+        let scope = try XCTUnwrap(AccountScope(username: "tombstone-registry-\(UUID().uuidString)"))
+        let storageKey = scope.storageKey("orbitterm.deleted.servers.v2")
+        let assetID = UUID()
+        let deletedAt = Date().timeIntervalSince1970
+        let registry = DeletedServerRegistry.shared
+        defer {
+            UserDefaults.standard.removeObject(forKey: storageKey)
+            registry.deactivate()
+        }
+
+        let legacyPayload = try JSONEncoder().encode([assetID.uuidString: deletedAt])
+        UserDefaults.standard.set(legacyPayload, forKey: storageKey)
+        registry.activate(scope: scope)
+
+        XCTAssertTrue(registry.isDeleted(idString: "  \(assetID.uuidString.lowercased())  "))
+        XCTAssertEqual(registry.snapshot()[assetID.uuidString.lowercased()], deletedAt)
+
+        let migratedPayload = try XCTUnwrap(UserDefaults.standard.data(forKey: storageKey))
+        let migratedMap = try JSONDecoder().decode([String: TimeInterval].self, from: migratedPayload)
+        XCTAssertEqual(Set(migratedMap.keys), Set([assetID.uuidString.lowercased()]))
+    }
+
+    func testMalformedAssetIDsCannotHideDistinctRecords() {
+        let active = RemoteRecord(recordID: 101, assetID: "asset-a", state: "active")
+        let deleted = RemoteRecord(recordID: 202, assetID: "asset-a", state: "deleted")
+
+        let merged = SyncPullRecoveryPolicy.mergeRemoteInventory(
+            activeItems: [active],
+            trashItems: [deleted],
+            assetID: { $0.assetID },
+            recordID: { String($0.recordID) }
+        )
+
+        XCTAssertEqual(merged.map(\.recordID), [101, 202])
+    }
+
     func testRecordsWithoutAssetIdentityRemainDistinct() {
         let first = RemoteRecord(recordID: 101, assetID: nil, state: "active")
         let second = RemoteRecord(recordID: 202, assetID: nil, state: "deleted")
