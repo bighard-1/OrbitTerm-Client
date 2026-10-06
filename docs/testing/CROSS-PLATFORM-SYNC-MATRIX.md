@@ -1,4 +1,6 @@
-# OrbitTerm 跨 Apple / Windows / Linux 真实账户同步验证矩阵
+# OrbitTerm 跨 Apple / Windows / Linux 真实账户同步验证矩阵（历史记录）
+
+> 此文档保留 2026-08-25 版本的真实账户测试过程，不代表当前五端候选构建的验收状态。文中“Windows 客户端缺少云同步能力”等判断仅适用于当时的检出点；当前代码已有 Windows 加密同步、资产墓碑发布与拉取实现。现行发布结论以 [`DESKTOP_STABILIZATION_GATE.json`](../release/DESKTOP_STABILIZATION_GATE.json) 和 [`REAL_DEVICE_ACCEPTANCE_PROTOCOL.md`](../release/REAL_DEVICE_ACCEPTANCE_PROTOCOL.md) 为准，五端真机墓碑矩阵仍未完成。
 
 ## 当前执行状态
 
