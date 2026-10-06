@@ -14,9 +14,16 @@ ADB_BIN="${ANDROID_HOME:-}/platform-tools/adb"
 [[ -n "$ADB_BIN" && -x "$ADB_BIN" ]] || fail "adb is unavailable"
 
 wait_for_android_runtime() {
+  local previous_boot_id="${1:-}"
   local attempt
+  local current_boot_id
   "$ADB_BIN" wait-for-device
-  for attempt in $(seq 1 60); do
+  for attempt in $(seq 1 90); do
+    current_boot_id="$( { "$ADB_BIN" shell cat /proc/sys/kernel/random/boot_id 2>/dev/null || true; } | tr -d '\r')"
+    if [[ -n "$previous_boot_id" && ( -z "$current_boot_id" || "$current_boot_id" == "$previous_boot_id" ) ]]; then
+      sleep 2
+      continue
+    fi
     if [[ "$("$ADB_BIN" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]] && \
        "$ADB_BIN" shell cmd package list packages >/dev/null 2>&1; then
       return 0
@@ -65,10 +72,12 @@ if [[ "$instrumentation_profile" == "aosp-atd-api35" ]]; then
   # connected suites finish. Run the independent smoke fixtures after a clean
   # emulator boot so a system dialog cannot hide their accessibility tree.
   # Never reboot a physical device, even if this profile was selected there.
-  if [[ "$($ADB_BIN shell getprop ro.kernel.qemu 2>/dev/null | tr -d '\r')" == "1" ]]; then
+  if [[ "$("$ADB_BIN" shell getprop ro.kernel.qemu 2>/dev/null | tr -d '\r')" == "1" ]]; then
     section "Reset hosted emulator before isolated smoke fixtures"
+    previous_boot_id="$( { "$ADB_BIN" shell cat /proc/sys/kernel/random/boot_id 2>/dev/null || true; } | tr -d '\r')"
+    [[ -n "$previous_boot_id" ]] || fail "Android emulator boot identity is unavailable"
     "$ADB_BIN" reboot
-    wait_for_android_runtime
+    wait_for_android_runtime "$previous_boot_id"
   fi
 fi
 
