@@ -5,6 +5,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 ANDROID_PROJECT="$ORBIT_ROOT/clients/android/OrbitTermAndroid"
 ANDROID_GRADLE="$ANDROID_PROJECT/gradlew"
+instrumentation_profile="${ORBITTERM_ANDROID_TEST_PROFILE:-standard}"
 
 [[ -x "$ANDROID_GRADLE" ]] || fail "Android Gradle wrapper is missing"
 
@@ -34,7 +35,6 @@ results_contain() {
 section "Android connected instrumentation tests"
 (
   cd "$ANDROID_PROJECT"
-  instrumentation_profile="${ORBITTERM_ANDROID_TEST_PROFILE:-standard}"
   case "$instrumentation_profile" in
     standard)
       ;;
@@ -59,6 +59,18 @@ section "Android connected instrumentation tests"
   done
   ./gradlew --no-daemon :app:assembleSmoke
 )
+
+if [[ "$instrumentation_profile" == "aosp-atd-api35" ]]; then
+  # The hosted software emulator can retain a system-app ANR overlay after the
+  # connected suites finish. Run the independent smoke fixtures after a clean
+  # emulator boot so a system dialog cannot hide their accessibility tree.
+  # Never reboot a physical device, even if this profile was selected there.
+  if [[ "$($ADB_BIN shell getprop ro.kernel.qemu 2>/dev/null | tr -d '\r')" == "1" ]]; then
+    section "Reset hosted emulator before isolated smoke fixtures"
+    "$ADB_BIN" reboot
+    wait_for_android_runtime
+  fi
+fi
 
 "$ORBIT_ROOT/scripts/security/run_android_smoke_fixtures.sh"
 
