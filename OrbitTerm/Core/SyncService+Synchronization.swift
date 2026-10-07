@@ -541,7 +541,7 @@ extension SyncService {
                 id: remote.id,
                 encrypted_blob_base64: remote.encrypted_blob_base64,
                 vector_clock: bindClock,
-                asset_id: assetID.uuidString
+                asset_id: assetID.uuidString.lowercased()
             )
             do {
                 let boundRemote = try await network.uploadConfig(token: token, payload: bindPayload)

@@ -350,7 +350,7 @@ final class SyncService: ObservableObject {
                 id: configID,
                 encrypted_blob_base64: encrypted.base64EncodedString(),
                 vector_clock: encodedClock,
-                asset_id: localPortable.id,
+                asset_id: localPortable.id.lowercased(),
                 identity_fingerprint: identityFingerprint
             )
 

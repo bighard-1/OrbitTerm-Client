@@ -318,7 +318,7 @@ extension SyncService {
             id: remoteMeta.id,
             encrypted_blob_base64: encrypted.base64EncodedString(),
             vector_clock: mergedClock,
-            asset_id: portable.id,
+            asset_id: portable.id.lowercased(),
             identity_fingerprint: identityFingerprint ?? remoteMeta.identity_fingerprint
         )
     }
