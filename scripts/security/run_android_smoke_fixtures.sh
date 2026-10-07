@@ -39,7 +39,27 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"$adb_bin" -s "$SERIAL" install -r "$apk" >/dev/null
+install_smoke_fixture() {
+  local attempt output
+  for attempt in 1 2 3; do
+    if output="$("$adb_bin" -s "$SERIAL" install -r "$apk" 2>&1)"; then
+      return 0
+    fi
+    case "$output" in
+      *"Broken pipe"*|*"device offline"*|*"Connection reset"*)
+        if (( attempt < 3 )); then
+          warn "transient ADB transport failure during isolated fixture install; retrying ($attempt/3)"
+          sleep 3
+          continue
+        fi
+        ;;
+    esac
+    printf '%s\n' "$output" >&2
+    fail "isolated smoke fixture APK installation failed"
+  done
+}
+
+install_smoke_fixture
 
 assert_state() {
   local state="$1"
