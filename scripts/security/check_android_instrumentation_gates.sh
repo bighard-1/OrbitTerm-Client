@@ -14,16 +14,9 @@ ADB_BIN="${ANDROID_HOME:-}/platform-tools/adb"
 [[ -n "$ADB_BIN" && -x "$ADB_BIN" ]] || fail "adb is unavailable"
 
 wait_for_android_runtime() {
-  local previous_boot_id="${1:-}"
   local attempt
-  local current_boot_id
   "$ADB_BIN" wait-for-device
   for attempt in $(seq 1 90); do
-    current_boot_id="$( { "$ADB_BIN" shell cat /proc/sys/kernel/random/boot_id 2>/dev/null || true; } | tr -d '\r')"
-    if [[ -n "$previous_boot_id" && ( -z "$current_boot_id" || "$current_boot_id" == "$previous_boot_id" ) ]]; then
-      sleep 2
-      continue
-    fi
     if [[ "$("$ADB_BIN" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]] && \
        "$ADB_BIN" shell cmd package list packages >/dev/null 2>&1; then
       return 0
@@ -39,6 +32,17 @@ results_contain() {
   grep -R -F -q -- "$expected" "$root"
 }
 
+if [[ "$instrumentation_profile" == "aosp-atd-api35" ]]; then
+  # Run the isolated fixture on the freshly booted hosted emulator. Connected
+  # suites can leave a system-app ANR overlay, while rebooting afterward has
+  # repeatedly left ADB install/shell stalled on software-only runners.
+  wait_for_android_runtime
+  (
+    cd "$ANDROID_PROJECT"
+    ./gradlew --no-daemon :app:assembleSmoke
+  )
+  "$ORBIT_ROOT/scripts/security/run_android_smoke_fixtures.sh"
+fi
 section "Android connected instrumentation tests"
 (
   cd "$ANDROID_PROJECT"
@@ -64,24 +68,15 @@ section "Android connected instrumentation tests"
       ./gradlew --no-daemon ":${module}:connectedDebugAndroidTest"
     fi
   done
-  ./gradlew --no-daemon :app:assembleSmoke
 )
 
-if [[ "$instrumentation_profile" == "aosp-atd-api35" ]]; then
-  # The hosted software emulator can retain a system-app ANR overlay after the
-  # connected suites finish. Run the independent smoke fixtures after a clean
-  # emulator boot so a system dialog cannot hide their accessibility tree.
-  # Never reboot a physical device, even if this profile was selected there.
-  if [[ "$("$ADB_BIN" shell getprop ro.kernel.qemu 2>/dev/null | tr -d '\r')" == "1" ]]; then
-    section "Reset hosted emulator before isolated smoke fixtures"
-    previous_boot_id="$( { "$ADB_BIN" shell cat /proc/sys/kernel/random/boot_id 2>/dev/null || true; } | tr -d '\r')"
-    [[ -n "$previous_boot_id" ]] || fail "Android emulator boot identity is unavailable"
-    "$ADB_BIN" reboot
-    wait_for_android_runtime "$previous_boot_id"
-  fi
+if [[ "$instrumentation_profile" != "aosp-atd-api35" ]]; then
+  (
+    cd "$ANDROID_PROJECT"
+    ./gradlew --no-daemon :app:assembleSmoke
+  )
+  "$ORBIT_ROOT/scripts/security/run_android_smoke_fixtures.sh"
 fi
-
-"$ORBIT_ROOT/scripts/security/run_android_smoke_fixtures.sh"
 
 section "Android instrumentation test coverage"
 results_root="$ANDROID_PROJECT/app/build/outputs/androidTest-results/connected"
