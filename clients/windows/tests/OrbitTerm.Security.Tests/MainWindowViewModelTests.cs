@@ -1910,7 +1910,8 @@ public sealed class MainWindowViewModelTests
     [Fact]
     public async Task BatchCommandPublishesDeterminateProgressAndSelectedTargetReview()
     {
-        var coreClient = new FakeCheckedCoreClient { ExecDelayMilliseconds = 250 };
+        using var execRelease = new ManualResetEventSlim(false);
+        var coreClient = new FakeCheckedCoreClient { ExecReleaseGate = execRelease };
         var viewModel = CreateViewModel(coreClient);
         viewModel.Host = "progress.example";
         viewModel.Username = "tester";
@@ -1930,11 +1931,17 @@ public sealed class MainWindowViewModelTests
 
         viewModel.BatchCommandText = "uptime";
         viewModel.RunBatchCommand.Execute(null);
-        await WaitUntilAsync(() => coreClient.ExecCallCount == 1);
-
-        Assert.Equal(1, viewModel.BatchTotalCount);
-        Assert.Equal(0, viewModel.BatchCompletedCount);
-        Assert.Contains("命令已发送", viewModel.BatchCurrentTarget, StringComparison.Ordinal);
+        try
+        {
+            await WaitUntilAsync(() => coreClient.ExecCallCount == 1);
+            Assert.Equal(1, viewModel.BatchTotalCount);
+            Assert.Equal(0, viewModel.BatchCompletedCount);
+            Assert.Contains("命令已发送", viewModel.BatchCurrentTarget, StringComparison.Ordinal);
+        }
+        finally
+        {
+            execRelease.Set();
+        }
 
         await WaitUntilAsync(() => !viewModel.RunBatchCommand.IsRunning);
         Assert.Equal(1, viewModel.BatchCompletedCount);
@@ -3118,7 +3125,9 @@ public sealed class MainWindowViewModelTests
         public string? MonitorFailureCode { get; init; }
         public string ExecStdout { get; init; } = "batch output\n";
         public int ExecDelayMilliseconds { get; init; }
-        public int ExecCallCount { get; private set; }
+        public ManualResetEventSlim? ExecReleaseGate { get; init; }
+        private int execCallCount;
+        public int ExecCallCount => Volatile.Read(ref execCallCount);
         public int ConnectCallCount { get; private set; }
         public List<string> ExecutedCommands { get; } = [];
         public int DockerListCallCount { get; private set; }
@@ -3689,9 +3698,13 @@ public sealed class MainWindowViewModelTests
 
         public CheckedEnvelope Exec(ulong baseSessionId, string command, HostKeyRequestId requestId)
         {
-            ExecCallCount++;
+            Interlocked.Increment(ref execCallCount);
             LastExecCommand = command;
             ExecutedCommands.Add(command);
+            if (ExecReleaseGate is { } releaseGate && !releaseGate.Wait(TimeSpan.FromSeconds(10)))
+            {
+                throw new TimeoutException("Timed out waiting to release the deterministic batch execution gate.");
+            }
             if (ExecDelayMilliseconds > 0)
             {
                 Thread.Sleep(ExecDelayMilliseconds);
