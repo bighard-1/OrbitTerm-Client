@@ -602,7 +602,7 @@ private struct SyncRecoveryStateUITestHarnessView: View {
 }
 
 private struct AccountSecurityStateUITestHarnessView: View {
-    @State private var showsLoginSuccess = true
+    @State private var showsLoginSuccess = false
     @State private var showsLogoutConfirmation = false
 
     private let loginSuccess = SecurityOperationFeedback(
@@ -622,6 +622,10 @@ private struct AccountSecurityStateUITestHarnessView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    Button("模拟登录密码更新成功") {
+                        showsLoginSuccess = true
+                    }
+                    .buttonStyle(.bordered)
                     if showsLoginSuccess {
                         feedback(loginSuccess)
                     }
@@ -651,7 +655,8 @@ private struct AccountSecurityStateUITestHarnessView: View {
         } message: {
             Text(SecurityOperationPresentation.logoutMessage)
         }
-        .task {
+        .task(id: showsLoginSuccess) {
+            guard showsLoginSuccess else { return }
             guard let delay = loginSuccess.autoDismissAfterNanoseconds else { return }
             try? await Task.sleep(nanoseconds: delay)
             guard !Task.isCancelled else { return }
