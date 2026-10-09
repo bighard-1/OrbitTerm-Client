@@ -2109,6 +2109,7 @@ dependencies = [
 name = "orbitterm-linux"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "gtk4",
  "internal-russh-forked-ssh-key",
  "libadwaita",

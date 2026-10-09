@@ -75,6 +75,26 @@ pub struct QueuedSyncOperation {
     pub attempt_count: u32,
     pub next_retry_at_unix_ms: u64,
     pub last_error: Option<String>,
+    #[serde(default)]
+    pub blocked: bool,
+}
+
+impl QueuedSyncOperation {
+    /// Older installations recorded this server rejection as free text before
+    /// the queue gained a durable blocked flag. Never replay that upload merely
+    /// because the client was upgraded or restarted.
+    pub fn is_remote_deleted_upload(&self) -> bool {
+        self.kind == SyncOperationKind::KeepLocalUpload
+            && (self.blocked
+                || self
+                    .last_error
+                    .as_deref()
+                    .is_some_and(|error| error.contains("资产已删除，请通过恢复接口重新激活")))
+    }
+
+    pub fn requires_resolution(&self) -> bool {
+        self.blocked || self.is_remote_deleted_upload()
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -190,6 +210,7 @@ impl SyncOperationRepository {
                 attempt_count: 0,
                 next_retry_at_unix_ms: now,
                 last_error: sanitized_detail(&draft.failure_reason),
+                blocked: false,
             };
             document.queue.push(item.clone());
             append_audit(
@@ -225,10 +246,10 @@ impl SyncOperationRepository {
         Ok(items)
     }
 
-    /// Removes uploads that have never produced remote metadata. This is used
-    /// when a user changes a newly-created synchronized asset back to
-    /// local-only before its first network delivery. Existing remote records
-    /// must use a durable `Delete` operation instead.
+    /// Removes pending uploads only after the caller has durably resolved the
+    /// asset's remote fate (for example, explicit tombstone acceptance or a
+    /// restore) or proved that its initial upload never reached the server.
+    /// This must not be used as a substitute for deleting an active remote.
     pub fn discard_pending_uploads(
         &self,
         account_fingerprint: &str,
@@ -289,7 +310,7 @@ impl SyncOperationRepository {
         Ok(self
             .pending(account_fingerprint)?
             .into_iter()
-            .next()
+            .find(|item| !item.requires_resolution())
             .filter(|item| item.next_retry_at_unix_ms <= now_unix_ms))
     }
 
@@ -319,6 +340,9 @@ impl SyncOperationRepository {
             .iter_mut()
             .find(|item| item.account_fingerprint == account_fingerprint && item.id == id)
             .ok_or(PlatformError::SyncOperationNotFound)?;
+        if item.requires_resolution() {
+            return Err(PlatformError::SyncOperationRequiresResolution);
+        }
         item.attempt_count = item.attempt_count.saturating_add(1);
         item.updated_at_unix_ms = now;
         let updated = item.clone();
@@ -348,6 +372,34 @@ impl SyncOperationRepository {
         item.updated_at_unix_ms = now;
         item.next_retry_at_unix_ms = now.saturating_add(backoff_ms(item.attempt_count));
         item.last_error = detail.clone();
+        item.blocked = false;
+        let updated = item.clone();
+        append_audit(
+            &mut document,
+            audit_for(&updated, SyncAuditOutcome::Failed, detail, now),
+        );
+        self.save(&document)?;
+        Ok(updated)
+    }
+
+    pub fn mark_blocked(
+        &self,
+        account_fingerprint: &str,
+        id: Uuid,
+        reason: &str,
+    ) -> Result<QueuedSyncOperation, PlatformError> {
+        validate_account_fingerprint(account_fingerprint)?;
+        let mut document = self.load_or_create()?;
+        let now = current_unix_ms()?;
+        let item = document
+            .queue
+            .iter_mut()
+            .find(|item| item.account_fingerprint == account_fingerprint && item.id == id)
+            .ok_or(PlatformError::SyncOperationNotFound)?;
+        let detail = sanitized_detail(reason);
+        item.updated_at_unix_ms = now;
+        item.last_error = detail.clone();
+        item.blocked = true;
         let updated = item.clone();
         append_audit(
             &mut document,
@@ -370,8 +422,12 @@ impl SyncOperationRepository {
             .iter_mut()
             .find(|item| item.account_fingerprint == account_fingerprint && item.id == id)
             .ok_or(PlatformError::SyncOperationNotFound)?;
+        if item.requires_resolution() {
+            return Err(PlatformError::SyncOperationRequiresResolution);
+        }
         item.next_retry_at_unix_ms = now;
         item.updated_at_unix_ms = now;
+        item.blocked = false;
         let updated = item.clone();
         append_audit(
             &mut document,
@@ -731,6 +787,133 @@ mod tests {
     }
 
     #[test]
+    fn deleted_remote_upload_is_blocked_and_survives_reopen() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("operations.json");
+        let repository = SyncOperationRepository::new(path.clone());
+        let asset_id = Uuid::new_v4();
+        let item = repository
+            .enqueue(
+                "001122aabbcc",
+                SyncOperationKind::KeepLocalUpload,
+                upload(asset_id),
+                None,
+                "offline",
+            )
+            .unwrap();
+        repository.begin_attempt("001122aabbcc", item.id).unwrap();
+        repository
+            .mark_blocked(
+                "001122aabbcc",
+                item.id,
+                "服务端拒绝请求：资产已删除，请通过恢复接口重新激活",
+            )
+            .unwrap();
+        let reopened = SyncOperationRepository::new(path);
+        let blocked = reopened.item("001122aabbcc", item.id).unwrap().unwrap();
+        assert!(blocked.requires_resolution());
+        assert!(blocked.is_remote_deleted_upload());
+        assert!(reopened
+            .next_due("001122aabbcc", u64::MAX)
+            .unwrap()
+            .is_none());
+        assert!(matches!(
+            reopened.retry_now("001122aabbcc", item.id),
+            Err(PlatformError::SyncOperationRequiresResolution)
+        ));
+        assert_eq!(reopened.pending("001122aabbcc").unwrap().len(), 1);
+        assert_eq!(
+            reopened
+                .discard_pending_uploads("001122aabbcc", asset_id)
+                .unwrap(),
+            1
+        );
+        assert!(reopened.pending("001122aabbcc").unwrap().is_empty());
+    }
+
+    #[test]
+    fn legacy_deleted_remote_failure_cannot_replay_after_upgrade() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("operations.json");
+        let repository = SyncOperationRepository::new(path.clone());
+        let item = repository
+            .enqueue(
+                "001122aabbcc",
+                SyncOperationKind::KeepLocalUpload,
+                upload(Uuid::new_v4()),
+                None,
+                "offline",
+            )
+            .unwrap();
+        repository.begin_attempt("001122aabbcc", item.id).unwrap();
+        repository
+            .mark_failed(
+                "001122aabbcc",
+                item.id,
+                "服务端拒绝请求：资产已删除，请通过恢复接口重新激活",
+            )
+            .unwrap();
+        let mut old_document: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        old_document["queue"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("blocked");
+        secure_atomic_json_write(&path, &old_document).unwrap();
+        let upgraded = SyncOperationRepository::new(path);
+        let recovered = upgraded.item("001122aabbcc", item.id).unwrap().unwrap();
+        assert!(!recovered.blocked);
+        assert!(recovered.requires_resolution());
+        assert!(upgraded
+            .next_due("001122aabbcc", u64::MAX)
+            .unwrap()
+            .is_none());
+        assert!(matches!(
+            upgraded.begin_attempt("001122aabbcc", item.id),
+            Err(PlatformError::SyncOperationRequiresResolution)
+        ));
+    }
+
+    #[test]
+    fn blocked_deleted_upload_does_not_starve_unrelated_queue_items() {
+        let directory = tempfile::tempdir().unwrap();
+        let repository = SyncOperationRepository::new(directory.path().join("operations.json"));
+        let blocked = repository
+            .enqueue(
+                "001122aabbcc",
+                SyncOperationKind::KeepLocalUpload,
+                upload(Uuid::new_v4()),
+                None,
+                "offline",
+            )
+            .unwrap();
+        repository
+            .mark_blocked(
+                "001122aabbcc",
+                blocked.id,
+                "服务端拒绝请求：资产已删除，请通过恢复接口重新激活",
+            )
+            .unwrap();
+        let independent = repository
+            .enqueue(
+                "001122aabbcc",
+                SyncOperationKind::KeepLocalUpload,
+                upload(Uuid::new_v4()),
+                None,
+                "offline",
+            )
+            .unwrap();
+        assert_eq!(
+            repository
+                .next_due("001122aabbcc", u64::MAX)
+                .unwrap()
+                .unwrap()
+                .id,
+            independent.id
+        );
+    }
+
+    #[test]
     fn pending_upload_can_be_cancelled_before_first_remote_revision() {
         let directory = tempfile::tempdir().unwrap();
         let repository = SyncOperationRepository::new(directory.path().join("operations.json"));
@@ -804,6 +987,7 @@ mod tests {
                 attempt_count: 0,
                 next_retry_at_unix_ms: 1,
                 last_error: None,
+                blocked: false,
             });
         }
         repository.save(&document).unwrap();

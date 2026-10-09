@@ -29,6 +29,8 @@ pub struct SyncTokens {
     pub account_scope: String,
     #[serde(default)]
     pub username: String,
+    #[serde(default)]
+    pub must_change_password: bool,
 }
 
 impl SyncTokens {
@@ -42,6 +44,14 @@ impl SyncTokens {
             || self.username.chars().any(char::is_control)
         {
             return Err(SyncError::InvalidToken);
+        }
+        Ok(())
+    }
+
+    pub fn require_unrestricted(&self) -> Result<(), SyncError> {
+        self.validate()?;
+        if self.must_change_password {
+            return Err(SyncError::PasswordChangeRequired);
         }
         Ok(())
     }
@@ -111,9 +121,27 @@ impl CloudClient {
             refresh_token: response.refresh_token.unwrap_or_default(),
             account_scope: account_storage_identifier(username)?,
             username: username.trim().to_owned(),
+            must_change_password: response.must_change_password,
         };
         tokens.validate()?;
+        if tokens.refresh_token.is_empty() {
+            return Err(SyncError::InvalidToken);
+        }
         Ok(tokens)
+    }
+
+    /// Revokes this device's session only. The caller must clear local secrets first.
+    pub fn logout_current(&self, access_token: &str) -> Result<(), SyncError> {
+        if access_token.is_empty() || access_token.len() > 16 * 1024 || access_token.contains('\0')
+        {
+            return Err(SyncError::InvalidToken);
+        }
+        let _: serde_json::Value = self.post_json(
+            "/api/v1/auth/logout",
+            &serde_json::json!({}),
+            Some(access_token),
+        )?;
+        Ok(())
     }
 
     pub fn register(
@@ -247,11 +275,12 @@ impl CloudClient {
     }
 
     pub fn pull_inventory(&self, tokens: &mut SyncTokens) -> Result<Vec<RemoteConfig>, SyncError> {
-        tokens.validate()?;
+        tokens.require_unrestricted()?;
         match self.get_inventory(&tokens.access_token) {
             Ok(items) => Ok(items),
             Err(SyncError::Unauthorized) if !tokens.refresh_token.is_empty() => {
                 self.refresh(tokens)?;
+                tokens.require_unrestricted()?;
                 self.get_inventory(&tokens.access_token)
             }
             Err(error) => Err(error),
@@ -263,7 +292,7 @@ impl CloudClient {
         tokens: &mut SyncTokens,
         initial_cursor: u64,
     ) -> Result<SyncPullBatch, SyncError> {
-        tokens.validate()?;
+        tokens.require_unrestricted()?;
         let mut cursor = initial_cursor;
         let mut reset_recovered = false;
         let mut items = Vec::new();
@@ -272,6 +301,7 @@ impl CloudClient {
                 Ok(page) => page,
                 Err(SyncError::Unauthorized) if !tokens.refresh_token.is_empty() => {
                     self.refresh(tokens)?;
+                    tokens.require_unrestricted()?;
                     self.get_sync_page(&tokens.access_token, cursor)?
                 }
                 Err(error) => return Err(error),
@@ -312,7 +342,7 @@ impl CloudClient {
         device_id: Uuid,
         revision: u64,
     ) -> Result<u64, SyncError> {
-        tokens.validate()?;
+        tokens.require_unrestricted()?;
         let request = SyncAcknowledgementRequest {
             device_id: device_id.to_string(),
             revision,
@@ -327,6 +357,7 @@ impl CloudClient {
             Ok(response) => response,
             Err(SyncError::Unauthorized) if !tokens.refresh_token.is_empty() => {
                 self.refresh(tokens)?;
+                tokens.require_unrestricted()?;
                 self.post_json(
                     "/api/v1/config/sync/ack",
                     &request,
@@ -660,11 +691,18 @@ impl CloudClient {
         path: &str,
         body: &T,
     ) -> Result<R, SyncError> {
-        tokens.validate()?;
+        if path == "/api/v1/auth/password" {
+            tokens.validate()?;
+        } else {
+            tokens.require_unrestricted()?;
+        }
         match self.post_json(path, body, Some(&tokens.access_token)) {
             Ok(response) => Ok(response),
             Err(SyncError::Unauthorized) if !tokens.refresh_token.is_empty() => {
                 self.refresh(tokens)?;
+                if path != "/api/v1/auth/password" {
+                    tokens.require_unrestricted()?;
+                }
                 self.post_json(path, body, Some(&tokens.access_token))
             }
             Err(error) => Err(error),
@@ -676,17 +714,7 @@ impl CloudClient {
             refresh_token: &tokens.refresh_token,
         };
         let response: LoginData = self.post_json("/api/v1/auth/refresh", &request, None)?;
-        let access = response.access_token.or(response.token).unwrap_or_default();
-        if access.is_empty() || access.len() > 16 * 1024 || access.contains('\0') {
-            return Err(SyncError::InvalidToken);
-        }
-        tokens.access_token.zeroize();
-        tokens.access_token = access;
-        if let Some(refresh) = response.refresh_token.filter(|value| !value.is_empty()) {
-            tokens.refresh_token.zeroize();
-            tokens.refresh_token = refresh;
-        }
-        tokens.validate()
+        self.apply_login_response(tokens, response)
     }
 
     fn apply_login_response(
@@ -695,15 +723,21 @@ impl CloudClient {
         response: LoginData,
     ) -> Result<(), SyncError> {
         let access = response.access_token.or(response.token).unwrap_or_default();
-        if access.is_empty() || access.len() > 16 * 1024 || access.contains('\0') {
+        let refresh = response.refresh_token.unwrap_or_default();
+        if access.is_empty()
+            || access.len() > 16 * 1024
+            || access.contains('\0')
+            || refresh.is_empty()
+            || refresh.len() > 16 * 1024
+            || refresh.contains('\0')
+        {
             return Err(SyncError::InvalidToken);
         }
         tokens.access_token.zeroize();
         tokens.access_token = access;
-        if let Some(refresh) = response.refresh_token.filter(|value| !value.is_empty()) {
-            tokens.refresh_token.zeroize();
-            tokens.refresh_token = refresh;
-        }
+        tokens.refresh_token.zeroize();
+        tokens.refresh_token = refresh;
+        tokens.must_change_password = response.must_change_password;
         tokens.validate()
     }
 
@@ -712,11 +746,12 @@ impl CloudClient {
         tokens: &mut SyncTokens,
         offset: usize,
     ) -> Result<TrashConfigPage, SyncError> {
-        tokens.validate()?;
+        tokens.require_unrestricted()?;
         match self.get_trash_page(&tokens.access_token, offset) {
             Ok(page) => Ok(page),
             Err(SyncError::Unauthorized) if !tokens.refresh_token.is_empty() => {
                 self.refresh(tokens)?;
+                tokens.require_unrestricted()?;
                 self.get_trash_page(&tokens.access_token, offset)
             }
             Err(error) => Err(error),
@@ -830,6 +865,9 @@ fn decode_api_response<T: DeserializeOwned>(response: Response) -> Result<T, Syn
     if status == StatusCode::NOT_FOUND || status == StatusCode::METHOD_NOT_ALLOWED {
         return Err(SyncError::IncrementalUnavailable);
     }
+    if status == StatusCode::PAYLOAD_TOO_LARGE {
+        return Err(SyncError::RequestTooLarge);
+    }
     if status.is_server_error() {
         return Err(SyncError::ServerRetryable(status.as_u16()));
     }
@@ -845,6 +883,27 @@ fn decode_api_response<T: DeserializeOwned>(response: Response) -> Result<T, Syn
         return Err(SyncError::ResponseTooLarge);
     }
     let envelope: ApiEnvelope<T> = serde_json::from_slice(&bytes)?;
+    match (status, envelope.code.as_deref()) {
+        (StatusCode::FORBIDDEN, Some("PASSWORD_CHANGE_REQUIRED")) => {
+            return Err(SyncError::PasswordChangeRequired)
+        }
+        (StatusCode::CONFLICT, Some("REFRESH_IN_PROGRESS")) => {
+            return Err(SyncError::RefreshInProgress)
+        }
+        (StatusCode::CONFLICT, Some("AUTH_STATE_CHANGED")) => {
+            return Err(SyncError::AuthStateChanged)
+        }
+        _ => {}
+    }
+    // The deployed upload endpoint still emits a legacy message without a
+    // machine-readable code. Recognize that exact 409 as a tombstone conflict,
+    // not a transient network failure. A future coded response takes priority.
+    if status == StatusCode::CONFLICT
+        && (envelope.code.as_deref() == Some("ASSET_DELETED")
+            || envelope.error.as_deref() == Some("资产已删除，请通过恢复接口重新激活"))
+    {
+        return Err(SyncError::RemoteAssetDeleted);
+    }
     if !status.is_success() || !envelope.success {
         return Err(SyncError::Server(
             envelope.error.unwrap_or_else(|| format!("HTTP {status}")),
@@ -878,6 +937,7 @@ struct ApiEnvelope<T> {
     success: bool,
     data: Option<T>,
     error: Option<String>,
+    code: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -922,6 +982,8 @@ struct LoginData {
     token: Option<String>,
     access_token: Option<String>,
     refresh_token: Option<String>,
+    #[serde(default)]
+    must_change_password: bool,
 }
 
 #[derive(Deserialize)]
@@ -1729,6 +1791,14 @@ pub enum SyncError {
     InvalidToken,
     #[error("登录已过期，请重新登录")]
     Unauthorized,
+    #[error("请先更新登录密码，再继续同步")]
+    PasswordChangeRequired,
+    #[error("登录状态正在更新，请稍后重试")]
+    RefreshInProgress,
+    #[error("账户安全状态已变化，请重新登录")]
+    AuthStateChanged,
+    #[error("同步请求超出服务端大小限制，请缩小后重试")]
+    RequestTooLarge,
     #[error("登录令牌不含可验证的账户身份")]
     AccountIdentityUnavailable,
     #[error("账户加密作用域不可用，请重新登录")]
@@ -1767,6 +1837,8 @@ pub enum SyncError {
     InvalidAuxiliaryRecord,
     #[error("服务端拒绝请求：{0}")]
     Server(String),
+    #[error("服务端拒绝请求：资产已删除，请通过恢复接口重新激活")]
+    RemoteAssetDeleted,
     #[error("同步服务暂时不可用（HTTP {0}）")]
     ServerRetryable(u16),
     #[error("同步网络请求失败：{0}")]
@@ -2332,6 +2404,7 @@ mod tests {
             refresh_token: String::new(),
             account_scope: String::new(),
             username: String::new(),
+            must_change_password: false,
         };
         let batch = client.pull_changes(&mut tokens, 9).unwrap();
         assert_eq!(batch.next_cursor, 7);
@@ -2370,6 +2443,7 @@ mod tests {
             refresh_token: String::new(),
             account_scope: String::new(),
             username: String::new(),
+            must_change_password: false,
         };
         assert_eq!(client.acknowledge(&mut tokens, device_id, 17).unwrap(), 17);
         server.join().unwrap();
@@ -2418,6 +2492,7 @@ mod tests {
             refresh_token: String::new(),
             account_scope: String::new(),
             username: String::new(),
+            must_change_password: false,
         };
         let response = client
             .keep_local(
@@ -2468,6 +2543,7 @@ mod tests {
             refresh_token: String::new(),
             account_scope: String::new(),
             username: String::new(),
+            must_change_password: false,
         };
         let response = client
             .keep_local(
@@ -2521,6 +2597,7 @@ mod tests {
             refresh_token: String::new(),
             account_scope: String::new(),
             username: String::new(),
+            must_change_password: false,
         };
         let response = client
             .restore_asset(&mut tokens, &remote, device_id, operation_id)
@@ -2578,6 +2655,7 @@ mod tests {
             refresh_token: String::new(),
             account_scope: String::new(),
             username: String::new(),
+            must_change_password: false,
         };
         let response = client
             .restore_asset(&mut tokens, &remote, device_id, operation_id)
@@ -2625,6 +2703,7 @@ mod tests {
             refresh_token: String::new(),
             account_scope: String::new(),
             username: String::new(),
+            must_change_password: false,
         };
         let first = client.execute_queued(&mut tokens, &payload).unwrap();
         let second = client.execute_queued(&mut tokens, &payload).unwrap();
@@ -2655,10 +2734,50 @@ mod tests {
             refresh_token: String::new(),
             account_scope: String::new(),
             username: String::new(),
+            must_change_password: false,
         };
         let error = client.pull_inventory(&mut tokens).unwrap_err();
         assert!(matches!(error, SyncError::ServerRetryable(503)));
         assert!(error.is_queueable());
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn deleted_upload_conflict_is_not_a_retryable_network_failure() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint: &'static str =
+            Box::leak(format!("http://{}", listener.local_addr().unwrap()).into_boxed_str());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request = read_http_request(&mut stream);
+            assert!(request.starts_with(b"POST /api/v1/config/upload "));
+            let body = r#"{"success":false,"error":"资产已删除，请通过恢复接口重新激活"}"#;
+            write!(
+                stream,
+                "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+        let client = CloudClient::for_endpoint(endpoint).unwrap();
+        let mut tokens = SyncTokens {
+            access_token: "token".into(),
+            refresh_token: String::new(),
+            account_scope: String::new(),
+            username: String::new(),
+            must_change_password: false,
+        };
+        let payload = QueuedSyncPayload::Upload {
+            remote_id: Some(60),
+            asset_id: Uuid::new_v4(),
+            identity_fingerprint: None,
+            encrypted_blob_base64: "ciphertext".into(),
+            vector_clock: r#"{"linux":1}"#.into(),
+        };
+        let error = client.execute_queued(&mut tokens, &payload).unwrap_err();
+        assert!(matches!(error, SyncError::RemoteAssetDeleted));
+        assert!(!error.is_queueable());
         server.join().unwrap();
     }
 
@@ -2674,6 +2793,7 @@ mod tests {
             refresh_token: String::new(),
             account_scope: String::new(),
             username: String::new(),
+            must_change_password: false,
         };
         let error = client.pull_inventory(&mut tokens).unwrap_err();
         assert!(matches!(error, SyncError::Network(_)));
@@ -2691,6 +2811,7 @@ mod tests {
             refresh_token: String::new(),
             account_scope: String::new(),
             username: String::new(),
+            must_change_password: false,
         };
         assert!(matches!(
             client.pull_inventory(&mut tokens),
@@ -2753,10 +2874,73 @@ mod tests {
             refresh_token: "refresh-token".into(),
             account_scope: String::new(),
             username: String::new(),
+            must_change_password: false,
         };
         assert!(client.pull_inventory(&mut tokens).unwrap().is_empty());
         assert_eq!(tokens.access_token, "new-access");
         assert_eq!(tokens.refresh_token, "new-refresh");
         server.join().unwrap();
+    }
+
+    #[test]
+    fn incomplete_rotation_never_overwrites_the_previous_token_pair() {
+        let client = CloudClient::for_endpoint("http://127.0.0.1:1").unwrap();
+        let mut tokens = SyncTokens {
+            access_token: "old-access".into(),
+            refresh_token: "old-refresh".into(),
+            account_scope: String::new(),
+            username: String::new(),
+            must_change_password: false,
+        };
+        let result = client.apply_login_response(
+            &mut tokens,
+            LoginData {
+                token: None,
+                access_token: Some("next-access".into()),
+                refresh_token: None,
+                must_change_password: false,
+            },
+        );
+        assert!(matches!(result, Err(SyncError::InvalidToken)));
+        assert_eq!(tokens.access_token, "old-access");
+        assert_eq!(tokens.refresh_token, "old-refresh");
+    }
+
+    #[test]
+    fn password_change_gate_blocks_sync_and_clears_after_new_token_pair() {
+        let flagged: LoginData = serde_json::from_str(
+            r#"{"access_token":"restricted-access","refresh_token":"restricted-refresh","must_change_password":true}"#,
+        )
+        .unwrap();
+        assert!(flagged.must_change_password);
+        let client = CloudClient::for_endpoint("http://127.0.0.1:1").unwrap();
+        let mut tokens = SyncTokens {
+            access_token: "restricted-access".into(),
+            refresh_token: "restricted-refresh".into(),
+            account_scope: String::new(),
+            username: String::new(),
+            must_change_password: true,
+        };
+        assert!(matches!(
+            client.pull_changes(&mut tokens, 0),
+            Err(SyncError::PasswordChangeRequired)
+        ));
+        assert!(matches!(
+            client.acknowledge(&mut tokens, Uuid::new_v4(), 1),
+            Err(SyncError::PasswordChangeRequired)
+        ));
+        client
+            .apply_login_response(
+                &mut tokens,
+                LoginData {
+                    token: None,
+                    access_token: Some("new-access".into()),
+                    refresh_token: Some("new-refresh".into()),
+                    must_change_password: false,
+                },
+            )
+            .unwrap();
+        assert!(!tokens.must_change_password);
+        assert!(tokens.require_unrestricted().is_ok());
     }
 }

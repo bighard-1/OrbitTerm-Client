@@ -1048,7 +1048,7 @@ mod rdp {
     }
 
     pub fn runtime_info() -> FreeRdpRuntimeInfo {
-        let mut version = [0i8; 64];
+        let mut version = [0 as c_char; 64];
         let status = unsafe { orbit_rdp_linux_runtime_probe(version.as_mut_ptr(), version.len()) };
         let actual_version = if version[0] == 0 {
             None

@@ -1,3 +1,4 @@
+mod auth_session;
 mod sync_scheduler;
 mod sync_session;
 mod ui;

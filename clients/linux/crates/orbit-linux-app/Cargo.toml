@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+futures = "0.3"
 adw.workspace = true
 gtk.workspace = true
 serde_json.workspace = true

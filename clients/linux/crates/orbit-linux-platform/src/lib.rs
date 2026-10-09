@@ -795,6 +795,9 @@ pub struct AuthTokenMaterial {
     /// ordinary files or diagnostics.
     #[serde(default)]
     pub username: String,
+    /// The server's forced-password-change gate survives app restarts.
+    #[serde(default)]
+    pub must_change_password: bool,
 }
 
 impl AuthTokenMaterial {
@@ -972,6 +975,8 @@ pub enum PlatformError {
     InvalidCredential,
     #[error("同步登录令牌无效")]
     InvalidAuthToken,
+    #[error("账户会话已变更，迟到的登录令牌已丢弃")]
+    StaleAuthSession,
     #[error("同步账户指纹无效")]
     InvalidAccountFingerprint,
     #[error("同步状态文件无效")]
@@ -992,6 +997,8 @@ pub enum PlatformError {
     TooManySyncOperations,
     #[error("离线同步操作不存在")]
     SyncOperationNotFound,
+    #[error("离线操作已被云端墓碑阻止，必须先明确处理冲突")]
+    SyncOperationRequiresResolution,
     #[error("系统时钟不合法")]
     SystemClockInvalid,
     #[error("系统密钥环操作失败：{0}")]
@@ -1191,13 +1198,30 @@ mod tests {
             refresh_token: "refresh".into(),
             account_scope: "a".repeat(64),
             username: "operator@example.com".into(),
+            must_change_password: false,
         };
         assert!(valid.validate().is_ok());
+        let legacy: AuthTokenMaterial = serde_json::from_str(
+            r#"{"accessToken":"legacy-access","refreshToken":"legacy-refresh"}"#,
+        )
+        .unwrap();
+        assert!(!legacy.must_change_password);
+        let restricted = AuthTokenMaterial {
+            access_token: legacy.access_token.clone(),
+            refresh_token: legacy.refresh_token.clone(),
+            account_scope: legacy.account_scope.clone(),
+            username: legacy.username.clone(),
+            must_change_password: true,
+        };
+        let restored: AuthTokenMaterial =
+            serde_json::from_str(&serde_json::to_string(&restricted).unwrap()).unwrap();
+        assert!(restored.must_change_password);
         let invalid = AuthTokenMaterial {
             access_token: "token\0suffix".into(),
             refresh_token: String::new(),
             account_scope: String::new(),
             username: String::new(),
+            must_change_password: false,
         };
         assert!(matches!(
             invalid.validate(),

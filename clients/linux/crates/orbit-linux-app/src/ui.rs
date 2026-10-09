@@ -1,4 +1,7 @@
-use crate::sync_scheduler::SyncSchedulerGate;
+use crate::auth_session::AuthSessionCoordinator;
+use crate::sync_scheduler::{
+    choose_background_sync_action, BackgroundSyncAction, SyncSchedulerGate,
+};
 use crate::sync_session::SecureSyncSession;
 use adw::prelude::*;
 use gtk::{Align, Orientation};
@@ -26,6 +29,7 @@ use orbit_linux_session::{
 use orbit_linux_sync::{
     account_display_name, account_fingerprint, build_pull_preview_with_deferred_for_account,
     CloudClient, KeepLocalAccountContext, RemoteConfig, SyncError, SyncPreview, SyncTokens,
+    TombstoneConflict,
 };
 use ssh_key::{Algorithm, HashAlg, LineEnding, PrivateKey};
 use std::cell::{Cell, RefCell};
@@ -1124,6 +1128,7 @@ struct UiContext {
     active_account_fingerprint: Rc<RefCell<Option<String>>>,
     sync_state: SyncStateRepository,
     sync_operations: SyncOperationRepository,
+    auth_tokens: AuthSessionCoordinator,
     sync_scheduler: SyncSchedulerGate,
     sync_session: SecureSyncSession,
     background_pending: Rc<RefCell<Option<PendingSyncRun>>>,
@@ -1496,7 +1501,8 @@ pub fn build_application_window(application: &adw::Application) {
         active_account_fingerprint,
         sync_state,
         sync_operations,
-        sync_scheduler: SyncSchedulerGate::default(),
+        auth_tokens: AuthSessionCoordinator::shared(),
+        sync_scheduler: SyncSchedulerGate::shared(),
         sync_session: SecureSyncSession::default(),
         background_pending: Rc::new(RefCell::new(None)),
         active_tunnels: Rc::new(RefCell::new(Vec::new())),
@@ -2275,6 +2281,15 @@ fn present_account_management_window(context: UiContext) {
     title.set_xalign(0.0);
     root.append(&title);
 
+    let forced_notice = gtk::Label::new(Some(
+        "账户要求先修改登录密码。完成前已暂停同步及资产访问；此处仅可改密或退出。",
+    ));
+    forced_notice.set_xalign(0.0);
+    forced_notice.set_wrap(true);
+    forced_notice.add_css_class("error-message");
+    forced_notice.set_visible(false);
+    root.append(&forced_notice);
+
     let account_card = gtk::Box::new(Orientation::Horizontal, 12);
     account_card.add_css_class("form-card");
     let avatar = gtk::Image::from_icon_name("avatar-default-symbolic");
@@ -2505,6 +2520,7 @@ fn present_account_management_window(context: UiContext) {
     });
 
     let password_context = context.clone();
+    let password_window = window.clone();
     let password_button = change_login_password.clone();
     let current_password_field = current_login_password.clone();
     let new_password_field = new_login_password.clone();
@@ -2530,6 +2546,7 @@ fn present_account_management_window(context: UiContext) {
         password_feedback.set_label("正在更新登录密码…");
         change_linux_login_password(
             password_context.clone(),
+            password_window.clone(),
             current_password,
             new_password,
             password_button.clone(),
@@ -2605,12 +2622,27 @@ fn present_account_management_window(context: UiContext) {
     close.connect_clicked(move |_| {
         close_window.close();
     });
+    gtk::glib::spawn_future_local(async move {
+        if AuthTokenVault
+            .lookup()
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|material| material.must_change_password)
+        {
+            forced_notice.set_visible(true);
+            security_card.set_visible(false);
+            master_password_card.set_visible(false);
+            change_login_password.grab_focus();
+        }
+    });
     window.present(Some(&context.window));
 }
 
 #[allow(clippy::too_many_arguments)]
 fn change_linux_login_password(
-    _context: UiContext,
+    context: UiContext,
+    account_window: adw::Dialog,
     current_password: String,
     new_password: String,
     button: gtk::Button,
@@ -2619,22 +2651,35 @@ fn change_linux_login_password(
     new_field: gtk::PasswordEntry,
     confirm_field: gtk::PasswordEntry,
 ) {
+    if !context.sync_scheduler.try_begin_security() {
+        button.set_sensitive(true);
+        feedback.add_css_class("error-message");
+        feedback.set_label("后台同步或另一项安全操作尚未完成，请稍候重试。");
+        return;
+    }
+    let auth_epoch = context.auth_tokens.advance();
     gtk::glib::spawn_future_local(async move {
         let material = match AuthTokenVault.lookup().await {
             Ok(Some(material)) => material,
             Ok(None) => {
+                context.sync_scheduler.finish_security();
                 button.set_sensitive(true);
                 feedback.set_label("登录会话已失效，请退出后重新登录。");
                 feedback.add_css_class("error-message");
                 return;
             }
             Err(error) => {
+                context.sync_scheduler.finish_security();
                 button.set_sensitive(true);
                 feedback.set_label(&format!("无法读取系统密钥环：{error}"));
                 feedback.add_css_class("error-message");
                 return;
             }
         };
+        if !context.auth_tokens.is_current(auth_epoch) {
+            context.sync_scheduler.finish_security();
+            return;
+        }
         let (sender, receiver) = mpsc::channel();
         std::thread::spawn(move || {
             let current_password = Zeroizing::new(current_password);
@@ -2644,6 +2689,7 @@ fn change_linux_login_password(
                 refresh_token: material.refresh_token.clone(),
                 account_scope: material.account_scope.clone(),
                 username: material.username.clone(),
+                must_change_password: material.must_change_password,
             };
             let result = CloudClient::production().and_then(|client| {
                 client.change_login_password(&mut tokens, &current_password, &new_password)?;
@@ -2659,21 +2705,42 @@ fn change_linux_login_password(
                     let current_field = current_field.clone();
                     let new_field = new_field.clone();
                     let confirm_field = confirm_field.clone();
+                    let context = context.clone();
+                    let account_window = account_window.clone();
                     gtk::glib::spawn_future_local(async move {
                         let material = AuthTokenMaterial {
                             access_token: tokens.access_token.clone(),
                             refresh_token: tokens.refresh_token.clone(),
                             account_scope: tokens.account_scope.clone(),
                             username: tokens.username.clone(),
+                            must_change_password: tokens.must_change_password,
                         };
+                        let result = context
+                            .auth_tokens
+                            .store(&AuthTokenVault, &material, auth_epoch)
+                            .await;
+                        context.sync_scheduler.finish_security();
+                        if !context.auth_tokens.is_current(auth_epoch) {
+                            return;
+                        }
                         button.set_sensitive(true);
-                        match AuthTokenVault.store(&material).await {
+                        match result {
                             Ok(()) => {
                                 current_field.set_text("");
                                 new_field.set_text("");
                                 confirm_field.set_text("");
                                 feedback.remove_css_class("error-message");
-                                feedback.set_label("登录密码已更新；其他设备需要重新登录。");
+                                context.sync_session.lock();
+                                context.background_pending.borrow_mut().take();
+                                set_asset_access_authorized(&context, false);
+                                context
+                                    .status
+                                    .set_label("登录密码已更新 · 请重新解锁同步资产");
+                                context
+                                    .sync_status
+                                    .set_label("新令牌已保存 · 等待主密码解锁");
+                                account_window.close();
+                                present_sync_window(context);
                             }
                             Err(error) => {
                                 feedback.add_css_class("error-message");
@@ -2686,6 +2753,7 @@ fn change_linux_login_password(
                     gtk::glib::ControlFlow::Break
                 }
                 Ok(Err(error)) => {
+                    context.sync_scheduler.finish_security();
                     button.set_sensitive(true);
                     feedback.add_css_class("error-message");
                     feedback.set_label(&format!("登录密码更新失败：{error}"));
@@ -2693,6 +2761,7 @@ fn change_linux_login_password(
                 }
                 Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
                 Err(mpsc::TryRecvError::Disconnected) => {
+                    context.sync_scheduler.finish_security();
                     button.set_sensitive(true);
                     feedback.add_css_class("error-message");
                     feedback.set_label("密码更新工作线程意外退出，请重试。");
@@ -2716,22 +2785,35 @@ fn rotate_linux_master_password(
     confirm_field: gtk::PasswordEntry,
     login_field: gtk::PasswordEntry,
 ) {
+    if !context.sync_scheduler.try_begin_security() {
+        button.set_sensitive(true);
+        feedback.add_css_class("error-message");
+        feedback.set_label("后台同步或另一项安全操作尚未完成，请稍候重试。");
+        return;
+    }
+    let auth_epoch = context.auth_tokens.advance();
     gtk::glib::spawn_future_local(async move {
         let material = match AuthTokenVault.lookup().await {
             Ok(Some(material)) => material,
             Ok(None) => {
+                context.sync_scheduler.finish_security();
                 button.set_sensitive(true);
                 feedback.set_label("登录会话已失效，请退出后重新登录。");
                 feedback.add_css_class("error-message");
                 return;
             }
             Err(error) => {
+                context.sync_scheduler.finish_security();
                 button.set_sensitive(true);
                 feedback.set_label(&format!("无法读取系统密钥环：{error}"));
                 feedback.add_css_class("error-message");
                 return;
             }
         };
+        if !context.auth_tokens.is_current(auth_epoch) {
+            context.sync_scheduler.finish_security();
+            return;
+        }
         let (sender, receiver) = mpsc::channel();
         std::thread::spawn(move || {
             let current_master_password = Zeroizing::new(current_master_password);
@@ -2742,6 +2824,7 @@ fn rotate_linux_master_password(
                 refresh_token: material.refresh_token.clone(),
                 account_scope: material.account_scope.clone(),
                 username: material.username.clone(),
+                must_change_password: material.must_change_password,
             };
             let result = CloudClient::production().and_then(|client| {
                 client.rotate_master_password(
@@ -2763,6 +2846,7 @@ fn rotate_linux_master_password(
                         refresh_token: tokens.refresh_token.clone(),
                         account_scope: tokens.account_scope.clone(),
                         username: tokens.username.clone(),
+                        must_change_password: tokens.must_change_password,
                     };
                     let context = context.clone();
                     let button = button.clone();
@@ -2772,13 +2856,23 @@ fn rotate_linux_master_password(
                     let confirm_field = confirm_field.clone();
                     let login_field = login_field.clone();
                     gtk::glib::spawn_future_local(async move {
-                        button.set_sensitive(true);
                         let Ok(account) = account else {
+                            context.sync_scheduler.finish_security();
+                            button.set_sensitive(true);
                             feedback.add_css_class("error-message");
                             feedback.set_label("主密码已轮换，但新会话身份无法验证，请重新登录。");
                             return;
                         };
-                        if let Err(error) = AuthTokenVault.store(&material).await {
+                        let result = context
+                            .auth_tokens
+                            .store(&AuthTokenVault, &material, auth_epoch)
+                            .await;
+                        context.sync_scheduler.finish_security();
+                        if !context.auth_tokens.is_current(auth_epoch) {
+                            return;
+                        }
+                        button.set_sensitive(true);
+                        if let Err(error) = result {
                             feedback.add_css_class("error-message");
                             feedback.set_label(&format!(
                                 "主密码已轮换，但新登录令牌未能保存：{error}。请重新登录。"
@@ -2807,6 +2901,7 @@ fn rotate_linux_master_password(
                     gtk::glib::ControlFlow::Break
                 }
                 Ok(Err(error)) => {
+                    context.sync_scheduler.finish_security();
                     button.set_sensitive(true);
                     feedback.add_css_class("error-message");
                     feedback.set_label(&format!("主密码轮换失败：{error}"));
@@ -2814,6 +2909,7 @@ fn rotate_linux_master_password(
                 }
                 Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
                 Err(mpsc::TryRecvError::Disconnected) => {
+                    context.sync_scheduler.finish_security();
                     button.set_sensitive(true);
                     feedback.add_css_class("error-message");
                     feedback.set_label("主密码轮换工作线程意外退出，请重试。");
@@ -2831,7 +2927,7 @@ fn confirm_leave_account(context: UiContext, parent: &adw::Dialog, switch_accoun
         } else {
             "退出登录？"
         })
-        .body("将断开受当前账户保护的会话，并清除本机登录令牌与主密码会话。本机资产不会被删除。")
+        .body("将断开受当前账户保护的会话，清除本机登录令牌与主密码会话，并尝试撤销当前设备的远端会话。其他设备不受影响；本机资产不会被删除。")
         .close_response("cancel")
         .build();
     dialog.add_response("cancel", "取消");
@@ -2849,10 +2945,20 @@ fn confirm_leave_account(context: UiContext, parent: &adw::Dialog, switch_accoun
         if dialog.choose_future(Some(&parent)).await.as_str() != "confirm" {
             return;
         }
+        if !context.sync_scheduler.try_begin_logout() {
+            return;
+        }
+        if !context.auth_tokens.begin_logout() {
+            context.sync_scheduler.finish_logout();
+            return;
+        }
         context.sync_session.lock();
         context.background_pending.borrow_mut().take();
-        match AuthTokenVault.clear().await {
-            Ok(()) => {
+        set_asset_access_authorized(&context, false);
+        (context.refresh_assets)();
+        match context.auth_tokens.take_and_clear(&AuthTokenVault).await {
+            Ok(remote_access) => {
+                context.sync_scheduler.finish_logout();
                 if let Some(application) = context.window.application() {
                     application.withdraw_notification("sync-action-required");
                 }
@@ -2864,14 +2970,55 @@ fn confirm_leave_account(context: UiContext, parent: &adw::Dialog, switch_accoun
                     .set_label("未登录 · 本地资产可用 · 同步资产已隐藏");
                 context.sync_status.set_label("未登录 · 本地资产可用");
                 (context.refresh_assets)();
+                verify_remote_logout(
+                    remote_access,
+                    context.status.clone(),
+                    context.active_account_fingerprint.clone(),
+                );
                 parent.close();
                 if switch_account {
                     present_sync_window(context);
                 }
             }
-            Err(error) => context
-                .status
-                .set_label(&format!("退出未完成：无法清除系统密钥环令牌：{error}")),
+            Err(error) => {
+                context.sync_scheduler.fail_logout();
+                context
+                    .status
+                    .set_label(&format!("退出未完成：无法清除系统密钥环令牌：{error}"));
+            }
+        }
+    });
+}
+
+fn verify_remote_logout(
+    access_token: Option<String>,
+    status: gtk::Label,
+    active_account: Rc<RefCell<Option<String>>>,
+) {
+    let Some(access_token) = access_token else {
+        if active_account.borrow().is_none() {
+            status.set_label("已退出本机；远端会话撤销未确认。联网后请重新登录并检查账户安全。");
+        }
+        return;
+    };
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let token = Zeroizing::new(access_token);
+        let result = CloudClient::production().and_then(|client| client.logout_current(&token));
+        let _ = sender.send(result);
+    });
+    gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
+        match receiver.try_recv() {
+            Ok(Ok(())) => gtk::glib::ControlFlow::Break,
+            Ok(Err(_)) | Err(mpsc::TryRecvError::Disconnected) => {
+                if active_account.borrow().is_none() {
+                    status.set_label(
+                        "已退出本机；远端会话撤销未确认。联网后请重新登录并检查账户安全。",
+                    );
+                }
+                gtk::glib::ControlFlow::Break
+            }
+            Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
         }
     });
 }
@@ -9333,6 +9480,7 @@ fn trigger_background_sync(context: UiContext) {
     if !context.sync_scheduler.try_begin_background() {
         return;
     }
+    let auth_epoch = context.auth_tokens.snapshot();
     gtk::glib::spawn_future_local(async move {
         let material = match AuthTokenVault.lookup().await {
             Ok(Some(material)) => material,
@@ -9352,11 +9500,26 @@ fn trigger_background_sync(context: UiContext) {
                 return;
             }
         };
+        if !context.auth_tokens.is_current(auth_epoch) {
+            context.sync_scheduler.finish_background();
+            return;
+        }
+        if material.must_change_password {
+            context.sync_session.lock();
+            context.background_pending.borrow_mut().take();
+            set_asset_access_authorized(&context, false);
+            context
+                .sync_status
+                .set_label("必须先修改登录密码 · 后台同步已暂停");
+            context.sync_scheduler.finish_background();
+            return;
+        }
         let tokens = SyncTokens {
             access_token: material.access_token.clone(),
             refresh_token: material.refresh_token.clone(),
             account_scope: material.account_scope.clone(),
             username: material.username.clone(),
+            must_change_password: material.must_change_password,
         };
         let account = match account_fingerprint(&tokens.access_token) {
             Ok(account) => account,
@@ -9387,34 +9550,50 @@ fn trigger_background_sync(context: UiContext) {
                 return;
             }
         };
-        if pending.is_empty() {
-            let staged = context.background_pending.borrow_mut().take();
-            if let Some(staged) = staged {
-                let unresolved = staged.preview.unresolved_count();
-                if unresolved == 0 {
-                    context.sync_status.set_label("正在后台安全应用云端增量…");
-                    apply_background_preview(context, staged);
-                    return;
-                }
-                let notification_key = format!(
-                    "{}:{}:{}",
-                    staged.account_fingerprint,
-                    staged
-                        .checkpoint
-                        .as_ref()
-                        .map_or(0, |checkpoint| checkpoint.revision),
-                    unresolved
-                );
-                context.background_pending.replace(Some(staged));
-                context
-                    .sync_status
-                    .set_label(&format!("需要人工处理 · {unresolved} 项冲突或异常"));
-                if context.sync_session.should_notify(notification_key) {
-                    send_manual_sync_notification(&context, unresolved);
-                }
+        let needs_deleted_asset_resolution = pending
+            .iter()
+            .any(QueuedSyncOperation::is_remote_deleted_upload);
+        let due = match context.sync_operations.next_due(&account, now) {
+            Ok(due) => due.is_some(),
+            Err(_) => {
+                context.sync_status.set_label("离线队列状态不可用");
                 context.sync_scheduler.finish_background();
                 return;
             }
+        };
+        let staged_conflicts = {
+            let mut staged = context.background_pending.borrow_mut();
+            if staged.as_ref().is_some_and(|snapshot| {
+                snapshot.auth_epoch != auth_epoch || snapshot.account_fingerprint != account
+            }) {
+                staged.take();
+            }
+            staged
+                .as_ref()
+                .map(|snapshot| snapshot.preview.unresolved_count())
+        };
+        let action = choose_background_sync_action(
+            staged_conflicts,
+            !pending.is_empty(),
+            due,
+            needs_deleted_asset_resolution,
+        );
+        if action == BackgroundSyncAction::ApplyStaged {
+            let staged = context.background_pending.borrow_mut().take();
+            if let Some(staged) = staged {
+                context.sync_status.set_label("正在安全处理云端增量…");
+                apply_background_preview(context, staged);
+            } else {
+                context.sync_scheduler.finish_background();
+            }
+            return;
+        }
+        if action == BackgroundSyncAction::RetryQueue {
+            context.sync_status.set_label("正在自动恢复离线同步…");
+            start_background_queue_worker(context, tokens, account, auth_epoch);
+            return;
+        }
+        if action == BackgroundSyncAction::Pull {
             let Some(master_password) = context.sync_session.password_for(&account, now) else {
                 set_asset_access_authorized(&context, false);
                 context.sync_status.set_label("已登录 · 主密码已锁定");
@@ -9423,37 +9602,92 @@ fn trigger_background_sync(context: UiContext) {
             };
             set_asset_access_authorized(&context, true);
             if !context.sync_session.pull_is_due(now, 30_000) {
-                context.sync_status.set_label("云同步健康 · 后台增量已启用");
+                let status = if needs_deleted_asset_resolution {
+                    "云端已删除本机待上传资产 · 请在同步中心处理".to_owned()
+                } else {
+                    "云同步健康 · 后台增量已启用".to_owned()
+                };
+                context.sync_status.set_label(&status);
                 context.sync_scheduler.finish_background();
                 return;
             }
             context.sync_session.record_pull(now);
             context.sync_status.set_label("正在后台拉取增量…");
-            start_background_pull_worker(context, tokens, account, master_password);
+            start_background_pull_worker(context, tokens, account, master_password, auth_epoch);
             return;
         }
-        let due = context
-            .sync_operations
-            .next_due(&account, now)
-            .ok()
-            .flatten()
-            .is_some();
-        if !due {
-            let wait_seconds = pending[0]
-                .next_retry_at_unix_ms
-                .saturating_sub(now)
-                .saturating_add(999)
-                / 1_000;
+        if action == BackgroundSyncAction::WaitForResolution {
             context.sync_status.set_label(&format!(
-                "离线队列 {} 项 · {} 秒后重试",
-                pending.len(),
-                wait_seconds
+                "云端增量有 {} 项待人工处理 · 已暂停确认游标",
+                staged_conflicts.unwrap_or(0)
             ));
             context.sync_scheduler.finish_background();
             return;
         }
-        context.sync_status.set_label("正在自动恢复离线同步…");
-        start_background_queue_worker(context, tokens, account);
+        let retryable = pending.iter().find(|item| !item.requires_resolution());
+        let Some(next_retryable) = retryable else {
+            context
+                .sync_status
+                .set_label("离线队列需人工处理 · 请打开同步中心");
+            context.sync_scheduler.finish_background();
+            return;
+        };
+        let wait_seconds = next_retryable
+            .next_retry_at_unix_ms
+            .saturating_sub(now)
+            .saturating_add(999)
+            / 1_000;
+        context.sync_status.set_label(&format!(
+            "离线队列 {} 项 · {} 秒后重试",
+            pending.len(),
+            wait_seconds
+        ));
+        context.sync_scheduler.finish_background();
+    });
+}
+
+fn pause_for_required_password_change(context: UiContext, tokens: SyncTokens, auth_epoch: u64) {
+    if !context.auth_tokens.is_current(auth_epoch) {
+        return;
+    }
+    let Ok(account) = account_fingerprint(&tokens.access_token) else {
+        context
+            .sync_status
+            .set_label("受限会话身份无法识别 · 请退出后重新登录");
+        return;
+    };
+    if context.active_account_fingerprint.borrow().as_deref() != Some(account.as_str()) {
+        return;
+    }
+    let auth_epoch = context.auth_tokens.advance();
+    context.sync_session.lock();
+    context.background_pending.borrow_mut().take();
+    set_asset_access_authorized(&context, false);
+    context.status.set_label("必须先修改登录密码 · 同步已暂停");
+    context
+        .sync_status
+        .set_label("账户安全操作待完成 · 仅允许改密或退出");
+    gtk::glib::spawn_future_local(async move {
+        let material = AuthTokenMaterial {
+            access_token: tokens.access_token.clone(),
+            refresh_token: tokens.refresh_token.clone(),
+            account_scope: tokens.account_scope.clone(),
+            username: tokens.username.clone(),
+            must_change_password: true,
+        };
+        let result = context
+            .auth_tokens
+            .store(&AuthTokenVault, &material, auth_epoch)
+            .await;
+        if !context.auth_tokens.is_current(auth_epoch) {
+            return;
+        }
+        match result {
+            Ok(()) => present_account_management_window(context),
+            Err(error) => context
+                .sync_status
+                .set_label(&format!("需修改登录密码，但保存受限会话失败：{error}")),
+        }
     });
 }
 
@@ -9462,6 +9696,7 @@ fn start_background_pull_worker(
     mut tokens: SyncTokens,
     account: String,
     master_password: zeroize::Zeroizing<String>,
+    auth_epoch: u64,
 ) {
     let local_assets = context.catalog.borrow().assets().to_vec();
     let sync_state = context.sync_state.clone();
@@ -9482,6 +9717,7 @@ fn start_background_pull_worker(
                 .pending(&account)
                 .map_err(|error| SyncError::LocalState(error.to_string()))?
                 .into_iter()
+                .filter(|item| !item.is_remote_deleted_upload())
                 .map(|item| item.asset_id)
                 .collect();
             let batch = client.pull_changes(&mut tokens, cursor)?;
@@ -9499,56 +9735,46 @@ fn start_background_pull_worker(
             )?;
             Ok(PendingSyncRun {
                 preview,
-                tokens,
+                tokens: tokens.clone(),
+                auth_epoch,
                 checkpoint: Some(checkpoint),
                 account_fingerprint: account,
                 device_id,
                 master_password,
             })
         });
-        let _ = sender.send(BackgroundPullOutcome { result });
+        let _ = sender.send(BackgroundPullOutcome {
+            result,
+            latest_tokens: tokens,
+        });
     });
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
         match receiver.try_recv() {
             Ok(BackgroundPullOutcome {
                 result: Ok(pending),
+                latest_tokens: _,
             }) => {
-                if pending.preview.unresolved_count() > 0 {
-                    let count = pending.preview.unresolved_count();
-                    let notification_key = format!(
-                        "{}:{}:{}",
-                        pending.account_fingerprint,
-                        pending
-                            .checkpoint
-                            .as_ref()
-                            .map_or(0, |checkpoint| checkpoint.revision),
-                        count
-                    );
-                    let material = AuthTokenMaterial {
-                        access_token: pending.tokens.access_token.clone(),
-                        refresh_token: pending.tokens.refresh_token.clone(),
-                        account_scope: pending.tokens.account_scope.clone(),
-                        username: pending.tokens.username.clone(),
-                    };
-                    context.background_pending.replace(Some(pending));
-                    context
-                        .sync_status
-                        .set_label(&format!("需要人工处理 · {count} 项未解决"));
-                    if context.sync_session.should_notify(notification_key) {
-                        send_manual_sync_notification(&context, count);
-                    }
-                    let completion_context = context.clone();
-                    gtk::glib::spawn_future_local(async move {
-                        let _ = AuthTokenVault.store(&material).await;
-                        completion_context.sync_scheduler.finish_background();
-                    });
-                } else {
-                    apply_background_preview(context.clone(), pending);
+                if !context.auth_tokens.is_current(auth_epoch) {
+                    context.sync_scheduler.finish_background();
+                    return gtk::glib::ControlFlow::Break;
                 }
+                apply_background_preview(context.clone(), pending);
                 gtk::glib::ControlFlow::Break
             }
-            Ok(BackgroundPullOutcome { result: Err(error) }) => {
+            Ok(BackgroundPullOutcome {
+                result: Err(error),
+                latest_tokens,
+            }) => {
                 context.sync_scheduler.finish_background();
+                if !context.auth_tokens.is_current(auth_epoch) {
+                    return gtk::glib::ControlFlow::Break;
+                }
+                if matches!(&error, SyncError::PasswordChangeRequired)
+                    || latest_tokens.must_change_password
+                {
+                    pause_for_required_password_change(context.clone(), latest_tokens, auth_epoch);
+                    return gtk::glib::ControlFlow::Break;
+                }
                 if matches!(&error, SyncError::Unauthorized) {
                     set_account_header_logged_in(&context.account_header, false);
                     set_asset_access_authorized(&context, false);
@@ -9582,8 +9808,322 @@ fn send_manual_sync_notification(context: &UiContext, count: usize) {
     }
 }
 
+/// A remote soft-delete may remove an unchanged local copy without asking the
+/// user to resolve a false conflict. Missing provenance, local edits, pending
+/// uploads, and live sessions all retain the existing manual-resolution path.
+fn clean_tombstone_can_auto_apply(
+    conflict: &TombstoneConflict,
+    metadata: Option<&AssetSyncState>,
+    current: Option<&ServerAsset>,
+    has_pending_operation: bool,
+    has_active_use: bool,
+) -> bool {
+    let (Some(metadata), Some(current), Some(remote_revision)) =
+        (metadata, current, conflict.remote.server_revision)
+    else {
+        return false;
+    };
+    let Some(expected_fingerprint) = metadata.local_fingerprint.as_deref() else {
+        return false;
+    };
+    let (Ok(current_fingerprint), Ok(snapshot_fingerprint)) = (
+        asset_sync_fingerprint(current),
+        asset_sync_fingerprint(&conflict.local),
+    ) else {
+        return false;
+    };
+    conflict.restorable
+        && conflict.remote.state.as_deref() == Some("deleted")
+        && conflict
+            .remote
+            .asset_id
+            .as_deref()
+            .and_then(|value| Uuid::parse_str(value).ok())
+            == Some(conflict.asset_id)
+        && conflict.remote.id != 0
+        && conflict.remote.id == metadata.remote_id
+        && remote_revision > metadata.server_revision
+        && metadata.applied
+        && metadata.state == "active"
+        && current.id == conflict.asset_id
+        && conflict.local.id == conflict.asset_id
+        && current.storage_scope != AssetStorageScope::LocalOnly
+        && conflict.local.storage_scope != AssetStorageScope::LocalOnly
+        && !has_pending_operation
+        && !has_active_use
+        && expected_fingerprint == current_fingerprint
+        && expected_fingerprint == snapshot_fingerprint
+}
+
+fn tombstone_credentials_are_shared(assets: &[ServerAsset], target: &ServerAsset) -> bool {
+    let primary = target.credential_id;
+    let jump = target.jump_host.as_ref().map(|host| host.credential_id);
+    jump == Some(primary)
+        || assets.iter().any(|asset| {
+            asset.id != target.id
+                && (asset.credential_id == primary
+                    || Some(asset.credential_id) == jump
+                    || asset.jump_host.as_ref().is_some_and(|host| {
+                        host.credential_id == primary || Some(host.credential_id) == jump
+                    }))
+        })
+}
+
+fn current_tombstone_is_safe(
+    context: &UiContext,
+    pending: &PendingSyncRun,
+    conflict: &TombstoneConflict,
+) -> bool {
+    if !context.auth_tokens.is_current(pending.auth_epoch) {
+        return false;
+    }
+    let Ok(metadata) = context
+        .sync_state
+        .asset(&pending.account_fingerprint, conflict.asset_id)
+    else {
+        return false;
+    };
+    let Ok(queued) = context
+        .sync_operations
+        .pending(&pending.account_fingerprint)
+    else {
+        return false;
+    };
+    let catalog = context.catalog.borrow();
+    let current = catalog
+        .assets()
+        .iter()
+        .find(|asset| asset.id == conflict.asset_id);
+    let credential_is_shared = tombstone_credentials_are_shared(catalog.assets(), &conflict.local);
+    let has_active_use = context
+        .session
+        .borrow()
+        .sessions
+        .contains_key(&conflict.asset_id)
+        || context
+            .active_tunnels
+            .borrow()
+            .iter()
+            .any(|tunnel| tunnel.asset_id == conflict.asset_id);
+    clean_tombstone_can_auto_apply(
+        conflict,
+        metadata.as_ref(),
+        current,
+        queued
+            .iter()
+            .any(|operation| operation.asset_id == conflict.asset_id),
+        has_active_use || credential_is_shared,
+    )
+}
+
+async fn restore_tombstone_credentials(
+    context: &UiContext,
+    conflict: &TombstoneConflict,
+    credential: Option<&CredentialMaterial>,
+    jump_credential: Option<&CredentialMaterial>,
+) -> String {
+    let mut errors = Vec::new();
+    if let Some(credential) = credential {
+        if let Err(error) = context
+            .vault
+            .store(
+                conflict.local.credential_id,
+                &conflict.local.name,
+                credential,
+            )
+            .await
+        {
+            errors.push(format!("资产凭据恢复失败：{error}"));
+        }
+    }
+    if let (Some(jump), Some(credential)) = (conflict.local.jump_host.as_ref(), jump_credential) {
+        if let Err(error) = context
+            .vault
+            .store(jump.credential_id, "OrbitTerm 跳板机", credential)
+            .await
+        {
+            errors.push(format!("跳板机凭据恢复失败：{error}"));
+        }
+    }
+    if errors.is_empty() {
+        "完成".into()
+    } else {
+        errors.join("；")
+    }
+}
+
+async fn auto_accept_clean_tombstone(
+    context: &UiContext,
+    pending: &PendingSyncRun,
+    conflict: &TombstoneConflict,
+) -> Result<(), String> {
+    let old_credential = context
+        .vault
+        .lookup(conflict.local.credential_id)
+        .await
+        .map_err(|error| format!("读取本机凭据失败：{error}"))?;
+    let old_jump_credential = match conflict.local.jump_host.as_ref() {
+        Some(jump) => context
+            .vault
+            .lookup(jump.credential_id)
+            .await
+            .map_err(|error| format!("读取跳板机凭据失败：{error}"))?,
+        None => None,
+    };
+    // Credential lookup yields to the UI; recheck every proof before mutation.
+    if !current_tombstone_is_safe(context, pending, conflict) {
+        return Err("本机资产、会话或离线队列已变化，改为人工处理".into());
+    }
+    if let Err(error) = context.vault.clear(conflict.local.credential_id).await {
+        let rollback = restore_tombstone_credentials(
+            context,
+            conflict,
+            old_credential.as_ref(),
+            old_jump_credential.as_ref(),
+        )
+        .await;
+        return Err(format!("移除本机凭据失败：{error}；回滚：{rollback}"));
+    }
+    if let Some(jump) = conflict.local.jump_host.as_ref() {
+        if let Err(error) = context.vault.clear(jump.credential_id).await {
+            let rollback = restore_tombstone_credentials(
+                context,
+                conflict,
+                old_credential.as_ref(),
+                old_jump_credential.as_ref(),
+            )
+            .await;
+            return Err(format!("移除跳板机凭据失败：{error}；回滚：{rollback}"));
+        }
+    }
+    if !current_tombstone_is_safe(context, pending, conflict) {
+        let rollback = restore_tombstone_credentials(
+            context,
+            conflict,
+            old_credential.as_ref(),
+            old_jump_credential.as_ref(),
+        )
+        .await;
+        return Err(format!("删除前本机状态已变化；回滚：{rollback}"));
+    }
+    let removal = { context.catalog.borrow_mut().remove(conflict.asset_id) };
+    if let Err(error) = removal {
+        let rollback = restore_tombstone_credentials(
+            context,
+            conflict,
+            old_credential.as_ref(),
+            old_jump_credential.as_ref(),
+        )
+        .await;
+        return Err(format!("移除本机资产失败：{error}；回滚：{rollback}"));
+    }
+    if let Err(error) = save_remote_state(
+        &context.sync_state,
+        &pending.account_fingerprint,
+        &conflict.remote,
+        None,
+    ) {
+        let restore_asset = context.catalog.borrow_mut().upsert(conflict.local.clone());
+        let restore_credentials = restore_tombstone_credentials(
+            context,
+            conflict,
+            old_credential.as_ref(),
+            old_jump_credential.as_ref(),
+        )
+        .await;
+        return Err(format!(
+            "保存云端墓碑失败：{error}；资产回滚：{restore_asset:?}；凭据回滚：{restore_credentials}"
+        ));
+    }
+    Ok(())
+}
+
+async fn auto_resolve_clean_tombstones(context: &UiContext, pending: &mut PendingSyncRun) -> usize {
+    let mut remaining = Vec::new();
+    let mut removed = 0;
+    for mut conflict in std::mem::take(&mut pending.preview.tombstone_conflicts) {
+        if !current_tombstone_is_safe(context, pending, &conflict) {
+            remaining.push(conflict);
+            continue;
+        }
+        match auto_accept_clean_tombstone(context, pending, &conflict).await {
+            Ok(()) => {
+                removed += 1;
+                if let Err(error) = context.sync_operations.record_completion(
+                    &pending.account_fingerprint,
+                    conflict.asset_id,
+                    SyncOperationKind::AcceptDeletion,
+                    conflict
+                        .remote
+                        .server_revision
+                        .map(|revision| format!("自动接受远端修订 {revision}")),
+                ) {
+                    pending
+                        .preview
+                        .failures
+                        .push(orbit_linux_sync::SyncFailureSummary {
+                            asset_id: Some(conflict.asset_id),
+                            reason: format!("本机已接受云端删除，但审计记录保存失败：{error}"),
+                        });
+                }
+            }
+            Err(error) => {
+                conflict.reason = format!("自动接受删除未完成：{error}；请人工检查");
+                remaining.push(conflict);
+            }
+        }
+    }
+    pending.preview.tombstone_conflicts = remaining;
+    if removed > 0 {
+        (context.refresh_assets)();
+    }
+    removed
+}
+
 fn apply_background_preview(context: UiContext, mut pending: PendingSyncRun) {
     gtk::glib::spawn_future_local(async move {
+        if !context.auth_tokens.is_current(pending.auth_epoch) {
+            context.sync_scheduler.finish_background();
+            return;
+        }
+        let automatically_removed = auto_resolve_clean_tombstones(&context, &mut pending).await;
+        if !context.auth_tokens.is_current(pending.auth_epoch) {
+            context.sync_scheduler.finish_background();
+            return;
+        }
+        let unresolved = pending.preview.unresolved_count();
+        if unresolved > 0 {
+            let notification_key = format!(
+                "{}:{}:{}",
+                pending.account_fingerprint,
+                pending
+                    .checkpoint
+                    .as_ref()
+                    .map_or(0, |checkpoint| checkpoint.revision),
+                unresolved
+            );
+            let material = AuthTokenMaterial {
+                access_token: pending.tokens.access_token.clone(),
+                refresh_token: pending.tokens.refresh_token.clone(),
+                account_scope: pending.tokens.account_scope.clone(),
+                username: pending.tokens.username.clone(),
+                must_change_password: pending.tokens.must_change_password,
+            };
+            let auth_epoch = pending.auth_epoch;
+            context.background_pending.replace(Some(pending));
+            context.sync_status.set_label(&format!(
+                "已安全移除 {automatically_removed} 项 · 仍需人工处理 {unresolved} 项"
+            ));
+            if context.sync_session.should_notify(notification_key) {
+                send_manual_sync_notification(&context, unresolved);
+            }
+            let _ = context
+                .auth_tokens
+                .store(&AuthTokenVault, &material, auth_epoch)
+                .await;
+            context.sync_scheduler.finish_background();
+            return;
+        }
         let mut imported = 0usize;
         let mut failed = 0usize;
         for remote in std::mem::take(&mut pending.preview.satisfied) {
@@ -9616,6 +10156,11 @@ fn apply_background_preview(context: UiContext, mut pending: PendingSyncRun) {
                 continue;
             }
             let credential_id = candidate.asset.credential_id;
+            if !context.auth_tokens.is_current(pending.auth_epoch) {
+                let _ = context.vault.clear(credential_id).await;
+                context.sync_scheduler.finish_background();
+                return;
+            }
             let asset = candidate.asset.clone();
             if context
                 .catalog
@@ -9635,6 +10180,10 @@ fn apply_background_preview(context: UiContext, mut pending: PendingSyncRun) {
                 continue;
             }
             imported += 1;
+        }
+        if !context.auth_tokens.is_current(pending.auth_epoch) {
+            context.sync_scheduler.finish_background();
+            return;
         }
         (context.refresh_assets)();
         if failed > 0 {
@@ -9660,6 +10209,7 @@ fn apply_background_preview(context: UiContext, mut pending: PendingSyncRun) {
         start_background_ack(
             context,
             pending.tokens,
+            pending.auth_epoch,
             pending.account_fingerprint,
             pending.device_id,
             checkpoint,
@@ -9689,6 +10239,7 @@ fn save_background_remote(
 fn start_background_ack(
     context: UiContext,
     mut tokens: SyncTokens,
+    auth_epoch: u64,
     account: String,
     device_id: Uuid,
     checkpoint: SyncCheckpoint,
@@ -9702,23 +10253,35 @@ fn start_background_ack(
             state
                 .save_cursor(&account, revision)
                 .map_err(|error| SyncError::LocalState(error.to_string()))?;
-            Ok::<_, SyncError>((tokens, revision))
+            Ok::<_, SyncError>((tokens.clone(), revision))
         });
-        let _ = sender.send(result);
+        let _ = sender.send((result, tokens));
     });
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
         match receiver.try_recv() {
-            Ok(Ok((tokens, _revision))) => {
+            Ok((Ok((tokens, _revision)), _latest_tokens)) => {
+                if !context.auth_tokens.is_current(auth_epoch) {
+                    context.sync_scheduler.finish_background();
+                    return gtk::glib::ControlFlow::Break;
+                }
                 let material = AuthTokenMaterial {
                     access_token: tokens.access_token.clone(),
                     refresh_token: tokens.refresh_token.clone(),
                     account_scope: tokens.account_scope.clone(),
                     username: tokens.username.clone(),
+                    must_change_password: tokens.must_change_password,
                 };
                 let completion_context = context.clone();
                 gtk::glib::spawn_future_local(async move {
-                    let stored = AuthTokenVault.store(&material).await.is_ok();
+                    let stored = completion_context
+                        .auth_tokens
+                        .store(&AuthTokenVault, &material, auth_epoch)
+                        .await
+                        .is_ok();
                     completion_context.sync_scheduler.finish_background();
+                    if !completion_context.auth_tokens.is_current(auth_epoch) {
+                        return;
+                    }
                     completion_context.sync_session.clear_notification();
                     let label = if stored {
                         format!("同步健康 · 已导入 {imported} 项")
@@ -9729,8 +10292,17 @@ fn start_background_ack(
                 });
                 gtk::glib::ControlFlow::Break
             }
-            Ok(Err(error)) => {
+            Ok((Err(error), latest_tokens)) => {
                 context.sync_scheduler.finish_background();
+                if !context.auth_tokens.is_current(auth_epoch) {
+                    return gtk::glib::ControlFlow::Break;
+                }
+                if matches!(&error, SyncError::PasswordChangeRequired)
+                    || latest_tokens.must_change_password
+                {
+                    pause_for_required_password_change(context.clone(), latest_tokens, auth_epoch);
+                    return gtk::glib::ControlFlow::Break;
+                }
                 if matches!(&error, SyncError::Unauthorized) {
                     set_account_header_logged_in(&context.account_header, false);
                     set_asset_access_authorized(&context, false);
@@ -9753,9 +10325,15 @@ fn start_background_ack(
     });
 }
 
-fn start_background_queue_worker(context: UiContext, mut tokens: SyncTokens, account: String) {
+fn start_background_queue_worker(
+    context: UiContext,
+    mut tokens: SyncTokens,
+    account: String,
+    auth_epoch: u64,
+) {
     let operations = context.sync_operations.clone();
     let state = context.sync_state.clone();
+    let callback_account = account.clone();
     let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || {
         let result = CloudClient::production().and_then(|client| {
@@ -9773,10 +10351,31 @@ fn start_background_queue_worker(context: UiContext, mut tokens: SyncTokens, acc
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
         match receiver.try_recv() {
             Ok(outcome) => {
+                if !context.auth_tokens.is_current(auth_epoch) {
+                    context.sync_scheduler.finish_background();
+                    return gtk::glib::ControlFlow::Break;
+                }
+                if matches!(&outcome.result, Err(SyncError::PasswordChangeRequired))
+                    || outcome.tokens.must_change_password
+                {
+                    context.sync_scheduler.finish_background();
+                    pause_for_required_password_change(context.clone(), outcome.tokens, auth_epoch);
+                    return gtk::glib::ControlFlow::Break;
+                }
                 if matches!(&outcome.result, Err(SyncError::Unauthorized)) {
                     set_account_header_logged_in(&context.account_header, false);
                     set_asset_access_authorized(&context, false);
                     set_active_account_fingerprint(&context, None);
+                }
+                // Queue delivery can rotate the login tokens while a conflict
+                // preview remains openable in memory. Keep that preview's
+                // session current until the next pull replaces its snapshot.
+                if let Some(staged) = context.background_pending.borrow_mut().as_mut() {
+                    if staged.auth_epoch == auth_epoch
+                        && staged.account_fingerprint == callback_account
+                    {
+                        staged.tokens = outcome.tokens.clone();
+                    }
                 }
                 let label = match (&outcome.result, &outcome.remaining) {
                     (Ok(completed), Ok(remaining)) if remaining.is_empty() => {
@@ -9800,11 +10399,19 @@ fn start_background_queue_worker(context: UiContext, mut tokens: SyncTokens, acc
                     refresh_token: outcome.tokens.refresh_token.clone(),
                     account_scope: outcome.tokens.account_scope.clone(),
                     username: outcome.tokens.username.clone(),
+                    must_change_password: outcome.tokens.must_change_password,
                 };
                 let completion_context = context.clone();
                 gtk::glib::spawn_future_local(async move {
-                    let stored = AuthTokenVault.store(&material).await.is_ok();
+                    let stored = completion_context
+                        .auth_tokens
+                        .store(&AuthTokenVault, &material, auth_epoch)
+                        .await
+                        .is_ok();
                     completion_context.sync_scheduler.finish_background();
+                    if !completion_context.auth_tokens.is_current(auth_epoch) {
+                        return;
+                    }
                     completion_context.sync_status.set_label(if stored {
                         &label
                     } else {
@@ -14523,6 +15130,7 @@ fn install_application_palette(palette: &str, dark: bool) {
 
 #[derive(Clone)]
 struct SyncDialogContext {
+    ui_context: UiContext,
     window: adw::Dialog,
     parent_window: adw::ApplicationWindow,
     catalog: Rc<RefCell<Catalog>>,
@@ -14530,6 +15138,7 @@ struct SyncDialogContext {
     token_vault: AuthTokenVault,
     sync_state: SyncStateRepository,
     sync_operations: SyncOperationRepository,
+    auth_tokens: AuthSessionCoordinator,
     sync_scheduler: SyncSchedulerGate,
     sync_session: SecureSyncSession,
     background_pending: Rc<RefCell<Option<PendingSyncRun>>>,
@@ -14562,6 +15171,7 @@ struct SyncDialogContext {
 struct PendingSyncRun {
     preview: SyncPreview,
     tokens: SyncTokens,
+    auth_epoch: u64,
     checkpoint: Option<SyncCheckpoint>,
     account_fingerprint: String,
     device_id: Uuid,
@@ -14719,6 +15329,7 @@ struct BackgroundQueueOutcome {
 
 struct BackgroundPullOutcome {
     result: Result<PendingSyncRun, SyncError>,
+    latest_tokens: SyncTokens,
 }
 
 fn present_sync_window(context: UiContext) {
@@ -14733,7 +15344,9 @@ fn present_sync_window_with_close(context: UiContext, on_closed: Option<Rc<dyn F
         return false;
     }
     if !context.sync_scheduler.try_open_dialog() {
-        context.sync_status.set_label("同步中心已打开");
+        context
+            .sync_status
+            .set_label("同步中心暂不可用 · 请先完成当前同步或账户安全操作");
         return false;
     }
     let window = adw::Dialog::builder()
@@ -15010,11 +15623,28 @@ fn present_sync_window_with_close(context: UiContext, on_closed: Option<Rc<dyn F
         window_for_mode.set_content_height(if registering { 540 } else { 470 });
     });
 
+    let dialog_pending = Rc::new(RefCell::new(None::<PendingSyncRun>));
+    let resolution_in_flight = Rc::new(Cell::new(false));
+    let dialog_closed = Rc::new(Cell::new(false));
+    let pending_for_close = dialog_pending.clone();
+    let resolution_for_close = resolution_in_flight.clone();
+    let closed_for_close = dialog_closed.clone();
     let close_context = context.clone();
     let close_callback = on_closed.clone();
     window.connect_closed(move |_| {
-        close_context.sync_scheduler.close_dialog();
-        trigger_background_sync(close_context.clone());
+        closed_for_close.set(true);
+        if let Some(pending) = pending_for_close.borrow_mut().take() {
+            if close_context.auth_tokens.is_current(pending.auth_epoch)
+                && close_context.active_account_fingerprint.borrow().as_deref()
+                    == Some(pending.account_fingerprint.as_str())
+            {
+                close_context.background_pending.replace(Some(pending));
+            }
+        }
+        if !resolution_for_close.get() {
+            close_context.sync_scheduler.close_dialog();
+            trigger_background_sync(close_context.clone());
+        }
         if let Some(callback) = close_callback.as_ref() {
             callback();
         }
@@ -15025,6 +15655,7 @@ fn present_sync_window_with_close(context: UiContext, on_closed: Option<Rc<dyn F
         set_asset_access_authorized(&access_context, authorized);
     });
     let dialog_context = SyncDialogContext {
+        ui_context: context.clone(),
         window: window.clone(),
         parent_window: context.window.clone(),
         catalog: context.catalog.clone(),
@@ -15032,6 +15663,7 @@ fn present_sync_window_with_close(context: UiContext, on_closed: Option<Rc<dyn F
         token_vault: AuthTokenVault,
         sync_state: context.sync_state.clone(),
         sync_operations: context.sync_operations.clone(),
+        auth_tokens: context.auth_tokens.clone(),
         sync_scheduler: context.sync_scheduler.clone(),
         sync_session: context.sync_session.clone(),
         background_pending: context.background_pending.clone(),
@@ -15041,7 +15673,7 @@ fn present_sync_window_with_close(context: UiContext, on_closed: Option<Rc<dyn F
         account_header: context.account_header.clone(),
         set_asset_access_authorized,
         active_account_fingerprint: context.active_account_fingerprint.clone(),
-        pending: Rc::new(RefCell::new(None)),
+        pending: dialog_pending,
         account_identity,
         summary,
         detail,
@@ -15084,22 +15716,32 @@ fn present_sync_window_with_close(context: UiContext, on_closed: Option<Rc<dyn F
     let logout_context = dialog_context.clone();
     let logout_pending = pending_auth.clone();
     logout.connect_clicked(move |_| {
+        if !logout_context.sync_scheduler.try_begin_logout() {
+            return;
+        }
+        if !logout_context.auth_tokens.begin_logout() {
+            logout_context.sync_scheduler.finish_logout();
+            return;
+        }
         logout_context.sync_session.lock();
         logout_context.background_pending.borrow_mut().take();
         logout_context.pending.borrow_mut().take();
+        (logout_context.set_asset_access_authorized)(false);
+        (logout_context.refresh_assets)();
         set_sync_busy(&logout_context, true, "正在撤销本机同步令牌…");
         let context = logout_context.clone();
         let pending_auth = logout_pending.clone();
         gtk::glib::spawn_future_local(async move {
-            match context.token_vault.clear().await {
-                Ok(()) => {
+            match context.auth_tokens.take_and_clear(&context.token_vault).await {
+                Ok(remote_access) => {
+                    context.sync_scheduler.finish_logout();
                     if let Some(application) = context.parent_window.application() {
                         application.withdraw_notification("sync-action-required");
                     }
                     set_sync_busy(&context, false, "");
                     context.summary.set_label("已退出当前同步账户");
                     context.detail.set_label(
-                        "本机访问令牌、刷新令牌和主密码会话已清除。正式服务暂未提供远端令牌撤销端点；如需切换账户，请直接使用新账户登录。",
+                        "本机访问令牌、刷新令牌和主密码会话已清除；正在尝试撤销当前设备的远端会话。其他设备不受影响。",
                     );
                     context
                         .app_status
@@ -15110,11 +15752,19 @@ fn present_sync_window_with_close(context: UiContext, on_closed: Option<Rc<dyn F
                     pending_auth.borrow_mut().take();
                     (context.refresh_assets)();
                     context.page_stack.set_visible_child_name("auth");
+                    verify_remote_logout(
+                        remote_access,
+                        context.app_status.clone(),
+                        context.active_account_fingerprint.clone(),
+                    );
                 }
-                Err(error) => show_sync_error(
-                    &context,
-                    &format!("无法从系统密钥环清除令牌，退出未完成：{error}"),
-                ),
+                Err(error) => {
+                    context.sync_scheduler.fail_logout();
+                    show_sync_error(
+                        &context,
+                        &format!("无法从系统密钥环清除令牌，退出未完成：{error}"),
+                    );
+                }
             }
         });
     });
@@ -15160,6 +15810,17 @@ fn present_sync_window_with_close(context: UiContext, on_closed: Option<Rc<dyn F
                     completion_context.login.set_sensitive(true);
                     completion_context.saved_login.set_sensitive(true);
                     clear_auth_error(&completion_context);
+                    if tokens.must_change_password {
+                        let context = completion_context.clone();
+                        let Some(auth_epoch) = context.auth_tokens.begin_login() else {
+                            show_auth_error(&context, "旧会话仍在清除，请稍后重新登录。");
+                            return gtk::glib::ControlFlow::Break;
+                        };
+                        gtk::glib::spawn_future_local(async move {
+                            require_login_password_change(context, tokens, auth_epoch).await;
+                        });
+                        return gtk::glib::ControlFlow::Break;
+                    }
                     completion_pending.replace(Some(SyncAuthInput::Authenticated(tokens)));
                     reset_unlock_feedback(&completion_context);
                     completion_context
@@ -15260,17 +15921,28 @@ fn present_sync_window_with_close(context: UiContext, on_closed: Option<Rc<dyn F
     let saved_button = dialog_context.saved_login.clone();
     saved_button.connect_clicked(move |_| {
         let context = saved_context.clone();
+        let auth_epoch = context.auth_tokens.snapshot();
         let completion_pending = saved_pending.clone();
         set_sync_busy(&context, true, "正在读取系统密钥环中的登录…");
         gtk::glib::spawn_future_local(async move {
-            match context.token_vault.lookup().await {
+            let lookup = context.token_vault.lookup().await;
+            if !context.auth_tokens.is_current(auth_epoch) {
+                return;
+            }
+            match lookup {
                 Ok(Some(tokens)) => {
-                    completion_pending.replace(Some(SyncAuthInput::Saved(SyncTokens {
+                    let tokens = SyncTokens {
                         access_token: tokens.access_token.clone(),
                         refresh_token: tokens.refresh_token.clone(),
                         account_scope: tokens.account_scope.clone(),
                         username: tokens.username.clone(),
-                    })));
+                        must_change_password: tokens.must_change_password,
+                    };
+                    if tokens.must_change_password {
+                        require_login_password_change(context, tokens, auth_epoch).await;
+                        return;
+                    }
+                    completion_pending.replace(Some(SyncAuthInput::Saved(tokens)));
                     set_sync_busy(&context, false, "");
                     reset_unlock_feedback(&context);
                     context.page_stack.set_visible_child_name("unlock");
@@ -15318,7 +15990,42 @@ fn present_sync_window_with_close(context: UiContext, on_closed: Option<Rc<dyn F
             "当前账户 · {} · 会话已解锁",
             sync_account_visible_name(&pending.tokens)
         ));
-        render_sync_preview(&dialog_context, pending);
+        dialog_context.import.set_sensitive(false);
+        dialog_context
+            .summary
+            .set_label("正在核验云端删除与本机状态…");
+        let resolution_context = dialog_context.clone();
+        let resolution_for_finish = resolution_in_flight.clone();
+        let closed_for_finish = dialog_closed.clone();
+        resolution_in_flight.set(true);
+        gtk::glib::spawn_future_local(async move {
+            let mut pending = pending;
+            let removed =
+                auto_resolve_clean_tombstones(&resolution_context.ui_context, &mut pending).await;
+            resolution_for_finish.set(false);
+            if !resolution_context
+                .auth_tokens
+                .is_current(pending.auth_epoch)
+            {
+                if closed_for_finish.get() {
+                    resolution_context.sync_scheduler.close_dialog();
+                    trigger_background_sync(resolution_context.ui_context.clone());
+                }
+                return;
+            }
+            if closed_for_finish.get() {
+                resolution_context.background_pending.replace(Some(pending));
+                resolution_context.sync_scheduler.close_dialog();
+                trigger_background_sync(resolution_context.ui_context.clone());
+                return;
+            }
+            render_sync_preview(&resolution_context, pending);
+            if removed > 0 {
+                resolution_context
+                    .app_status
+                    .set_label(&format!("已自动接受 {removed} 条安全的云端删除"));
+            }
+        });
         context.sync_session.clear_notification();
     } else {
         restore_saved_account_session(dialog_context.clone(), pending_auth.clone());
@@ -15351,22 +16058,82 @@ fn present_sync_window_with_close(context: UiContext, on_closed: Option<Rc<dyn F
     true
 }
 
+async fn require_login_password_change(
+    context: SyncDialogContext,
+    tokens: SyncTokens,
+    auth_epoch: u64,
+) {
+    let account = match account_fingerprint(&tokens.access_token) {
+        Ok(account) => account,
+        Err(error) => {
+            show_sync_error(&context, &format!("登录身份无法识别：{error}"));
+            return;
+        }
+    };
+    if !context.auth_tokens.is_current(auth_epoch) {
+        return;
+    }
+    let auth_epoch = context.auth_tokens.advance();
+    context.sync_session.lock();
+    context.pending.borrow_mut().take();
+    context.background_pending.borrow_mut().take();
+    (context.set_asset_access_authorized)(false);
+    context
+        .app_status
+        .set_label("必须先修改登录密码 · 同步已暂停");
+    let material = AuthTokenMaterial {
+        access_token: tokens.access_token.clone(),
+        refresh_token: tokens.refresh_token.clone(),
+        account_scope: tokens.account_scope.clone(),
+        username: tokens.username.clone(),
+        must_change_password: true,
+    };
+    let result = context
+        .auth_tokens
+        .store(&context.token_vault, &material, auth_epoch)
+        .await;
+    if !context.auth_tokens.is_current(auth_epoch) {
+        return;
+    }
+    if let Err(error) = result {
+        show_sync_error(&context, &format!("无法安全保存受限会话：{error}"));
+        return;
+    }
+    context.active_account_fingerprint.replace(Some(account));
+    set_account_header_logged_in(&context.account_header, true);
+    context
+        .sync_status
+        .set_label("账户安全操作待完成 · 仅允许改密或退出");
+    context.window.close();
+    present_account_management_window(context.ui_context);
+}
+
 fn restore_saved_account_session(
     context: SyncDialogContext,
     pending_auth: Rc<RefCell<Option<SyncAuthInput>>>,
 ) {
+    let auth_epoch = context.auth_tokens.snapshot();
     context.page_stack.set_visible_child_name("unlock");
     set_unlock_busy(&context, true, "正在安全恢复已保存账户…");
     let completion_context = context.clone();
     gtk::glib::spawn_future_local(async move {
-        match completion_context.token_vault.lookup().await {
+        let lookup = completion_context.token_vault.lookup().await;
+        if !completion_context.auth_tokens.is_current(auth_epoch) {
+            return;
+        }
+        match lookup {
             Ok(Some(material)) => {
                 let tokens = SyncTokens {
                     access_token: material.access_token.clone(),
                     refresh_token: material.refresh_token.clone(),
                     account_scope: material.account_scope.clone(),
                     username: material.username.clone(),
+                    must_change_password: material.must_change_password,
                 };
+                if tokens.must_change_password {
+                    require_login_password_change(completion_context, tokens, auth_epoch).await;
+                    return;
+                }
                 let visible_account = sync_account_visible_name(&tokens);
                 let account = match account_fingerprint(&tokens.access_token) {
                     Ok(account) => account,
@@ -15530,6 +16297,22 @@ fn begin_cloud_preview(
         show_unlock_error(&context, "请输入用于解密云端配置的主密码。");
         return;
     }
+    let auth_epoch = if matches!(&auth, SyncAuthInput::Authenticated(_)) {
+        let Some(epoch) = context.auth_tokens.begin_login() else {
+            retry_auth.replace(Some(auth));
+            show_unlock_error(&context, "旧会话仍在清除，请先完成退出后重试。");
+            return;
+        };
+        epoch
+    } else {
+        let epoch = context.auth_tokens.snapshot();
+        if !context.auth_tokens.is_current(epoch) {
+            retry_auth.replace(Some(auth));
+            show_unlock_error(&context, "退出尚未完成，请先清除旧会话。");
+            return;
+        }
+        epoch
+    };
     set_unlock_busy(&context, true, "正在安全登录并检查同步…");
     context.pending.borrow_mut().take();
     let local_assets = context.catalog.borrow().assets().to_vec();
@@ -15538,13 +16321,11 @@ fn begin_cloud_preview(
     let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || {
         let master_password = Zeroizing::new(master_password);
+        let mut tokens = match &auth {
+            SyncAuthInput::Authenticated(tokens) | SyncAuthInput::Saved(tokens) => tokens.clone(),
+        };
         let client = CloudClient::production();
         let result: Result<PendingSyncRun, SyncError> = client.and_then(|client| {
-            let mut tokens = match &auth {
-                SyncAuthInput::Authenticated(tokens) | SyncAuthInput::Saved(tokens) => {
-                    tokens.clone()
-                }
-            };
             let fingerprint = account_fingerprint(&tokens.access_token)?;
             process_due_sync_queue(
                 &client,
@@ -15579,6 +16360,7 @@ fn begin_cloud_preview(
                 .pending(&fingerprint)
                 .map_err(|error| SyncError::LocalState(error.to_string()))?
                 .into_iter()
+                .filter(|item| !item.is_remote_deleted_upload())
                 .map(|item| item.asset_id)
                 .collect();
             let (mut remote, checkpoint) = match client.pull_changes(&mut tokens, cursor) {
@@ -15608,19 +16390,27 @@ fn begin_cloud_preview(
             )?;
             Ok::<_, SyncError>(PendingSyncRun {
                 preview,
-                tokens,
+                tokens: tokens.clone(),
+                auth_epoch,
                 checkpoint,
                 account_fingerprint: fingerprint,
                 device_id,
                 master_password,
             })
         });
-        let outcome = result.map_err(|error| (error, auth));
+        let retry_auth = match auth {
+            SyncAuthInput::Authenticated(_) => SyncAuthInput::Authenticated(tokens),
+            SyncAuthInput::Saved(_) => SyncAuthInput::Saved(tokens),
+        };
+        let outcome = result.map_err(|error| (error, retry_auth));
         let _ = sender.send(outcome);
     });
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
         match receiver.try_recv() {
             Ok(Ok(pending)) => {
+                if !context.auth_tokens.is_current(pending.auth_epoch) {
+                    return gtk::glib::ControlFlow::Break;
+                }
                 let context = context.clone();
                 gtk::glib::spawn_future_local(async move {
                     set_unlock_busy(&context, false, "账户与主密码验证完成。");
@@ -15629,8 +16419,13 @@ fn begin_cloud_preview(
                         refresh_token: pending.tokens.refresh_token.clone(),
                         account_scope: pending.tokens.account_scope.clone(),
                         username: pending.tokens.username.clone(),
+                        must_change_password: pending.tokens.must_change_password,
                     };
-                    if let Err(error) = context.token_vault.store(&material).await {
+                    if let Err(error) = context
+                        .auth_tokens
+                        .store(&context.token_vault, &material, pending.auth_epoch)
+                        .await
+                    {
                         show_unlock_error(
                             &context,
                             &format!("登录成功，但令牌无法安全保存：{error}"),
@@ -15674,6 +16469,21 @@ fn begin_cloud_preview(
                 gtk::glib::ControlFlow::Break
             }
             Ok(Err((error, auth))) => {
+                if !context.auth_tokens.is_current(auth_epoch) {
+                    return gtk::glib::ControlFlow::Break;
+                }
+                if matches!(&error, SyncError::PasswordChangeRequired) {
+                    let tokens = match auth {
+                        SyncAuthInput::Authenticated(tokens) | SyncAuthInput::Saved(tokens) => {
+                            tokens
+                        }
+                    };
+                    let context = context.clone();
+                    gtk::glib::spawn_future_local(async move {
+                        require_login_password_change(context, tokens, auth_epoch).await;
+                    });
+                    return gtk::glib::ControlFlow::Break;
+                }
                 let message = if matches!(&error, SyncError::Unauthorized) {
                     match &auth {
                         SyncAuthInput::Authenticated(_) => {
@@ -15769,9 +16579,15 @@ fn process_due_sync_queue(
                 completed += 1;
             }
             Err(error) => {
-                operations
-                    .mark_failed(account_fingerprint, item.id, &error.to_string())
-                    .map_err(|state_error| SyncError::LocalState(state_error.to_string()))?;
+                if matches!(&error, SyncError::RemoteAssetDeleted) {
+                    operations
+                        .mark_blocked(account_fingerprint, item.id, &error.to_string())
+                        .map_err(|state_error| SyncError::LocalState(state_error.to_string()))?;
+                } else {
+                    operations
+                        .mark_failed(account_fingerprint, item.id, &error.to_string())
+                        .map_err(|state_error| SyncError::LocalState(state_error.to_string()))?;
+                }
                 return Ok(completed);
             }
         }
@@ -15789,6 +16605,7 @@ fn retry_sync_queue(context: SyncDialogContext, queue_id: Option<Uuid>, force_al
     let Some(mut pending) = context.pending.borrow_mut().take() else {
         return;
     };
+    let auth_epoch = pending.auth_epoch;
     set_sync_busy(&context, true, "正在重试离线同步操作…");
     let operations = context.sync_operations.clone();
     let sync_state = context.sync_state.clone();
@@ -15808,7 +16625,7 @@ fn retry_sync_queue(context: SyncDialogContext, queue_id: Option<Uuid>, force_al
                 let items = operations
                     .pending(&account)
                     .map_err(|error| SyncError::LocalState(error.to_string()))?;
-                for item in items {
+                for item in items.into_iter().filter(|item| !item.requires_resolution()) {
                     operations
                         .retry_now(&account, item.id)
                         .map_err(|error| SyncError::LocalState(error.to_string()))?;
@@ -15838,11 +16655,15 @@ fn retry_sync_queue(context: SyncDialogContext, queue_id: Option<Uuid>, force_al
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
         match receiver.try_recv() {
             Ok((pending, result)) => {
+                if !context.auth_tokens.is_current(pending.auth_epoch) {
+                    return gtk::glib::ControlFlow::Break;
+                }
                 let material = AuthTokenMaterial {
                     access_token: pending.tokens.access_token.clone(),
                     refresh_token: pending.tokens.refresh_token.clone(),
                     account_scope: pending.tokens.account_scope.clone(),
                     username: pending.tokens.username.clone(),
+                    must_change_password: pending.tokens.must_change_password,
                 };
                 render_sync_preview(&context, pending);
                 match result {
@@ -15875,7 +16696,11 @@ fn retry_sync_queue(context: SyncDialogContext, queue_id: Option<Uuid>, force_al
                 }
                 let token_context = context.clone();
                 gtk::glib::spawn_future_local(async move {
-                    if let Err(error) = token_context.token_vault.store(&material).await {
+                    if let Err(error) = token_context
+                        .auth_tokens
+                        .store(&token_context.token_vault, &material, auth_epoch)
+                        .await
+                    {
                         token_context
                             .app_status
                             .set_label(&format!("重试已处理，但刷新后的登录令牌未保存：{error}"));
@@ -15900,6 +16725,15 @@ fn retry_one_sync_operation(
     account_fingerprint: &str,
     queue_id: Uuid,
 ) -> Result<usize, SyncError> {
+    let item = operations
+        .item(account_fingerprint, queue_id)
+        .map_err(|error| SyncError::LocalState(error.to_string()))?
+        .ok_or_else(|| SyncError::LocalState("离线操作不存在".into()))?;
+    if item.requires_resolution() {
+        return Err(SyncError::LocalState(
+            "云端删除或永久拒绝需要先在同步中心明确处理，不能重试旧上传".into(),
+        ));
+    }
     operations
         .retry_now(account_fingerprint, queue_id)
         .map_err(|error| SyncError::LocalState(error.to_string()))?;
@@ -15927,9 +16761,15 @@ fn retry_one_sync_operation(
             Ok(1)
         }
         Err(error) => {
-            operations
-                .mark_failed(account_fingerprint, queue_id, &error.to_string())
-                .map_err(|state_error| SyncError::LocalState(state_error.to_string()))?;
+            if matches!(&error, SyncError::RemoteAssetDeleted) {
+                operations
+                    .mark_blocked(account_fingerprint, queue_id, &error.to_string())
+                    .map_err(|state_error| SyncError::LocalState(state_error.to_string()))?;
+            } else {
+                operations
+                    .mark_failed(account_fingerprint, queue_id, &error.to_string())
+                    .map_err(|state_error| SyncError::LocalState(state_error.to_string()))?;
+            }
             Err(error)
         }
     }
@@ -15941,10 +16781,26 @@ fn render_sync_preview(context: &SyncDialogContext, mut pending: PendingSyncRun)
         .sync_operations
         .pending(&pending.account_fingerprint)
     {
+        let represented: HashSet<Uuid> = pending
+            .preview
+            .conflicts
+            .iter()
+            .map(|item| item.asset_id)
+            .chain(
+                pending
+                    .preview
+                    .tombstone_conflicts
+                    .iter()
+                    .map(|item| item.asset_id),
+            )
+            .collect();
         pending
             .preview
             .deferred
-            .extend(queued.into_iter().map(|item| item.asset_id));
+            .extend(queued.into_iter().filter_map(|item| {
+                (!item.is_remote_deleted_upload() || !represented.contains(&item.asset_id))
+                    .then_some(item.asset_id)
+            }));
         pending.preview.deferred.sort_unstable();
         pending.preview.deferred.dedup();
     }
@@ -16045,7 +16901,9 @@ fn render_sync_timeline(context: &SyncDialogContext) {
             return;
         }
     };
-    context.retry_all.set_sensitive(!queue.is_empty());
+    context
+        .retry_all
+        .set_sensitive(queue.iter().any(|item| !item.requires_resolution()));
     for item in &queue {
         let row = gtk::Box::new(Orientation::Horizontal, 8);
         row.add_css_class("sync-queue-row");
@@ -16058,7 +16916,9 @@ fn render_sync_timeline(context: &SyncDialogContext) {
         )));
         title.set_xalign(0.0);
         title.add_css_class("heading");
-        let retry_at = if item.next_retry_at_unix_ms <= current_unix_ms().unwrap_or(0) {
+        let retry_at = if item.requires_resolution() {
+            "需要先处理云端删除冲突".into()
+        } else if item.next_retry_at_unix_ms <= current_unix_ms().unwrap_or(0) {
             "可立即重试".into()
         } else {
             format!(
@@ -16082,6 +16942,7 @@ fn render_sync_timeline(context: &SyncDialogContext) {
         copy.append(&detail);
         let retry = gtk::Button::with_label("立即重试");
         retry.set_valign(Align::Center);
+        retry.set_sensitive(!item.requires_resolution());
         let retry_context = context.clone();
         let queue_id = item.id;
         retry.connect_clicked(move |_| {
@@ -16616,9 +17477,9 @@ fn begin_restore_cloud_resolution(context: SyncDialogContext, asset_id: Uuid) {
                 index,
                 Ok(QueuedNetworkOutcome::Completed { remote, operation }),
             )) => {
-                if let Err(error) =
-                    save_applied_remote(&context, &pending, &remote, Some(&conflict.local))
-                {
+                // Restore reactivates the old cloud ciphertext. The locally
+                // edited asset is not yet the applied cloud version.
+                if let Err(error) = save_applied_remote(&context, &pending, &remote, None) {
                     let _ = context.sync_operations.mark_failed(
                         &pending.account_fingerprint,
                         operation.id,
@@ -16641,10 +17502,24 @@ fn begin_restore_cloud_resolution(context: SyncDialogContext, asset_id: Uuid) {
                         );
                         return gtk::glib::ControlFlow::Break;
                     }
+                    if let Err(error) = context
+                        .sync_operations
+                        .discard_pending_uploads(&pending.account_fingerprint, conflict.asset_id)
+                    {
+                        restore_resolution_error(
+                            &context,
+                            pending,
+                            &format!(
+                                "云端已恢复，但旧的待上传版本仍需清理：{error}；请勿重试旧上传"
+                            ),
+                        );
+                        return gtk::glib::ControlFlow::Break;
+                    }
+                    pending.checkpoint = None;
                     finish_network_resolution(
                         &context,
                         pending,
-                        "已恢复云端资产；新修订将在下一次增量拉取中复核",
+                        "已恢复云端资产；本机未上传改动需在下一次冲突预览中明确选择",
                     );
                 }
                 gtk::glib::ControlFlow::Break
@@ -16783,9 +17658,12 @@ fn execute_persisted_operation(
         Ok(remote) => Ok(QueuedNetworkOutcome::Completed { remote, operation }),
         Err(error) => {
             let reason = error.to_string();
-            let operation = operations
-                .mark_failed(account_fingerprint, operation.id, &reason)
-                .map_err(|state_error| SyncError::LocalState(state_error.to_string()))?;
+            let operation = if matches!(&error, SyncError::RemoteAssetDeleted) {
+                operations.mark_blocked(account_fingerprint, operation.id, &reason)
+            } else {
+                operations.mark_failed(account_fingerprint, operation.id, &reason)
+            }
+            .map_err(|state_error| SyncError::LocalState(state_error.to_string()))?;
             Ok(QueuedNetworkOutcome::Deferred { operation, reason })
         }
     }
@@ -16796,15 +17674,24 @@ fn finish_network_resolution(
     pending: PendingSyncRun,
     message: &'static str,
 ) {
+    let auth_epoch = pending.auth_epoch;
     let material = AuthTokenMaterial {
         access_token: pending.tokens.access_token.clone(),
         refresh_token: pending.tokens.refresh_token.clone(),
         account_scope: pending.tokens.account_scope.clone(),
         username: pending.tokens.username.clone(),
+        must_change_password: pending.tokens.must_change_password,
     };
     let context = context.clone();
     gtk::glib::spawn_future_local(async move {
-        if let Err(error) = context.token_vault.store(&material).await {
+        if !context.auth_tokens.is_current(auth_epoch) {
+            return;
+        }
+        if let Err(error) = context
+            .auth_tokens
+            .store(&context.token_vault, &material, auth_epoch)
+            .await
+        {
             render_sync_preview(&context, pending);
             context
                 .summary
@@ -17060,6 +17947,15 @@ fn begin_accept_deletion_resolution(context: SyncDialogContext, asset_id: Uuid) 
         return;
     };
     let conflict = pending.preview.tombstone_conflicts.remove(index);
+    if !manual_tombstone_target_is_current(&context, &pending, &conflict) {
+        pending.preview.tombstone_conflicts.insert(index, conflict);
+        restore_resolution_error(
+            &context,
+            pending,
+            "本机资产已变化或仍有活动会话；请关闭会话并重新同步后再接受删除。",
+        );
+        return;
+    }
     set_sync_busy(&context, true, "正在从本机安全移除资产…");
     gtk::glib::spawn_future_local(async move {
         let old_credential = match context
@@ -17093,41 +17989,86 @@ fn begin_accept_deletion_resolution(context: SyncDialogContext, asset_id: Uuid) 
             },
             None => None,
         };
-        if let Err(error) = context
-            .credential_vault
-            .clear(conflict.local.credential_id)
-            .await
-        {
+        if !manual_tombstone_target_is_current(&context, &pending, &conflict) {
             pending.preview.tombstone_conflicts.insert(index, conflict);
-            restore_resolution_error(&context, pending, &format!("无法删除本机凭据：{error}"));
+            restore_resolution_error(
+                &context,
+                pending,
+                "本机资产或会话在读取凭据期间发生变化；请重新同步。",
+            );
             return;
         }
-        if let Some(jump) = conflict.local.jump_host.as_ref() {
-            if let Err(error) = context.credential_vault.clear(jump.credential_id).await {
-                if let Some(old) = old_credential.as_ref() {
-                    let _ = context
-                        .credential_vault
-                        .store(conflict.local.credential_id, &conflict.local.name, old)
-                        .await;
-                }
+        let (clear_primary, clear_jump) = {
+            let catalog = context.catalog.borrow();
+            tombstone_credential_clear_plan(catalog.assets(), &conflict.local)
+        };
+        if clear_primary {
+            if let Err(error) = context
+                .credential_vault
+                .clear(conflict.local.credential_id)
+                .await
+            {
                 pending.preview.tombstone_conflicts.insert(index, conflict);
-                restore_resolution_error(
-                    &context,
-                    pending,
-                    &format!("无法删除跳板机凭据：{error}"),
-                );
+                restore_resolution_error(&context, pending, &format!("无法删除本机凭据：{error}"));
                 return;
             }
         }
-        let catalog_result = { context.catalog.borrow_mut().remove(asset_id) };
-        if let Err(error) = catalog_result {
-            if let Some(old) = old_credential.as_ref() {
+        if clear_jump {
+            if let Some(jump) = conflict.local.jump_host.as_ref() {
+                if let Err(error) = context.credential_vault.clear(jump.credential_id).await {
+                    if clear_primary {
+                        if let Some(old) = old_credential.as_ref() {
+                            let _ = context
+                                .credential_vault
+                                .store(conflict.local.credential_id, &conflict.local.name, old)
+                                .await;
+                        }
+                    }
+                    pending.preview.tombstone_conflicts.insert(index, conflict);
+                    restore_resolution_error(
+                        &context,
+                        pending,
+                        &format!("无法删除跳板机凭据：{error}"),
+                    );
+                    return;
+                }
+            }
+        }
+        if !manual_tombstone_target_is_current(&context, &pending, &conflict) {
+            if let (true, Some(old)) = (clear_primary, old_credential.as_ref()) {
                 let _ = context
                     .credential_vault
                     .store(conflict.local.credential_id, &conflict.local.name, old)
                     .await;
             }
-            if let (Some(jump), Some(old)) = (
+            if let (true, Some(jump), Some(old)) = (
+                clear_jump,
+                conflict.local.jump_host.as_ref(),
+                old_jump_credential.as_ref(),
+            ) {
+                let _ = context
+                    .credential_vault
+                    .store(jump.credential_id, "OrbitTerm 跳板机", old)
+                    .await;
+            }
+            pending.preview.tombstone_conflicts.insert(index, conflict);
+            restore_resolution_error(
+                &context,
+                pending,
+                "本机资产或活动会话在删除前发生变化；凭据已尝试恢复，请重新同步。",
+            );
+            return;
+        }
+        let catalog_result = { context.catalog.borrow_mut().remove(asset_id) };
+        if let Err(error) = catalog_result {
+            if let (true, Some(old)) = (clear_primary, old_credential.as_ref()) {
+                let _ = context
+                    .credential_vault
+                    .store(conflict.local.credential_id, &conflict.local.name, old)
+                    .await;
+            }
+            if let (true, Some(jump), Some(old)) = (
+                clear_jump,
                 conflict.local.jump_host.as_ref(),
                 old_jump_credential.as_ref(),
             ) {
@@ -17142,13 +18083,14 @@ fn begin_accept_deletion_resolution(context: SyncDialogContext, asset_id: Uuid) 
         }
         if let Err(error) = save_applied_remote(&context, &pending, &conflict.remote, None) {
             let _ = context.catalog.borrow_mut().upsert(conflict.local.clone());
-            if let Some(old) = old_credential.as_ref() {
+            if let (true, Some(old)) = (clear_primary, old_credential.as_ref()) {
                 let _ = context
                     .credential_vault
                     .store(conflict.local.credential_id, &conflict.local.name, old)
                     .await;
             }
-            if let (Some(jump), Some(old)) = (
+            if let (true, Some(jump), Some(old)) = (
+                clear_jump,
                 conflict.local.jump_host.as_ref(),
                 old_jump_credential.as_ref(),
             ) {
@@ -17159,6 +18101,21 @@ fn begin_accept_deletion_resolution(context: SyncDialogContext, asset_id: Uuid) 
             }
             pending.preview.tombstone_conflicts.insert(index, conflict);
             restore_resolution_error(&context, pending, &error);
+            return;
+        }
+        if let Err(error) = context
+            .sync_operations
+            .discard_pending_uploads(&pending.account_fingerprint, asset_id)
+        {
+            (context.refresh_assets)();
+            render_sync_preview(&context, pending);
+            context
+                .summary
+                .set_label("本机已接受删除，离线队列清理失败");
+            context.detail.set_label(&format!(
+                "本机资产已移除且墓碑已保存，但旧上传操作未能清理：{error}。请勿重试旧上传。"
+            ));
+            context.detail.add_css_class("error-message");
             return;
         }
         if let Err(error) = context.sync_operations.record_completion(
@@ -17185,6 +18142,50 @@ fn begin_accept_deletion_resolution(context: SyncDialogContext, asset_id: Uuid) 
             .app_status
             .set_label("已接受云端删除，本机资产与凭据已移除");
     });
+}
+
+fn manual_tombstone_target_is_current(
+    context: &SyncDialogContext,
+    pending: &PendingSyncRun,
+    conflict: &TombstoneConflict,
+) -> bool {
+    context.auth_tokens.is_current(pending.auth_epoch)
+        && context
+            .catalog
+            .borrow()
+            .assets()
+            .iter()
+            .any(|asset| asset == &conflict.local)
+        && !context
+            .ui_context
+            .session
+            .borrow()
+            .sessions
+            .contains_key(&conflict.asset_id)
+        && !context
+            .ui_context
+            .active_tunnels
+            .borrow()
+            .iter()
+            .any(|tunnel| tunnel.asset_id == conflict.asset_id)
+}
+
+fn tombstone_credential_clear_plan(assets: &[ServerAsset], target: &ServerAsset) -> (bool, bool) {
+    let referenced_elsewhere = |credential_id: Uuid| {
+        assets.iter().any(|asset| {
+            asset.id != target.id
+                && (asset.credential_id == credential_id
+                    || asset
+                        .jump_host
+                        .as_ref()
+                        .is_some_and(|jump| jump.credential_id == credential_id))
+        })
+    };
+    let clear_primary = !referenced_elsewhere(target.credential_id);
+    let clear_jump = target.jump_host.as_ref().is_some_and(|jump| {
+        jump.credential_id != target.credential_id && !referenced_elsewhere(jump.credential_id)
+    });
+    (clear_primary, clear_jump)
 }
 
 fn save_applied_remote(
@@ -17370,6 +18371,7 @@ fn apply_sync_preview(context: SyncDialogContext) {
         acknowledge_sync_checkpoint(
             context,
             pending.tokens,
+            pending.auth_epoch,
             pending.account_fingerprint,
             pending.device_id,
             checkpoint,
@@ -17395,6 +18397,7 @@ fn finish_full_pull_import(context: &SyncDialogContext, imported: usize) {
 fn acknowledge_sync_checkpoint(
     context: SyncDialogContext,
     mut tokens: SyncTokens,
+    auth_epoch: u64,
     account_fingerprint: String,
     device_id: Uuid,
     checkpoint: SyncCheckpoint,
@@ -17416,6 +18419,9 @@ fn acknowledge_sync_checkpoint(
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
         match receiver.try_recv() {
             Ok(Ok((tokens, revision, reset_recovered))) => {
+                if !context.auth_tokens.is_current(auth_epoch) {
+                    return gtk::glib::ControlFlow::Break;
+                }
                 let context = context.clone();
                 gtk::glib::spawn_future_local(async move {
                     let material = AuthTokenMaterial {
@@ -17423,8 +18429,13 @@ fn acknowledge_sync_checkpoint(
                         refresh_token: tokens.refresh_token.clone(),
                         account_scope: tokens.account_scope.clone(),
                         username: tokens.username.clone(),
+                        must_change_password: tokens.must_change_password,
                     };
-                    if let Err(error) = context.token_vault.store(&material).await {
+                    if let Err(error) = context
+                        .auth_tokens
+                        .store(&context.token_vault, &material, auth_epoch)
+                        .await
+                    {
                         set_sync_busy(&context, false, "");
                         context.import.set_sensitive(false);
                         context.summary.set_label("同步已完成，登录令牌保存失败");
@@ -19137,6 +20148,167 @@ mod tests {
     use super::*;
 
     #[test]
+    fn automatic_tombstone_never_clears_shared_credentials() {
+        let mut target = ServerAsset::new("目标", "192.0.2.20", "tester");
+        let mut other = ServerAsset::new("其他", "192.0.2.21", "tester");
+        assert!(!tombstone_credentials_are_shared(
+            &[target.clone(), other.clone()],
+            &target
+        ));
+        other.credential_id = target.credential_id;
+        assert!(tombstone_credentials_are_shared(
+            &[target.clone(), other.clone()],
+            &target
+        ));
+        other.credential_id = Uuid::new_v4();
+        target.jump_host = Some(orbit_linux_domain::JumpHostConfiguration {
+            credential_id: Uuid::new_v4(),
+            host: "192.0.2.22".into(),
+            port: 22,
+            username: "jumper".into(),
+            auth_method: AuthMethod::Password,
+            allow_password_fallback: false,
+            key_reference: String::new(),
+        });
+        assert!(!tombstone_credentials_are_shared(
+            &[target.clone(), other.clone()],
+            &target
+        ));
+        other.credential_id = target.jump_host.as_ref().unwrap().credential_id;
+        assert!(tombstone_credentials_are_shared(
+            &[target.clone(), other.clone()],
+            &target
+        ));
+        other.credential_id = Uuid::new_v4();
+        other.jump_host = target.jump_host.clone();
+        assert!(tombstone_credentials_are_shared(
+            &[target.clone(), other],
+            &target
+        ));
+        target.jump_host.as_mut().unwrap().credential_id = target.credential_id;
+        assert!(tombstone_credentials_are_shared(&[target.clone()], &target));
+    }
+
+    #[test]
+    fn manual_tombstone_preserves_credentials_still_used_by_other_assets() {
+        let mut target = ServerAsset::new("目标", "192.0.2.20", "tester");
+        target.jump_host = Some(orbit_linux_domain::JumpHostConfiguration {
+            credential_id: Uuid::new_v4(),
+            host: "192.0.2.22".into(),
+            port: 22,
+            username: "jumper".into(),
+            auth_method: AuthMethod::Password,
+            allow_password_fallback: false,
+            key_reference: String::new(),
+        });
+        let mut other = ServerAsset::new("其他", "192.0.2.21", "tester");
+        assert_eq!(
+            tombstone_credential_clear_plan(&[target.clone(), other.clone()], &target),
+            (true, true)
+        );
+        other.credential_id = target.credential_id;
+        assert_eq!(
+            tombstone_credential_clear_plan(&[target.clone(), other.clone()], &target),
+            (false, true)
+        );
+        other.credential_id = target.jump_host.as_ref().unwrap().credential_id;
+        assert_eq!(
+            tombstone_credential_clear_plan(&[target.clone(), other.clone()], &target),
+            (true, false)
+        );
+        other.credential_id = target.credential_id;
+        other.jump_host = target.jump_host.clone();
+        assert_eq!(
+            tombstone_credential_clear_plan(&[target.clone(), other], &target),
+            (false, false)
+        );
+    }
+
+    #[test]
+    fn clean_remote_soft_delete_requires_matching_applied_provenance() {
+        let mut local = ServerAsset::new("测试资产", "192.0.2.10", "tester");
+        local.storage_scope = AssetStorageScope::AccountSynced;
+        let remote = RemoteConfig {
+            id: 47,
+            asset_id: Some(local.id.to_string()),
+            encrypted_blob_base64: String::new(),
+            vector_clock: r#"{"remote":2}"#.into(),
+            identity_fingerprint: None,
+            state: Some("deleted".into()),
+            server_revision: Some(12),
+            updated_at: String::new(),
+        };
+        let mut conflict = TombstoneConflict {
+            asset_id: local.id,
+            local: local.clone(),
+            remote,
+            restore_operation_id: Uuid::new_v4(),
+            restorable: true,
+            reason: String::new(),
+        };
+        let mut metadata = AssetSyncState {
+            remote_id: 47,
+            vector_clock: r#"{"remote":1}"#.into(),
+            state: "active".into(),
+            server_revision: 11,
+            applied: true,
+            local_fingerprint: Some(asset_sync_fingerprint(&local).unwrap()),
+        };
+        let safe = |conflict: &TombstoneConflict,
+                    metadata: &AssetSyncState,
+                    local: &ServerAsset,
+                    pending,
+                    active| {
+            clean_tombstone_can_auto_apply(conflict, Some(metadata), Some(local), pending, active)
+        };
+        assert!(safe(&conflict, &metadata, &local, false, false));
+        assert!(!safe(&conflict, &metadata, &local, true, false));
+        assert!(!safe(&conflict, &metadata, &local, false, true));
+        assert!(!clean_tombstone_can_auto_apply(
+            &conflict,
+            None,
+            Some(&local),
+            false,
+            false,
+        ));
+
+        let mut edited = local.clone();
+        edited.host = "192.0.2.11".into();
+        assert!(!safe(&conflict, &metadata, &edited, false, false));
+        conflict.local = edited;
+        assert!(!safe(&conflict, &metadata, &local, false, false));
+        conflict.local = local.clone();
+        conflict.remote.asset_id = Some(Uuid::new_v4().to_string());
+        assert!(!safe(&conflict, &metadata, &local, false, false));
+        conflict.remote.asset_id = Some(local.id.to_string().to_uppercase());
+        assert!(safe(&conflict, &metadata, &local, false, false));
+        metadata.local_fingerprint = None;
+        assert!(!safe(&conflict, &metadata, &local, false, false));
+        metadata.local_fingerprint = Some(asset_sync_fingerprint(&local).unwrap());
+        metadata.remote_id = 48;
+        assert!(!safe(&conflict, &metadata, &local, false, false));
+        metadata.remote_id = 47;
+        metadata.server_revision = 12;
+        assert!(!safe(&conflict, &metadata, &local, false, false));
+        metadata.server_revision = 11;
+        metadata.applied = false;
+        assert!(!safe(&conflict, &metadata, &local, false, false));
+        metadata.applied = true;
+        metadata.state = "deleted".into();
+        assert!(!safe(&conflict, &metadata, &local, false, false));
+        metadata.state = "active".into();
+        let mut local_only = local.clone();
+        local_only.storage_scope = AssetStorageScope::LocalOnly;
+        assert!(!safe(&conflict, &metadata, &local_only, false, false));
+        conflict.local.storage_scope = AssetStorageScope::LocalOnly;
+        assert!(!safe(&conflict, &metadata, &local, false, false));
+        conflict.local = local.clone();
+        conflict.remote.state = Some("purged".into());
+        conflict.restorable = false;
+        assert!(!safe(&conflict, &metadata, &local, false, false));
+    }
+
+    #[test]
     fn workstation_panels_default_to_safe_minimum_widths() {
         assert_eq!(responsive_workstation_panel_widths(820), (220, 280));
         assert_eq!(responsive_workstation_panel_widths(980), (220, 280));
@@ -19319,6 +20491,7 @@ mod tests {
             refresh_token: String::new(),
             account_scope: "scope".into(),
             username: "person@example.com".into(),
+            must_change_password: false,
         };
         assert_eq!(sync_account_visible_name(&stored), "person@example.com");
 
@@ -19327,6 +20500,7 @@ mod tests {
             refresh_token: stored.refresh_token.clone(),
             account_scope: stored.account_scope.clone(),
             username: String::new(),
+            must_change_password: false,
         };
         assert_eq!(sync_account_visible_name(&legacy), "已保存账户");
     }
