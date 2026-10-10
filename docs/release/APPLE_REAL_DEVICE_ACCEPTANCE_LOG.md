@@ -70,3 +70,9 @@
 - `IOS-FORMAL-FAULT-07` 针对历史 `blocked:sync.requestRejected` 缺乏 HTTP 证据的问题，为**新发生且底层错误仍携带 HTTP 状态**的 Apple 同步队列交付失败持久化 `安全恢复类别|http=状态码`。状态只接受 400–599；不读取或写入响应正文、请求 URL、令牌或任意服务端错误文本。某些专门错误类别（如当前未提交契约改动中的 413）不保留原始状态，本轮不声称覆盖所有拒绝。旧正式版两条队列已随用户手动卸载而无法追溯，不能倒填其状态或推断根因。
 - 使用固定虚构 UUID 和不含真实资产的请求体，在 Debug 测试专用入口通过与正式删除共用的资产删除路径格式、通用请求构造器及幂等键算法，注入合成响应；没有使用测试账户令牌或访问线上/隔离服务端。`409`（响应正文包含 `ASSET_DELETED` 和不可留存文本）保留 `blocked:sync.requestRejected|http=409`；`503→503→422` 三次请求保持同一幂等键，最终保留 `blocked:sync.requestRejected|http=422`；正文均不进入持久诊断字段。此入口没有覆盖真实账户授权/刷新链路，也没有把客户端稳定类别当作服务端错误码。
 - 第一次定向 XCTest 在编译阶段失败：格式化器放到了测试 target 未编入的 `SyncQueue.swift`。移至双方共用的策略文件后，`NetworkServiceFaultInjectionTests` 与 `SyncQueueRecoveryPolicyTests` 合计 22/22 通过；首次编译失败保留。当前含其他未提交契约改动的工作区 iOS Release、签名关闭构建通过。本项**没有安装新的 iPhone 包、没有 GUI 删除、没有操作测试资产**，不能把自动化记为正式版真机或五端验收。源码提交与后续对照见[五端台账](FIVE_PLATFORM_FIX_AND_REGRESSION_LEDGER.md) `TS-10`。
+
+## 2026-10-10 固定源码候选的 iPhone 独立 QA 只读回归
+
+- Apple `c62b60f`、Android `e13b0be`、Windows `7a2ca23` 和台账 `93f6f16` 已分别提交并推送。本轮 iOS 独立 QA 包基于 `93f6f16` 构建，Bundle ID 为 `com.orbitterm.matrix.ios`，仅 Debug + 显式 QA 标记启用镜像通道；可执行文件 SHA-256 `b85f01a5b0a77929459cd588fc25f1db1ded674bb63ae64a93fa88ca45fd49ed`。Xcode 构建与严格签名检查通过。CoreDevice 只读核对目标设备为 iPhone 13 mini；另一台已连接 iPhone 13 Pro 未操作。只原位更新和启动独立 QA 包，正式身份包未覆盖。
+- 镜像中初次提交主密码被界面判为不正确；随后重新输入并解锁到资产列表。未记录或输出密码，也未将首次失败归咎于输入通道或客户端认证逻辑。两次手动同步后，个人中心显示“同步完成”，活动资产列表始终只有原 RDP 1 项，没有已删除的 SSH 测试资产复活。此次没有创建、编辑、恢复、软删除或永久删除资产；没有读取队列负载、最近删除细项或服务端修订。
+- 这是**固定源码 + iPhone 真机 QA 包的有限只读回归**，不是正式包、Release 分发包、隔离服务端新契约联调或五端完整墓碑矩阵。镜像 QA 包会使授权 Mac 可见测试账户画面，只可用于非真实资产测试；正式版镜像保护 `IOS-CAPTURE-03` 仍为 P1 开放。Android/Windows 实体机到位后须重复活动/最近删除/队列的交叉核对，不能沿用本次通过结论。
