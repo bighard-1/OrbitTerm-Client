@@ -13108,6 +13108,7 @@ fn present_asset_manager_window(context: UiContext, search: gtk::SearchEntry) {
         }
     });
     let delete_context = context.clone();
+    let delete_parent = window.clone();
     let delete_checks = selected_assets.clone();
     let delete_status = status.clone();
     let delete_render = render.clone();
@@ -13119,6 +13120,7 @@ fn present_asset_manager_window(context: UiContext, search: gtk::SearchEntry) {
             .collect::<Vec<_>>();
         confirm_asset_batch_delete(
             delete_context.clone(),
+            delete_parent.clone(),
             targets,
             delete_status.clone(),
             delete_render.clone(),
@@ -13126,6 +13128,7 @@ fn present_asset_manager_window(context: UiContext, search: gtk::SearchEntry) {
         );
     });
     let group_context = context.clone();
+    let group_parent = window.clone();
     let group_status = status.clone();
     let group_render = render.clone();
     delete_group.connect_clicked(move |_| {
@@ -13154,6 +13157,7 @@ fn present_asset_manager_window(context: UiContext, search: gtk::SearchEntry) {
             .collect::<Vec<_>>();
         confirm_asset_batch_delete(
             group_context.clone(),
+            group_parent.clone(),
             targets,
             group_status.clone(),
             group_render.clone(),
@@ -13169,6 +13173,7 @@ fn present_asset_manager_window(context: UiContext, search: gtk::SearchEntry) {
 
 fn confirm_asset_batch_delete(
     context: UiContext,
+    parent: gtk::Window,
     targets: Vec<(Uuid, String)>,
     status: gtk::Label,
     rerender: Rc<dyn Fn()>,
@@ -13209,7 +13214,7 @@ fn confirm_asset_batch_delete(
     dialog.add_response("delete", "确认删除");
     dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
     gtk::glib::spawn_future_local(async move {
-        if dialog.choose_future(Some(&context.window)).await.as_str() != "delete" {
+        if dialog.choose_future(Some(&parent)).await.as_str() != "delete" {
             return;
         }
         let mut conversion_plans = Vec::new();

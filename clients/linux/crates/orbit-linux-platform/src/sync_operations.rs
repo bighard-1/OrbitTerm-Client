@@ -310,8 +310,7 @@ impl SyncOperationRepository {
         Ok(self
             .pending(account_fingerprint)?
             .into_iter()
-            .find(|item| !item.requires_resolution())
-            .filter(|item| item.next_retry_at_unix_ms <= now_unix_ms))
+            .find(|item| !item.requires_resolution() && item.next_retry_at_unix_ms <= now_unix_ms))
     }
 
     pub fn item(
@@ -910,6 +909,67 @@ mod tests {
                 .unwrap()
                 .id,
             independent.id
+        );
+    }
+
+    #[test]
+    fn backoff_on_older_item_does_not_starve_later_due_item() {
+        let directory = tempfile::tempdir().unwrap();
+        let repository = SyncOperationRepository::new(directory.path().join("operations.json"));
+        let older = repository
+            .enqueue(
+                "001122aabbcc",
+                SyncOperationKind::KeepLocalUpload,
+                upload(Uuid::new_v4()),
+                None,
+                "offline",
+            )
+            .unwrap();
+        repository.begin_attempt("001122aabbcc", older.id).unwrap();
+        repository
+            .mark_failed("001122aabbcc", older.id, "temporary network failure")
+            .unwrap();
+        let later = repository
+            .enqueue(
+                "001122aabbcc",
+                SyncOperationKind::KeepLocalUpload,
+                upload(Uuid::new_v4()),
+                None,
+                "offline",
+            )
+            .unwrap();
+
+        let mut document = repository.load_or_create().unwrap();
+        document
+            .queue
+            .iter_mut()
+            .find(|item| item.id == older.id)
+            .unwrap()
+            .created_at_unix_ms = 1;
+        document
+            .queue
+            .iter_mut()
+            .find(|item| item.id == later.id)
+            .unwrap()
+            .created_at_unix_ms = 2;
+        repository.save(&document).unwrap();
+
+        let now = current_unix_ms().unwrap();
+        assert!(
+            repository
+                .item("001122aabbcc", older.id)
+                .unwrap()
+                .unwrap()
+                .next_retry_at_unix_ms
+                > now
+        );
+        assert_eq!(
+            repository
+                .next_due("001122aabbcc", now)
+                .unwrap()
+                .unwrap()
+                .id,
+            later.id
         );
     }
 
