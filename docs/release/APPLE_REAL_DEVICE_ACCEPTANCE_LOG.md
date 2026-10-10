@@ -67,6 +67,6 @@
 
 ## 2026-10-09 正式版删除请求的定向故障注入（本地时间）
 
-- `IOS-FORMAL-FAULT-07` 针对历史 `blocked:sync.requestRejected` 缺乏 HTTP 证据的问题，为**新发生**的 Apple 同步队列交付失败持久化 `安全恢复类别|http=状态码`。状态只接受 400–599；不读取或写入响应正文、请求 URL、令牌或任意服务端错误文本。旧正式版两条队列已随用户手动卸载而无法追溯，不能倒填其状态或推断根因。
+- `IOS-FORMAL-FAULT-07` 针对历史 `blocked:sync.requestRejected` 缺乏 HTTP 证据的问题，为**新发生且底层错误仍携带 HTTP 状态**的 Apple 同步队列交付失败持久化 `安全恢复类别|http=状态码`。状态只接受 400–599；不读取或写入响应正文、请求 URL、令牌或任意服务端错误文本。某些专门错误类别（如当前未提交契约改动中的 413）不保留原始状态，本轮不声称覆盖所有拒绝。旧正式版两条队列已随用户手动卸载而无法追溯，不能倒填其状态或推断根因。
 - 使用固定虚构 UUID 和不含真实资产的请求体，在 Debug 测试专用入口通过与正式删除共用的资产删除路径格式、通用请求构造器及幂等键算法，注入合成响应；没有使用测试账户令牌或访问线上/隔离服务端。`409`（响应正文包含 `ASSET_DELETED` 和不可留存文本）保留 `blocked:sync.requestRejected|http=409`；`503→503→422` 三次请求保持同一幂等键，最终保留 `blocked:sync.requestRejected|http=422`；正文均不进入持久诊断字段。此入口没有覆盖真实账户授权/刷新链路，也没有把客户端稳定类别当作服务端错误码。
 - 第一次定向 XCTest 在编译阶段失败：格式化器放到了测试 target 未编入的 `SyncQueue.swift`。移至双方共用的策略文件后，`NetworkServiceFaultInjectionTests` 与 `SyncQueueRecoveryPolicyTests` 合计 22/22 通过；首次编译失败保留。当前含其他未提交契约改动的工作区 iOS Release、签名关闭构建通过。本项**没有安装新的 iPhone 包、没有 GUI 删除、没有操作测试资产**，不能把自动化记为正式版真机或五端验收。源码提交与后续对照见[五端台账](FIVE_PLATFORM_FIX_AND_REGRESSION_LEDGER.md) `TS-10`。
