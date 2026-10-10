@@ -23,7 +23,8 @@ object SyncDeliveryPolicy {
         OrbitErrorCode.NetworkTimeout,
         -> if (error.retryable) SyncDeliveryDisposition.Ready else SyncDeliveryDisposition.Blocked
 
-        // The API layer intentionally does not inspect untrusted response text.
+        // The API layer only recognizes a small allow-list of bounded server
+        // contract codes; arbitrary response text cannot change disposition.
         // A bounded allowance covers transient 429/5xx responses without
         // letting an ambiguous permanent rejection spin forever.
         OrbitErrorCode.RemoteServiceRejected -> if (
@@ -44,6 +45,8 @@ object SyncDeliveryPolicy {
 
         OrbitErrorCode.AuthenticationExpired,
         OrbitErrorCode.AuthenticationFailed,
+        OrbitErrorCode.PasswordChangeRequired,
+        OrbitErrorCode.AuthStateChanged,
         -> SyncDeliveryDisposition.WaitingForAuthentication
 
         OrbitErrorCode.StorageLocked,

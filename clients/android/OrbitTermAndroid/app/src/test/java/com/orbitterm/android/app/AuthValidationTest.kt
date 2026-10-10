@@ -1,7 +1,10 @@
 package com.orbitterm.android.app
 
+import com.orbitterm.android.sync.AuthResponse
+import com.orbitterm.android.sync.OrbitServiceFailure
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class AuthValidationTest {
@@ -35,5 +38,18 @@ class AuthValidationTest {
             "密码至少 12 位，并包含大小写字母、数字和特殊字符。",
             registrationValidationError("user@example.com", "weakpassword", "INVITE"),
         )
+    }
+
+    @Test
+    fun `login rejects incomplete rotated session and retains password gate`() {
+        assertThrows(OrbitServiceFailure::class.java) {
+            sessionFromLoginResponse("user@example.com", AuthResponse(access_token = "access"))
+        }
+        val session = sessionFromLoginResponse(
+            "user@example.com",
+            AuthResponse(access_token = "access", refresh_token = "refresh", must_change_password = true),
+        )
+        assertEquals("refresh", session.refreshToken)
+        assertEquals(true, session.mustChangePassword)
     }
 }

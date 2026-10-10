@@ -47,7 +47,7 @@ object SecurityOperationPresentation {
     const val LOGIN_PASSWORD_BUSY = "正在更新登录密码…"
     const val MASTER_PASSWORD_BUSY = "正在轮换主密码…"
     const val LOGOUT_TITLE = "退出登录？"
-    const val LOGOUT_MESSAGE = "将断开当前所有会话并清除当前登录状态；本机加密数据仍按账户隔离保留。"
+    const val LOGOUT_MESSAGE = "将退出当前设备并清除本机令牌，同时尝试撤销服务端当前设备会话；其他设备不受影响。本机加密数据仍按账户隔离保留。"
     const val LOGOUT_CONFIRM = "退出登录"
     const val BIOMETRIC_ENABLED_SUCCESS = "已启用生物识别解锁。"
     const val BIOMETRIC_DISABLED_SUCCESS = "已关闭生物识别解锁。"

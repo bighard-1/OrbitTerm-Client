@@ -28,9 +28,6 @@ import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
-import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -220,6 +217,7 @@ interface SyncWorkerDependencies {
     fun syncScheduler(): SyncWorkScheduler
     fun syncState(): SyncWorkStateStore
     fun orbitApi(): OrbitApi
+    fun authSessionRefreshCoordinator(): AuthSessionRefreshCoordinator
 }
 
 class OrbitSyncWorker(
@@ -249,6 +247,12 @@ class OrbitSyncWorker(
             is RefreshResult.Ready -> refresh.session
             RefreshResult.Retry -> return Result.retry()
             RefreshResult.Stopped -> return Result.success()
+        }
+        if (session.mustChangePassword) {
+            if (deps.syncAuthority().isAllowed(scope, leaseId)) {
+                deps.syncState().update(SyncStatus.Failed(syncError(OrbitErrorCode.PasswordChangeRequired)))
+            }
+            return Result.success()
         }
         val masterPassword = deps.credentialStore().readBackgroundSyncMasterPassword(scope.storageId)
             ?: run {
@@ -333,20 +337,13 @@ class OrbitSyncWorker(
         leaseId: String,
         session: AuthSession,
     ): RefreshResult {
-        if (!session.accessToken.isExpiringSoon()) return RefreshResult.Ready(session)
-        val refreshToken = session.refreshToken ?: run {
-            if (deps.syncAuthority().isAllowed(scope, leaseId)) {
-                deps.syncState().update(SyncStatus.Failed(syncError(OrbitErrorCode.AuthenticationExpired)))
-            }
-            return RefreshResult.Stopped
-        }
-        val refreshed = runCatching { deps.orbitApi().refresh(refreshToken) }
+        val refreshed = runCatching { deps.authSessionRefreshCoordinator().refreshIfNeeded(session) }
             .getOrElse { failure ->
                 if (deps.syncAuthority().isAllowed(scope, leaseId)) {
                     val orbitError = (failure as? OrbitServiceFailure)?.error
                     if (orbitError == null) {
-                        deps.syncState().awaitNetwork()
-                        return RefreshResult.Retry
+                        deps.syncState().update(SyncStatus.Failed(syncError(OrbitErrorCode.StorageUnavailable)))
+                        return RefreshResult.Stopped
                     }
                     deps.syncState().update(SyncStatus.Failed(orbitError))
                     return when (val decision = SyncWorkerFailurePolicy.decide(orbitError)) {
@@ -360,15 +357,10 @@ class OrbitSyncWorker(
                 }
                 return RefreshResult.Stopped
             }
-        val updated = session.copy(
-            accessToken = refreshed.accessTokenValue.takeIf(String::isNotBlank) ?: session.accessToken,
-            refreshToken = refreshed.refresh_token ?: refreshToken,
-        )
-        if (!deps.syncAuthority().isAllowed(scope, leaseId)) return RefreshResult.Stopped
-        val current = deps.credentialStore().readAuthSession()
-        if (current?.username != session.username) return RefreshResult.Stopped
-        deps.credentialStore().saveAuthSession(updated)
-        return RefreshResult.Ready(updated)
+        if (refreshed == null || isStopped || !deps.syncAuthority().isAllowed(scope, leaseId)) {
+            return RefreshResult.Stopped
+        }
+        return RefreshResult.Ready(refreshed)
     }
 
     private object SyncScopeInvalidated : IllegalStateException()
@@ -394,11 +386,3 @@ class OrbitSyncWorker(
     }
 
 }
-
-private fun String.isExpiringSoon(nowUnixSeconds: Long = System.currentTimeMillis() / 1_000): Boolean = runCatching {
-    val payload = split('.')[1]
-    val decoded = String(Base64.getUrlDecoder().decode(payload), Charsets.UTF_8)
-    Json.parseToJsonElement(decoded).jsonObject["exp"]?.toString()?.toLongOrNull()
-        ?.let { it <= nowUnixSeconds + 60 }
-        ?: false
-}.getOrDefault(false)

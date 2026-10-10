@@ -55,6 +55,52 @@ class OrbitApiFaultInjectionTest {
     }
 
     @Test
+    fun boundedServerContractCodesGuidePasswordAndRefreshRecovery() = runBlocking {
+        val cases = listOf(
+            HttpStatusCode.Forbidden to ("PASSWORD_CHANGE_REQUIRED" to OrbitErrorCode.PasswordChangeRequired),
+            HttpStatusCode.Conflict to ("REFRESH_IN_PROGRESS" to OrbitErrorCode.RefreshInProgress),
+            HttpStatusCode.Conflict to ("AUTH_STATE_CHANGED" to OrbitErrorCode.AuthStateChanged),
+        )
+        for ((status, contract) in cases) {
+            val client = faultClient(status, body = """{"success":false,"code":"${contract.first}"}""")
+            try {
+                assertEquals(contract.second, captureFailure { OrbitApi(BASE_URL, client).pullConfigs("token") }.error.code)
+            } finally {
+                client.close()
+            }
+        }
+    }
+
+    @Test
+    fun oversizedUploadIsPermanentWithoutReplayingCiphertext() = runBlocking {
+        var requests = 0
+        val client = faultClient(HttpStatusCode.PayloadTooLarge) { requests++ }
+        try {
+            val payload = UploadConfigRequest(encrypted_blob_base64 = "fixture", vector_clock = "{}")
+            val failure = captureFailure { OrbitApi(BASE_URL, client).uploadConfig("token", payload) }
+            assertEquals(OrbitErrorCode.RequestTooLarge, failure.error.code)
+            assertEquals(false, failure.error.retryable)
+            assertEquals(1, requests)
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test
+    fun loginDecodesForcedPasswordChangeBeforeAssetAccess() = runBlocking {
+        val client = faultClient(
+            HttpStatusCode.OK,
+            body = """{"success":true,"data":{"access_token":"access","refresh_token":"refresh","must_change_password":true}}""",
+        )
+        try {
+            val response = OrbitApi(BASE_URL, client).login("user@example.com", "temporary-password")
+            assertEquals(true, response.must_change_password)
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test
     fun endpointContextKeepsLoginAndRegisterUnauthorizedSemanticsDistinct() = runBlocking {
         val loginClient = faultClient(HttpStatusCode.Unauthorized)
         val registerClient = faultClient(HttpStatusCode.Unauthorized)
@@ -178,10 +224,14 @@ class OrbitApiFaultInjectionTest {
             onRequest(request)
             if (failure != null) throw failure
             val headers = if (retryAfter == null) {
-                headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                headersOf(
+                    HttpHeaders.ContentType to listOf(ContentType.Application.Json.toString()),
+                    HttpHeaders.ContentLength to listOf(body.toByteArray(Charsets.UTF_8).size.toString()),
+                )
             } else {
                 headersOf(
                     HttpHeaders.ContentType to listOf(ContentType.Application.Json.toString()),
+                    HttpHeaders.ContentLength to listOf(body.toByteArray(Charsets.UTF_8).size.toString()),
                     HttpHeaders.RetryAfter to listOf(retryAfter),
                 )
             }

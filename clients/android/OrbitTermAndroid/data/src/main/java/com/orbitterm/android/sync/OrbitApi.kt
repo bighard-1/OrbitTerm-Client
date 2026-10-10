@@ -5,6 +5,7 @@ import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.plugins.ResponseException
+import io.ktor.client.statement.bodyAsText
 import io.ktor.client.call.NoTransformationFoundException
 import io.ktor.client.network.sockets.ConnectTimeoutException
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -21,6 +22,8 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.serialization.ContentConvertException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import com.orbitterm.android.domain.error.OrbitErrorCode
 import com.orbitterm.android.domain.error.syncError
 import com.orbitterm.android.domain.sync.SyncHttpResponsePolicy
@@ -44,6 +47,7 @@ data class AuthResponse(
     val token: String? = null,
     val access_token: String? = null,
     val refresh_token: String? = null,
+    val must_change_password: Boolean = false,
 ) {
     val accessTokenValue: String get() = access_token ?: token.orEmpty()
 }
@@ -213,6 +217,11 @@ class OrbitApi internal constructor(
             setBody(RefreshRequest(refreshToken))
         }.body<AuthEnvelope>(), OrbitErrorCode.AuthenticationExpired) }
 
+    suspend fun logoutCurrent(accessToken: String): Unit = apiCall(OrbitErrorCode.RemoteServiceRejected) {
+        client.post("$baseUrl/api/v1/auth/logout") { bearerAuth(accessToken) }
+        Unit
+    }
+
     suspend fun changePassword(token: String, currentPassword: String, newPassword: String): AuthResponse = apiCall(OrbitErrorCode.AuthenticationFailed) { unwrap(
         client.post("$baseUrl/api/v1/auth/password") {
             bearerAuth(token)
@@ -318,8 +327,18 @@ class OrbitApi internal constructor(
     } catch (error: CancellationException) {
         throw error
     } catch (error: ResponseException) {
+        val knownCode = when (error.response.status.value) {
+            403, 409 -> responseContractCode(error)
+            else -> null
+        }
+        val contractError = when (knownCode) {
+            "PASSWORD_CHANGE_REQUIRED" -> OrbitErrorCode.PasswordChangeRequired
+            "REFRESH_IN_PROGRESS" -> OrbitErrorCode.RefreshInProgress
+            "AUTH_STATE_CHANGED" -> OrbitErrorCode.AuthStateChanged
+            else -> null
+        }
         throw OrbitServiceFailure(
-            SyncHttpResponsePolicy.error(
+            contractError?.let(::syncError) ?: SyncHttpResponsePolicy.error(
                 statusCode = error.response.status.value,
                 retryAfterHeader = error.response.headers[HttpHeaders.RetryAfter],
                 authenticationErrorCode = unauthorizedCode,
@@ -340,6 +359,14 @@ class OrbitApi internal constructor(
         // Never interpret a response body or exception message as a business or
         // security status. The endpoint context is the only trusted fallback.
         throw OrbitServiceFailure(syncError(fallback))
+    }
+
+    private suspend fun responseContractCode(error: ResponseException): String? {
+        val length = error.response.headers[HttpHeaders.ContentLength]?.toLongOrNull() ?: return null
+        if (length !in 1..1_024) return null
+        return runCatching {
+            Json.parseToJsonElement(error.response.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content
+        }.getOrNull()
     }
 }
 

@@ -25,6 +25,7 @@ object SyncHttpResponsePolicy {
         val retryAfter = parseRetryAfter(retryAfterHeader, now)
         return when {
             statusCode == 401 -> syncError(authenticationErrorCode)
+            statusCode == 413 -> syncError(OrbitErrorCode.RequestTooLarge)
             statusCode == 408 -> syncError(OrbitErrorCode.NetworkTimeout, retryAfter)
             statusCode == 425 || statusCode == 429 -> syncError(OrbitErrorCode.RemoteRateLimited, retryAfter)
             statusCode in 500..599 -> syncError(OrbitErrorCode.RemoteServiceUnavailable, retryAfter)
