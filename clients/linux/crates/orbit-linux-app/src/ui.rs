@@ -13033,13 +13033,21 @@ fn present_asset_manager_window(context: UiContext, search: gtk::SearchEntry) {
     window.set_child(Some(&root));
 
     let selected_assets = Rc::new(RefCell::new(Vec::<(Uuid, String, gtk::CheckButton)>::new()));
+    let rerender_after_edit = Rc::new(RefCell::new(None::<std::rc::Weak<dyn Fn()>>));
     let render: Rc<dyn Fn()> = {
         let list = list.clone();
         let catalog = context.catalog.clone();
         let filter = filter.clone();
         let context = context.clone();
         let selected_assets = selected_assets.clone();
+        let rerender_after_edit = rerender_after_edit.clone();
         Rc::new(move || {
+            let checked_ids = selected_assets
+                .borrow()
+                .iter()
+                .filter(|(_, _, check)| check.is_active())
+                .map(|(id, _, _)| *id)
+                .collect::<HashSet<_>>();
             clear_list(&list);
             selected_assets.borrow_mut().clear();
             let query = filter.text().trim().to_lowercase();
@@ -13059,6 +13067,7 @@ fn present_asset_manager_window(context: UiContext, search: gtk::SearchEntry) {
                 let row = gtk::Box::new(Orientation::Horizontal, 10);
                 row.add_css_class("management-row");
                 let check = gtk::CheckButton::new();
+                check.set_active(checked_ids.contains(&asset.id));
                 let identity = gtk::Box::new(Orientation::Vertical, 2);
                 identity.set_hexpand(true);
                 let name = gtk::Label::new(Some(&format!(
@@ -13076,8 +13085,17 @@ fn present_asset_manager_window(context: UiContext, search: gtk::SearchEntry) {
                 let edit = gtk::Button::with_label("编辑");
                 let asset_id = asset.id;
                 let edit_context = context.clone();
+                let rerender_after_edit = rerender_after_edit.clone();
                 edit.connect_clicked(move |_| {
-                    present_edit_asset_window(edit_context.clone(), asset_id);
+                    let on_saved = rerender_after_edit
+                        .borrow()
+                        .as_ref()
+                        .and_then(std::rc::Weak::upgrade);
+                    present_edit_asset_window_with_callback(
+                        edit_context.clone(),
+                        asset_id,
+                        on_saved,
+                    );
                 });
                 row.append(&check);
                 row.append(&identity);
@@ -13089,6 +13107,7 @@ fn present_asset_manager_window(context: UiContext, search: gtk::SearchEntry) {
             }
         })
     };
+    rerender_after_edit.replace(Some(Rc::downgrade(&render)));
     let render_for_filter = render.clone();
     filter.connect_search_changed(move |_| render_for_filter());
     let add_context = context.clone();
@@ -18733,6 +18752,14 @@ fn prepare_local_conversion(
 }
 
 fn present_edit_asset_window(context: UiContext, asset_id: Uuid) {
+    present_edit_asset_window_with_callback(context, asset_id, None);
+}
+
+fn present_edit_asset_window_with_callback(
+    context: UiContext,
+    asset_id: Uuid,
+    on_saved: Option<Rc<dyn Fn()>>,
+) {
     let catalog = context.catalog.clone();
     let vault = context.vault.clone();
     let refresh = context.refresh_assets.clone();
@@ -19113,6 +19140,7 @@ fn present_edit_asset_window(context: UiContext, asset_id: Uuid) {
         let original_name = original.name.clone();
         let original_for_rollback = original.clone();
         let context = context.clone();
+        let on_saved = on_saved.clone();
         gtk::glib::spawn_future_local(async move {
             let needs_existing_primary = primary_credential_update.is_some()
                 || updated.storage_scope == AssetStorageScope::AccountSynced;
@@ -19314,6 +19342,9 @@ fn present_edit_asset_window(context: UiContext, asset_id: Uuid) {
                 let _ = vault.clear(old_jump_id).await;
             }
             refresh();
+            if let Some(on_saved) = on_saved {
+                on_saved();
+            }
             save_target.close();
         });
     });
