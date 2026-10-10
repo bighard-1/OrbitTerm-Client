@@ -58,6 +58,41 @@ final class SyncQueueRecoveryPolicyTests: XCTestCase {
         )
     }
 
+    func testDurableFailureEvidenceKeepsBlockedPrefixAndBoundedHTTPStatusOnly() {
+        XCTAssertEqual(
+            SyncQueueFailureEvidence.persistedError(
+                diagnosticCode: "sync.requestRejected",
+                disposition: .blocked,
+                underlyingError: NetworkService.NetworkError.httpStatus(409, retryAfterSeconds: nil)
+            ),
+            "blocked:sync.requestRejected|http=409"
+        )
+        XCTAssertEqual(
+            SyncQueueFailureEvidence.persistedError(
+                diagnosticCode: "sync.serviceUnavailable",
+                disposition: .automaticRetry,
+                underlyingError: NetworkService.NetworkError.httpStatus(503, retryAfterSeconds: 120)
+            ),
+            "sync.serviceUnavailable|http=503"
+        )
+        XCTAssertEqual(
+            SyncQueueFailureEvidence.persistedError(
+                diagnosticCode: "sync.requestRejected",
+                disposition: .blocked,
+                underlyingError: NetworkService.NetworkError.unexpectedStatus(-1)
+            ),
+            "blocked:sync.requestRejected"
+        )
+        XCTAssertEqual(
+            SyncQueueFailureEvidence.persistedError(
+                diagnosticCode: "sync.requestRejected",
+                disposition: .blocked,
+                underlyingError: NetworkService.NetworkError.server("private-response-must-not-persist")
+            ),
+            "blocked:sync.requestRejected"
+        )
+    }
+
     func testRetryClockRejectsForwardAndBackwardWallClockJumps() {
         let forward = RetryClockGuard(toleratedWallClockDrift: 2)
         XCTAssertEqual(

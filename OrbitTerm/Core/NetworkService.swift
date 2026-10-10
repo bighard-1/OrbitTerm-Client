@@ -63,6 +63,22 @@ final class NetworkService: NSObject {
             responseType: EmptyResponseData.self
         )
     }
+
+    /// Uses the real asset-delete route, body, and idempotency key without
+    /// reading a saved account token or contacting a live server.
+    func performAssetDeleteFaultInjectionProbe(
+        assetID: UUID,
+        request: AssetMutationRequest
+    ) async throws {
+        _ = try await send(
+            path: "/api/v1/config/assets/\(assetID.uuidString.lowercased())/delete",
+            method: "POST",
+            body: request,
+            token: nil,
+            idempotencyKey: SyncRequestIdentity.mutation(request),
+            responseType: UploadConfigData.self
+        )
+    }
 #endif
 
     func configureDiagnostics(_ diagnostics: DiagnosticsManager) {

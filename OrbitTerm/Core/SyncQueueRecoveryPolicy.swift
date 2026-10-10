@@ -51,6 +51,34 @@ enum SyncQueueRecoveryPolicy {
     }
 }
 
+/// Persist only a bounded HTTP status alongside the stable recovery category.
+/// Never copy a response body, URL, token, or server-controlled error text into
+/// the durable queue. The existing `blocked:` prefix remains query-compatible.
+enum SyncQueueFailureEvidence {
+    static func persistedError(
+        diagnosticCode: String,
+        disposition: SyncQueueDeliveryDisposition,
+        underlyingError: Error
+    ) -> String {
+        let category = SyncQueueRecoveryPolicy.persistedError(
+            diagnosticCode: diagnosticCode,
+            disposition: disposition
+        )
+        guard let networkError = underlyingError as? NetworkService.NetworkError else {
+            return category
+        }
+        let statusCode: Int
+        switch networkError {
+        case let .httpStatus(code, _), let .unexpectedStatus(code):
+            statusCode = code
+        default:
+            return category
+        }
+        guard (400 ... 599).contains(statusCode) else { return category }
+        return "\(category)|http=\(statusCode)"
+    }
+}
+
 enum SyncQueueAccountTransitionPolicy {
     static func invalidatesCurrentDelivery(previous: String?, next: String?) -> Bool {
         previous != next

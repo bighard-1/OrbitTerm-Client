@@ -164,6 +164,95 @@ final class NetworkServiceFaultInjectionTests: XCTestCase {
         XCTAssertEqual(ScriptedURLProtocol.idempotencyKeys(), [key, key, key])
     }
 
+    func testAssetDeleteConflictPersistsOnlyStableCategoryAndHTTPStatus() async {
+        ScriptedURLProtocol.install([
+            .init(statusCode: 409, body: #"{"success":false,"code":"ASSET_DELETED","error":"private-response-must-not-persist"}"#),
+        ])
+        let service = makeService()
+        let assetID = fixtureAssetID
+        let mutation = fixtureDeletionRequest
+
+        let failure = await assetDeleteFailure(service, assetID: assetID, request: mutation)
+
+        guard case let .httpStatus(statusCode, _) = failure else {
+            return XCTFail("Expected HTTP status, got \(failure)")
+        }
+        XCTAssertEqual(statusCode, 409)
+        let code = OperationRecoveryMapper.sync(failure).diagnosticCode
+        XCTAssertEqual(code, "sync.requestRejected")
+        let persisted = SyncQueueFailureEvidence.persistedError(
+            diagnosticCode: code,
+            disposition: SyncQueueRecoveryPolicy.disposition(for: code),
+            underlyingError: failure
+        )
+        XCTAssertEqual(persisted, "blocked:sync.requestRejected|http=409")
+        XCTAssertFalse(persisted.contains("private-response"))
+        XCTAssertEqual(ScriptedURLProtocol.requestCount, 1)
+        XCTAssertEqual(ScriptedURLProtocol.methods(), ["POST"])
+        XCTAssertEqual(ScriptedURLProtocol.paths(), ["/api/v1/config/assets/\(assetID.uuidString.lowercased())/delete"])
+        XCTAssertEqual(ScriptedURLProtocol.idempotencyKeys(), [SyncRequestIdentity.mutation(mutation)])
+    }
+
+    func testAssetDeleteRetriesKeepOneIdempotencyIdentityThenPreserveFinalStatus() async {
+        ScriptedURLProtocol.install([
+            .init(statusCode: 503),
+            .init(statusCode: 503),
+            .init(statusCode: 422, body: #"{"success":false,"error":"do not persist this body"}"#),
+        ])
+        let service = makeService()
+        let mutation = fixtureDeletionRequest
+
+        let failure = await assetDeleteFailure(service, assetID: fixtureAssetID, request: mutation)
+
+        guard case let .httpStatus(statusCode, _) = failure else {
+            return XCTFail("Expected final HTTP status, got \(failure)")
+        }
+        XCTAssertEqual(statusCode, 422)
+        XCTAssertEqual(ScriptedURLProtocol.requestCount, 3)
+        XCTAssertEqual(
+            ScriptedURLProtocol.idempotencyKeys(),
+            Array(repeating: SyncRequestIdentity.mutation(mutation), count: 3)
+        )
+        let code = OperationRecoveryMapper.sync(failure).diagnosticCode
+        XCTAssertEqual(
+            SyncQueueFailureEvidence.persistedError(
+                diagnosticCode: code,
+                disposition: SyncQueueRecoveryPolicy.disposition(for: code),
+                underlyingError: failure
+            ),
+            "blocked:sync.requestRejected|http=422"
+        )
+    }
+
+    private var fixtureAssetID: UUID {
+        UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
+    }
+
+    private var fixtureDeletionRequest: AssetMutationRequest {
+        AssetMutationRequest(
+            deviceID: UUID(uuidString: "00000000-0000-4000-8000-000000000002")!,
+            operationID: UUID(uuidString: "00000000-0000-4000-8000-000000000003")!,
+            vectorClock: "{}"
+        )
+    }
+
+    private func assetDeleteFailure(
+        _ service: NetworkService,
+        assetID: UUID,
+        request: AssetMutationRequest
+    ) async -> NetworkService.NetworkError {
+        do {
+            try await service.performAssetDeleteFaultInjectionProbe(assetID: assetID, request: request)
+            XCTFail("Expected deletion to fail")
+            return .decodeFailed
+        } catch let failure as NetworkService.NetworkError {
+            return failure
+        } catch {
+            XCTFail("Unexpected failure type: \(type(of: error))")
+            return .decodeFailed
+        }
+    }
+
     private func makeService(
         retrySleeper: @escaping (UInt64) async throws -> Void = { _ in }
     ) -> NetworkService {
@@ -230,6 +319,8 @@ private final class ScriptedURLProtocol: URLProtocol {
     private static var stubs: [Stub] = []
     private(set) static var requestCount = 0
     private static var capturedIdempotencyKeys: [String?] = []
+    private static var capturedMethods: [String?] = []
+    private static var capturedPaths: [String] = []
 
     static func install(_ newStubs: [Stub]) {
         lock.lock()
@@ -237,6 +328,8 @@ private final class ScriptedURLProtocol: URLProtocol {
         stubs = newStubs
         requestCount = 0
         capturedIdempotencyKeys = []
+        capturedMethods = []
+        capturedPaths = []
     }
 
     static func reset() {
@@ -249,11 +342,25 @@ private final class ScriptedURLProtocol: URLProtocol {
         return capturedIdempotencyKeys
     }
 
+    static func methods() -> [String?] {
+        lock.lock()
+        defer { lock.unlock() }
+        return capturedMethods
+    }
+
+    static func paths() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return capturedPaths
+    }
+
     private static func nextStub(for request: URLRequest) -> Stub? {
         lock.lock()
         defer { lock.unlock() }
         requestCount += 1
         capturedIdempotencyKeys.append(request.value(forHTTPHeaderField: SyncRequestIdentity.header))
+        capturedMethods.append(request.httpMethod)
+        capturedPaths.append(request.url?.path ?? "")
         guard !stubs.isEmpty else { return nil }
         return stubs.removeFirst()
     }
