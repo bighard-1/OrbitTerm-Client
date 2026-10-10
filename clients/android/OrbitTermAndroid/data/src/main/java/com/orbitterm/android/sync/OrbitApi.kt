@@ -21,6 +21,7 @@ import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.serialization.ContentConvertException
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -39,6 +40,7 @@ data class LoginRequest(val username: String, val password: String)
 data class RegisterRequest(
     val username: String,
     val password: String,
+    @SerialName("invite_code")
     val inviteCode: String,
 )
 

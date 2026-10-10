@@ -14,6 +14,7 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.encodeToString
 import java.io.IOException
 import java.net.SocketTimeoutException
 import org.junit.Assert.assertEquals
@@ -21,6 +22,15 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class OrbitApiFaultInjectionTest {
+    @Test
+    fun registrationUsesServerInviteCodeField() {
+        val encoded = Json.encodeToString(RegisterRequest("fixture@example.invalid", "Fixture-only-123!", "test-invite"))
+        assertEquals(
+            """{"username":"fixture@example.invalid","password":"Fixture-only-123!","invite_code":"test-invite"}""",
+            encoded,
+        )
+    }
+
     @Test
     fun rateLimitUsesHeaderAndMakesExactlyOneNativeRequest() = runBlocking {
         var requestCount = 0
