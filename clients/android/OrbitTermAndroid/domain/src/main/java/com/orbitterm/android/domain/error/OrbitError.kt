@@ -21,6 +21,10 @@ enum class OrbitErrorCode(val diagnosticCode: String) {
     NetworkTimeout("network_timeout"),
     AuthenticationFailed("authentication_failed"),
     AuthenticationExpired("authentication_expired"),
+    PasswordChangeRequired("password_change_required"),
+    RefreshInProgress("refresh_in_progress"),
+    AuthStateChanged("auth_state_changed"),
+    RequestTooLarge("request_too_large"),
     HostKeyBlocked("host_key_blocked"),
     PermissionDenied("permission_denied"),
     StorageUnavailable("storage_unavailable"),
@@ -72,6 +76,10 @@ data class OrbitError(
         OrbitErrorCode.NetworkTimeout -> "连接超时，请检查网络、地址和防火墙。"
         OrbitErrorCode.AuthenticationFailed -> "认证失败，请检查账号、密码或私钥。"
         OrbitErrorCode.AuthenticationExpired -> "登录已过期，请重新登录后重试。"
+        OrbitErrorCode.PasswordChangeRequired -> "请先更新登录密码，再继续使用资产和同步功能。"
+        OrbitErrorCode.RefreshInProgress -> "登录状态正在更新，请稍后重试。"
+        OrbitErrorCode.AuthStateChanged -> "账户安全状态已变化，请重新登录。"
+        OrbitErrorCode.RequestTooLarge -> "资产或同步批次超出服务端大小限制，请缩小后重试。"
         OrbitErrorCode.HostKeyBlocked -> "主机密钥校验未通过，连接已被安全阻断。"
         OrbitErrorCode.PermissionDenied -> "权限不足，请检查远端账户或文件权限。"
         OrbitErrorCode.StorageUnavailable -> "本机安全存储不可用，请解锁设备后重试。"
@@ -140,6 +148,10 @@ fun orbitNativeError(rawCode: String?, retryable: Boolean = false, detailCode: S
         OrbitErrorCode.NetworkUnavailable, OrbitErrorCode.NetworkTimeout -> OrbitRecoveryAction.CheckNetwork
         OrbitErrorCode.AuthenticationFailed -> OrbitRecoveryAction.CheckCredentials
         OrbitErrorCode.AuthenticationExpired -> OrbitRecoveryAction.SignInAgain
+        OrbitErrorCode.PasswordChangeRequired -> OrbitRecoveryAction.CheckCredentials
+        OrbitErrorCode.AuthStateChanged -> OrbitRecoveryAction.SignInAgain
+        OrbitErrorCode.RefreshInProgress -> OrbitRecoveryAction.Retry
+        OrbitErrorCode.RequestTooLarge -> OrbitRecoveryAction.ContactSupport
         OrbitErrorCode.HostKeyBlocked -> OrbitRecoveryAction.ReviewHostKey
         OrbitErrorCode.PermissionDenied -> OrbitRecoveryAction.CheckPermission
         OrbitErrorCode.StorageUnavailable -> OrbitRecoveryAction.Unlock
@@ -165,6 +177,10 @@ fun syncError(code: OrbitErrorCode, retryAfterSeconds: Long? = null): OrbitError
     ),
     recovery = when (code) {
         OrbitErrorCode.AuthenticationExpired -> OrbitRecoveryAction.SignInAgain
+        OrbitErrorCode.PasswordChangeRequired -> OrbitRecoveryAction.CheckCredentials
+        OrbitErrorCode.AuthStateChanged -> OrbitRecoveryAction.SignInAgain
+        OrbitErrorCode.RefreshInProgress -> OrbitRecoveryAction.Retry
+        OrbitErrorCode.RequestTooLarge -> OrbitRecoveryAction.ContactSupport
         OrbitErrorCode.SyncDecryptionFailed -> OrbitRecoveryAction.Unlock
         OrbitErrorCode.SyncConflict -> OrbitRecoveryAction.ResolveConflict
         OrbitErrorCode.NetworkUnavailable, OrbitErrorCode.NetworkTimeout -> OrbitRecoveryAction.CheckNetwork

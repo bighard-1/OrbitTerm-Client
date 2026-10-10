@@ -6,6 +6,31 @@ import Combine
 /// Incremental sync is authoritative for deltas, but an empty delta cannot
 /// reconstruct an empty cache when the server has pre-existing legacy assets.
 enum SyncPullRecoveryPolicy {
+    /// The portable sync protocol identifies a server by UUID.  Every client
+    /// must compare this value in the same representation; otherwise an Apple
+    /// uppercase UUID and a Windows/Android lowercase UUID can describe the
+    /// same asset while bypassing a local deletion tombstone.
+    static func canonicalAssetID(_ rawAssetID: String?) -> String? {
+        guard let rawAssetID = rawAssetID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let assetID = UUID(uuidString: rawAssetID) else {
+            return nil
+        }
+        return assetID.uuidString.lowercased()
+    }
+
+    /// Legacy auxiliary envelopes do not have an `asset_id`, but a server
+    /// configuration record that does declare one must agree with the
+    /// encrypted portable payload. Accepting mismatched identities would let
+    /// a stale record bypass the local tombstone for the server it claims.
+    static func remoteAssetIDMatchesPortable(_ remoteAssetID: String?, portableID: String) -> Bool {
+        guard let remoteAssetID else { return true }
+        guard let canonicalRemoteID = canonicalAssetID(remoteAssetID),
+              let canonicalPortableID = canonicalAssetID(portableID) else {
+            return false
+        }
+        return canonicalRemoteID == canonicalPortableID
+    }
+
     static func shouldPerformFullPull(
         localAssetCount: Int,
         incrementalResponseHadChanges: Bool
@@ -80,9 +105,8 @@ enum SyncPullRecoveryPolicy {
     }
 
     private static func remoteAssetIdentity(assetID: String?, recordID: String) -> String {
-        if let rawAssetID = assetID?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines),
-           !rawAssetID.isEmpty {
-            return "asset:\(rawAssetID.lowercased())"
+        if let assetID = canonicalAssetID(assetID) {
+            return "asset:\(assetID)"
         }
         // Malformed legacy records are kept distinct rather than allowing one
         // record to hide another without a stable asset identity.

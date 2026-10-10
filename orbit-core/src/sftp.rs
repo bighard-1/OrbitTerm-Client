@@ -594,19 +594,42 @@ fn transfer_temporary_path(remote_path: &str) -> Result<String, OrbitCoreError> 
         .rsplit_once('/')
         .map(|(parent, _)| parent)
         .unwrap_or("");
-    let separator = if parent.is_empty() || parent == "/" {
-        ""
+    let (normalized_parent, separator) = if parent.is_empty() {
+        // `/file` has an empty `rsplit_once` parent, but its generated sibling
+        // must remain absolute instead of silently falling back to the login
+        // directory.
+        ("/", "")
+    } else if parent == "/" {
+        (parent, "")
     } else {
-        "/"
+        (parent, "/")
     };
     let temporary = format!(
-        "{parent}{separator}.orbitterm-upload-{:032x}.part",
+        "{normalized_parent}{separator}.orbitterm-upload-{:032x}.part",
         random::<u128>()
     );
     if temporary.len() > MAX_SFTP_PATH_BYTES {
         return Err(OrbitCoreError::InvalidInput);
     }
     Ok(temporary)
+}
+
+#[cfg(test)]
+mod transfer_path_tests {
+    use super::transfer_temporary_path;
+
+    #[test]
+    fn root_upload_staging_path_remains_absolute() {
+        let path = transfer_temporary_path("/upload.txt").unwrap();
+        assert!(path.starts_with("/.orbitterm-upload-"));
+        assert!(path.ends_with(".part"));
+    }
+
+    #[test]
+    fn nested_upload_staging_path_remains_a_sibling() {
+        let path = transfer_temporary_path("/home/alice/upload.txt").unwrap();
+        assert!(path.starts_with("/home/alice/.orbitterm-upload-"));
+    }
 }
 
 pub(crate) async fn read_text_file(

@@ -6,6 +6,11 @@ enum class ServerAuthMethod { password, key }
 
 enum class ServerTransportProtocol { ssh, telnet, rdp }
 
+enum class AssetStorageScope { ACCOUNT_SYNCED, LOCAL_ONLY }
+
+/** Stable Room partition for assets that belong to this device, not an account. */
+const val LOCAL_ASSET_PARTITION = "__orbitterm_device_local__"
+
 enum class NetworkDeviceProfile {
     auto,
     huaweiVRP,
@@ -39,6 +44,8 @@ data class ServerAsset(
     val transport: String,
     val networkDeviceProfile: String,
     val allowPasswordFallback: Boolean,
+    /** Explicit user intent; local-only assets never enter the cloud outbox. */
+    val storageScope: AssetStorageScope = AssetStorageScope.ACCOUNT_SYNCED,
     /** Optional one-hop SSH route; its credential is stored separately in Android Keystore. */
     val jumpHost: JumpHostConfiguration? = null,
     val createdAtUnix: Long,

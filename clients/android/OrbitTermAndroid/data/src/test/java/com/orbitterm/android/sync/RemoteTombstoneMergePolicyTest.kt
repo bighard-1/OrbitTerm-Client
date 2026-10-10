@@ -25,12 +25,50 @@ class RemoteTombstoneMergePolicyTest {
 
     @Test
     fun distinctAssetsKeepDistinctTombstones() {
-        val first = record(101u, "asset-a", "deleted")
-        val second = record(202u, "asset-b", "deleted")
+        val first = record(101u, "11111111-2222-3333-4444-555555555555", "deleted")
+        val second = record(202u, "66666666-7777-8888-9999-aaaaaaaaaaaa", "deleted")
 
         val merged = RemoteTombstoneMergePolicy.merge(listOf(first), listOf(second))
 
         assertEquals(setOf(101u, 202u), merged.map(UploadConfigData::id).toSet())
+    }
+
+    @Test
+    fun malformedAssetIdentityIsRejectedInsteadOfBeingMerged() {
+        assertEquals(null, RemoteTombstoneMergePolicy.canonicalAssetId("asset-a"))
+        assertEquals(null, RemoteTombstoneMergePolicy.canonicalAssetId("1-2-3-4-5"))
+    }
+
+    @Test
+    fun remoteAssetIdentityMustMatchPortablePayload() {
+        val assetId = "abcdef00-1234-5678-9abc-def012345678"
+        assertEquals(
+            true,
+            RemoteTombstoneMergePolicy.matchesPortableAssetId(
+                "  ABCDEF00-1234-5678-9ABC-DEF012345678  ",
+                assetId,
+            ),
+        )
+        assertEquals(
+            false,
+            RemoteTombstoneMergePolicy.matchesPortableAssetId(
+                "11111111-2222-3333-4444-555555555555",
+                assetId,
+            ),
+        )
+        assertEquals(false, RemoteTombstoneMergePolicy.matchesPortableAssetId("asset-a", assetId))
+        assertEquals(false, RemoteTombstoneMergePolicy.matchesPortableAssetId("asset-a", "asset-a"))
+    }
+
+    @Test
+    fun tombstoneBlocksAnActiveRecordWithTheSameAssetIdentity() {
+        val assetId = "abcdef00-1234-5678-9abc-def012345678"
+        val tombstone = record(202u, assetId.uppercase(), "deleted")
+
+        assertEquals(
+            setOf(assetId),
+            RemoteTombstoneMergePolicy.blockedAssetIds(listOf(tombstone)),
+        )
     }
 
     private fun record(id: UInt, assetId: String, state: String) = UploadConfigData(

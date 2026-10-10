@@ -41,4 +41,28 @@ public sealed class ChannelPayloadTests
 
         Assert.Throws<OrbitNativeException>(payload.Validate);
     }
+
+    [Fact]
+    public void SftpChannelRejectsUnsafeHomePath()
+    {
+        var payload = new SftpChannelOpenedPayload(
+            "1",
+            "5",
+            CheckedSecurityGeneration.HostKeyVerified,
+            "/home/alice/../root");
+
+        Assert.Throws<OrbitNativeException>(payload.Validate);
+    }
+
+    [Fact]
+    public void SftpChannelRejectsControlCharactersInHomePath()
+    {
+        var payload = new SftpChannelOpenedPayload(
+            "1",
+            "5",
+            CheckedSecurityGeneration.HostKeyVerified,
+            "/home/alice\0hidden");
+
+        Assert.Throws<OrbitNativeException>(payload.Validate);
+    }
 }

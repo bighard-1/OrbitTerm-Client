@@ -67,6 +67,10 @@ internal static class NativeWindowCornerService
             return;
         }
 
+        // WinUI extends client content into the frame. Explicit edge hit-tests
+        // keep the native resize cursor and sizing loop discoverable over that
+        // client-owned surface on Windows 11.
+        _ = SetWindowSubclass(windowHandle, ResizeSubclassProc, ResizeSubclassId, nint.Zero);
         var preference = DwmwcpRound;
         _ = DwmSetWindowAttribute(
             windowHandle,
@@ -137,7 +141,9 @@ internal static class NativeWindowCornerService
             _ = RemoveWindowSubclass(windowHandle, ResizeSubclassProc, ResizeSubclassId);
             return DefSubclassProc(windowHandle, message, wParam, lParam);
         }
-        if (message == WmNcLeftButtonDown && !IsZoomed(windowHandle))
+        if (message == WmNcLeftButtonDown &&
+            !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000) &&
+            !IsZoomed(windowHandle))
         {
             var resizeDirection = wParam.ToInt32() switch
             {
@@ -189,7 +195,9 @@ internal static class NativeWindowCornerService
                 return nint.Zero;
             }
         }
-        if (message == WmNcCalcSize && wParam != nint.Zero)
+        if (message == WmNcCalcSize &&
+            !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000) &&
+            wParam != nint.Zero)
         {
             // Keep WS_CAPTION so Windows App SDK retains caption buttons,
             // drag-to-move and snap integration, but make the WinUI client

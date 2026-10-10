@@ -42,6 +42,8 @@ public sealed class AccountUnlockController
     private readonly IConfigRootKeyDeriver keyDeriver;
     private AccountSessionRecord? session;
     private byte[]? rootKey;
+    private long authRevision;
+    private readonly SemaphoreSlim transitionGate = new(1, 1);
 
     public AccountUnlockController(IAccountSessionStore sessionStore, IOrbitAccountProtocol accountProtocol, IEncryptedConfigUnlockVerifier verifier, IAccountUnlockVerifierStore? verifierStore = null, IConfigRootKeyDeriver? keyDeriver = null)
     {
@@ -53,7 +55,9 @@ public sealed class AccountUnlockController
     }
 
     public AccountLockState State { get; private set; } = AccountLockState.SignedOut;
-    public bool CanSynchronize => State == AccountLockState.SignedInUnlocked;
+    public bool CanSynchronize => State == AccountLockState.SignedInUnlocked && !MustChangePassword;
+    public bool MustChangePassword => session?.MustChangePassword == true;
+    public bool LastLogoutRevocationFailed { get; private set; }
     public string Username => session?.Username ?? string.Empty;
     public string AccountScope => session is null ? string.Empty : StorageIdentifier(session.Username);
 
@@ -66,6 +70,7 @@ public sealed class AccountUnlockController
     public async ValueTask LoginAsync(AccountLoginRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        var requestRevision = Interlocked.Read(ref authRevision);
         var canonicalUsername = request.Username.Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(canonicalUsername) || string.IsNullOrWhiteSpace(request.Password))
             throw new ArgumentException("账户名和密码不能为空。", nameof(request));
@@ -75,15 +80,24 @@ public sealed class AccountUnlockController
             cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(response.AccessTokenValue) || string.IsNullOrWhiteSpace(response.RefreshToken))
             throw new InvalidOperationException("登录响应缺少会话令牌。");
-        session = new(AccountProtocolContracts.Version, canonicalUsername, response.AccessTokenValue, response.RefreshToken, DateTimeOffset.UtcNow, null, null);
-        await sessionStore.SaveAsync(session, cancellationToken).ConfigureAwait(false);
-        State = AccountLockState.SignedInLocked;
-        ClearRootKey();
+        await transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (requestRevision != Interlocked.Read(ref authRevision)) return;
+            var next = new AccountSessionRecord(AccountProtocolContracts.Version, canonicalUsername, response.AccessTokenValue, response.RefreshToken, DateTimeOffset.UtcNow, null, null, response.MustChangePassword);
+            await sessionStore.SaveAsync(next, cancellationToken).ConfigureAwait(false);
+            session = next;
+            State = AccountLockState.SignedInLocked;
+            ClearRootKey();
+            Interlocked.Increment(ref authRevision);
+        }
+        finally { transitionGate.Release(); }
     }
 
     public async ValueTask RegisterAndLoginAsync(AccountRegisterRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        var requestRevision = Interlocked.Read(ref authRevision);
         if (accountProtocol is not IOrbitAccountRegistrationProtocol registrationProtocol)
         {
             throw new InvalidOperationException("账户注册服务尚未配置。");
@@ -101,6 +115,7 @@ public sealed class AccountUnlockController
         await registrationProtocol.RegisterAsync(
             request with { Username = canonicalUsername, InviteCode = inviteCode },
             cancellationToken).ConfigureAwait(false);
+        if (requestRevision != Interlocked.Read(ref authRevision)) return;
         await LoginAsync(new AccountLoginRequest(canonicalUsername, request.Password), cancellationToken)
             .ConfigureAwait(false);
     }
@@ -115,13 +130,15 @@ public sealed class AccountUnlockController
         string masterPassword,
         CancellationToken cancellationToken)
     {
-        if (session is null || string.IsNullOrWhiteSpace(masterPassword))
+        if (session is null || MustChangePassword || string.IsNullOrWhiteSpace(masterPassword))
         {
             return AccountUnlockResult.ServiceFailure;
         }
 
         ClearRootKey();
-        var scope = StorageIdentifier(session.Username);
+        var activeSession = session;
+        var operationRevision = Interlocked.Read(ref authRevision);
+        var scope = StorageIdentifier(activeSession.Username);
         var localVerifier = await verifierStore.ReadAsync(scope, cancellationToken).ConfigureAwait(false);
         try
         {
@@ -134,7 +151,7 @@ public sealed class AccountUnlockController
             try
             {
                 var remoteVerification = await verifier
-                    .VerifyAsync(session, masterPassword, candidate, cancellationToken)
+                    .VerifyAsync(activeSession, masterPassword, candidate, cancellationToken)
                     .ConfigureAwait(false);
                 if (remoteVerification is not null)
                 {
@@ -143,6 +160,8 @@ public sealed class AccountUnlockController
                         : AccountUnlockResult.InvalidMasterPassword;
                 }
 
+                if (session != activeSession || operationRevision != Interlocked.Read(ref authRevision))
+                    return AccountUnlockResult.ServiceFailure;
                 var candidateVerifier = SHA256.HashData(candidate);
                 try
                 {
@@ -152,6 +171,9 @@ public sealed class AccountUnlockController
                 {
                     CryptographicOperations.ZeroMemory(candidateVerifier);
                 }
+
+                if (session != activeSession || operationRevision != Interlocked.Read(ref authRevision))
+                    return AccountUnlockResult.ServiceFailure;
 
                 rootKey = candidate;
                 candidate = [];
@@ -169,6 +191,11 @@ public sealed class AccountUnlockController
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
+        }
+        catch (AccountProtocolException exception) when (exception.Code == "PASSWORD_CHANGE_REQUIRED")
+        {
+            if (session is { } active) await MarkPasswordChangeRequiredAsync(active, cancellationToken).ConfigureAwait(false);
+            return AccountUnlockResult.ServiceFailure;
         }
         catch (OperationCanceledException)
         {
@@ -196,11 +223,13 @@ public sealed class AccountUnlockController
 
     public async ValueTask<AccountUnlockResult> UnlockAsync(string masterPassword, CancellationToken cancellationToken)
     {
-        if (session is null) return AccountUnlockResult.ServiceFailure;
+        if (session is null || MustChangePassword) return AccountUnlockResult.ServiceFailure;
         ClearRootKey();
+        var activeSession = session;
+        var operationRevision = Interlocked.Read(ref authRevision);
         try
         {
-            var scope = StorageIdentifier(session.Username);
+            var scope = StorageIdentifier(activeSession.Username);
             var candidate = keyDeriver.Derive(masterPassword, scope);
             var localVerifier = await verifierStore.ReadAsync(scope, cancellationToken).ConfigureAwait(false);
             try
@@ -216,12 +245,22 @@ public sealed class AccountUnlockController
                     // after ciphertext has proved the candidate key.
                     var verified = localMatch
                         ? true
-                        : await verifier.VerifyAsync(session, masterPassword, candidate, cancellationToken).ConfigureAwait(false);
+                        : await verifier.VerifyAsync(activeSession, masterPassword, candidate, cancellationToken).ConfigureAwait(false);
                     if (verified is null) { CryptographicOperations.ZeroMemory(candidate); return AccountUnlockResult.VerificationRequiresEncryptedConfig; }
                     if (verified == false) { CryptographicOperations.ZeroMemory(candidate); return AccountUnlockResult.InvalidMasterPassword; }
+                    if (session != activeSession || operationRevision != Interlocked.Read(ref authRevision))
+                    {
+                        CryptographicOperations.ZeroMemory(candidate);
+                        return AccountUnlockResult.ServiceFailure;
+                    }
                     rootKey = candidate;
                     if (!localMatch)
                         await verifierStore.SaveAsync(scope, candidateVerifier, cancellationToken).ConfigureAwait(false);
+                    if (session != activeSession || operationRevision != Interlocked.Read(ref authRevision))
+                    {
+                        ClearRootKey();
+                        return AccountUnlockResult.ServiceFailure;
+                    }
                     State = AccountLockState.SignedInUnlocked;
                     return AccountUnlockResult.Unlocked;
                 }
@@ -237,6 +276,11 @@ public sealed class AccountUnlockController
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (AccountProtocolException exception) when (exception.Code == "PASSWORD_CHANGE_REQUIRED")
+        {
+            if (session is { } active) await MarkPasswordChangeRequiredAsync(active, cancellationToken).ConfigureAwait(false);
+            return AccountUnlockResult.ServiceFailure;
+        }
         catch (OperationCanceledException) { ClearRootKey(); State = AccountLockState.SignedInLocked; return AccountUnlockResult.NetworkUnavailable; }
         catch (HttpRequestException exception) when (exception.StatusCode is null)
         {
@@ -252,7 +296,7 @@ public sealed class AccountUnlockController
         }
     }
 
-    public void Lock() { ClearRootKey(); if (session is not null) State = AccountLockState.SignedInLocked; }
+    public void Lock() { Interlocked.Increment(ref authRevision); ClearRootKey(); if (session is not null) State = AccountLockState.SignedInLocked; }
 
     public async ValueTask ChangeLoginPasswordAsync(
         string currentPassword,
@@ -264,24 +308,24 @@ public sealed class AccountUnlockController
             throw new InvalidOperationException("账户安全服务尚未配置。");
         }
 
+        var activeSession = session;
         var result = await securityProtocol.ChangePasswordAsync(
-            session,
+            activeSession,
             new AccountPasswordChangeRequest(currentPassword, newPassword),
             cancellationToken).ConfigureAwait(false);
         var response = result.Value;
-        if (string.IsNullOrWhiteSpace(response.AccessTokenValue))
+        if (string.IsNullOrWhiteSpace(response.AccessTokenValue) || string.IsNullOrWhiteSpace(response.RefreshToken))
         {
             throw new InvalidOperationException("密码更新响应缺少有效会话令牌。");
         }
 
-        session = result.Session with
+        var updatedSession = result.Session with
         {
             AccessToken = response.AccessTokenValue,
-            RefreshToken = string.IsNullOrWhiteSpace(response.RefreshToken)
-                ? result.Session.RefreshToken
-                : response.RefreshToken,
+            RefreshToken = response.RefreshToken,
+            MustChangePassword = false,
         };
-        await sessionStore.SaveAsync(session, cancellationToken).ConfigureAwait(false);
+        await PersistReturnedSessionAsync(activeSession, updatedSession, cancellationToken, result.Session).ConfigureAwait(false);
     }
 
     public async ValueTask RotateMasterPasswordAsync(
@@ -290,7 +334,7 @@ public sealed class AccountUnlockController
         string currentLoginPassword,
         CancellationToken cancellationToken)
     {
-        if (session is null || rootKey is null || State != AccountLockState.SignedInUnlocked ||
+        if (session is null || rootKey is null || !CanSynchronize ||
             accountProtocol is not IOrbitAccountSecurityProtocol securityProtocol)
         {
             throw new InvalidOperationException("账户尚未解锁，不能轮换主密码。");
@@ -305,6 +349,7 @@ public sealed class AccountUnlockController
         }
 
         var scope = StorageIdentifier(session.Username);
+        var activeSession = session;
         var currentCandidate = keyDeriver.Derive(currentMasterPassword, scope);
         try
         {
@@ -319,7 +364,7 @@ public sealed class AccountUnlockController
         }
 
         var snapshotResult = await securityProtocol
-            .PullCompleteConfigSnapshotAsync(session, cancellationToken)
+            .PullCompleteConfigSnapshotAsync(activeSession, cancellationToken)
             .ConfigureAwait(false);
         var snapshot = snapshotResult.Value;
         if (snapshot.Select(item => item.Id).Distinct().Count() != snapshot.Count)
@@ -357,7 +402,7 @@ public sealed class AccountUnlockController
             snapshotResult.Session,
             new MasterKeyRotationRequest(currentLoginPassword, replacements),
             cancellationToken).ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(rotation.Value.AccessTokenValue))
+        if (string.IsNullOrWhiteSpace(rotation.Value.AccessTokenValue) || string.IsNullOrWhiteSpace(rotation.Value.RefreshToken))
         {
             throw new InvalidOperationException("主密码轮换响应缺少有效会话令牌。");
         }
@@ -366,14 +411,12 @@ public sealed class AccountUnlockController
         var nextVerifier = SHA256.HashData(nextRootKey);
         try
         {
-            session = rotation.Session with
+            var updatedSession = rotation.Session with
             {
                 AccessToken = rotation.Value.AccessTokenValue,
-                RefreshToken = string.IsNullOrWhiteSpace(rotation.Value.RefreshToken)
-                    ? rotation.Session.RefreshToken
-                    : rotation.Value.RefreshToken,
+                RefreshToken = rotation.Value.RefreshToken,
             };
-            await sessionStore.SaveAsync(session, cancellationToken).ConfigureAwait(false);
+            await PersistReturnedSessionAsync(activeSession, updatedSession, cancellationToken, rotation.Session).ConfigureAwait(false);
             await verifierStore.SaveAsync(scope, nextVerifier, cancellationToken).ConfigureAwait(false);
             ClearRootKey();
             rootKey = nextRootKey;
@@ -388,10 +431,37 @@ public sealed class AccountUnlockController
 
     public async ValueTask SignOutAsync(CancellationToken cancellationToken)
     {
-        ClearRootKey();
-        session = null;
-        await sessionStore.ClearAsync(cancellationToken).ConfigureAwait(false);
-        State = AccountLockState.SignedOut;
+        AccountSessionRecord? previous;
+        long signedOutRevision;
+        await transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            Interlocked.Increment(ref authRevision);
+            ClearRootKey();
+            await sessionStore.ClearAsync(cancellationToken).ConfigureAwait(false);
+            previous = session;
+            session = null;
+            State = AccountLockState.SignedOut;
+            LastLogoutRevocationFailed = false;
+            signedOutRevision = Interlocked.Read(ref authRevision);
+        }
+        finally { transitionGate.Release(); }
+        if (previous is not null && accountProtocol is IOrbitAccountLogoutProtocol logoutProtocol)
+        {
+            try { await logoutProtocol.LogoutCurrentAsync(previous, CancellationToken.None).ConfigureAwait(false); }
+            catch
+            {
+                await transitionGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+                try
+                {
+                    // A late failure from the old account must not decorate a
+                    // subsequent login (or a later sign-out) with a false warning.
+                    if (session is null && signedOutRevision == Interlocked.Read(ref authRevision))
+                        LastLogoutRevocationFailed = true;
+                }
+                finally { transitionGate.Release(); }
+            }
+        }
     }
 
     /// <summary>
@@ -406,12 +476,13 @@ public sealed class AccountUnlockController
         bool forceCompleteReconciliation = false)
     {
         ArgumentNullException.ThrowIfNull(synchronizer);
-        if (session is null || rootKey is null || State != AccountLockState.SignedInUnlocked)
+        if (session is null || rootKey is null || !CanSynchronize)
         {
             throw new InvalidOperationException("账户尚未解锁，不能同步加密配置。");
         }
 
-        var candidate = keyDeriver.Derive(masterPassword, StorageIdentifier(session.Username));
+        var activeSession = session;
+        var candidate = keyDeriver.Derive(masterPassword, StorageIdentifier(activeSession.Username));
         try
         {
             if (!CryptographicOperations.FixedTimeEquals(rootKey, candidate))
@@ -419,17 +490,16 @@ public sealed class AccountUnlockController
                 throw new CryptographicException("主密码不能解锁当前账户。");
             }
 
-            var result = await synchronizer.SynchronizeAsync(
-                session,
-                StorageIdentifier(session.Username),
+            var result = await RunAuthorizedWithGateAsync(activeSession, () => synchronizer.SynchronizeAsync(
+                activeSession,
+                StorageIdentifier(activeSession.Username),
                 masterPassword,
                 rootKey,
                 cancellationToken,
-                forceCompleteReconciliation).ConfigureAwait(false);
+                forceCompleteReconciliation), cancellationToken).ConfigureAwait(false);
             // A successful authenticated request may rotate the refresh token even
             // when an unknown payload deliberately prevents acknowledgement.
-            session = result.Session;
-            await sessionStore.SaveAsync(session, cancellationToken).ConfigureAwait(false);
+            await PersistReturnedSessionAsync(activeSession, result.Session, cancellationToken).ConfigureAwait(false);
 
             return result;
         }
@@ -448,22 +518,22 @@ public sealed class AccountUnlockController
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(publisher);
-        if (session is null || rootKey is null || State != AccountLockState.SignedInUnlocked)
+        if (session is null || rootKey is null || !CanSynchronize)
         {
             throw new InvalidOperationException("账户尚未解锁，不能上传加密资产。");
         }
 
-        var result = await publisher.PublishAsync(
-            session,
-            StorageIdentifier(session.Username),
+        var activeSession = session;
+        var result = await RunAuthorizedWithGateAsync(activeSession, () => publisher.PublishAsync(
+            activeSession,
+            StorageIdentifier(activeSession.Username),
             asset,
             credential,
             jumpHostCredential,
             masterPassword,
             rootKey,
-            cancellationToken).ConfigureAwait(false);
-        session = result.Session;
-        await sessionStore.SaveAsync(session, cancellationToken).ConfigureAwait(false);
+            cancellationToken), cancellationToken).ConfigureAwait(false);
+        await PersistReturnedSessionAsync(activeSession, result.Session, cancellationToken).ConfigureAwait(false);
         return result;
     }
 
@@ -474,11 +544,11 @@ public sealed class AccountUnlockController
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(publisher);
-        if (session is null || rootKey is null || State != AccountLockState.SignedInUnlocked)
+        if (session is null || rootKey is null || !CanSynchronize)
             throw new InvalidOperationException("账户尚未解锁，不能上传加密快捷指令。");
-        var result = await publisher.PublishAsync(session, StorageIdentifier(session.Username), snippets, masterPassword, rootKey, cancellationToken).ConfigureAwait(false);
-        session = result.Session;
-        await sessionStore.SaveAsync(session, cancellationToken).ConfigureAwait(false);
+        var activeSession = session;
+        var result = await RunAuthorizedWithGateAsync(activeSession, () => publisher.PublishAsync(activeSession, StorageIdentifier(activeSession.Username), snippets, masterPassword, rootKey, cancellationToken), cancellationToken).ConfigureAwait(false);
+        await PersistReturnedSessionAsync(activeSession, result.Session, cancellationToken).ConfigureAwait(false);
         return result;
     }
 
@@ -546,20 +616,76 @@ public sealed class AccountUnlockController
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(publisher);
-        if (session is null || rootKey is null || State != AccountLockState.SignedInUnlocked)
+        if (session is null || rootKey is null || !CanSynchronize)
         {
             throw new InvalidOperationException("账户尚未解锁，不能同步删除资产。");
         }
 
-        var result = await publisher.TombstoneAsync(
-            session,
-            StorageIdentifier(session.Username),
+        var activeSession = session;
+        var result = await RunAuthorizedWithGateAsync(activeSession, () => publisher.TombstoneAsync(
+            activeSession,
+            StorageIdentifier(activeSession.Username),
             assetId,
             rootKey,
-            cancellationToken).ConfigureAwait(false);
-        session = result.Session;
-        await sessionStore.SaveAsync(session, cancellationToken).ConfigureAwait(false);
+            cancellationToken), cancellationToken).ConfigureAwait(false);
+        await PersistReturnedSessionAsync(activeSession, result.Session, cancellationToken).ConfigureAwait(false);
         return result;
+    }
+
+    private async ValueTask PersistReturnedSessionAsync(
+        AccountSessionRecord expected,
+        AccountSessionRecord replacement,
+        CancellationToken cancellationToken,
+        AccountSessionRecord? intermediate = null)
+    {
+        await transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (session != expected)
+                throw new InvalidOperationException("账户会话已变化；不会恢复旧令牌。请重新登录或重试操作。");
+            var stored = await sessionStore.ReadAsync(cancellationToken).ConfigureAwait(false);
+            if (stored != replacement)
+            {
+                if (stored is null ||
+                    (stored != expected && stored != intermediate) ||
+                    !await sessionStore.TryReplaceAsync(stored, replacement, cancellationToken).ConfigureAwait(false))
+                    throw new InvalidOperationException("账户会话已变化；不会恢复旧令牌。请重新登录或重试操作。");
+            }
+            session = replacement;
+            if (replacement.MustChangePassword)
+            {
+                ClearRootKey();
+                State = AccountLockState.SignedInLocked;
+            }
+        }
+        finally { transitionGate.Release(); }
+    }
+
+    private async ValueTask<T> RunAuthorizedWithGateAsync<T>(AccountSessionRecord expected, Func<ValueTask<T>> operation, CancellationToken cancellationToken)
+    {
+        try { return await operation().ConfigureAwait(false); }
+        catch (AccountProtocolException exception) when (exception.Code == "PASSWORD_CHANGE_REQUIRED")
+        {
+            await MarkPasswordChangeRequiredAsync(expected, cancellationToken).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    private async ValueTask MarkPasswordChangeRequiredAsync(AccountSessionRecord expected, CancellationToken cancellationToken)
+    {
+        await transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (session != expected) return;
+            var stored = await sessionStore.ReadAsync(cancellationToken).ConfigureAwait(false);
+            if (stored is null || stored.Username != expected.Username || stored.CreatedAt != expected.CreatedAt) return;
+            var gated = stored with { MustChangePassword = true };
+            if (!await sessionStore.TryReplaceAsync(stored, gated, cancellationToken).ConfigureAwait(false)) return;
+            session = gated;
+            ClearRootKey();
+            State = AccountLockState.SignedInLocked;
+        }
+        finally { transitionGate.Release(); }
     }
 
     private void ClearRootKey() { if (rootKey is not null) CryptographicOperations.ZeroMemory(rootKey); rootKey = null; }

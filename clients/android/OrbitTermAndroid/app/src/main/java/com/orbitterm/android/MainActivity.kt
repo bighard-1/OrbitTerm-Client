@@ -21,6 +21,8 @@ import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.orbitterm.android.app.AuthViewModel
+import com.orbitterm.android.app.SyncStatus
+import com.orbitterm.android.domain.error.OrbitErrorCode
 import com.orbitterm.android.app.BackgroundLockDisposition
 import com.orbitterm.android.app.BiometricPromptFailure
 import com.orbitterm.android.app.MasterPasswordViewModel
@@ -36,6 +38,7 @@ import com.orbitterm.android.ui.LoginScreen
 import com.orbitterm.android.ui.MasterPasswordScreen
 import com.orbitterm.android.ui.LocalStorageCheckingScreen
 import com.orbitterm.android.ui.LocalStorageRecoveryScreen
+import com.orbitterm.android.ui.ForcedPasswordChangeScreen
 import com.orbitterm.android.ui.theme.OrbitTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -65,6 +68,11 @@ class MainActivity : FragmentActivity() {
             val recentlyDeletedViewModel: com.orbitterm.android.app.RecentlyDeletedViewModel = viewModel()
             val syncStatus = syncViewModel.status.collectAsStateWithLifecycle().value
             val authState = authViewModel.uiState.collectAsStateWithLifecycle().value
+            LaunchedEffect(syncStatus, authState.session?.username) {
+                if ((syncStatus as? SyncStatus.Failed)?.error?.code == OrbitErrorCode.PasswordChangeRequired) {
+                    authViewModel.requirePasswordChange()
+                }
+            }
             val masterState = masterViewModel.uiState.collectAsStateWithLifecycle().value
             val pendingDeepLink = deepLinks.pending.collectAsStateWithLifecycle().value
             val uiState = appViewModel.uiState.collectAsStateWithLifecycle().value
@@ -139,6 +147,7 @@ class MainActivity : FragmentActivity() {
             ) {
                 if (
                     authState.session != null &&
+                    !authState.session.mustChangePassword &&
                     masterState.isConfigured &&
                     !masterState.isUnlocked &&
                     masterState.biometricEnabled &&
@@ -201,6 +210,12 @@ class MainActivity : FragmentActivity() {
                     onLogin = authViewModel::login,
                     onRegister = authViewModel::register,
                 )
+                else if (authState.session.mustChangePassword) ForcedPasswordChangeScreen(
+                    isSubmitting = authState.isChangingPassword,
+                    error = authState.loginPasswordFeedback?.takeIf { it.isError }?.message,
+                    onChangePassword = authViewModel::changeLoginPassword,
+                    onLogout = authViewModel::logout,
+                )
                 else if (!masterState.isUnlocked) MasterPasswordScreen(
                     configured = masterState.isConfigured,
                     biometricEnabled = masterState.biometricEnabled,
@@ -262,13 +277,14 @@ class MainActivity : FragmentActivity() {
                     onFinishPendingMasterPasswordCommit = masterViewModel::finishPendingLocalCommit,
                     onRotateMasterPassword = { currentMaster, newMaster, confirmation, loginPassword ->
                         authState.session?.let { session ->
+                            val sessionGeneration = authViewModel.sessionGenerationSnapshot()
                             masterViewModel.rotateMasterPassword(
                                 currentPassword = currentMaster,
                                 newPassword = newMaster,
                                 confirmation = confirmation,
                                 currentLoginPassword = loginPassword,
                                 accessToken = session.accessToken,
-                                onSessionRotated = { response -> authViewModel.applyMasterKeyRotation(session, response) },
+                                onSessionRotated = { response -> authViewModel.applyMasterKeyRotation(session, response, sessionGeneration) },
                             )
                         }
                     },

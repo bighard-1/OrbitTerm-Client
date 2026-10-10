@@ -37,11 +37,45 @@
     "cancelled",
     "unknown"
   ],
+  "failurePresentation": {
+    "mustBeModalOrNativeAlert": true,
+    "mustDistinguish": [
+      "authenticationFailed",
+      "networkOrServiceUnavailable",
+      "nameResolutionFailed",
+      "certificateRejected",
+      "timedOut",
+      "protocolError"
+    ],
+    "credentialDataForbidden": true,
+    "retryActionRequired": true
+  },
+  "displayPolicy": {
+    "userSelectableRuntimeResolution": false,
+    "safeInitialDesktop": { "width": 1280, "height": 720 },
+    "localSmartScalingRequired": true,
+    "unsupportedRemoteModeMustNotDisconnect": true,
+    "fullscreenControlsAutoHide": true,
+    "fullscreenControlsRevealAtTopEdge": true
+  },
+  "inputRouting": {
+    "localSystemShortcutsWinUnlessExplicitlyCaptured": true,
+    "applicationShortcutsRequireApplicationFocus": true,
+    "remoteSurfaceFocusRoutesOrdinaryKeysToRemote": true,
+    "remoteSystemShortcutCaptureMustBeExplicit": true,
+    "captureReleaseGestures": ["Ctrl+Alt+Shift+Escape", "Platform+Escape"],
+    "modifierStateMustBeReleasedOnFocusLoss": true,
+    "localImeCommitUsesBoundedUnicodeInput": true,
+    "controlAltAndPlatformShortcutsBypassLocalIme": true
+  },
   "security": {
     "requireNlaByDefault": true,
     "certificateDecisionMustBeExplicit": true,
     "credentialPayloadForbiddenInProfile": true,
     "fallbackToSshForbidden": true,
-    "macosTargetForbidden": true
+    "macosTargetForbidden": true,
+    "clipboardRedirectionDefault": false,
+    "clipboardRedirectionCurrentlyEnabled": false,
+    "composedTextMustNotBeLoggedOrPersisted": true
   }
 }

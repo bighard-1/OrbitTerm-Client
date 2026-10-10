@@ -452,7 +452,9 @@ impl HostKeyFfiErrorPayload {
             | KnownHostsStoreError::PermissionFailed { .. } => {
                 (HostKeyFfiErrorCode::KnownHostsSaveFailed, "save_failed")
             }
-            KnownHostsStoreError::InvalidPublicKey | KnownHostsStoreError::InvalidAlgorithm => {
+            KnownHostsStoreError::InvalidPublicKey
+            | KnownHostsStoreError::InvalidFingerprint
+            | KnownHostsStoreError::InvalidAlgorithm => {
                 (HostKeyFfiErrorCode::HostKeyInvalid, "invalid_store_input")
             }
             KnownHostsStoreError::InvalidComment => {
@@ -469,6 +471,7 @@ impl HostKeyFfiErrorPayload {
                 "unsupported_marker",
             ),
             KnownHostsStoreError::TrustedRecordNotFound
+            | KnownHostsStoreError::FingerprintMismatch
             | KnownHostsStoreError::AmbiguousHostPattern => (
                 HostKeyFfiErrorCode::ChallengeMismatch,
                 "store_record_mismatch",

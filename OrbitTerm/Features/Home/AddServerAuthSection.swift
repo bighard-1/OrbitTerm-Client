@@ -41,9 +41,15 @@ struct AddServerAuthSection: View {
                             .font(.caption2)
                             .foregroundStyle(palette.textSecondary.color)
                     } else if transport == .rdp {
+                        #if os(macOS)
                         Text("RDP 资产支持端到端加密同步；连接时由内置 FreeRDP 会话安全读取钥匙串凭据。")
                             .font(.caption2)
                             .foregroundStyle(palette.textSecondary.color)
+                        #else
+                        Text("RDP 资产支持端到端加密同步与编辑；请在桌面端发起远程桌面连接。")
+                            .font(.caption2)
+                            .foregroundStyle(palette.textSecondary.color)
+                        #endif
                     }
                 }
             }

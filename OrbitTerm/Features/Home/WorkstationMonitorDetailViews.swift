@@ -142,8 +142,8 @@ struct MonitorDetailInlineView: View {
                         MonitorInteractiveChartCard(title: "内存", points: chartPoints, value: \.memUsedPercent, tint: palette.accentSecondary.color, domain: 0...100, percent: true)
                         MonitorInteractiveChartCard(title: "磁盘", points: chartPoints, value: \.diskUsedPercent, tint: palette.focusRing.color, domain: 0...100, percent: true)
                         MonitorInteractiveChartCard(title: "TCP 延迟", points: chartPoints, value: { $0.pingLatencyMs ?? 0 }, tint: palette.textSecondary.color, domain: 0...300, percent: false)
-                        MonitorInteractiveChartCard(title: "下载速率", points: chartPoints, value: \.rxRateKBps, tint: palette.accentPrimary.color, domain: 0...rateUpperBound(visiblePoints, keyPath: \.rxRateKBps), percent: false, unit: "KB/s")
-                        MonitorInteractiveChartCard(title: "上传速率", points: chartPoints, value: \.txRateKBps, tint: palette.accentSecondary.color, domain: 0...rateUpperBound(visiblePoints, keyPath: \.txRateKBps), percent: false, unit: "KB/s")
+                        MonitorInteractiveChartCard(title: "下载速率", points: chartPoints, value: \.rxRateKBps, tint: palette.accentPrimary.color, domain: 0...rateUpperBound(visiblePoints, keyPath: \.rxRateKBps), percent: false, unit: "Kbps")
+                        MonitorInteractiveChartCard(title: "上传速率", points: chartPoints, value: \.txRateKBps, tint: palette.accentSecondary.color, domain: 0...rateUpperBound(visiblePoints, keyPath: \.txRateKBps), percent: false, unit: "Kbps")
 
                         processMonitorCard
                     }

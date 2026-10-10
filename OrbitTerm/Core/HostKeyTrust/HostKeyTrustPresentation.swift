@@ -5,6 +5,7 @@ enum HostKeyTrustAction: String, Hashable, Sendable {
     case trustThisHost
     case close
     case copyFingerprints
+    case removePreviousTrust
     case retrySave
 }
 
@@ -45,7 +46,8 @@ struct HostKeyBlockedPresentation: Hashable, Sendable {
     let algorithm: String
     let presentedFingerprint: String
     let previousFingerprint: String?
-    let actions: Set<HostKeyTrustAction> = [.close, .copyFingerprints]
+    let canRemovePreviousTrust: Bool
+    let actions: Set<HostKeyTrustAction>
 
     init(payload: HostKeyBlockedPayload) {
         switch payload.reasonCode {
@@ -58,6 +60,10 @@ struct HostKeyBlockedPresentation: Hashable, Sendable {
         algorithm = payload.keyAlgorithm
         presentedFingerprint = payload.presentedFingerprintSHA256
         previousFingerprint = payload.previousFingerprintSHA256
+        canRemovePreviousTrust = severity == .changed && payload.canReplace && previousFingerprint != nil
+        actions = canRemovePreviousTrust
+            ? [.close, .copyFingerprints, .removePreviousTrust]
+            : [.close, .copyFingerprints]
     }
 
     var copyText: String {

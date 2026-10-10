@@ -3,6 +3,7 @@ package com.orbitterm.android.data.local
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.orbitterm.android.domain.assets.ServerAsset
+import com.orbitterm.android.domain.assets.AssetStorageScope
 import com.orbitterm.android.domain.assets.JumpHostConfiguration
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -22,6 +23,7 @@ data class ServerAssetEntity(
     val transport: String,
     val networkDeviceProfile: String,
     val allowPasswordFallback: Boolean,
+    val storageScope: String,
     val jumpHostJson: String?,
     val createdAtUnix: Long,
 )
@@ -39,6 +41,8 @@ internal fun ServerAssetEntity.toDomain(): ServerAsset = ServerAsset(
     transport = transport,
     networkDeviceProfile = networkDeviceProfile,
     allowPasswordFallback = allowPasswordFallback,
+    storageScope = runCatching { AssetStorageScope.valueOf(storageScope) }
+        .getOrDefault(AssetStorageScope.ACCOUNT_SYNCED),
     jumpHost = jumpHostJson?.let { serialized -> runCatching { assetJson.decodeFromString<JumpHostConfiguration>(serialized).validate() }.getOrNull() },
     createdAtUnix = createdAtUnix,
 )
@@ -57,6 +61,7 @@ internal fun ServerAsset.toEntity(accountScope: String): ServerAssetEntity = Ser
     transport = transport,
     networkDeviceProfile = networkDeviceProfile,
     allowPasswordFallback = allowPasswordFallback,
+    storageScope = storageScope.name,
     jumpHostJson = jumpHost?.let { assetJson.encodeToString(it.validate()) },
     createdAtUnix = createdAtUnix,
 )

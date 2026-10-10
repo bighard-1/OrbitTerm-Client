@@ -9,6 +9,7 @@ if [[ -z "$adb_bin" ]]; then
   adb_bin="$sdk_root/platform-tools/adb"
 fi
 [[ -x "$adb_bin" ]] || fail "adb is unavailable; configure ANDROID_HOME or ANDROID_ADB"
+require_command python3
 
 ANDROID_PROJECT="$ORBIT_ROOT/clients/android/OrbitTermAndroid"
 SERIAL="${ANDROID_SERIAL:-}"
@@ -28,28 +29,89 @@ esac
 package="com.orbitterm.android.smoke"
 activity="$package/com.orbitterm.android.smoke.SmokeFixtureActivity"
 remote_xml="/sdcard/orbitterm-smoke-fixture.xml"
+snapshot_attempts="${ORBITTERM_ANDROID_SMOKE_SNAPSHOT_ATTEMPTS:-30}"
+
+[[ "$snapshot_attempts" =~ ^[1-9][0-9]*$ ]] \
+  || fail "ORBITTERM_ANDROID_SMOKE_SNAPSHOT_ATTEMPTS must be a positive integer"
 
 cleanup() {
-  "$adb_bin" -s "$SERIAL" shell rm -f "$remote_xml" >/dev/null 2>&1 || true
-  "$adb_bin" -s "$SERIAL" uninstall "$package" >/dev/null 2>&1 || true
+  bounded_adb 20 shell rm -f "$remote_xml" >/dev/null 2>&1 || true
+  bounded_adb 30 uninstall "$package" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
-"$adb_bin" -s "$SERIAL" install -r "$apk" >/dev/null
+bounded_adb() {
+  local seconds="$1"
+  shift
+  python3 - "$seconds" "$adb_bin" -s "$SERIAL" "$@" <<'PY'
+import subprocess
+import sys
+
+seconds = int(sys.argv[1])
+try:
+    result = subprocess.run(sys.argv[2:], timeout=seconds, check=False)
+except subprocess.TimeoutExpired:
+    print(f"ADB command timed out after {seconds}s: {sys.argv[5]}", file=sys.stderr)
+    raise SystemExit(124)
+raise SystemExit(result.returncode)
+PY
+}
+
+install_smoke_fixture() {
+  local attempt output
+  section "Install Android isolated smoke fixture"
+  for attempt in 1 2 3; do
+    if output="$(bounded_adb 90 install -r "$apk" 2>&1)"; then
+      return 0
+    fi
+    case "$output" in
+      *"Broken pipe"*|*"device offline"*|*"Connection reset"*|*"ADB command timed out"*)
+        if (( attempt < 3 )); then
+          warn "transient ADB transport failure during isolated fixture install; retrying ($attempt/3)"
+          sleep 3
+          continue
+        fi
+        ;;
+    esac
+    printf '%s\n' "$output" >&2
+    fail "isolated smoke fixture APK installation failed"
+  done
+}
+
+install_smoke_fixture
 
 assert_state() {
   local state="$1"
   local expected="$2"
+  local attempt
+  local fixture_xml
+  section "Android isolated smoke fixture: $state"
   # A fixture is a fresh, deterministic process per state. This only stops the
   # isolated .smoke package; the production package is never addressed here.
-  "$adb_bin" -s "$SERIAL" shell am force-stop "$package"
-  "$adb_bin" -s "$SERIAL" shell am start -W -n "$activity" \
+  bounded_adb 30 shell am force-stop "$package"
+  bounded_adb 45 shell am start -W -n "$activity" \
     --es com.orbitterm.android.smoke.fixture.STATE "$state" >/dev/null
-  # `am start -W` waits for Activity launch, not Compose's first committed frame.
-  sleep 1
-  "$adb_bin" -s "$SERIAL" shell uiautomator dump "$remote_xml" >/dev/null
-  "$adb_bin" -s "$SERIAL" shell cat "$remote_xml" | grep -Fq "$expected" \
-    || fail "smoke fixture '$state' did not expose '$expected'"
+  # `am start -W` waits for Activity launch, not Compose's first committed
+  # frame. Software-rendered emulators can expose it late, so poll the
+  # accessibility tree rather than trusting a fixed one-second snapshot.
+  for attempt in $(seq 1 "$snapshot_attempts"); do
+    bounded_adb 20 shell rm -f "$remote_xml" >/dev/null 2>&1 || true
+    if bounded_adb 30 shell uiautomator dump "$remote_xml" >/dev/null 2>&1; then
+      fixture_xml="$(bounded_adb 20 shell cat "$remote_xml" 2>/dev/null || true)"
+      if [[ "$fixture_xml" == *"$expected"* ]]; then
+        return
+      fi
+    fi
+    sleep 1
+  done
+  warn "foreground activity at smoke-fixture failure:"
+  bounded_adb 20 shell dumpsys activity activities 2>/dev/null \
+    | grep -E 'mResumedActivity|topResumedActivity' \
+    | head -4 \
+    || true
+  warn "last accessibility snapshot (isolated fixture data only):"
+  printf '%s\n' "${fixture_xml:-<unavailable>}"
+  fail "smoke fixture '$state' did not expose '$expected' after $snapshot_attempts accessibility snapshots"
 }
 
 section "Android isolated smoke fixtures"

@@ -622,9 +622,10 @@ final class SyncQueue {
                 failed.attemptCount += 1
                 let failureTime = retryClock.trustedNow()
                 failed.updatedAt = failureTime
-                failed.lastError = SyncQueueRecoveryPolicy.persistedError(
+                failed.lastError = SyncQueueFailureEvidence.persistedError(
                     diagnosticCode: diagnosticCode,
-                    disposition: disposition
+                    disposition: disposition,
+                    underlyingError: error
                 )
                 let serverRetryAfter = (error as? NetworkService.NetworkError)?.retryAfterSeconds
                 let automaticRetryDelay = SyncQueueRecoveryPolicy.effectiveRetryDelay(

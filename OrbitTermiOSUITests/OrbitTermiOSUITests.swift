@@ -206,6 +206,9 @@ final class OrbitTermiOSUITests: XCTestCase {
         let logoutTitle = "退出登录？"
         let app = launch("account_security_states")
         XCTAssertTrue(app.navigationBars["账户安全状态回归"].waitForExistence(timeout: 5))
+        let triggerSuccess = app.buttons["模拟登录密码更新成功"]
+        XCTAssertTrue(triggerSuccess.waitForExistence(timeout: 5))
+        triggerSuccess.tap()
 
         let success = app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS %@", loginSuccessMessage)

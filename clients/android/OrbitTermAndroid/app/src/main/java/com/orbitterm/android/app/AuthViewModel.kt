@@ -19,9 +19,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
-import java.util.Base64
 import javax.inject.Inject
 
 data class AuthUiState(
@@ -43,6 +40,7 @@ class AuthViewModel @Inject constructor(
     private val terminalSessions: TerminalSessionController,
     private val applicationSync: ApplicationSyncCoordinator,
     private val database: OrbitTermDatabase,
+    private val refreshCoordinator: AuthSessionRefreshCoordinator,
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(AuthUiState(isCheckingLocalStorage = true))
     /** Invalidates login callbacks started before logout. */
@@ -82,7 +80,11 @@ class AuthViewModel @Inject constructor(
     }
 
     fun login(username: String, password: String) {
-        if (username.isBlank() || password.isBlank() || mutableState.value.isLoading) return
+        if (mutableState.value.isLoading) return
+        loginValidationError(username, password)?.let { message ->
+            mutableState.value = mutableState.value.copy(error = message)
+            return
+        }
         val canonicalUsername = username.trim().lowercase()
         val retryAfter = secureStore.loginRetryAfterSeconds(canonicalUsername)
         if (retryAfter > 0) {
@@ -98,7 +100,7 @@ class AuthViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching {
                 val response = withContext(Dispatchers.IO) { api.login(username.trim(), password) }
-                AuthSession(canonicalUsername, response.accessTokenValue, response.refresh_token)
+                sessionFromLoginResponse(canonicalUsername, response)
             }.onSuccess { session ->
                 if (generationAtRequestStart != loginGeneration) return@onSuccess
                 runCatching { secureStore.saveAuthSession(session) }
@@ -149,7 +151,7 @@ class AuthViewModel @Inject constructor(
             runCatching {
                 withContext(Dispatchers.IO) { api.register(canonicalUsername, password, inviteCode.trim()) }
                 val response = withContext(Dispatchers.IO) { api.login(canonicalUsername, password) }
-                AuthSession(canonicalUsername, response.accessTokenValue, response.refresh_token)
+                sessionFromLoginResponse(canonicalUsername, response)
             }.onSuccess { session ->
                 if (generationAtRequestStart != loginGeneration) return@onSuccess
                 runCatching { secureStore.saveAuthSession(session) }
@@ -175,22 +177,52 @@ class AuthViewModel @Inject constructor(
         }
         accountScopeController.deactivate()
         mutableState.value = AuthUiState()
+        if (activeSession != null) {
+            val generation = loginGeneration
+            viewModelScope.launch {
+                runCatching { withContext(Dispatchers.IO) { api.logoutCurrent(activeSession.accessToken) } }
+                    .onFailure {
+                        if (generation == loginGeneration && mutableState.value.session == null) {
+                            mutableState.value = mutableState.value.copy(
+                                error = "已退出本机；服务端会话撤销未确认。联网后请重新登录并检查账户安全。",
+                            )
+                        }
+                    }
+            }
+        }
     }
 
+    /** Handles a server-side gate even when this session predates the login response flag. */
+    fun requirePasswordChange() {
+        val active = mutableState.value.session ?: return
+        if (active.mustChangePassword) return
+        runCatching {
+            val current = secureStore.readAuthSessionChecked() ?: return
+            if (current.username != active.username) return
+            val updated = current.copy(mustChangePassword = true)
+            if (secureStore.replaceAuthSessionIfCurrent(current, updated)) {
+                mutableState.value = mutableState.value.copy(session = updated)
+            }
+        }.onFailure { publishSecureStorageRecovery(session = active) }
+    }
+
+    /** Capture before starting a remote security operation, not when its response arrives. */
+    fun sessionGenerationSnapshot(): Long = loginGeneration
+
     /** Stores tokens returned by the atomic master-key rotation endpoint. */
-    fun applyMasterKeyRotation(session: AuthSession, response: AuthResponse): Boolean {
+    fun applyMasterKeyRotation(session: AuthSession, response: AuthResponse, expectedGeneration: Long): Boolean {
         // A background refresh may legitimately replace the access token while
         // the same account's rotation is in flight. Account-scope and rotation
         // generation fences reject logout/account-switch callbacks; requiring
         // the old token here would strand a valid rotation after token refresh.
-        if (!isCurrentAccount(session.username)) return false
+        if (expectedGeneration != loginGeneration || !isCurrentAccount(session.username)) return false
+        val nextAccess = response.accessTokenValue.takeIf(String::isNotBlank) ?: return false
+        val nextRefresh = response.refresh_token?.takeIf(String::isNotBlank) ?: return false
         return runCatching {
-            val updated = AuthSession(
-                username = session.username,
-                accessToken = response.accessTokenValue.ifBlank { session.accessToken },
-                refreshToken = response.refresh_token ?: session.refreshToken,
-            )
-            secureStore.saveAuthSession(updated)
+            val current = secureStore.readAuthSessionChecked() ?: return false
+            if (current.username != session.username || expectedGeneration != loginGeneration) return false
+            val updated = current.copy(accessToken = nextAccess, refreshToken = nextRefresh)
+            if (!secureStore.replaceAuthSessionIfCurrent(current, updated)) return false
             mutableState.value = mutableState.value.copy(session = updated, error = null)
         }.fold(
             onSuccess = { true },
@@ -227,10 +259,23 @@ class AuthViewModel @Inject constructor(
                 withContext(Dispatchers.IO) { api.changePassword(session.accessToken, currentPassword, newPassword) }
             }.onSuccess { response ->
                 if (generationAtRequestStart != passwordChangeGeneration || !isCurrentAccount(session.username)) return@onSuccess
+                val nextAccess = response.accessTokenValue.takeIf(String::isNotBlank)
+                val nextRefresh = response.refresh_token?.takeIf(String::isNotBlank)
+                if (nextAccess == null || nextRefresh == null) {
+                    mutableState.value = mutableState.value.copy(
+                        isChangingPassword = false,
+                        loginPasswordFeedback = nextSecurityFeedback(
+                            SecurityOperationFeedbackKind.RECOVERY_REQUIRED,
+                            "服务未返回有效会话，请重新登录。",
+                        ),
+                    )
+                    return@onSuccess
+                }
                 val updated = AuthSession(
                     username = session.username,
-                    accessToken = response.accessTokenValue.ifBlank { session.accessToken },
-                    refreshToken = response.refresh_token ?: session.refreshToken,
+                    accessToken = nextAccess,
+                    refreshToken = nextRefresh,
+                    mustChangePassword = false,
                 )
                 runCatching { secureStore.saveAuthSession(updated) }
                     .onSuccess {
@@ -276,27 +321,17 @@ class AuthViewModel @Inject constructor(
 
     /** Refreshes only a token that expires within one minute; refresh failures keep the current session usable. */
     suspend fun refreshSessionIfNeeded(session: AuthSession): AuthSession {
-        if (!session.accessToken.isExpiringSoon()) return session
-        val refreshToken = session.refreshToken ?: return session
-        val refreshed = runCatching {
-            val response = withContext(Dispatchers.IO) { api.refresh(refreshToken) }
-            AuthSession(
-                username = session.username,
-                accessToken = response.accessTokenValue.ifBlank { session.accessToken },
-                refreshToken = response.refresh_token ?: refreshToken,
-            )
-        }.getOrDefault(session)
-        // Logout and account switching are authoritative. A late refresh must not
-        // persist tokens or re-authenticate an account that has already left.
-        if (!isCurrentSession(session)) return session
-        return runCatching {
-            secureStore.saveAuthSession(refreshed)
-            mutableState.value = mutableState.value.copy(session = refreshed)
-            refreshed
-        }.getOrElse {
-            publishSecureStorageRecovery(session = session)
-            session
+        val result = runCatching {
+            withContext(Dispatchers.IO) { refreshCoordinator.refreshIfNeeded(session) }
         }
+        result.exceptionOrNull()?.let { failure ->
+            if (failure !is OrbitServiceFailure) publishSecureStorageRecovery(session = session)
+            return session
+        }
+        val refreshed = result.getOrNull() ?: return session
+        if (!isCurrentSession(session)) return session
+        mutableState.value = mutableState.value.copy(session = refreshed)
+        return refreshed
     }
 
     private fun isCurrentSession(expected: AuthSession): Boolean {
@@ -317,25 +352,39 @@ class AuthViewModel @Inject constructor(
     }
 }
 
+internal fun sessionFromLoginResponse(username: String, response: AuthResponse): AuthSession {
+    val access = response.accessTokenValue.takeIf(String::isNotBlank)
+    val refresh = response.refresh_token?.takeIf(String::isNotBlank)
+    if (access == null || refresh == null) {
+        throw OrbitServiceFailure(syncError(OrbitErrorCode.RemoteProtocolViolation))
+    }
+    return AuthSession(username, access, refresh, response.must_change_password)
+}
+
 private fun Throwable.authFailureMessage(action: String): String {
     val error = (this as? OrbitServiceFailure)?.error ?: syncError(OrbitErrorCode.Unknown)
+    if (action == "登录" && error.code == OrbitErrorCode.AuthenticationFailed) {
+        return "邮箱账号或登录密码不正确，请检查后重试。"
+    }
     return "${action}失败：${error.userMessage()} 诊断代码：${error.diagnosticCode}。"
 }
 
 internal fun registrationValidationError(username: String, password: String, inviteCode: String): String? = when {
     !username.matches(Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) -> "请输入有效的邮箱账号。"
-    inviteCode.isBlank() -> "请输入管理员提供的邀请码。"
     password.length < 12 ||
         password.none(Char::isUpperCase) ||
         password.none(Char::isLowerCase) ||
         password.none(Char::isDigit) ||
         password.none { !it.isLetterOrDigit() && !it.isWhitespace() } ->
         "密码至少 12 位，并包含大小写字母、数字和特殊字符。"
+    inviteCode.isBlank() -> "请输入管理员提供的邀请码。"
     else -> null
 }
 
-private fun String.isExpiringSoon(nowUnixSeconds: Long = System.currentTimeMillis() / 1_000): Boolean = runCatching {
-    val payload = split('.')[1]
-    val decoded = String(Base64.getUrlDecoder().decode(payload), Charsets.UTF_8)
-    Json.parseToJsonElement(decoded).jsonObject["exp"]?.toString()?.toLongOrNull()?.let { it <= nowUnixSeconds + 60 } ?: false
-}.getOrDefault(false)
+internal fun loginValidationError(username: String, password: String): String? = when {
+    username.isBlank() -> "请输入邮箱账号。"
+    !username.trim().matches(Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) ->
+        "请输入有效的邮箱账号，例如 name@example.com。"
+    password.isEmpty() -> "请输入登录密码。"
+    else -> null
+}

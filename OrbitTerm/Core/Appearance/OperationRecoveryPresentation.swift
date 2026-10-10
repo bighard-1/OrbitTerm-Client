@@ -84,7 +84,7 @@ enum SecurityOperationPresentation {
     static let loginPasswordBusy = "正在更新登录密码…"
     static let masterPasswordBusy = "正在轮换主密码…"
     static let logoutTitle = "退出登录？"
-    static let logoutMessage = "将断开当前所有会话并清除当前登录状态；本机加密数据仍按账户隔离保留。"
+    static let logoutMessage = "将退出当前设备并清除本机令牌，同时尝试撤销服务端当前设备会话；其他设备不受影响。本机加密数据仍按账户隔离保留。"
     static let logoutConfirm = "退出登录"
     static let biometricEnabledSuccess = "已启用生物识别解锁。"
     static let biometricDisabledSuccess = "已关闭生物识别解锁。"
@@ -190,6 +190,7 @@ enum OperationFailureDomain: String, Equatable, Sendable {
 
 enum OperationFailureCode: String, Equatable, Sendable {
     case authenticationExpired
+    case passwordChangeRequired
     case authenticationFailed
     case masterPasswordLocked
     case masterPasswordMismatch
@@ -229,6 +230,7 @@ enum OperationFailureSeverity: Equatable, Sendable {
 /// presentation model remains independently testable.
 enum SyncRecoveryNetworkFailure: Equatable, Sendable {
     case authenticationExpired
+    case passwordChangeRequired
     case serviceConfigurationInvalid
     case serviceUnavailable
     case requestRejected
@@ -275,6 +277,16 @@ enum OperationRecoveryMapper {
                 symbol: "person.crop.circle.badge.exclamationmark",
                 severity: .warning,
                 actions: [.reauthenticate]
+            )
+        case .passwordChangeRequired:
+            return presentation(
+                domain: .sync,
+                code: .passwordChangeRequired,
+                title: "需要更新登录密码",
+                message: "请先更新登录密码；本地待同步数据已保留。",
+                symbol: "lock.rotation",
+                severity: .warning,
+                actions: [.dismiss]
             )
         case .serviceConfigurationInvalid:
             return presentation(
@@ -604,6 +616,54 @@ enum LoginCooldownPolicy {
         case 7: return 120
         default: return 300
         }
+    }
+}
+
+enum LoginFailurePresentation {
+    static func message(for error: Error) -> String {
+        if let networkError = error as? NetworkService.NetworkError,
+           case .unauthorized = networkError {
+            return "邮箱账号或登录密码不正确，请检查后重试。"
+        }
+        return error.localizedDescription
+    }
+}
+
+enum AuthInputValidation {
+    static func message(
+        isLoginMode: Bool,
+        username: String,
+        password: String,
+        inviteCode: String,
+        acceptedTerms: Bool
+    ) -> String? {
+        guard acceptedTerms else {
+            return "请先勾选同意使用条款、免责声明与隐私说明。"
+        }
+        let canonicalUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !canonicalUsername.isEmpty else { return "请输入邮箱账号。" }
+        let parts = canonicalUsername.split(separator: "@", omittingEmptySubsequences: false)
+        guard parts.count == 2,
+              !parts[0].isEmpty,
+              parts[1].contains("."),
+              !parts[1].hasPrefix("."),
+              !parts[1].hasSuffix("."),
+              !canonicalUsername.contains(where: \.isWhitespace) else {
+            return "请输入有效的邮箱账号，例如 name@example.com。"
+        }
+        guard !password.isEmpty else { return "请输入登录密码。" }
+        guard !isLoginMode else { return nil }
+        guard password.count >= 12,
+              password.contains(where: \.isUppercase),
+              password.contains(where: \.isLowercase),
+              password.contains(where: \.isNumber),
+              password.contains(where: { !$0.isLetter && !$0.isNumber && !$0.isWhitespace }) else {
+            return "密码至少 12 位，且必须包含大小写字母、数字和特殊字符。"
+        }
+        guard !inviteCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "请输入管理员提供的邀请码。"
+        }
+        return nil
     }
 }
 

@@ -209,7 +209,9 @@ extension SyncService {
             }
             guard store.isActiveAccount(accountID) else { return false }
             if remoteItems.isEmpty {
-                let localAssetIDs = Set(store.servers.map { $0.id.uuidString.lowercased() })
+                let localAssetIDs = Set(store.servers
+                    .filter { $0.storageScope == .accountSynced }
+                    .map { $0.id.uuidString.lowercased() })
                 let pendingIDs = Set(
                     SyncPullRecoveryPolicy.localAssetIDsPendingExplicitPublication(
                         localAssetIDs: localAssetIDs,
@@ -232,7 +234,8 @@ extension SyncService {
             let deletedRemoteItems = remoteItems.filter { ($0.state ?? "active") != "active" }
             var fullPullDeletedCount = 0
             for item in deletedRemoteItems {
-                guard let rawID = item.asset_id, let assetID = UUID(uuidString: rawID) else { continue }
+                guard let canonicalID = SyncPullRecoveryPolicy.canonicalAssetID(item.asset_id),
+                      let assetID = UUID(uuidString: canonicalID) else { continue }
                 store.applyRemoteDeletion(assetID, accountID: accountID)
                 SyncMetadataStore.shared.saveAsset(item, fallbackAssetID: assetID, accountID: accountID)
                 fullPullDeletedCount += 1
@@ -265,18 +268,11 @@ extension SyncService {
 
             let servers = preparation.items.map(\.server)
             let portables = preparation.items.map(\.portable)
-            let activeRemoteAssetIDs = Set(activeRemoteItems.compactMap { item -> String? in
-                guard let id = item.asset_id?.lowercased(),
-                      UUID(uuidString: id) != nil else {
-                    return nil
-                }
-                return id
+            let activeRemoteAssetIDs = Set(activeRemoteItems.compactMap {
+                SyncPullRecoveryPolicy.canonicalAssetID($0.asset_id)
             })
-            let knownRemoteAssetIDs = Set(remoteItems.compactMap { item -> String? in
-                guard let id = item.asset_id?.lowercased(), UUID(uuidString: id) != nil else {
-                    return nil
-                }
-                return id
+            let knownRemoteAssetIDs = Set(remoteItems.compactMap {
+                SyncPullRecoveryPolicy.canonicalAssetID($0.asset_id)
             })
             if SyncPullRecoveryPolicy.remoteAssetsRequireMasterPasswordRecovery(
                 remoteAssetCount: activeRemoteAssetIDs.count,
@@ -286,7 +282,9 @@ extension SyncService {
                 setSyncRecoveryPresentation(OperationRecoveryMapper.syncMasterPasswordMismatch())
                 return false
             }
-            let localAssetIDs = Set(store.servers.map { $0.id.uuidString.lowercased() })
+            let localAssetIDs = Set(store.servers
+                .filter { $0.storageScope == .accountSynced }
+                .map { $0.id.uuidString.lowercased() })
             let pendingIDs = Set(
                 SyncPullRecoveryPolicy.localAssetIDsPendingExplicitPublication(
                     localAssetIDs: localAssetIDs,
@@ -316,7 +314,9 @@ extension SyncService {
             }
             shadowStore.saveMany(portables, accountID: accountID)
             shadowStore.retainOnly(
-                assetIDs: Set(store.servers.map { $0.id.uuidString }),
+                assetIDs: Set(store.servers
+                    .filter { $0.storageScope == .accountSynced }
+                    .map { $0.id.uuidString }),
                 accountID: accountID
             )
             setPendingLocalAssetRecoveryIDs(pendingIDs)
@@ -426,15 +426,26 @@ extension SyncService {
 
             receivedRemoteChanges = receivedRemoteChanges || !page.items.isEmpty
 
-            let remoteDeletes = page.items.filter { ($0.state ?? "active") != "active" }
+            // Incremental pages can contain the last active record and a newer
+            // tombstone under different config-record IDs. Resolve by stable
+            // asset identity before applying either side; otherwise applying
+            // the deletion first and the active record second revives it.
+            let reconciledPageItems = SyncPullRecoveryPolicy.mergeRemoteInventory(
+                activeItems: page.items.filter { ($0.state ?? "active") == "active" },
+                trashItems: page.items.filter { ($0.state ?? "active") != "active" },
+                assetID: { $0.asset_id },
+                recordID: { String($0.id) }
+            )
+            let remoteDeletes = reconciledPageItems.filter { ($0.state ?? "active") != "active" }
             for item in remoteDeletes {
-                guard let rawID = item.asset_id, let assetID = UUID(uuidString: rawID) else { continue }
+                guard let canonicalID = SyncPullRecoveryPolicy.canonicalAssetID(item.asset_id),
+                      let assetID = UUID(uuidString: canonicalID) else { continue }
                 store.applyRemoteDeletion(assetID, accountID: accountID)
                 metadata.saveAsset(item, fallbackAssetID: assetID, accountID: accountID)
                 deletedCount += 1
             }
 
-            let remoteActive = page.items.filter { ($0.state ?? "active") == "active" }
+            let remoteActive = reconciledPageItems.filter { ($0.state ?? "active") == "active" }
             let v2RootKey = try prepareV2RootKeyIfRequired(
                 for: remoteActive,
                 masterPassword: masterPassword,
@@ -485,7 +496,9 @@ extension SyncService {
             credentialCount += preparation.credentialWriteCount
             shadowStore.saveMany(preparation.items.map(\.portable), accountID: accountID)
             shadowStore.retainOnly(
-                assetIDs: Set(store.servers.map { $0.id.uuidString }),
+                assetIDs: Set(store.servers
+                    .filter { $0.storageScope == .accountSynced }
+                    .map { $0.id.uuidString }),
                 accountID: accountID
             )
             for prepared in preparation.items {
@@ -528,7 +541,7 @@ extension SyncService {
                 id: remote.id,
                 encrypted_blob_base64: remote.encrypted_blob_base64,
                 vector_clock: bindClock,
-                asset_id: assetID.uuidString
+                asset_id: assetID.uuidString.lowercased()
             )
             do {
                 let boundRemote = try await network.uploadConfig(token: token, payload: bindPayload)
@@ -752,16 +765,22 @@ extension SyncService {
                         masterPassword: masterPassword,
                         v2RootKey: v2RootKey
                     )
-                    if tombstoneSnapshot[portable.id] != nil {
-                        tombstoneSkipped += 1
-                        remoteConfigIDsToDelete.insert(item.id)
-                        if let assetID = UUID(uuidString: portable.id) {
-                            tombstonedRemotes.append((assetID: assetID, remote: item))
-                        }
+                    guard let canonicalServerID = SyncPullRecoveryPolicy.canonicalAssetID(portable.id),
+                          let serverID = UUID(uuidString: canonicalServerID) else {
+                        skipped += 1
                         continue
                     }
-                    guard let serverID = UUID(uuidString: portable.id) else {
+                    guard SyncPullRecoveryPolicy.remoteAssetIDMatchesPortable(
+                        item.asset_id,
+                        portableID: portable.id
+                    ) else {
                         skipped += 1
+                        continue
+                    }
+                    if tombstoneSnapshot[canonicalServerID] != nil {
+                        tombstoneSkipped += 1
+                        remoteConfigIDsToDelete.insert(item.id)
+                        tombstonedRemotes.append((assetID: serverID, remote: item))
                         continue
                     }
                     guard let transport = ServerTransportProtocol(rawValue: portable.transport) else {
@@ -811,16 +830,16 @@ extension SyncService {
                         credentials: credentials,
                         remote: item
                     )
-                    if let existing = bestByServerID[portable.id] {
+                    if let existing = bestByServerID[canonicalServerID] {
                         if Self.shouldPrefer(decoded.portable, remoteID: decoded.remoteID, over: existing.portable, existingRemoteID: existing.remoteID) {
                             remoteConfigIDsToDelete.insert(existing.remoteID)
-                            bestByServerID[portable.id] = decoded
+                            bestByServerID[canonicalServerID] = decoded
                         } else {
                             remoteConfigIDsToDelete.insert(item.id)
                         }
                         duplicateSkipped += 1
                     } else {
-                        bestByServerID[portable.id] = decoded
+                        bestByServerID[canonicalServerID] = decoded
                     }
                 } catch {
                     skipped += 1

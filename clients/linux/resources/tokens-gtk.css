@@ -1,0 +1,18 @@
+/* Generated sRGB GTK mapping of ../tokens.css; semantic Adwaita colours remain mode-aware. */
+@define-color orbit_paper @window_bg_color;
+@define-color orbit_paper_2 @view_bg_color;
+@define-color orbit_metric @headerbar_bg_color;
+@define-color orbit_surface @card_bg_color;
+@define-color orbit_ink @window_fg_color;
+@define-color orbit_muted @window_fg_color;
+@define-color orbit_rule @borders;
+@define-color orbit_accent @accent_bg_color;
+@define-color orbit_accent_ink @accent_fg_color;
+@define-color orbit_focus @accent_bg_color;
+@define-color orbit_success #247a55;
+@define-color orbit_warning #9a5b0a;
+@define-color orbit_danger #b3261e;
+@define-color orbit_rdp #6656b8;
+@define-color orbit_terminal #101318;
+@define-color orbit_terminal_ink #d7dee8;
+@define-color orbit_terminal_muted #8b98aa;
