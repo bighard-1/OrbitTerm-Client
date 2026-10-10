@@ -84,7 +84,7 @@ enum SecurityOperationPresentation {
     static let loginPasswordBusy = "正在更新登录密码…"
     static let masterPasswordBusy = "正在轮换主密码…"
     static let logoutTitle = "退出登录？"
-    static let logoutMessage = "将断开当前所有会话并清除当前登录状态；本机加密数据仍按账户隔离保留。"
+    static let logoutMessage = "将退出当前设备并清除本机令牌，同时尝试撤销服务端当前设备会话；其他设备不受影响。本机加密数据仍按账户隔离保留。"
     static let logoutConfirm = "退出登录"
     static let biometricEnabledSuccess = "已启用生物识别解锁。"
     static let biometricDisabledSuccess = "已关闭生物识别解锁。"
@@ -190,6 +190,7 @@ enum OperationFailureDomain: String, Equatable, Sendable {
 
 enum OperationFailureCode: String, Equatable, Sendable {
     case authenticationExpired
+    case passwordChangeRequired
     case authenticationFailed
     case masterPasswordLocked
     case masterPasswordMismatch
@@ -229,6 +230,7 @@ enum OperationFailureSeverity: Equatable, Sendable {
 /// presentation model remains independently testable.
 enum SyncRecoveryNetworkFailure: Equatable, Sendable {
     case authenticationExpired
+    case passwordChangeRequired
     case serviceConfigurationInvalid
     case serviceUnavailable
     case requestRejected
@@ -275,6 +277,16 @@ enum OperationRecoveryMapper {
                 symbol: "person.crop.circle.badge.exclamationmark",
                 severity: .warning,
                 actions: [.reauthenticate]
+            )
+        case .passwordChangeRequired:
+            return presentation(
+                domain: .sync,
+                code: .passwordChangeRequired,
+                title: "需要更新登录密码",
+                message: "请先更新登录密码；本地待同步数据已保留。",
+                symbol: "lock.rotation",
+                severity: .warning,
+                actions: [.dismiss]
             )
         case .serviceConfigurationInvalid:
             return presentation(

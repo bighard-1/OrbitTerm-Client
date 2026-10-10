@@ -79,6 +79,14 @@ final class SyncQueueRecoveryPolicyTests: XCTestCase {
             SyncQueueFailureEvidence.persistedError(
                 diagnosticCode: "sync.requestRejected",
                 disposition: .blocked,
+                underlyingError: NetworkService.NetworkError.requestTooLarge
+            ),
+            "blocked:sync.requestRejected|http=413"
+        )
+        XCTAssertEqual(
+            SyncQueueFailureEvidence.persistedError(
+                diagnosticCode: "sync.requestRejected",
+                disposition: .blocked,
                 underlyingError: NetworkService.NetworkError.unexpectedStatus(-1)
             ),
             "blocked:sync.requestRejected"

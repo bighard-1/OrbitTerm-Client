@@ -60,6 +60,29 @@ final class NetworkServiceFaultInjectionTests: XCTestCase {
         XCTAssertEqual(ScriptedURLProtocol.requestCount, 1)
     }
 
+    func testAllowlistedServerAuthCodesAndOversizeResponse() async {
+        let fixtures: [(Int, String, NetworkService.NetworkError)] = [
+            (403, "PASSWORD_CHANGE_REQUIRED", .passwordChangeRequired),
+            (409, "REFRESH_IN_PROGRESS", .refreshInProgress),
+            (409, "AUTH_STATE_CHANGED", .authStateChanged),
+            (413, "OTHER", .requestTooLarge),
+        ]
+        for (status, code, expected) in fixtures {
+            ScriptedURLProtocol.install([
+                .init(statusCode: status, body: #"{"success":false,"code":"\#(code)"}"#),
+            ])
+            let failure = await registerFailure(makeService())
+            XCTAssertEqual(failure.localizedDescription, expected.localizedDescription)
+            XCTAssertEqual(ScriptedURLProtocol.requestCount, 1)
+        }
+    }
+
+    func testLoginResponseDecodesForcedPasswordChangeFlag() throws {
+        let payload = #"{"access_token":"access","refresh_token":"refresh","type":"Bearer","must_change_password":true}"#
+        let login = try JSONDecoder().decode(LoginData.self, from: Data(payload.utf8))
+        XCTAssertEqual(login.must_change_password, true)
+    }
+
     func testUnauthorizedRemainsAuthenticationFailureWithoutRetry() async {
         ScriptedURLProtocol.install([.init(statusCode: 401)])
         let service = makeService()

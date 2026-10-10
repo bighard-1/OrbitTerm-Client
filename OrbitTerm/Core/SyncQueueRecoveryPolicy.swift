@@ -22,7 +22,7 @@ enum SyncQueueRecoveryPolicy {
             return attemptCount <= maximumServiceUnavailableAttempts ? .automaticRetry : .blocked
         case "sync.requestRejected":
             return .blocked
-        case "sync.authenticationExpired":
+        case "sync.authenticationExpired", "sync.passwordChangeRequired":
             return .waitForAuthentication
         default:
             return .blocked
@@ -71,6 +71,8 @@ enum SyncQueueFailureEvidence {
         switch networkError {
         case let .httpStatus(code, _), let .unexpectedStatus(code):
             statusCode = code
+        case .requestTooLarge:
+            statusCode = 413
         default:
             return category
         }

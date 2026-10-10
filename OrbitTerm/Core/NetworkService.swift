@@ -2,6 +2,20 @@ import Foundation
 import Security
 import os
 
+extension Notification.Name {
+    static let orbitTermPasswordChangeRequired = Notification.Name("orbitTermPasswordChangeRequired")
+}
+
+enum AuthCredentialMutationGate {
+    private static let lock = NSLock()
+
+    static func withLock<T>(_ body: () throws -> T) rethrows -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return try body()
+    }
+}
+
 // NetworkService 负责与 OrbitTerm 后端进行 HTTP 通信。
 // 采用 async/await 风格，便于与 SwiftUI 并发模型结合。
 final class NetworkService: NSObject {
@@ -94,6 +108,10 @@ final class NetworkService: NSObject {
         case unexpectedStatus(Int)
         case httpStatus(Int, retryAfterSeconds: TimeInterval?)
         case unauthorized(String?)
+        case passwordChangeRequired
+        case refreshInProgress
+        case authStateChanged
+        case requestTooLarge
         case decodeFailed
 
         var errorDescription: String? {
@@ -120,6 +138,14 @@ final class NetworkService: NSObject {
                     return "未授权: \(message)"
                 }
                 return "未授权: Token 无效或已过期"
+            case .passwordChangeRequired:
+                return "请先更新登录密码，再继续使用资产和同步功能。"
+            case .refreshInProgress:
+                return "登录状态正在更新，请稍后重试。"
+            case .authStateChanged:
+                return "账户安全状态已变化，请重新登录。"
+            case .requestTooLarge:
+                return "资产或同步批次超出服务端大小限制，请缩小后重试。"
             case .decodeFailed:
                 return "响应解析失败"
             }
@@ -266,6 +292,11 @@ final class NetworkService: NSObject {
             body: body,
             responseType: LoginData.self
         )
+    }
+
+    /// Revokes only this device's server session. Local logout remains authoritative offline.
+    func logoutCurrent(accessToken: String) async throws {
+        try await sendRawWithoutBody(path: "/api/v1/auth/logout", method: "POST", token: accessToken)
     }
 
     func rotateMasterKey(
@@ -500,7 +531,7 @@ final class NetworkService: NSObject {
             if httpResp.statusCode == 401 {
                 throw NetworkError.unauthorized(nil)
             }
-            throw httpStatusError(httpResp)
+            throw httpStatusError(httpResp, data: data, token: token)
         }
 
         guard let parsed = envelope,
@@ -525,7 +556,7 @@ final class NetworkService: NSObject {
             request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
-        let (_, httpResp, latencyMs, attempts) = try await executeRequest(request)
+        let (data, httpResp, latencyMs, attempts) = try await executeRequest(request)
         let requestURLString = request.url?.absoluteString ?? path
         await MainActor.run {
             (self.diagnosticsManager ?? DiagnosticsManager.shared).record(
@@ -541,7 +572,7 @@ final class NetworkService: NSObject {
             if httpResp.statusCode == 401 {
                 throw NetworkError.unauthorized(nil)
             }
-            throw httpStatusError(httpResp)
+            throw httpStatusError(httpResp, data: data, token: token)
         }
     }
 
@@ -582,7 +613,7 @@ final class NetworkService: NSObject {
             if httpResp.statusCode == 401 {
                 throw NetworkError.unauthorized(nil)
             }
-            throw httpStatusError(httpResp)
+            throw httpStatusError(httpResp, data: data, token: token)
         }
 
         guard let parsed = envelope,
@@ -732,8 +763,30 @@ final class NetworkService: NSObject {
         }
     }
 
-    private func httpStatusError(_ response: HTTPURLResponse) -> NetworkError {
-        NetworkError.httpStatus(
+    private func httpStatusError(_ response: HTTPURLResponse, data: Data, token: String?) -> NetworkError {
+        if response.statusCode == 413 { return .requestTooLarge }
+        if data.count <= 1_024,
+           let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let code = payload["code"] as? String {
+            switch (response.statusCode, code) {
+            case (403, "PASSWORD_CHANGE_REQUIRED"):
+                if let token {
+                    NotificationCenter.default.post(
+                        name: .orbitTermPasswordChangeRequired,
+                        object: nil,
+                        userInfo: ["accessToken": token]
+                    )
+                }
+                return .passwordChangeRequired
+            case (409, "REFRESH_IN_PROGRESS"):
+                return .refreshInProgress
+            case (409, "AUTH_STATE_CHANGED"):
+                return .authStateChanged
+            default:
+                break
+            }
+        }
+        return NetworkError.httpStatus(
             response.statusCode,
             retryAfterSeconds: SyncHTTPResponsePolicy.retryAfterSeconds(
                 response.value(forHTTPHeaderField: "Retry-After")
@@ -769,12 +822,33 @@ final class NetworkService: NSObject {
                 responseType: LoginData.self
             )
             let access = refreshed.accessTokenValue
-            guard !access.isEmpty else {
-                throw NetworkError.unauthorized("refresh 响应缺少 access_token")
+            guard !access.isEmpty,
+                  let nextRefresh = refreshed.refreshTokenValue,
+                  !nextRefresh.isEmpty else {
+                throw NetworkError.decodeFailed
             }
-            try self.keychain.saveString(access, service: self.tokenService, account: self.tokenAccount)
-            if let newRefresh = refreshed.refreshTokenValue, !newRefresh.isEmpty {
-                try self.keychain.saveString(newRefresh, service: self.tokenService, account: self.refreshTokenAccount)
+            try AuthCredentialMutationGate.withLock {
+                // A logout or password rotation may have replaced this token
+                // while the HTTP request was in flight. Never resurrect it.
+                guard try self.readRefreshToken() == refreshToken else {
+                    throw NetworkError.unauthorized("登录状态已变化")
+                }
+                try self.keychain.saveString(nextRefresh, service: self.tokenService, account: self.refreshTokenAccount)
+                try self.keychain.saveString(access, service: self.tokenService, account: self.tokenAccount)
+                if let required = refreshed.must_change_password {
+                    try self.keychain.saveString(
+                        required ? "1" : "0",
+                        service: self.tokenService,
+                        account: "password_change_required"
+                    )
+                }
+            }
+            if refreshed.must_change_password == true {
+                NotificationCenter.default.post(
+                    name: .orbitTermPasswordChangeRequired,
+                    object: nil,
+                    userInfo: ["accessToken": access]
+                )
             }
             self.logger.debug("[NET] token refreshed")
             return access
@@ -793,6 +867,14 @@ extension NetworkService.NetworkError: SyncRecoveryClassifiable {
         switch self {
         case .unauthorized:
             return .authenticationExpired
+        case .passwordChangeRequired:
+            return .passwordChangeRequired
+        case .authStateChanged:
+            return .authenticationExpired
+        case .refreshInProgress:
+            return .serviceUnavailable
+        case .requestTooLarge:
+            return .requestRejected
         case .invalidURL, .invalidBaseURL, .insecureScheme, .customEndpointApprovalRequired:
             return .serviceConfigurationInvalid
         case .server, .unexpectedStatus:

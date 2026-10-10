@@ -93,6 +93,7 @@ struct LoginData: Decodable {
     let type: String
     let expires_in_seconds: Int?
     let refresh_expires_in_seconds: Int?
+    let must_change_password: Bool?
 
     var accessTokenValue: String {
         access_token ?? token ?? ""

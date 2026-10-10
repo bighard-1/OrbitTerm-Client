@@ -230,6 +230,8 @@ struct AuthView: View {
     private var bannerArea: some View {
         if !message.isEmpty {
             AuthStatusBanner(message: message, kind: messageKind, shakeOffset: shakeOffset)
+        } else if let warning = session.logoutRevocationWarning {
+            AuthStatusBanner(message: warning, kind: .failure, shakeOffset: 0)
         }
     }
 
@@ -301,7 +303,8 @@ struct AuthView: View {
             try session.persistLogin(
                 accessToken: loginData.accessTokenValue,
                 refreshToken: loginData.refreshTokenValue,
-                username: canonicalUsername
+                username: canonicalUsername,
+                mustChangePassword: loginData.must_change_password ?? false
             )
             username = canonicalUsername
             LoginAttemptThrottle.clear(for: canonicalUsername)

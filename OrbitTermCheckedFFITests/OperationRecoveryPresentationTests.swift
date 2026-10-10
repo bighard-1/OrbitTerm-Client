@@ -73,6 +73,17 @@ final class OperationRecoveryPresentationTests: XCTestCase {
         XCTAssertFalse(value.message.contains("@"))
     }
 
+    func testForcedPasswordChangeDoesNotBecomeExpiredLogin() {
+        let value = OperationRecoveryMapper.sync(.passwordChangeRequired)
+        XCTAssertEqual(value.code, .passwordChangeRequired)
+        XCTAssertEqual(value.diagnosticCode, "sync.passwordChangeRequired")
+        XCTAssertFalse(value.actions.contains(.reauthenticate))
+        XCTAssertEqual(
+            SyncQueueRecoveryPolicy.disposition(for: value.diagnosticCode),
+            .waitForAuthentication
+        )
+    }
+
     func testPermanentHTTPRejectionDoesNotOfferBlindRetry() {
         let value = OperationRecoveryMapper.sync(.requestRejected)
 

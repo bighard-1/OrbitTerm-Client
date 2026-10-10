@@ -120,7 +120,7 @@ struct AssetManagerView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("会删除本地凭据并尝试同步云端删除。此操作不可撤销。")
+            Text("随账户同步的资产会移入最近删除，保留期内可恢复；仅此设备的资产无法从云端恢复。所有选中资产的本机凭据都会移除；可重试的云端删除失败会后台补投，需处理的冲突会保留并提示。")
         }
 #if os(macOS)
         .frame(minWidth: 760, minHeight: 520)

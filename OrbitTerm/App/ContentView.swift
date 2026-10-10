@@ -51,6 +51,9 @@ struct ContentView: View {
             } else if !session.isAuthenticated {
                 AuthView()
                     .accessibilityIdentifier("orbit.root.auth")
+            } else if session.mustChangePassword {
+                ForcedPasswordChangeView()
+                    .accessibilityIdentifier("orbit.root.password-change-required")
             } else if !session.isUnlocked {
                 MasterPasswordGateView()
                     .accessibilityIdentifier("orbit.root.locked")
@@ -180,7 +183,7 @@ struct ContentView: View {
 
     private var autoSyncTaskKey: String {
         // 触发键只使用内存态，避免 SwiftUI 刷新时反复读取 Keychain 造成首屏卡顿。
-        "\(session.isAuthenticated)-\(session.isUnlocked)-\(session.authRevision)"
+        "\(session.isAuthenticated)-\(session.isUnlocked)-\(session.mustChangePassword)-\(session.authRevision)"
     }
 
     private func applyOperationLifecycle(_ event: ApplicationOperationLifecycleEvent) {
@@ -210,7 +213,7 @@ struct ContentView: View {
     /// foreground activation from publishing a late result.
     private func scheduleAutoSync(after delayNanoseconds: UInt64) {
         cancelAutoSync()
-        guard session.isAuthenticated, session.isUnlocked else { return }
+        guard session.isAuthenticated, session.isUnlocked, !session.mustChangePassword else { return }
 
         let generation = UUID()
         let expectedRevision = session.authRevision
@@ -351,6 +354,7 @@ struct ContentView: View {
             session.authRevision == expectedRevision &&
             session.isAuthenticated &&
             session.isUnlocked &&
+            !session.mustChangePassword &&
             session.username == expectedAccountID
     }
 
@@ -908,7 +912,7 @@ private struct MainShellView: View {
     }
 
     private func processDeepLinkIfNeeded() {
-        guard session.isAuthenticated, session.isUnlocked else { return }
+        guard session.isAuthenticated, session.isUnlocked, !session.mustChangePassword else { return }
         guard let intent = deepLinkManager.pendingIntent else { return }
         guard !showingDeepLinkAddServer else { return }
 
@@ -945,6 +949,106 @@ private struct MainShellView: View {
         processDeepLinkIfNeeded()
     }
 
+}
+
+private struct ForcedPasswordChangeView: View {
+    @EnvironmentObject private var session: AppSession
+    @EnvironmentObject private var serverStore: ServerStore
+    @State private var currentPassword = ""
+    @State private var newPassword = ""
+    @State private var confirmation = ""
+    @State private var errorMessage: String?
+    @State private var isSubmitting = false
+    @State private var requestTask: Task<Void, Never>?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("需要更新登录密码")
+                    .font(.title2.weight(.semibold))
+                Text("管理员已重置此账户的登录密码。完成更改前，资产和同步功能将保持锁定。")
+                    .foregroundStyle(.secondary)
+                SecureField("当前临时密码", text: $currentPassword)
+                    .textContentType(.password)
+                SecureField("新登录密码", text: $newPassword)
+                    .textContentType(.newPassword)
+                SecureField("确认新登录密码", text: $confirmation)
+                    .textContentType(.newPassword)
+                Text("新密码至少 12 位，并包含大小写字母、数字和特殊字符。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                if let errorMessage {
+                    Text(errorMessage)
+                        .foregroundStyle(.red)
+                        .accessibilityIdentifier("orbit.password-change-required.error")
+                }
+                Button(isSubmitting ? "更新中…" : "更新密码并继续") {
+                    submit()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isSubmitting || currentPassword.isEmpty || newPassword.isEmpty || confirmation.isEmpty)
+                Button("退出登录", role: .destructive) {
+                    requestTask?.cancel()
+                    AccountSessionActions.leaveCurrentAccount(session: session, serverStore: serverStore)
+                }
+                .disabled(isSubmitting)
+            }
+            .frame(maxWidth: 440, alignment: .leading)
+            .padding(24)
+            .frame(maxWidth: .infinity)
+        }
+        .onDisappear { requestTask?.cancel() }
+    }
+
+    private func submit() {
+        guard !isSubmitting else { return }
+        guard newPassword == confirmation else {
+            errorMessage = "两次输入的新密码不一致。"
+            return
+        }
+        guard newPassword.count >= 12,
+              newPassword.rangeOfCharacter(from: .uppercaseLetters) != nil,
+              newPassword.rangeOfCharacter(from: .lowercaseLetters) != nil,
+              newPassword.rangeOfCharacter(from: .decimalDigits) != nil,
+              newPassword.unicodeScalars.contains(where: { !CharacterSet.alphanumerics.contains($0) && !CharacterSet.whitespacesAndNewlines.contains($0) }) else {
+            errorMessage = "新密码至少 12 位，并包含大小写字母、数字和特殊字符。"
+            return
+        }
+        let account = session.username
+        let revision = session.authRevision
+        let oldPassword = currentPassword
+        let nextPassword = newPassword
+        isSubmitting = true
+        errorMessage = nil
+        requestTask = Task {
+            defer { isSubmitting = false; requestTask = nil }
+            do {
+                let result = try await NetworkService.shared.changePassword(
+                    currentPassword: oldPassword,
+                    newPassword: nextPassword
+                )
+                guard !Task.isCancelled, session.isAuthenticated,
+                      session.username == account, session.authRevision == revision else { return }
+                guard !result.accessTokenValue.isEmpty,
+                      let refresh = result.refreshTokenValue, !refresh.isEmpty else {
+                    errorMessage = "服务未返回有效会话，请重新登录。"
+                    return
+                }
+                try session.persistLogin(
+                    accessToken: result.accessTokenValue,
+                    refreshToken: refresh,
+                    username: account,
+                    mustChangePassword: false
+                )
+                currentPassword = ""
+                newPassword = ""
+                confirmation = ""
+            } catch {
+                guard !Task.isCancelled else { return }
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
 }
 
 #if os(iOS)
