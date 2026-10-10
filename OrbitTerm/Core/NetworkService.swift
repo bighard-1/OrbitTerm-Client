@@ -71,7 +71,7 @@ final class NetworkService: NSObject {
         request: AssetMutationRequest
     ) async throws {
         _ = try await send(
-            path: "/api/v1/config/assets/\(assetID.uuidString.lowercased())/delete",
+            path: Self.assetDeletePath(assetID),
             method: "POST",
             body: request,
             token: nil,
@@ -339,12 +339,16 @@ final class NetworkService: NSObject {
 
     func moveAssetToTrash(assetID: UUID, request: AssetMutationRequest) async throws -> UploadConfigData {
         try await sendAuthorized(
-            path: "/api/v1/config/assets/\(assetID.uuidString.lowercased())/delete",
+            path: Self.assetDeletePath(assetID),
             method: "POST",
             body: request,
             idempotencyKey: SyncRequestIdentity.mutation(request),
             responseType: UploadConfigData.self
         )
+    }
+
+    private static func assetDeletePath(_ assetID: UUID) -> String {
+        "/api/v1/config/assets/\(assetID.uuidString.lowercased())/delete"
     }
 
     func restoreAsset(assetID: UUID, request: AssetMutationRequest) async throws -> UploadConfigData {
