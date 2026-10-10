@@ -12,6 +12,19 @@ extension Notification.Name {
     static let orbitTermClearTransientSensitiveInput = Notification.Name("orbitterm.clear-transient-sensitive-input")
 }
 
+/// Only the separately signed iOS QA app may show its content in iPhone
+/// Mirroring. Release builds and the normal app bundle never compile or pass
+/// this exception. Inactive-scene and screenshot protections remain active.
+enum MirroredCaptureQAMode {
+    static var isEnabled: Bool {
+#if os(iOS) && DEBUG && ORBITTERM_IOS_MIRROR_QA
+        Bundle.main.bundleIdentifier == "com.orbitterm.matrix.ios"
+#else
+        false
+#endif
+    }
+}
+
 @MainActor
 final class SensitiveScreenProtection: ObservableObject {
     static let shared = SensitiveScreenProtection()
@@ -30,7 +43,7 @@ final class SensitiveScreenProtection: ObservableObject {
             ) { [weak self] _ in
                 Task { @MainActor in
                     self?.isScreenCaptured = UIScreen.main.isCaptured
-                    if UIScreen.main.isCaptured {
+                    if UIScreen.main.isCaptured && !MirroredCaptureQAMode.isEnabled {
                         NotificationCenter.default.post(name: .orbitTermClearTransientSensitiveInput, object: nil)
                     }
                 }
@@ -101,8 +114,21 @@ private struct SensitiveWindowConfiguration: NSViewRepresentable {
 
 private struct SensitiveScreenProtectionModifier: ViewModifier {
     @Environment(\.scenePhase) private var scenePhase
+#if os(iOS)
+    @Environment(\.isSceneCaptured) private var isSceneCaptured
+#endif
     @StateObject private var protection = SensitiveScreenProtection.shared
     @StateObject private var clipboardNotice = ClipboardSecurityNotice.shared
+
+    private var isCaptureActive: Bool {
+#if os(iOS)
+        // Scene capture also covers iPhone Mirroring and remote control, which
+        // may not update the deprecated screen-level capture flag.
+        (isSceneCaptured || protection.isScreenCaptured) && !MirroredCaptureQAMode.isEnabled
+#else
+        protection.isScreenCaptured
+#endif
+    }
 
     func body(content: Content) -> some View {
         content
@@ -112,7 +138,7 @@ private struct SensitiveScreenProtectionModifier: ViewModifier {
             .overlay {
                 if SensitiveScreenVisibilityPolicy.shouldCover(
                     isSceneActive: scenePhase == .active,
-                    isScreenCaptured: protection.isScreenCaptured
+                    isScreenCaptured: isCaptureActive
                 ) {
                     SensitiveContentCover()
                         .transition(.opacity)
@@ -121,7 +147,7 @@ private struct SensitiveScreenProtectionModifier: ViewModifier {
             .overlay(alignment: .bottom) {
                 if let message = clipboardNotice.message,
                    scenePhase == .active,
-                   !protection.isScreenCaptured {
+                   !isCaptureActive {
                     Text(message)
                         .font(.footnote.weight(.medium))
                         .foregroundStyle(.white)
@@ -134,6 +160,10 @@ private struct SensitiveScreenProtectionModifier: ViewModifier {
             }
             .onChange(of: scenePhase) { _, phase in
                 guard phase != .active else { return }
+                NotificationCenter.default.post(name: .orbitTermClearTransientSensitiveInput, object: nil)
+            }
+            .onChange(of: isCaptureActive) { _, captured in
+                guard captured else { return }
                 NotificationCenter.default.post(name: .orbitTermClearTransientSensitiveInput, object: nil)
             }
     }

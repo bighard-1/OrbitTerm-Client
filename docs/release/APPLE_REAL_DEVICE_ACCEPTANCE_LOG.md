@@ -53,3 +53,12 @@
 
 1. macOS：完成至少一次真实交互并发基线；完整 15 分钟 / 3 GiB 性能证据仍须与 Windows 两版本的九次矩阵一同判定。
 2. Android、Windows、Linux：按同一账户隔离、删除/编辑竞争、离线重连、三次重复同步和本机凭据清除矩阵执行真机对照。
+
+## 2026-10-09 正式身份包重装后的受控复测（本地时间）
+
+- 历史证据边界：上一节的 `A-BLOCK-03/04` 是**旧安装包在当时的真实失败**，不能删改。之后用户自行从 iPhone 删除旧正式版，旧容器的两条 `blocked:sync.requestRejected` 队列不再可取；当时的 HTTP 状态和签名文件均无法追溯。新安装包通过，不等于旧问题根因查明。
+- 使用当前工作区的 Apple 源码构建、自动开发签名的 `com.orbitterm.app` Debug 包（HEAD `9e30bc7` 加未提交改动，非发行候选）在同一 iPhone 13 mini 安装、CoreDevice 启动成功。最终不含临时诊断层的可执行文件 SHA-256 为 `ac066e5e75d2229ab05af4198a26a5100d9f4bf4172cb806b38662611bb1827f`，严格签名校验通过；独立 QA 包未覆盖。此结果解除新包的启动阻断，但不证明旧包拒绝启动一定由描述文件过期导致。
+- 正式包解锁后活动列表仅原 RDP。新增表单在 iPhone 镜像键盘通道未能稳定录入，未提交任何候选资产；该现象仅记为镜像输入限制，不外推为手机本体表单缺陷。为避免污染账户，从最近删除只恢复既有虚构 SSH `OT-Mixed-Due-Linux-20261009`，活动列表准确为原 RDP 1 + 该 SSH 1；未向文档保留地址发起连接。随后在批量模式仅勾选目标 SSH，原 RDP 未选，执行可恢复软删除。两次手动同步后活动列表仍只有原 RDP；最近删除首项为同一目标，保留期约 90 天。未执行永久删除。
+- 正式包 SQLite 同步队列只读副本统计为 0 行。Linux 开发机在独立登录会话中运行只读加密库存审计：原 RDP 为唯一可解密活动资产，辅助记录 1，无法解密或无效 0；目标保持远端 ID 62，状态为可恢复删除，修订 1189。审计不修改服务端；这次复测证明**新正式 Debug 包当前在线恢复→软删除链路**，不覆盖旧请求故障、离线失败、发布 Release 或五端矩阵。
+- 敏感内容保护新失败 `IOS-CAPTURE-03`：正式包没有 QA 镜像标记、QA 豁免在运行时为 false，但 iPhone 镜像仍能看到主密码解锁页。按 Apple 官方建议补入 SwiftUI 场景级捕获状态后重装，画面仍可见。只显示布尔值的临时 Debug 诊断包测得镜像时 `isSceneCaptured=false`、`UIScreen.isCaptured=false`、场景 active；诊断源码随后移除，最终干净构建重新签名安装并确认无诊断文字。这里不宣称系统普遍不报告镜像，只限定本设备/系统/镜像组合。该 P1 隐私项未关闭；在找到经过真机验证的保护方案之前，不能把正式包镜像保护记为通过。参考 [Apple 场景捕获建议](https://developer.apple.com/documentation/swiftui/protecting-sensitive-content-when-screen-sharing)。
+- 附加发布构建检查 `IOS-RELEASE-BUILD-04`：首次以签名关闭的 generic iOS Release 构建时链接失败，缺少 Host Key 清理 FFI 符号；本地 Release Rust 静态库的时间戳早于该符号所在源码。按项目发布门禁同等参数重新以锁定依赖构建 iOS Release Rust 库后，原 Xcode Release 构建通过。首次失败与后续通过分别保留。此检查只证明当前工作区可构建，未安装或签名 Release 包，更非五端发布通过。
