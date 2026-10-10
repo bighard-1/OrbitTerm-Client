@@ -33,6 +33,112 @@ public sealed class OrbitHttpAccountProtocolTests
     }
 
     [Fact]
+    public async Task ConcurrentStaleRequestsConsumeTheRefreshTokenOnlyOnce()
+    {
+        var handler = new RecordingHandler();
+        var protocol = new OrbitHttpAccountProtocol(new OrbitEndpointPolicy(), handler);
+        var session = new AccountSessionRecord(AccountProtocolContracts.Version, "operator", "expired-access", "original-refresh", DateTimeOffset.UtcNow, null, null);
+
+        var first = protocol.PullChangesAsync(session, 0, 100, CancellationToken.None).AsTask();
+        var second = protocol.PullChangesAsync(session, 0, 100, CancellationToken.None).AsTask();
+        var results = await Task.WhenAll(first, second);
+
+        Assert.Equal(1, handler.RefreshRequestCount);
+        Assert.All(results, result => Assert.Equal("rotated-refresh", result.Session.RefreshToken));
+    }
+
+    [Theory]
+    [InlineData(403, "PASSWORD_CHANGE_REQUIRED")]
+    [InlineData(409, "REFRESH_IN_PROGRESS")]
+    [InlineData(409, "AUTH_STATE_CHANGED")]
+    public async Task SecurityContractErrorsAreAllowlisted(int status, string code)
+    {
+        var protocol = new OrbitHttpAccountProtocol(new OrbitEndpointPolicy(), new ErrorCodeHandler((HttpStatusCode)status, code));
+        var session = new AccountSessionRecord(AccountProtocolContracts.Version, "operator", "access", "refresh", DateTimeOffset.UtcNow, null, null);
+        var error = await Assert.ThrowsAsync<AccountProtocolException>(async () =>
+            await protocol.PullChangesAsync(session, 0, 100, CancellationToken.None));
+        Assert.Equal(code, error.Code);
+    }
+
+    [Fact]
+    public async Task LogoutRevokesOnlyTheCurrentBearerSession()
+    {
+        var handler = new LogoutHandler();
+        var protocol = new OrbitHttpAccountProtocol(new OrbitEndpointPolicy(), handler);
+        var session = new AccountSessionRecord(AccountProtocolContracts.Version, "operator", "device-access", "refresh", DateTimeOffset.UtcNow, null, null);
+        await protocol.LogoutCurrentAsync(session, CancellationToken.None);
+        Assert.Equal(AccountProtocolContracts.LogoutPath, handler.Path);
+        Assert.Equal("Bearer device-access", handler.Authorization);
+    }
+
+    [Fact]
+    public async Task RefreshIsDurableBeforeAForbiddenRetry()
+    {
+        var original = new AccountSessionRecord(AccountProtocolContracts.Version, "operator", "expired-access", "original-refresh", DateTimeOffset.UtcNow, null, null);
+        var store = new SessionStore(original);
+        var protocol = new OrbitHttpAccountProtocol(new OrbitEndpointPolicy(), new RefreshThenForbiddenHandler(), store);
+        await Assert.ThrowsAsync<AccountProtocolException>(async () =>
+            await protocol.PullChangesAsync(original, 0, 100, CancellationToken.None));
+        Assert.Equal("rotated-access", store.Value?.AccessToken);
+        Assert.Equal("rotated-refresh", store.Value?.RefreshToken);
+    }
+
+    private sealed class SessionStore(AccountSessionRecord initial) : IAccountSessionStore
+    {
+        public AccountSessionRecord? Value { get; private set; } = initial;
+        public ValueTask<AccountSessionRecord?> ReadAsync(CancellationToken cancellationToken) => ValueTask.FromResult(Value);
+        public ValueTask SaveAsync(AccountSessionRecord session, CancellationToken cancellationToken) { Value = session; return ValueTask.CompletedTask; }
+        public ValueTask<bool> TryReplaceAsync(AccountSessionRecord expected, AccountSessionRecord replacement, CancellationToken cancellationToken)
+        {
+            if (Value != expected) return ValueTask.FromResult(false);
+            Value = replacement;
+            return ValueTask.FromResult(true);
+        }
+        public ValueTask ClearAsync(CancellationToken cancellationToken) { Value = null; return ValueTask.CompletedTask; }
+    }
+
+    private sealed class RefreshThenForbiddenHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri?.AbsolutePath == AccountProtocolContracts.RefreshPath)
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"success":true,"data":{"access_token":"rotated-access","refresh_token":"rotated-refresh","type":"bearer"}}""", Encoding.UTF8, "application/json"),
+                });
+            var rotated = request.Headers.Authorization?.Parameter == "rotated-access";
+            return Task.FromResult(new HttpResponseMessage(rotated ? HttpStatusCode.Forbidden : HttpStatusCode.Unauthorized)
+            {
+                Content = new StringContent(rotated ? """{"success":false,"code":"PASSWORD_CHANGE_REQUIRED"}""" : """{"success":false}""", Encoding.UTF8, "application/json"),
+            });
+        }
+    }
+
+    private sealed class LogoutHandler : HttpMessageHandler
+    {
+        public string? Path { get; private set; }
+        public string? Authorization { get; private set; }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Path = request.RequestUri?.AbsolutePath;
+            Authorization = request.Headers.Authorization?.ToString();
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"success":true,"data":{"logged_out":true}}""", Encoding.UTF8, "application/json"),
+            });
+        }
+    }
+
+    private sealed class ErrorCodeHandler(HttpStatusCode status, string code) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(status)
+            {
+                Content = new StringContent($"{{\"success\":false,\"code\":\"{code}\"}}", Encoding.UTF8, "application/json"),
+            });
+    }
+
+    [Fact]
     public void SelfHostedEndpointRequiresExplicitApprovalAndHttps()
     {
         var policy = new OrbitEndpointPolicy();

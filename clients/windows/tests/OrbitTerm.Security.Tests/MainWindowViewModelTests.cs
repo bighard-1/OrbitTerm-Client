@@ -3780,6 +3780,9 @@ public sealed class MainWindowViewModelTests
         public ValueTask SaveAsync(AccountSessionRecord session, CancellationToken cancellationToken) =>
             ValueTask.CompletedTask;
 
+        public ValueTask<bool> TryReplaceAsync(AccountSessionRecord expected, AccountSessionRecord replacement, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(false);
+
         public ValueTask ClearAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
     }
 

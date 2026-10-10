@@ -6524,10 +6524,12 @@ public sealed partial class MainWindow : Window
             case "signout":
                 if (await ConfirmCredentialMutationAsync(
                     "退出当前账户？",
-                    "本机会话令牌将被清除；本机资产不会交给下一个账户。",
+                    "本机会话令牌将被清除，并尝试撤销当前设备的服务端会话；本机资产不会交给下一个账户。其他设备不受影响。",
                     "退出登录"))
                 {
                     await ViewModel.SignOutAccountAsync(CancellationToken.None);
+                    if (ViewModel.LastAccountLogoutRevocationFailed)
+                        await ShowAccountMessageAsync("远端撤销未确认", ViewModel.AccountStatus);
                 }
                 break;
         }
@@ -6584,6 +6586,7 @@ public sealed partial class MainWindow : Window
 
     private async Task ShowChangeLoginPasswordDialogAsync()
     {
+        var wasRequired = ViewModel.MustChangeAccountPassword;
         var current = new PasswordBox { Header = "当前登录密码", PasswordRevealMode = PasswordRevealMode.Hidden };
         var next = new PasswordBox { Header = "新登录密码", PasswordRevealMode = PasswordRevealMode.Hidden };
         var confirmation = new PasswordBox { Header = "确认新登录密码", PasswordRevealMode = PasswordRevealMode.Hidden };
@@ -6616,6 +6619,10 @@ public sealed partial class MainWindow : Window
             confirmedPassword,
             CancellationToken.None);
         await ShowAccountMessageAsync(changed ? "密码已更新" : "无法更新密码", ViewModel.AccountStatus);
+        if (changed && wasRequired)
+        {
+            await ShowAccountUnlockDialogAsync();
+        }
     }
 
     private async void SynchronizeAccountClick(object sender, RoutedEventArgs e)
@@ -6829,7 +6836,11 @@ public sealed partial class MainWindow : Window
             : await ViewModel.RegisterAccountAsync(username, password, inviteCode, CancellationToken.None);
         if (signedIn)
         {
-            if (isLoginMode)
+            if (ViewModel.MustChangeAccountPassword)
+            {
+                await ShowChangeLoginPasswordDialogAsync();
+            }
+            else if (isLoginMode)
             {
                 await ShowAccountUnlockDialogAsync();
             }
@@ -6989,6 +7000,11 @@ public sealed partial class MainWindow : Window
 
     private async Task ShowAccountUnlockDialogAsync()
     {
+        if (ViewModel.MustChangeAccountPassword)
+        {
+            await ShowChangeLoginPasswordDialogAsync();
+            return;
+        }
         var passwordBox = new PasswordBox
         {
             Header = "主密码",

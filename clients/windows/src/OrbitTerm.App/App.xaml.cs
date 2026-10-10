@@ -36,7 +36,7 @@ public partial class App : Microsoft.UI.Xaml.Application
                 credentialVault,
                 enforceCoreKeyValidation: true);
             IAccountSessionStore accountSessionStore = new WindowsAccountSessionStore();
-            var accountProtocol = new OrbitHttpAccountProtocol(new OrbitEndpointPolicy());
+            var accountProtocol = new OrbitHttpAccountProtocol(new OrbitEndpointPolicy(), sessionStore: accountSessionStore);
             var serverAssetStore = new WindowsServerAssetStore();
             var snippetStore = new WindowsSnippetStore();
             var portForwardProfileLibrary = new PortForwardProfileLibrary(new WindowsPortForwardProfileVault());

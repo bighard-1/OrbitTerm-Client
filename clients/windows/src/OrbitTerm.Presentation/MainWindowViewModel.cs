@@ -454,7 +454,10 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public bool IsAccountLocked => AccountLockState == OrbitTerm.Application.Accounts.AccountLockState.SignedInLocked;
 
-    public bool IsAccountUnlocked => AccountLockState == OrbitTerm.Application.Accounts.AccountLockState.SignedInUnlocked;
+    public bool IsAccountUnlocked => AccountLockState == OrbitTerm.Application.Accounts.AccountLockState.SignedInUnlocked && !MustChangeAccountPassword;
+
+    public bool MustChangeAccountPassword => accountUnlockController?.MustChangePassword == true;
+    public bool LastAccountLogoutRevocationFailed => accountUnlockController?.LastLogoutRevocationFailed == true;
 
     public string AccountUsername => accountUnlockController?.Username ?? string.Empty;
 
@@ -2947,6 +2950,12 @@ public sealed class MainWindowViewModel : ObservableObject
         catch (HttpRequestException exception)
         {
             WriteSynchronizationDiagnostic("network_failure", exception, remoteChangesConfirmed);
+            if (exception is AccountProtocolException { Code: "PASSWORD_CHANGE_REQUIRED" })
+            {
+                ApplyAccountState(accountUnlockController.State);
+                AccountStatus = "服务端要求先更新登录密码；本机待同步变更已保留。";
+                return null;
+            }
             if (remoteChangesConfirmed)
             {
                 AccountStatus = "云端变更已确认；网络或同步服务暂时不可用，本机待上传队列已保留并将在下次同步重试。";
@@ -3021,8 +3030,14 @@ public sealed class MainWindowViewModel : ObservableObject
                         break;
                 }
             }
-            catch (HttpRequestException)
+            catch (HttpRequestException exception)
             {
+                if (exception is AccountProtocolException { Code: "PASSWORD_CHANGE_REQUIRED" })
+                {
+                    ApplyAccountState(accountUnlockController.State);
+                    AccountStatus = "服务端要求先更新登录密码；剩余资产未上传且本地变更已保留。";
+                    return;
+                }
                 AccountStatus = $"已发布 {published} 项；网络或服务异常，剩余资产未上传。";
                 return;
             }
@@ -3256,6 +3271,8 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             await accountUnlockController.SignOutAsync(cancellationToken).ConfigureAwait(true);
             ApplyAccountState(accountUnlockController.State);
+            if (LastAccountLogoutRevocationFailed)
+                AccountStatus = "已退出本机；服务端会话撤销未确认。联网后请重新登录并检查账户安全。";
         }
     }
 
@@ -3293,7 +3310,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private void ApplyAccountState(AccountLockState state)
     {
         AccountLockState = state;
-        AccountStatus = state switch
+        AccountStatus = MustChangeAccountPassword ? "请先更新登录密码，再解锁或同步资产。" : state switch
         {
             OrbitTerm.Application.Accounts.AccountLockState.SignedOut => "尚未登录。不会自动联网。",
             OrbitTerm.Application.Accounts.AccountLockState.SignedInLocked => "已登录，本机加密同步数据等待解锁。",
@@ -3314,6 +3331,8 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(AccountEntryLabel));
         OnPropertyChanged(nameof(IsAccountLocked));
         OnPropertyChanged(nameof(IsAccountUnlocked));
+        OnPropertyChanged(nameof(MustChangeAccountPassword));
+        OnPropertyChanged(nameof(LastAccountLogoutRevocationFailed));
         OnPropertyChanged(nameof(AccountUsername));
         OnPropertyChanged(nameof(AssetSynchronizationStatus));
     }
