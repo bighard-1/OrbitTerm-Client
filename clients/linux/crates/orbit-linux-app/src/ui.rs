@@ -6952,8 +6952,8 @@ fn refresh_asset_list(
             let scope_label = asset_scope_label(asset, visibility.synchronized_owners);
             let scope = gtk::Label::new(Some(scope_label));
             scope.add_css_class("transport-badge");
-            scope.set_tooltip_text(Some(if scope_label == "同步" {
-                "随 OrbitTerm 账户端到端加密同步"
+            scope.set_tooltip_text(Some(if scope_label == "账户" {
+                "配置为随账户同步；是否已上传请查看同步中心"
             } else {
                 "仅保存在当前 Linux 设备"
             }));
@@ -7002,9 +7002,9 @@ fn asset_scope_label(
     synchronized_owners: &HashMap<Uuid, HashSet<String>>,
 ) -> &'static str {
     match asset.storage_scope {
-        AssetStorageScope::AccountSynced => "同步",
+        AssetStorageScope::AccountSynced => "账户",
         AssetStorageScope::LocalOnly => "本机",
-        AssetStorageScope::Unspecified if synchronized_owners.contains_key(&asset.id) => "同步",
+        AssetStorageScope::Unspecified if synchronized_owners.contains_key(&asset.id) => "账户",
         AssetStorageScope::Unspecified => "本机",
     }
 }
@@ -9745,8 +9745,10 @@ fn trigger_background_sync(context: UiContext) {
             if !context.sync_session.pull_is_due(now, 30_000) {
                 let status = if needs_deleted_asset_resolution {
                     "云端已删除本机待上传资产 · 请在同步中心处理".to_owned()
+                } else if context.sync_session.last_pull_succeeded() {
+                    "云同步健康 · 最近增量已确认".to_owned()
                 } else {
-                    "云同步健康 · 后台增量已启用".to_owned()
+                    "增量检查尚未确认 · 请查看同步中心或等待重试".to_owned()
                 };
                 context.sync_status.set_label(&status);
                 context.sync_scheduler.finish_background();
@@ -10424,6 +10426,7 @@ fn start_background_ack(
                         return;
                     }
                     completion_context.sync_session.clear_notification();
+                    completion_context.sync_session.confirm_pull();
                     let label = if stored {
                         format!("同步健康 · 已导入 {imported} 项")
                     } else {
@@ -15455,14 +15458,7 @@ fn registration_failure_message(error: &SyncError) -> String {
         SyncError::Unauthorized | SyncError::InvalidLogin => {
             "注册失败：注册信息或邀请码未被接受，请检查后重试。".into()
         }
-        SyncError::Server(message)
-            if ["already", "exists", "registered", "已注册", "已存在"]
-                .iter()
-                .any(|marker| message.to_ascii_lowercase().contains(marker)) =>
-        {
-            "注册失败：该邮箱已注册，请直接登录。".into()
-        }
-        SyncError::Server(_) => "注册失败：注册信息或邀请码未被接受，请检查后重试。".into(),
+        SyncError::ServerRejected(_) => "注册失败：注册信息或邀请码未被接受，请检查后重试。".into(),
         _ => "注册未完成，请稍后重试；本机数据未发生改变。".into(),
     }
 }
@@ -20609,6 +20605,10 @@ mod tests {
             Some("account-a"),
             true
         ));
+        // The badge describes the chosen storage scope, never a completed
+        // server upload; queue delivery and cursor acknowledgement are separate.
+        assert_eq!(asset_scope_label(&synchronized, &owners), "账户");
+        assert_eq!(asset_scope_label(&local, &owners), "本机");
     }
 
     #[test]
@@ -20656,8 +20656,8 @@ mod tests {
             "邮箱账号或登录密码不正确，请检查后重试。"
         );
         assert_eq!(
-            registration_failure_message(&SyncError::Server("username already exists".into())),
-            "注册失败：该邮箱已注册，请直接登录。"
+            registration_failure_message(&SyncError::ServerRejected(409)),
+            "注册失败：注册信息或邀请码未被接受，请检查后重试。"
         );
     }
 

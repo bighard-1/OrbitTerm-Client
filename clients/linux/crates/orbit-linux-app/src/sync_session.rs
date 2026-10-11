@@ -15,6 +15,7 @@ struct SecureSyncSessionState {
     master_password: Option<Zeroizing<String>>,
     last_used_unix_ms: u64,
     last_pull_unix_ms: u64,
+    last_pull_succeeded: bool,
     notification_key: Option<String>,
 }
 
@@ -32,6 +33,10 @@ impl SecureSyncSession {
             return false;
         }
         let mut state = self.inner.borrow_mut();
+        if state.account_fingerprint.as_deref() != Some(account_fingerprint.as_str()) {
+            state.last_pull_unix_ms = 0;
+            state.last_pull_succeeded = false;
+        }
         state.account_fingerprint = Some(account_fingerprint);
         state.master_password = Some(Zeroizing::new(master_password));
         state.last_used_unix_ms = now_unix_ms;
@@ -63,15 +68,27 @@ impl SecureSyncSession {
         state.master_password = None;
         state.last_used_unix_ms = 0;
         state.last_pull_unix_ms = 0;
+        state.last_pull_succeeded = false;
         state.notification_key = None;
     }
 
     pub(crate) fn pull_is_due(&self, now_unix_ms: u64, interval_ms: u64) -> bool {
-        now_unix_ms.saturating_sub(self.inner.borrow().last_pull_unix_ms) >= interval_ms
+        let last_pull = self.inner.borrow().last_pull_unix_ms;
+        last_pull == 0 || now_unix_ms.saturating_sub(last_pull) >= interval_ms
     }
 
     pub(crate) fn record_pull(&self, now_unix_ms: u64) {
-        self.inner.borrow_mut().last_pull_unix_ms = now_unix_ms;
+        let mut state = self.inner.borrow_mut();
+        state.last_pull_unix_ms = now_unix_ms;
+        state.last_pull_succeeded = false;
+    }
+
+    pub(crate) fn confirm_pull(&self) {
+        self.inner.borrow_mut().last_pull_succeeded = true;
+    }
+
+    pub(crate) fn last_pull_succeeded(&self) -> bool {
+        self.inner.borrow().last_pull_succeeded
     }
 
     pub(crate) fn request_pull_now(&self) {
@@ -149,5 +166,33 @@ mod tests {
         session.request_pull_now();
         assert!(session.pull_is_due(30_000, 30_000));
         assert!(session.password_for("account-a", 1_002).is_some());
+    }
+
+    #[test]
+    fn switching_accounts_never_inherits_a_successful_pull_or_its_throttle() {
+        let session = SecureSyncSession::default();
+        assert!(session.unlock("account-a".into(), "master-a".into(), 100));
+        session.record_pull(1_000);
+        session.confirm_pull();
+        assert!(session.last_pull_succeeded());
+        assert!(!session.pull_is_due(1_001, 30_000));
+
+        assert!(session.unlock("account-b".into(), "master-b".into(), 1_002));
+        assert!(!session.last_pull_succeeded());
+        assert!(session.pull_is_due(1_003, 30_000));
+    }
+
+    #[test]
+    fn starting_a_new_pull_revokes_the_previous_success_until_acknowledged() {
+        let session = SecureSyncSession::default();
+        assert!(session.unlock("account-a".into(), "master".into(), 100));
+        session.record_pull(1_000);
+        assert!(!session.last_pull_succeeded());
+        session.confirm_pull();
+        assert!(session.last_pull_succeeded());
+        session.record_pull(2_000);
+        assert!(!session.last_pull_succeeded());
+        session.lock();
+        assert!(!session.last_pull_succeeded());
     }
 }

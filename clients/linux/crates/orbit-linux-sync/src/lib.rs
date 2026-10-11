@@ -882,7 +882,13 @@ fn decode_api_response<T: DeserializeOwned>(response: Response) -> Result<T, Syn
     if bytes.len() > MAX_RESPONSE_BYTES {
         return Err(SyncError::ResponseTooLarge);
     }
-    let envelope: ApiEnvelope<T> = serde_json::from_slice(&bytes)?;
+    let envelope: ApiEnvelope<T> = match serde_json::from_slice(&bytes) {
+        Ok(envelope) => envelope,
+        Err(_) if status.is_client_error() => {
+            return Err(SyncError::ServerRejected(status.as_u16()))
+        }
+        Err(error) => return Err(SyncError::Json(error)),
+    };
     match (status, envelope.code.as_deref()) {
         (StatusCode::FORBIDDEN, Some("PASSWORD_CHANGE_REQUIRED")) => {
             return Err(SyncError::PasswordChangeRequired)
@@ -905,9 +911,9 @@ fn decode_api_response<T: DeserializeOwned>(response: Response) -> Result<T, Syn
         return Err(SyncError::RemoteAssetDeleted);
     }
     if !status.is_success() || !envelope.success {
-        return Err(SyncError::Server(
-            envelope.error.unwrap_or_else(|| format!("HTTP {status}")),
-        ));
+        // Error text is controlled by the remote service and can contain
+        // request details. Never surface or persist it in the sync queue.
+        return Err(SyncError::ServerRejected(status.as_u16()));
     }
     envelope.data.ok_or(SyncError::InvalidEnvelope)
 }
@@ -1835,8 +1841,8 @@ pub enum SyncError {
     InvalidPortable,
     #[error("跨端辅助同步记录不符合已知协议")]
     InvalidAuxiliaryRecord,
-    #[error("服务端拒绝请求：{0}")]
-    Server(String),
+    #[error("服务端拒绝请求（HTTP {0}）")]
+    ServerRejected(u16),
     #[error("服务端拒绝请求：资产已删除，请通过恢复接口重新激活")]
     RemoteAssetDeleted,
     #[error("同步服务暂时不可用（HTTP {0}）")]
@@ -2739,6 +2745,49 @@ mod tests {
         let error = client.pull_inventory(&mut tokens).unwrap_err();
         assert!(matches!(error, SyncError::ServerRetryable(503)));
         assert!(error.is_queueable());
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn rejected_upload_keeps_http_status_but_never_surfaces_server_error_text() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint: &'static str =
+            Box::leak(format!("http://{}", listener.local_addr().unwrap()).into_boxed_str());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request = read_http_request(&mut stream);
+            assert!(request.starts_with(b"POST /api/v1/config/upload "));
+            let body = r#"{"success":false,"code":"VALIDATION_FAILED","error":"sensitive-request-detail-fixture"}"#;
+            write!(
+                stream,
+                "HTTP/1.1 422 Unprocessable Entity\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+        let client = CloudClient::for_endpoint(endpoint).unwrap();
+        let mut tokens = SyncTokens {
+            access_token: "token".into(),
+            refresh_token: String::new(),
+            account_scope: String::new(),
+            username: String::new(),
+            must_change_password: false,
+        };
+        let payload = QueuedSyncPayload::Upload {
+            remote_id: None,
+            asset_id: Uuid::new_v4(),
+            identity_fingerprint: None,
+            encrypted_blob_base64: "ciphertext".into(),
+            vector_clock: r#"{"linux":1}"#.into(),
+        };
+        let error = client.execute_queued(&mut tokens, &payload).unwrap_err();
+        assert!(matches!(error, SyncError::ServerRejected(422)));
+        assert_eq!(error.to_string(), "服务端拒绝请求（HTTP 422）");
+        assert!(!error
+            .to_string()
+            .contains("sensitive-request-detail-fixture"));
+        assert!(!error.is_queueable());
         server.join().unwrap();
     }
 
