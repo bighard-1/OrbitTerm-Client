@@ -796,6 +796,9 @@ private struct MainShellView: View {
             // software keyboard. Other shell pages continue to use the normal
             // SwiftUI dismiss action without competing for that same region.
             .applyKeyboardDismissToolbar(enabled: selectedTab != .session)
+            .onChange(of: sessionManager.mobileSessionFocusRequestID) { _, _ in
+                focusConnectedSessionIfRequested()
+            }
             #endif
         }
         .sheet(isPresented: $showingDeepLinkAddServer, onDismiss: finishDeepLinkReview) {
@@ -870,11 +873,21 @@ private struct MainShellView: View {
         }
         .onAppear {
             processDeepLinkIfNeeded()
+            #if os(iOS)
+            focusConnectedSessionIfRequested()
+            #endif
         }
         .onChange(of: deepLinkManager.pendingIntent?.id) { _, _ in
             processDeepLinkIfNeeded()
         }
     }
+
+    #if os(iOS)
+    private func focusConnectedSessionIfRequested() {
+        guard sessionManager.consumeMobileSessionFocusRequest() else { return }
+        selectedTab = .session
+    }
+    #endif
 
     private var shouldShowSyncBanner: Bool {
         syncService.lastRecoveryPresentation != nil

@@ -41,6 +41,9 @@ final class SessionManager: ObservableObject {
     @Published private(set) var checkedHostKeyRoute: CheckedHostKeyPresentationRoute?
     @Published private(set) var telnetRiskRoute: TelnetRiskPresentationRoute?
     @Published private(set) var interruptedSessionRecoveryPending = false
+    #if os(iOS)
+    @Published private(set) var mobileSessionFocusRequestID: UUID?
+    #endif
 
     let monitorService: MonitorService
     private let workspacePresentation = WorkspacePresentationCoordinator<WorkspaceSession>()
@@ -129,6 +132,18 @@ final class SessionManager: ObservableObject {
 
     #if os(iOS)
     var hasPendingSecondFactorResume: Bool { pendingSecondFactorResume != nil }
+
+    /// Consume one successful MFA navigation request. The tab can disappear
+    /// while a sheet dismisses, so validate it again before exposing it.
+    func consumeMobileSessionFocusRequest() -> Bool {
+        guard let id = mobileSessionFocusRequestID else { return false }
+        mobileSessionFocusRequestID = nil
+        guard let session = tabs.first(where: { $0.id == id }), session.isConnected else {
+            return false
+        }
+        activateTab(id)
+        return true
+    }
 
     /// Save only the route identity before the normal account-lock teardown
     /// cancels the SSH challenge and closes its tab. No code, password, or
@@ -376,6 +391,9 @@ final class SessionManager: ObservableObject {
     /// Reuse the existing per-tab teardown path so SSH, SFTP, Docker and Monitor
     /// resources follow their normal disconnect order.
     func closeAllTabs() {
+        #if os(iOS)
+        mobileSessionFocusRequestID = nil
+        #endif
         let currentTabs = tabs
         for tab in currentTabs {
             closeTab(tab)
@@ -383,6 +401,9 @@ final class SessionManager: ObservableObject {
     }
 
     func closeTab(_ tab: WorkspaceSession) {
+        #if os(iOS)
+        if mobileSessionFocusRequestID == tab.id { mobileSessionFocusRequestID = nil }
+        #endif
         if checkedHostKeyRoute?.workspaceID == tab.id {
             _ = checkedHostKeyRoute?.orchestrator.cancel()
             checkedHostKeyRoute = nil
@@ -813,7 +834,20 @@ final class SessionManager: ObservableObject {
 
     func submitCheckedSecondFactor(_ code: String) async {
         guard let route = checkedHostKeyRoute else { return }
-        applyCheckedOutcome(await route.orchestrator.submitSecondFactor(code), route: route)
+        let outcome = await route.orchestrator.submitSecondFactor(code)
+        let routeWasCurrent = checkedHostKeyRoute === route
+        applyCheckedOutcome(outcome, route: route)
+        #if os(iOS)
+        let terminalIsConnected = tabs.first(where: { $0.id == route.workspaceID })?.isConnected == true
+        if MobileSecondFactorSessionFocusPolicy.shouldFocus(
+            after: outcome,
+            expectedWorkspaceID: route.workspaceID,
+            routeWasCurrent: routeWasCurrent,
+            terminalIsConnected: terminalIsConnected
+        ) {
+            mobileSessionFocusRequestID = route.workspaceID
+        }
+        #endif
     }
 
     func cancelCheckedHostKeyFlow() {

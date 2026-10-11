@@ -203,6 +203,42 @@ final class ApplicationOperationLifecyclePolicyTests: XCTestCase {
         ))
     }
 
+    func testMobileSecondFactorFocusRequiresCurrentRouteAndConnectedMatchingTerminal() throws {
+        let workspaceID = UUID()
+        let lease = VerifiedWorkspaceSession(
+            workspaceID: workspaceID,
+            baseSessionID: try BaseSessionID(1),
+            terminalChannelID: try TerminalChannelID("2")
+        )
+
+        XCTAssertTrue(MobileSecondFactorSessionFocusPolicy.shouldFocus(
+            after: .connected(lease), expectedWorkspaceID: workspaceID,
+            routeWasCurrent: true, terminalIsConnected: true
+        ))
+        XCTAssertFalse(MobileSecondFactorSessionFocusPolicy.shouldFocus(
+            after: .connected(lease), expectedWorkspaceID: UUID(),
+            routeWasCurrent: true, terminalIsConnected: true
+        ))
+        XCTAssertFalse(MobileSecondFactorSessionFocusPolicy.shouldFocus(
+            after: .connected(lease), expectedWorkspaceID: workspaceID,
+            routeWasCurrent: false, terminalIsConnected: true
+        ))
+        XCTAssertFalse(MobileSecondFactorSessionFocusPolicy.shouldFocus(
+            after: .connected(lease), expectedWorkspaceID: workspaceID,
+            routeWasCurrent: true, terminalIsConnected: false
+        ))
+        let nonConnectedOutcomes: [CheckedTerminalConnectionOutcome] = [
+            .awaitingSecondFactor, .terminalOpenFailed(lease, .protocolViolation),
+            .failed(.protocolViolation), .cancelled
+        ]
+        for outcome in nonConnectedOutcomes {
+            XCTAssertFalse(MobileSecondFactorSessionFocusPolicy.shouldFocus(
+                after: outcome, expectedWorkspaceID: workspaceID,
+                routeWasCurrent: true, terminalIsConnected: true
+            ))
+        }
+    }
+
     func testSessionReconnectRequiresUsableRouteAndExplicitIdleState() {
         XCTAssertTrue(
             SessionReconnectPolicy.canReconnect(isNetworkUsable: true, reconnecting: false)

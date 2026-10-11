@@ -232,6 +232,22 @@ enum MobileSecondFactorResumePolicy {
     }
 }
 
+/// A code submission should reveal its terminal only after the checked SSH
+/// route has opened that exact workspace. A failed code, another jump-host
+/// challenge, or a late completion from a cancelled route must not navigate.
+enum MobileSecondFactorSessionFocusPolicy {
+    static func shouldFocus(
+        after outcome: CheckedTerminalConnectionOutcome,
+        expectedWorkspaceID: UUID,
+        routeWasCurrent: Bool,
+        terminalIsConnected: Bool
+    ) -> Bool {
+        guard routeWasCurrent, terminalIsConnected,
+              case let .connected(lease) = outcome else { return false }
+        return lease.workspaceID == expectedWorkspaceID
+    }
+}
+
 enum SessionReconnectAvailability: Equatable {
     case available
     case waitingForNetwork
