@@ -441,7 +441,7 @@ enum OperationRecoveryMapper {
 
     static func connection(_ outcome: CheckedTerminalConnectionOutcome) -> OperationRecoveryPresentation? {
         switch outcome {
-        case .pending, .awaitingUserDecision, .connected:
+        case .pending, .awaitingUserDecision, .awaitingSecondFactor, .connected:
             return nil
         case .cancelled:
             return cancelled(domain: .connection)

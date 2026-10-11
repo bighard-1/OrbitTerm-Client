@@ -32,7 +32,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -68,6 +70,7 @@ data class AssetConnectionUiState(
     val hostKeyChallenge: CheckedSshConnectResult.HostKeyChallenge? = null,
     val baseSessionId: Long? = null,
     val transport: ServerTransportProtocol = ServerTransportProtocol.ssh,
+    val secondFactorForJump: Boolean? = null,
 )
 
 data class AssetEditorUiState(
@@ -124,6 +127,19 @@ class AssetsViewModel @Inject constructor(
     private val operationNotice = MutableStateFlow<String?>(null)
     private val expandedGroups = MutableStateFlow<Set<String>>(emptySet())
     private val bulkImport = MutableStateFlow(AssetBulkImportUiState())
+    // Process-local only; never written to assets, credentials, saved state, or sync.
+    private val pendingSecondFactors = mutableMapOf<String, Pair<String, String>>()
+    private val pendingEditorSecondFactors = mutableMapOf<String, Pair<String, String>>()
+    init {
+        viewModelScope.launch {
+            accountScopeController.scope.map { it?.storageId }.distinctUntilChanged().drop(1).collect {
+                pendingSecondFactors.clear()
+                pendingEditorSecondFactors.clear()
+                if (connection.value?.secondFactorForJump != null) connection.value = null
+                editor.value = editor.value?.copy(connectionTest = null)
+            }
+        }
+    }
     private val activeAssetIds = terminalSessionController.activeSessions
         .map { sessions -> sessions.mapTo(linkedSetOf()) { it.assetId } }
         .distinctUntilChanged()
@@ -162,6 +178,7 @@ class AssetsViewModel @Inject constructor(
     )
 
     fun createAsset() {
+        pendingEditorSecondFactors.clear()
         val scope = accountScopeController.scope.value
         val partition = scope?.storageId ?: LOCAL_ASSET_PARTITION
         val id = UUID.randomUUID().toString()
@@ -186,6 +203,7 @@ class AssetsViewModel @Inject constructor(
             loadAssetEditor(existing.id, onReviewReady)
             return
         }
+        pendingEditorSecondFactors.clear()
         val id = UUID.randomUUID().toString()
         editor.value = AssetEditorUiState(
             id = id,
@@ -216,6 +234,7 @@ class AssetsViewModel @Inject constructor(
             val jumpCredentials = asset.jumpHost?.let { jump ->
                 withContext(Dispatchers.IO) { credentialStore.read(jump.credentialID) ?: ServerCredentials() }
             }
+            pendingEditorSecondFactors.clear()
             editor.value = asset.toEditorState(credentials, jumpCredentials).copy(
                 isAccountSignedIn = accountScopeController.scope.value != null,
             )
@@ -224,6 +243,7 @@ class AssetsViewModel @Inject constructor(
     }
 
     fun updateEditor(transform: (AssetEditorUiState) -> AssetEditorUiState) {
+        editor.value?.let { pendingEditorSecondFactors.remove(it.id) }
         editor.value = editor.value?.let(transform)?.copy(connectionTest = null)
     }
 
@@ -256,6 +276,7 @@ class AssetsViewModel @Inject constructor(
     }
 
     fun cancelEditor() {
+        editor.value?.let { pendingEditorSecondFactors.remove(it.id) }
         editor.value?.connectionTest?.hostKeyChallenge?.let { challenge ->
             viewModelScope.launch(Dispatchers.IO) { checkedSshNativeClient.rejectChallenge(challenge.challengeId) }
         }
@@ -276,6 +297,7 @@ class AssetsViewModel @Inject constructor(
             validationError = null,
             connectionTest = AssetConnectionUiState(draft.id, ConnectionPhase.Connecting),
         )
+        val codes = pendingEditorSecondFactors[draft.id] ?: ("" to "")
         viewModelScope.launch {
             val result = if (draft.transport == ServerTransportProtocol.telnet) {
                 withContext(Dispatchers.IO) {
@@ -297,13 +319,16 @@ class AssetsViewModel @Inject constructor(
                     draft.toAsset(),
                     draft.toCredentials(),
                     draft.toJumpHostCredentials(),
+                    oneTimeCode = codes.first,
+                    jumpOneTimeCode = codes.second,
                 ).also { connected ->
                     if (connected is CheckedSshConnectResult.Connected) {
                         checkedSshNativeClient.disconnect(connected.baseSessionId)
                     }
-                }.toConnectionUiState(draft.id)
+                }.toConnectionUiState(draft.id).rejectRepeatedSecondFactor(codes)
             }
             if (!operations.isCurrent(operation) || editor.value?.id != draft.id) return@launch
+            if (result.secondFactorForJump == null && result.hostKeyChallenge == null) pendingEditorSecondFactors.remove(draft.id)
             editor.value = editor.value?.copy(connectionTest = result)
         }
     }
@@ -327,6 +352,7 @@ class AssetsViewModel @Inject constructor(
 
     fun dismissEditorConnectionTest() {
         val draft = editor.value ?: return
+        pendingEditorSecondFactors.remove(draft.id)
         operations.invalidate("asset_editor_test", draft.id)
         draft.connectionTest?.hostKeyChallenge?.let { challenge ->
             viewModelScope.launch(Dispatchers.IO) { checkedSshNativeClient.rejectChallenge(challenge.challengeId) }
@@ -429,6 +455,7 @@ class AssetsViewModel @Inject constructor(
 
     fun connectAsset(id: String, telnetEnabled: Boolean = false) {
         if (connection.value?.phase is ConnectionPhase.Connecting) return
+        connection.value?.takeIf { it.assetId != id }?.let { pendingSecondFactors.remove(it.assetId) }
         val operation = operations.begin("ssh_connect", id) ?: return
         viewModelScope.launch {
             val asset = withContext(Dispatchers.IO) { assetRepository.findAsset(id) } ?: return@launch
@@ -455,11 +482,30 @@ class AssetsViewModel @Inject constructor(
             }
             if (!operations.isCurrent(operation)) return@launch
             connection.value = AssetConnectionUiState(id, ConnectionPhase.Connecting)
+            val codes = pendingSecondFactors[id] ?: ("" to "")
             val result = withContext(Dispatchers.IO) {
-                checkedSshNativeClient.connect(asset, credentials, jumpCredentials)
+                checkedSshNativeClient.connect(
+                    asset, credentials, jumpCredentials,
+                    oneTimeCode = codes.first,
+                    jumpOneTimeCode = codes.second,
+                )
             }
-            if (operations.isCurrent(operation)) connection.value = result.toConnectionUiState(id)
+            if (operations.isCurrent(operation)) {
+                val state = result.toConnectionUiState(id).rejectRepeatedSecondFactor(codes)
+                if (state.secondFactorForJump == null && state.hostKeyChallenge == null) pendingSecondFactors.remove(id)
+                connection.value = state
+            }
         }
+    }
+
+    fun submitSecondFactor(code: String, editorTest: Boolean = false) {
+        val current = if (editorTest) editor.value?.connectionTest else connection.value
+        val forJump = current?.secondFactorForJump ?: return
+        if (code.isEmpty() || code.toByteArray(Charsets.UTF_8).size > 128 || code.any { Character.isISOControl(it) }) return
+        val codesForFlow = if (editorTest) pendingEditorSecondFactors else pendingSecondFactors
+        val existing = codesForFlow[current.assetId] ?: ("" to "")
+        codesForFlow[current.assetId] = if (forJump) existing.first to code else code to existing.second
+        if (editorTest) testEditorConnection() else connectAsset(current.assetId)
     }
 
     fun trustHostKeyAndReconnect() {
@@ -480,6 +526,7 @@ class AssetsViewModel @Inject constructor(
 
     fun dismissConnectionPrompt() {
         val current = connection.value
+        current?.let { pendingSecondFactors.remove(it.assetId) }
         current?.let { operations.invalidate("ssh_connect", it.assetId); operations.invalidate("host_key", it.assetId) }
         connection.value = null
         when {
@@ -548,6 +595,7 @@ class AssetsViewModel @Inject constructor(
                     assetMutations.delete(draft.toAsset())
                 }
             }.onSuccess {
+                pendingEditorSecondFactors.remove(draft.id)
                 editor.value = null
                 operationNotice.value = DELETION_QUEUED_NOTICE
                 syncRequests.requestSync()
@@ -630,6 +678,7 @@ class AssetsViewModel @Inject constructor(
                     assetMutations.save(draft.toAsset(), draft.toCredentials(), draft.toJumpHostCredentials())
                 }
             }.onSuccess {
+                pendingEditorSecondFactors.remove(draft.id)
                 editor.value = null
                 syncRequests.requestSync()
             }.onFailure {
@@ -789,6 +838,22 @@ private fun String.normalizedAssetTags(): List<String> = split(',', '，')
 private fun ServerAsset.endpointImportKey(): String =
     "${username.lowercase()}@${host.lowercase()}:$port"
 
+private fun AssetConnectionUiState.rejectRepeatedSecondFactor(codes: Pair<String, String>): AssetConnectionUiState {
+    val alreadySubmitted = when (secondFactorForJump) {
+        true -> codes.second.isNotEmpty()
+        false -> codes.first.isNotEmpty()
+        null -> false
+    }
+    return if (alreadySubmitted) copy(
+        phase = ConnectionPhase.Failed(
+            ConnectionError.AuthenticationFailed,
+            retryable = false,
+            diagnosticCode = "ssh_second_factor_rejected",
+        ),
+        secondFactorForJump = null,
+    ) else this
+}
+
 private fun CheckedSshConnectResult.toConnectionUiState(assetId: String): AssetConnectionUiState = when (this) {
     is CheckedSshConnectResult.Connected -> AssetConnectionUiState(
         assetId = assetId,
@@ -827,5 +892,8 @@ private fun CheckedSshConnectResult.toConnectionUiState(assetId: String): AssetC
             retryable = retryable,
             diagnosticCode = orbitNativeError(code, retryable, detailCode).diagnosticCode,
         ),
+        secondFactorForJump = if (code == "ssh_second_factor_required") {
+            detailCode == "jump_verification_code_required"
+        } else null,
     )
 }

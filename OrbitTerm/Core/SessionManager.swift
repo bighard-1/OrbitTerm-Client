@@ -751,6 +751,11 @@ final class SessionManager: ObservableObject {
         applyCheckedOutcome(await route.orchestrator.retrySave(), route: route)
     }
 
+    func submitCheckedSecondFactor(_ code: String) async {
+        guard let route = checkedHostKeyRoute else { return }
+        applyCheckedOutcome(await route.orchestrator.submitSecondFactor(code), route: route)
+    }
+
     func cancelCheckedHostKeyFlow() {
         guard let route = checkedHostKeyRoute else { return }
         applyCheckedOutcome(route.orchestrator.cancel(), route: route)
@@ -802,6 +807,8 @@ final class SessionManager: ObservableObject {
             break
         case .awaitingUserDecision:
             session.updateConnectionState(.awaitingHostKeyDecision, detail: "等待服务器身份确认")
+        case .awaitingSecondFactor:
+            session.updateConnectionState(.awaitingSecondFactor, detail: "等待 SSH 二次验证码")
         case let .connected(lease):
             installCheckedLease(lease, on: session, terminalConnected: true)
             checkedHostKeyRoute = nil

@@ -7074,6 +7074,15 @@ fn begin_connect_internal(context: UiContext, asset_id: Uuid, activate: bool) {
 }
 
 fn begin_ssh_connect(context: UiContext, asset: ServerAsset) {
+    begin_ssh_connect_with_codes(context, asset, String::new(), String::new());
+}
+
+fn begin_ssh_connect_with_codes(
+    context: UiContext,
+    asset: ServerAsset,
+    one_time_code: String,
+    jump_one_time_code: String,
+) {
     let asset_id = asset.id;
     set_session_phase(&context, asset.id, WorkspacePhase::Authenticating);
     context
@@ -7132,12 +7141,26 @@ fn begin_ssh_connect(context: UiContext, asset: ServerAsset) {
             return;
         };
         let (sender, receiver) = mpsc::channel();
+        let target_for_worker = one_time_code.clone();
+        let jump_for_worker = jump_one_time_code.clone();
         std::thread::spawn(move || {
-            let result =
-                connect_worker(&asset, &credential, jump_credential.as_ref(), &known_hosts);
+            let result = connect_worker(
+                &asset,
+                &credential,
+                jump_credential.as_ref(),
+                &known_hosts,
+                &target_for_worker,
+                &jump_for_worker,
+            );
             let _ = sender.send(result);
         });
-        poll_connect_result(context_for_lookup, asset_id, receiver);
+        poll_connect_result(
+            context_for_lookup,
+            asset_id,
+            receiver,
+            one_time_code,
+            jump_one_time_code,
+        );
     });
 }
 
@@ -7771,6 +7794,8 @@ fn connect_worker(
     credential: &CredentialMaterial,
     jump_credential: Option<&CredentialMaterial>,
     known_hosts: &str,
+    one_time_code: &str,
+    jump_one_time_code: &str,
 ) -> Result<ConnectWorkerOutcome, BridgeError> {
     let core = CheckedCoreClient::new();
     let request_id = RequestId::new();
@@ -7798,7 +7823,8 @@ fn connect_worker(
         jump_host,
         known_hosts_path: known_hosts,
     };
-    let envelope = core.connect(&request, &request_id)?;
+    let envelope =
+        core.connect_with_second_factor(&request, &request_id, one_time_code, jump_one_time_code)?;
     match envelope.kind.as_str() {
         "connected" => {
             let connected = envelope.require_kind("connected")?;
@@ -7877,6 +7903,8 @@ fn poll_connect_result(
     context: UiContext,
     asset_id: Uuid,
     receiver: mpsc::Receiver<Result<ConnectWorkerOutcome, BridgeError>>,
+    one_time_code: String,
+    jump_one_time_code: String,
 ) {
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
         match receiver.try_recv() {
@@ -7930,6 +7958,29 @@ fn poll_connect_result(
                 show_session_error(&context, asset_id, &reason);
                 gtk::glib::ControlFlow::Break
             }
+            Ok(Err(BridgeError::Core {
+                code, detail_code, ..
+            })) if code == "ssh_second_factor_required" => {
+                let for_jump = detail_code.as_deref() == Some("jump_verification_code_required");
+                if (for_jump && !jump_one_time_code.is_empty())
+                    || (!for_jump && !one_time_code.is_empty())
+                {
+                    show_session_error(
+                        &context,
+                        asset_id,
+                        "SSH 二次验证失败，请检查验证码后重试连接。",
+                    );
+                    return gtk::glib::ControlFlow::Break;
+                }
+                prompt_ssh_second_factor(
+                    context.clone(),
+                    asset_id,
+                    for_jump,
+                    one_time_code.clone(),
+                    jump_one_time_code.clone(),
+                );
+                gtk::glib::ControlFlow::Break
+            }
             Ok(Err(error)) => {
                 show_session_error(&context, asset_id, &format!("连接失败：{error}"));
                 gtk::glib::ControlFlow::Break
@@ -7939,6 +7990,67 @@ fn poll_connect_result(
                 show_session_error(&context, asset_id, "连接工作线程意外退出。");
                 gtk::glib::ControlFlow::Break
             }
+        }
+    });
+}
+
+fn prompt_ssh_second_factor(
+    context: UiContext,
+    asset_id: Uuid,
+    for_jump: bool,
+    one_time_code: String,
+    jump_one_time_code: String,
+) {
+    set_session_phase(&context, asset_id, WorkspacePhase::AwaitingUserDecision);
+    context
+        .status
+        .set_label("等待 SSH 一次性验证码；验证码不会保存或同步");
+    let entry = gtk::PasswordEntry::builder()
+        .placeholder_text("一次性验证码")
+        .activates_default(true)
+        .build();
+    let dialog = adw::AlertDialog::builder()
+        .heading("SSH 二次验证")
+        .body(if for_jump {
+            "跳板机需要验证码。仅用于本次连接。"
+        } else {
+            "目标服务器需要验证码。仅用于本次连接。"
+        })
+        .extra_child(&entry)
+        .close_response("cancel")
+        .default_response("confirm")
+        .build();
+    dialog.add_response("cancel", "取消");
+    dialog.add_response("confirm", "验证并连接");
+    dialog.set_response_appearance("confirm", adw::ResponseAppearance::Suggested);
+    gtk::glib::spawn_future_local(async move {
+        if dialog.choose_future(Some(&context.window)).await.as_str() != "confirm" {
+            show_session_error(&context, asset_id, "已取消 SSH 二次验证。");
+            return;
+        }
+        let code = entry.text().to_string();
+        entry.set_text("");
+        if code.is_empty() || code.len() > 128 || code.chars().any(char::is_control) {
+            show_session_error(&context, asset_id, "验证码不能为空且不得超过 128 字节。");
+            return;
+        }
+        let asset = context
+            .catalog
+            .borrow()
+            .assets()
+            .iter()
+            .find(|asset| asset.id == asset_id)
+            .cloned();
+        if let Some(asset) = asset {
+            let target = if for_jump {
+                one_time_code
+            } else {
+                code.clone()
+            };
+            let jump = if for_jump { code } else { jump_one_time_code };
+            begin_ssh_connect_with_codes(context, asset, target, jump);
+        } else {
+            show_session_error(&context, asset_id, "资产已删除，无法继续连接。");
         }
     });
 }

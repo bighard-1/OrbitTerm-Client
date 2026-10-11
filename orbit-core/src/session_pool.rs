@@ -493,6 +493,7 @@ pub(crate) async fn get_or_create_base_session(
             private_key_content,
             private_key_passphrase,
             allow_password_fallback,
+            None,
         )
         .await?;
 

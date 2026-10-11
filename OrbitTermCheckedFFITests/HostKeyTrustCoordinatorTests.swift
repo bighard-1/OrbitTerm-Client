@@ -16,6 +16,80 @@ final class HostKeyTrustCoordinatorTests: XCTestCase {
         XCTAssertEqual(sessionID.decimalString, "72057594037927936")
     }
 
+    func testSecondFactorUsesTransientCodeOnlyOnReconnect() async {
+        let client = ScriptedCheckedFFIClient(connect: [
+            .init(.error("ssh_second_factor_required")), .init(.connected),
+        ])
+        let coordinator = HostKeyTrustCoordinator(client: client)
+        let flow = await coordinator.begin(input: input())
+        guard case let .awaitingSecondFactor(actualFlow, forJump) = coordinator.state else {
+            return XCTFail("Expected second-factor prompt")
+        }
+        XCTAssertEqual(actualFlow, flow)
+        XCTAssertFalse(forJump)
+        await coordinator.submitSecondFactor("123456")
+        guard case .connected = coordinator.state else {
+            return XCTFail("Expected verified session after code")
+        }
+        let scopes = await client.connectCodeScopes
+        XCTAssertEqual(scopes.count, 2)
+        XCTAssertFalse(scopes[0].target)
+        XCTAssertFalse(scopes[0].jump)
+        XCTAssertTrue(scopes[1].target)
+        XCTAssertFalse(scopes[1].jump)
+        XCTAssertFalse(input().withOneTimeCode("123456", forJump: false).description.contains("123456"))
+    }
+
+    func testSecondFactorCancelNeverReconnects() async {
+        let client = ScriptedCheckedFFIClient(connect: [.init(.error("ssh_second_factor_required"))])
+        let coordinator = HostKeyTrustCoordinator(client: client)
+        let flow = await coordinator.begin(input: input())
+        coordinator.cancel()
+        await coordinator.submitSecondFactor("123456")
+        XCTAssertEqual(coordinator.state, .cancelled(flow))
+        let connectCount = await client.connectRequestIDs.count
+        XCTAssertEqual(connectCount, 1)
+    }
+
+    func testJumpAndDestinationSecondFactorsAreScopedAndRetainedOnlyForFlow() async {
+        let client = ScriptedCheckedFFIClient(connect: [
+            .init(.secondFactor(forJump: true)),
+            .init(.secondFactor(forJump: false)),
+            .init(.connected),
+        ])
+        let coordinator = HostKeyTrustCoordinator(client: client)
+        _ = await coordinator.begin(input: input())
+        guard case .awaitingSecondFactor(_, true) = coordinator.state else {
+            return XCTFail("Expected jump verification prompt")
+        }
+        await coordinator.submitSecondFactor("jump-code")
+        guard case .awaitingSecondFactor(_, false) = coordinator.state else {
+            return XCTFail("Expected destination verification prompt")
+        }
+        await coordinator.submitSecondFactor("target-code")
+        guard case .connected = coordinator.state else {
+            return XCTFail("Expected verified session")
+        }
+        let scopes = await client.connectCodeScopes
+        XCTAssertEqual(scopes.map(\.target), [false, false, true])
+        XCTAssertEqual(scopes.map(\.jump), [false, true, true])
+    }
+
+    func testRepeatedChallengeForSameHopFailsInsteadOfReprompting() async {
+        let client = ScriptedCheckedFFIClient(connect: [
+            .init(.secondFactor(forJump: false)),
+            .init(.secondFactor(forJump: false)),
+        ])
+        let coordinator = HostKeyTrustCoordinator(client: client)
+        _ = await coordinator.begin(input: input())
+        await coordinator.submitSecondFactor("wrong-code")
+        guard case .failed(_, .authentication) = coordinator.state else {
+            return XCTFail("Repeated verification request must fail")
+        }
+        let count = await client.connectRequestIDs.count
+        XCTAssertEqual(count, 2)
+    }
+
     func testUnknownAwaitsDecisionAndCancelStopsFlow() async {
         let client = ScriptedCheckedFFIClient(connect: [.init(.challenge)])
         let coordinator = HostKeyTrustCoordinator(client: client)

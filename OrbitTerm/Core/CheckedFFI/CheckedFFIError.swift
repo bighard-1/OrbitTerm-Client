@@ -11,7 +11,7 @@ enum CheckedFFIErrorCode: Hashable, Sendable, Codable {
         "challenge_expired", "challenge_already_resolved", "challenge_mismatch",
         "pending_limit_reached", "per_host_pending_limit_reached",
         "related_request_limit_reached", "invalid_request", "invalid_json", "invalid_utf8",
-        "ffi_internal_error", "ssh_connect_failed", "ssh_auth_failed", "ssh_timeout",
+        "ffi_internal_error", "ssh_connect_failed", "ssh_auth_failed", "ssh_second_factor_required", "ssh_timeout",
         "session_pool_failed", "session_not_found", "legacy_session_not_allowed",
         "verified_session_required", "security_generation_mismatch", "session_draining",
         "session_terminating", "session_closed", "channel_open_failed",

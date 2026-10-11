@@ -26,6 +26,7 @@ enum HostKeyTrustState: Hashable, Sendable {
     case idle
     case connecting(HostKeyFlowID, HostKeyRequestID)
     case awaitingUserDecision(HostKeyFlowID, HostKeyChallengePayload)
+    case awaitingSecondFactor(HostKeyFlowID, forJump: Bool)
     case persisting(HostKeyFlowID, HostKeyChallengePayload, HostKeyRequestID)
     case reconnecting(HostKeyFlowID, HostKeyRequestID)
     case connected(HostKeyFlowID, BaseSessionID)
@@ -80,6 +81,19 @@ final class HostKeyTrustCoordinator: ObservableObject {
         await persist(challenge: challenge, context: context, comment: comment)
     }
 
+    func submitSecondFactor(_ code: String) async {
+        guard var context,
+              case let .awaitingSecondFactor(flowID, forJump) = state,
+              flowID == context.flowID,
+              !code.isEmpty, code.utf8.count <= 128,
+              !code.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
+            return
+        }
+        context.input = context.input.withOneTimeCode(code, forJump: forJump)
+        self.context = context
+        await connect(flowID: flowID, phase: .reconnect, submittedForJump: forJump)
+    }
+
     func cancel() {
         guard let context else { return }
         state = .cancelled(context.flowID)
@@ -96,7 +110,8 @@ final class HostKeyTrustCoordinator: ObservableObject {
         case reconnect
     }
 
-    private func connect(flowID: HostKeyFlowID, phase: ConnectPhase) async {
+    private func connect(flowID: HostKeyFlowID, phase: ConnectPhase,
+                         submittedForJump: Bool? = nil) async {
         guard var active = context, active.flowID == flowID else { return }
         let requestID = HostKeyRequestID()
         active.pendingRequestID = requestID
@@ -116,7 +131,8 @@ final class HostKeyTrustCoordinator: ObservableObject {
                 return
             }
             clearPendingRequest()
-            handleConnectResponse(response.value, flowID: flowID, requestID: requestID)
+            handleConnectResponse(response.value, flowID: flowID, requestID: requestID,
+                                  submittedForJump: submittedForJump)
         } catch let error as CheckedFFIClientError {
             let failure: HostKeyTrustFailure = error == .timeout
                 ? .timeout(nil)
@@ -182,7 +198,8 @@ final class HostKeyTrustCoordinator: ObservableObject {
     private func handleConnectResponse(
         _ response: CheckedConnectResponse,
         flowID: HostKeyFlowID,
-        requestID: HostKeyRequestID
+        requestID: HostKeyRequestID,
+        submittedForJump: Bool?
     ) {
         switch response {
         case let .connected(payload):
@@ -192,15 +209,30 @@ final class HostKeyTrustCoordinator: ObservableObject {
             guard payload.requestID == requestID else { return }
             state = .awaitingUserDecision(flowID, payload)
         case let .blocked(payload):
+            clearTransientCodes()
             state = .blocked(flowID, payload)
         case let .failure(error):
-            state = .failed(flowID, classify(error))
+            let requiredForJump = error.detailCode == "jump_verification_code_required"
+            if error.code.rawValue == "ssh_second_factor_required"
+                && submittedForJump != requiredForJump {
+                state = .awaitingSecondFactor(flowID,
+                    forJump: requiredForJump)
+            } else {
+                clearTransientCodes()
+                state = .failed(flowID, classify(error))
+            }
         }
+    }
+
+    private func clearTransientCodes() {
+        guard var active = context else { return }
+        active.input = active.input.withoutOneTimeCodes()
+        context = active
     }
 
     private func classify(_ error: CheckedFFIErrorPayload) -> HostKeyTrustFailure {
         switch error.code.rawValue {
-        case "ssh_auth_failed": .authentication(error)
+        case "ssh_auth_failed", "ssh_second_factor_required": .authentication(error)
         case "ssh_connect_failed": .network(error)
         case "ssh_timeout": .timeout(error)
         case "known_hosts_read_failed", "known_hosts_permission_denied",
@@ -224,6 +256,7 @@ final class HostKeyTrustCoordinator: ObservableObject {
     ) {
         guard isCurrent(flowID: flowID, requestID: requestID) else { return }
         clearPendingRequest()
+        clearTransientCodes()
         state = .failed(flowID, failure)
     }
 
@@ -256,7 +289,7 @@ final class HostKeyTrustCoordinator: ObservableObject {
 
     private struct FlowContext {
         let flowID: HostKeyFlowID
-        let input: CheckedConnectInput
+        var input: CheckedConnectInput
         var pendingRequestID: HostKeyRequestID?
     }
 }

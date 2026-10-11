@@ -16,7 +16,9 @@ extension OrbitCoreCheckedFFIFunctions {
                                                 (jump?.credentials.password ?? "").withCString { jumpPassword in
                                                     (jump?.credentials.privateKey ?? "").withCString { jumpPrivateKey in
                                                         (jump?.credentials.privateKeyPassphrase ?? "").withCString { jumpPassphrase in
-                                                            orbit_ssh_connect_checked_v2(
+                                                            (call.oneTimeCode ?? "").withCString { oneTimeCode in
+                                                            (call.jumpOneTimeCode ?? "").withCString { jumpOneTimeCode in
+                                                            orbit_ssh_connect_checked_v3(
                                                                 host,
                                                                 call.port,
                                                                 username,
@@ -33,8 +35,12 @@ extension OrbitCoreCheckedFFIFunctions {
                                                                 jumpPassphrase,
                                                                 jump?.credentials.allowPasswordFallback == true ? 1 : 0,
                                                                 knownHostsPath,
-                                                                requestID
+                                                                requestID,
+                                                                oneTimeCode,
+                                                                jumpOneTimeCode
                                                             )
+                                                            }
+                                                            }
                                                         }
                                                     }
                                                 }

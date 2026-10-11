@@ -178,6 +178,11 @@ public sealed class MainWindowViewModel : ObservableObject
     private int hiddenTerminalLineCount;
     private bool isConnected;
     private bool hasHostKeyChallenge;
+    private bool hasSecondFactorChallenge;
+    private bool secondFactorForJump;
+    private Guid? secondFactorWorkspaceId;
+    private string pendingOneTimeCode = string.Empty;
+    private string pendingJumpOneTimeCode = string.Empty;
     private bool isOpeningVerifiedWorkspace;
     private bool isAutoScrollEnabled = true;
     private bool isRestoringWorkspaceTab;
@@ -1103,6 +1108,36 @@ public sealed class MainWindowViewModel : ObservableObject
                 NotifyTerminalStateChanged();
             }
         }
+    }
+
+    public bool HasSecondFactorChallenge
+    {
+        get => hasSecondFactorChallenge;
+        private set => SetProperty(ref hasSecondFactorChallenge, value);
+    }
+
+    public bool SecondFactorForJump => secondFactorForJump;
+
+    public async Task SubmitSecondFactorAsync(string code)
+    {
+        if (!HasSecondFactorChallenge || secondFactorWorkspaceId != CurrentWorkspaceId ||
+            string.IsNullOrEmpty(code) || System.Text.Encoding.UTF8.GetByteCount(code) > 128 ||
+            code.Any(char.IsControl))
+        {
+            return;
+        }
+        if (secondFactorForJump) pendingJumpOneTimeCode = code;
+        else pendingOneTimeCode = code;
+        HasSecondFactorChallenge = false;
+        await ConnectAsync(CancellationToken.None).ConfigureAwait(true);
+    }
+
+    public void CancelSecondFactor()
+    {
+        HasSecondFactorChallenge = false;
+        pendingOneTimeCode = string.Empty;
+        pendingJumpOneTimeCode = string.Empty;
+        secondFactorWorkspaceId = null;
     }
 
     public string HostKeySummary => pendingChallenge is null
@@ -4000,6 +4035,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private async Task ConnectAsync(CancellationToken cancellationToken)
     {
+        if (secondFactorWorkspaceId != CurrentWorkspaceId) CancelSecondFactor();
         if (AssetTransport == ServerTransport.RemoteDesktop)
         {
             Status = "请从资产列表打开远程桌面";
@@ -4134,12 +4170,17 @@ public sealed class MainWindowViewModel : ObservableObject
             // UI context below.
             var result = await Task.Run(
                     async () => await orchestrator
-                        .ConnectAsync(CurrentWorkspaceId, asset, cancellationToken)
+                        .ConnectAsync(CurrentWorkspaceId, asset, cancellationToken,
+                            pendingOneTimeCode, pendingJumpOneTimeCode)
                         .ConfigureAwait(false),
                     cancellationToken)
                 .ConfigureAwait(true);
             WriteConnectionDiagnostic($"native_result={result.GetType().Name}");
             ApplyConnectResult(result);
+            if (result is not ConnectResult.RequiresSecondFactor and not ConnectResult.RequiresHostKeyTrust)
+            {
+                CancelSecondFactor();
+            }
             if (IsConnected)
             {
                 // A verified SSH connection is immediately usable. Opening the
@@ -8588,6 +8629,27 @@ public sealed class MainWindowViewModel : ObservableObject
                 Status = blocked.Block.MessageKey;
                 SecurityStatus = blocked.Block.ReasonCode;
                 SessionActionSummary = blocked.Block.ReasonCode;
+                NotifyWorkbenchStateChanged();
+                break;
+            case ConnectResult.RequiresSecondFactor secondFactor:
+                IsConnected = false;
+                if (!string.IsNullOrEmpty(secondFactor.ForJump
+                        ? pendingJumpOneTimeCode : pendingOneTimeCode))
+                {
+                    CancelSecondFactor();
+                    Status = "SSH 二次验证失败，请检查验证码后重试连接";
+                    SecurityStatus = "二次验证失败";
+                    SessionActionSummary = "验证码未保存";
+                    NotifyWorkbenchStateChanged();
+                    break;
+                }
+                secondFactorForJump = secondFactor.ForJump;
+                secondFactorWorkspaceId = CurrentWorkspaceId;
+                OnPropertyChanged(nameof(SecondFactorForJump));
+                HasSecondFactorChallenge = true;
+                Status = "等待 SSH 一次性验证码";
+                SecurityStatus = secondFactor.ForJump ? "跳板机二次验证" : "目标服务器二次验证";
+                SessionActionSummary = "验证码仅用于本次连接";
                 NotifyWorkbenchStateChanged();
                 break;
             case ConnectResult.Failed failed:

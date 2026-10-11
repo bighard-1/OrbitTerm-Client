@@ -133,7 +133,7 @@ fun orbitNativeError(rawCode: String?, retryable: Boolean = false, detailCode: S
         "sftp_transfer_session_changed", "entry_changed" -> OrbitErrorCode.StaleOperation
         "ssh_timeout" -> if (detailCode == "authentication_timeout") OrbitErrorCode.AuthenticationFailed else OrbitErrorCode.NetworkTimeout
         "ssh_connect_failed" -> OrbitErrorCode.NetworkUnavailable
-        "ssh_auth_failed", "jump_credentials_unavailable" -> OrbitErrorCode.AuthenticationFailed
+        "ssh_auth_failed", "ssh_second_factor_required", "jump_credentials_unavailable" -> OrbitErrorCode.AuthenticationFailed
         "host_key_blocked", "host_key_changed", "host_key_revoked" -> OrbitErrorCode.HostKeyBlocked
         "permission_denied", "sftp_permission_denied" -> OrbitErrorCode.PermissionDenied
         "destination_unwritable", "archive_workspace_unavailable", "archive_write_failed", "local_file_unreadable" -> OrbitErrorCode.StorageUnavailable

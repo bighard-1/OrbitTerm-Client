@@ -9,6 +9,8 @@ struct OrbitCoreCheckedConnectCall: Sendable, CustomStringConvertible,
     let knownHostsPath: String
     let requestID: String
     let jumpHost: OrbitCoreCheckedJumpHostCall?
+    let oneTimeCode: String?
+    let jumpOneTimeCode: String?
 
     var description: String {
         "OrbitCoreCheckedConnectCall(host: [REDACTED], port: \(port), credentials: [REDACTED], jump: \(jumpHost == nil ? "none" : "configured"))"
@@ -146,6 +148,12 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
         guard !host.isEmpty, !username.isEmpty, input.port > 0 else {
             throw CheckedFFIClientError.invalidInput
         }
+        for code in [input.oneTimeCode, input.jumpOneTimeCode].compactMap({ $0 }) {
+            guard !code.isEmpty, code.utf8.count <= 128,
+                  !code.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
+                throw CheckedFFIClientError.invalidInput
+            }
+        }
 
         let credentials: CheckedCredentials
         do {
@@ -188,7 +196,9 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             credentials: credentials,
             knownHostsPath: try loadKnownHostsPath(),
             requestID: requestID.rawValue,
-            jumpHost: jumpHost
+            jumpHost: jumpHost,
+            oneTimeCode: input.oneTimeCode,
+            jumpOneTimeCode: input.jumpOneTimeCode
         )
         let json = try resultReader.take(functions.connect(call))
         let response = try decodeConnect(json, expectedRequestID: requestID)

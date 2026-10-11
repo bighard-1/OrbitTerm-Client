@@ -159,6 +159,7 @@ fun AssetsRoute(
             onImportPrivateKey = viewModel::importPrivateKey,
             onPrivateKeyImportFailure = viewModel::reportEditorError,
             onTestConnection = { viewModel.testEditorConnection(telnetEnabled) },
+            onSubmitTestSecondFactor = { viewModel.submitSecondFactor(it, editorTest = true) },
             onTrustTestHostKey = viewModel::trustEditorHostKeyAndRetest,
             onDismissConnectionTest = viewModel::dismissEditorConnectionTest,
         )
@@ -167,6 +168,7 @@ fun AssetsRoute(
         ConnectionDialog(
             connection = connection,
             onTrust = viewModel::trustHostKeyAndReconnect,
+            onSubmitSecondFactor = { viewModel.submitSecondFactor(it) },
             onOpenTerminal = { viewModel.openTerminal(onTerminalOpened) },
             onDismiss = viewModel::dismissConnectionPrompt,
         )
@@ -850,11 +852,16 @@ private fun Set<String>.toggle(id: String): Set<String> =
 private fun ConnectionDialog(
     connection: AssetConnectionUiState,
     onTrust: () -> Unit,
+    onSubmitSecondFactor: (String) -> Unit,
     onOpenTerminal: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val challenge = connection.hostKeyChallenge
     val context = LocalContext.current
+    if (connection.secondFactorForJump != null) {
+        SecondFactorDialog(connection.assetId, connection.secondFactorForJump, onSubmitSecondFactor, onDismiss)
+        return
+    }
     when (connection.phase) {
         ConnectionPhase.AwaitingHostKeyDecision if challenge != null -> OrbitFormDialog(
             title = "确认服务器身份",
@@ -937,6 +944,7 @@ private fun AssetEditor(
     onImportPrivateKey: (String) -> Unit,
     onPrivateKeyImportFailure: (String) -> Unit,
     onTestConnection: () -> Unit,
+    onSubmitTestSecondFactor: (String) -> Unit,
     onTrustTestHostKey: () -> Unit,
     onDismissConnectionTest: () -> Unit,
 ) {
@@ -1242,6 +1250,7 @@ private fun AssetEditor(
         EditorConnectionTestDialog(
             connection = connection,
             onTrust = onTrustTestHostKey,
+            onSubmitSecondFactor = onSubmitTestSecondFactor,
             onDismiss = onDismissConnectionTest,
         )
     }
@@ -1251,9 +1260,14 @@ private fun AssetEditor(
 private fun EditorConnectionTestDialog(
     connection: AssetConnectionUiState,
     onTrust: () -> Unit,
+    onSubmitSecondFactor: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val challenge = connection.hostKeyChallenge
+    if (connection.secondFactorForJump != null) {
+        SecondFactorDialog(connection.assetId, connection.secondFactorForJump, onSubmitSecondFactor, onDismiss)
+        return
+    }
     when (connection.phase) {
         ConnectionPhase.AwaitingHostKeyDecision if challenge != null -> OrbitFormDialog(
             title = "测试连接 · 确认服务器身份",
@@ -1282,6 +1296,31 @@ private fun EditorConnectionTestDialog(
             onDismiss = onDismiss,
         )
         else -> Unit
+    }
+}
+
+@Composable
+private fun SecondFactorDialog(
+    assetId: String,
+    forJump: Boolean,
+    onSubmit: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var code by androidx.compose.runtime.remember(assetId, forJump) { mutableStateOf("") }
+    OrbitFormDialog(
+        title = if (forJump) "跳板机 SSH 二次验证" else "目标服务器 SSH 二次验证",
+        confirmLabel = "验证并连接",
+        onConfirm = {
+            if (code.isNotEmpty() && code.toByteArray(Charsets.UTF_8).size <= 128) {
+                val submitted = code
+                code = ""
+                onSubmit(submitted)
+            }
+        },
+        onDismiss = { code = ""; onDismiss() },
+    ) {
+        EditorTextField("一次性验证码", code, sensitive = true) { code = it.take(128) }
+        Text("验证码仅用于本次连接，不会保存或同步。")
     }
 }
 

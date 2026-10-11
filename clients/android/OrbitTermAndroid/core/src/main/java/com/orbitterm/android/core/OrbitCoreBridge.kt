@@ -30,6 +30,7 @@ object OrbitCoreBridge {
         allowPasswordFallback: Boolean,
         knownHostsPath: String,
         requestId: String,
+        oneTimeCode: String,
     ): String
     external fun orbitCheckedSshConnectViaJump(
         host: String,
@@ -48,6 +49,8 @@ object OrbitCoreBridge {
         jumpAllowPasswordFallback: Boolean,
         knownHostsPath: String,
         requestId: String,
+        oneTimeCode: String,
+        jumpOneTimeCode: String,
     ): String
     external fun orbitAcceptHostKeyAndPersist(challengeId: String, knownHostsPath: String): String
     external fun orbitRejectHostKeyChallenge(challengeId: String): String

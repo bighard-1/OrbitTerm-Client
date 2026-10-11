@@ -1007,12 +1007,14 @@ fn sftp_list_error_payload(
             request_id,
             None,
         ),
-        OrbitCoreError::SshFailed(_) => HostKeyFfiErrorPayload::new(
-            HostKeyFfiErrorCode::SecurityGenerationMismatch,
-            Some("sftp_generation_mismatch"),
-            request_id,
-            None,
-        ),
+        OrbitCoreError::SshFailed(_) | OrbitCoreError::SshSecondFactorRequired => {
+            HostKeyFfiErrorPayload::new(
+                HostKeyFfiErrorCode::SecurityGenerationMismatch,
+                Some("sftp_generation_mismatch"),
+                request_id,
+                None,
+            )
+        }
         OrbitCoreError::SftpTransferCancelled => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SftpListFailed,
             Some("sftp_operation_cancelled"),
@@ -1048,12 +1050,14 @@ fn sftp_read_error_payload(
             request_id,
             None,
         ),
-        OrbitCoreError::SshFailed(_) => HostKeyFfiErrorPayload::new(
-            HostKeyFfiErrorCode::SecurityGenerationMismatch,
-            Some("sftp_generation_mismatch"),
-            request_id,
-            None,
-        ),
+        OrbitCoreError::SshFailed(_) | OrbitCoreError::SshSecondFactorRequired => {
+            HostKeyFfiErrorPayload::new(
+                HostKeyFfiErrorCode::SecurityGenerationMismatch,
+                Some("sftp_generation_mismatch"),
+                request_id,
+                None,
+            )
+        }
         OrbitCoreError::SftpTransferCancelled => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SftpReadFailed,
             Some("sftp_operation_cancelled"),
@@ -1091,12 +1095,14 @@ fn sftp_download_error_payload(
             request_id,
             None,
         ),
-        OrbitCoreError::SshFailed(_) => HostKeyFfiErrorPayload::new(
-            HostKeyFfiErrorCode::SecurityGenerationMismatch,
-            Some("sftp_generation_mismatch"),
-            request_id,
-            None,
-        ),
+        OrbitCoreError::SshFailed(_) | OrbitCoreError::SshSecondFactorRequired => {
+            HostKeyFfiErrorPayload::new(
+                HostKeyFfiErrorCode::SecurityGenerationMismatch,
+                Some("sftp_generation_mismatch"),
+                request_id,
+                None,
+            )
+        }
         OrbitCoreError::SftpTransferCancelled => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SftpDownloadFailed,
             Some("sftp_transfer_cancelled"),
@@ -1135,12 +1141,14 @@ fn sftp_upload_error_payload(
             request_id,
             None,
         ),
-        OrbitCoreError::SshFailed(_) => HostKeyFfiErrorPayload::new(
-            HostKeyFfiErrorCode::SecurityGenerationMismatch,
-            Some("sftp_generation_mismatch"),
-            request_id,
-            None,
-        ),
+        OrbitCoreError::SshFailed(_) | OrbitCoreError::SshSecondFactorRequired => {
+            HostKeyFfiErrorPayload::new(
+                HostKeyFfiErrorCode::SecurityGenerationMismatch,
+                Some("sftp_generation_mismatch"),
+                request_id,
+                None,
+            )
+        }
         OrbitCoreError::SftpTransferCancelled => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SftpUploadFailed,
             Some("sftp_transfer_cancelled"),

@@ -6,6 +6,7 @@ struct HostKeyTrustView: View {
     private let onCancel: () -> Void
     private let onTrust: () -> Void
     private let onRetrySave: () -> Void
+    private let onSubmitSecondFactor: (String) -> Void
     private let onClose: () -> Void
     private let onRemovePreviousTrust: (HostKeyBlockedPayload) async -> String?
 
@@ -19,6 +20,7 @@ struct HostKeyTrustView: View {
         onCancel: (() -> Void)? = nil,
         onTrust: (() -> Void)? = nil,
         onRetrySave: (() -> Void)? = nil,
+        onSubmitSecondFactor: ((String) -> Void)? = nil,
         onClose: (() -> Void)? = nil,
         onRemovePreviousTrust: @escaping (HostKeyBlockedPayload) async -> String? = { _ in
             "当前版本无法维护此信任记录。"
@@ -29,6 +31,9 @@ struct HostKeyTrustView: View {
         self.onCancel = onCancel ?? coordinator.cancel
         self.onTrust = onTrust ?? { Task { await coordinator.trustCurrentChallenge() } }
         self.onRetrySave = onRetrySave ?? { Task { await coordinator.retrySave() } }
+        self.onSubmitSecondFactor = onSubmitSecondFactor ?? { code in
+            Task { await coordinator.submitSecondFactor(code) }
+        }
         self.onClose = onClose ?? coordinator.close
         self.onRemovePreviousTrust = onRemovePreviousTrust
     }
@@ -46,6 +51,9 @@ struct HostKeyTrustView: View {
                     onCancel: onCancel,
                     onTrust: onTrust
                 )
+            case let .awaitingSecondFactor(_, forJump):
+                SSHSecondFactorSheet(forJump: forJump, onCancel: onCancel,
+                                     onSubmit: onSubmitSecondFactor)
             case let .persisting(_, challenge, _):
                 HostKeyChallengeSheet(
                     presentation: HostKeyChallengePresentation(
@@ -84,6 +92,45 @@ struct HostKeyTrustView: View {
             Text(title).font(.headline)
         }
         .padding(24)
+    }
+}
+
+private struct SSHSecondFactorSheet: View {
+    let forJump: Bool
+    let onCancel: () -> Void
+    let onSubmit: (String) -> Void
+    @State private var code = ""
+
+    var body: some View {
+        HostKeyCard {
+            Label("SSH 二次验证", systemImage: "lock.shield")
+                .font(.title2.weight(.semibold))
+            Text(forJump ? "跳板机需要一次性验证码。" : "目标服务器需要一次性验证码。")
+            SecureField("一次性验证码", text: $code)
+                .textContentType(.oneTimeCode)
+                .onSubmit(submit)
+            Text("验证码仅用于本次连接，不会保存或同步。请核对这是你预期的服务器。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                Button("取消", action: onCancel)
+                Spacer()
+                Button("验证并连接", action: submit)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(code.isEmpty || code.utf8.count > 128 || hasControlCharacters)
+            }
+        }
+    }
+
+    private func submit() {
+        guard !code.isEmpty, code.utf8.count <= 128, !hasControlCharacters else { return }
+        let submitted = code
+        code = ""
+        onSubmit(submitted)
+    }
+
+    private var hasControlCharacters: Bool {
+        code.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
     }
 }
 

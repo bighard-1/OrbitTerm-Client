@@ -64,6 +64,7 @@ public sealed partial class MainWindow : Window
     private bool isAssetManagementDialogOpen;
     private bool isSettingsDialogOpen;
     private bool isHostKeyDialogOpen;
+    private bool isSecondFactorDialogOpen;
     private bool isExitConfirmationOpen;
     private bool allowApplicationClose;
     private MonitorDetailsWindow? monitorDetailsWindow;
@@ -3976,6 +3977,11 @@ public sealed partial class MainWindow : Window
         {
             _ = ShowHostKeyTrustDialogAsync();
         }
+        if (e.PropertyName == nameof(MainWindowViewModel.HasSecondFactorChallenge) &&
+            ViewModel.HasSecondFactorChallenge)
+        {
+            _ = ShowSecondFactorDialogAsync();
+        }
 
         if (e.PropertyName == nameof(MainWindowViewModel.HasSftpFeedback))
         {
@@ -4119,6 +4125,54 @@ public sealed partial class MainWindow : Window
         finally
         {
             isHostKeyDialogOpen = false;
+        }
+    }
+
+    private async Task ShowSecondFactorDialogAsync()
+    {
+        if (isSecondFactorDialogOpen || !ViewModel.HasSecondFactorChallenge) return;
+        isSecondFactorDialogOpen = true;
+        try
+        {
+            var entry = new PasswordBox { Header = "一次性验证码", MaxLength = 128 };
+            var content = new StackPanel { Spacing = 12 };
+            content.Children.Add(new TextBlock
+            {
+                Text = ViewModel.SecondFactorForJump
+                    ? "跳板机需要 SSH 二次验证。验证码仅用于本次连接，不会保存或同步。"
+                    : "目标服务器需要 SSH 二次验证。验证码仅用于本次连接，不会保存或同步。",
+                TextWrapping = TextWrapping.Wrap,
+            });
+            content.Children.Add(entry);
+            var dialog = new ContentDialog
+            {
+                XamlRoot = Root.XamlRoot,
+                Title = "SSH 二次验证",
+                Content = content,
+                PrimaryButtonText = "验证并连接",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Close,
+            };
+            if (await dialog.ShowAsync() == ContentDialogResult.Primary &&
+                !string.IsNullOrEmpty(entry.Password))
+            {
+                var code = entry.Password;
+                entry.Password = string.Empty;
+                await ViewModel.SubmitSecondFactorAsync(code);
+            }
+            else
+            {
+                entry.Password = string.Empty;
+                ViewModel.CancelSecondFactor();
+            }
+        }
+        finally
+        {
+            isSecondFactorDialogOpen = false;
+            if (ViewModel.HasSecondFactorChallenge)
+            {
+                _ = ShowSecondFactorDialogAsync();
+            }
         }
     }
 

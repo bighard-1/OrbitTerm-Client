@@ -13,6 +13,7 @@ pub const ALLOWED_NETWORK_SYMBOLS: &[&str] = &[
     "orbit_test_ssh_connection_checked_v1",
     "orbit_ssh_connect_checked_v1",
     "orbit_ssh_connect_checked_v2",
+    "orbit_ssh_connect_checked_v3",
     "orbit_hostkey_challenge_accept_and_persist_v1",
     "orbit_terminal_open_checked_v1",
     "orbit_terminal_write",
@@ -243,7 +244,23 @@ impl CheckedCoreClient {
         request: &CheckedConnectionRequest<'_>,
         request_id: &RequestId,
     ) -> Result<CheckedEnvelope, BridgeError> {
+        self.connect_with_second_factor(request, request_id, "", "")
+    }
+
+    pub fn connect_with_second_factor(
+        &self,
+        request: &CheckedConnectionRequest<'_>,
+        request_id: &RequestId,
+        one_time_code: &str,
+        jump_one_time_code: &str,
+    ) -> Result<CheckedEnvelope, BridgeError> {
         validate_connection_request(request)?;
+        if [one_time_code, jump_one_time_code]
+            .iter()
+            .any(|code| code.len() > 128 || code.chars().any(char::is_control))
+        {
+            return Err(BridgeError::InvalidInput("second_factor"));
+        }
         let host = c_string("host", request.host.trim())?;
         let username = c_string("username", request.username.trim())?;
         let password = c_string("password", request.password)?;
@@ -251,6 +268,8 @@ impl CheckedCoreClient {
         let passphrase = c_string("private_key_passphrase", request.private_key_passphrase)?;
         let known_hosts = c_string("known_hosts_path", request.known_hosts_path)?;
         let request_id_c = c_string("request_id", request_id.as_str())?;
+        let one_time_code = c_string("second_factor", one_time_code)?;
+        let jump_one_time_code = c_string("jump_second_factor", jump_one_time_code)?;
         let jump = request.jump_host.as_ref();
         let jump_host = c_string("jump_host", jump.map_or("", |value| value.host.trim()))?;
         let jump_username = c_string(
@@ -269,7 +288,7 @@ impl CheckedCoreClient {
         // SAFETY: All pointers remain valid for this synchronous call and the
         // returned Rust allocation is copied and released exactly once below.
         let pointer = unsafe {
-            orbit_ssh_connect_checked_v2(
+            orbit_ssh_connect_checked_v3(
                 host.as_ptr(),
                 i32::from(request.port),
                 username.as_ptr(),
@@ -287,6 +306,8 @@ impl CheckedCoreClient {
                 i32::from(jump.is_some_and(|value| value.allow_password_fallback)),
                 known_hosts.as_ptr(),
                 request_id_c.as_ptr(),
+                one_time_code.as_ptr(),
+                jump_one_time_code.as_ptr(),
             )
         };
         decode_envelope(pointer, request_id)
@@ -1311,7 +1332,7 @@ fn take_core_string(pointer: *mut c_char) -> Result<String, BridgeError> {
 }
 
 unsafe extern "C" {
-    fn orbit_ssh_connect_checked_v2(
+    fn orbit_ssh_connect_checked_v3(
         host: *const c_char,
         port: i32,
         username: *const c_char,
@@ -1329,6 +1350,8 @@ unsafe extern "C" {
         jump_allow_password_fallback: i32,
         known_hosts_path: *const c_char,
         request_id: *const c_char,
+        one_time_code: *const c_char,
+        jump_one_time_code: *const c_char,
     ) -> *mut c_char;
     fn orbit_hostkey_challenge_accept_and_persist_v1(
         challenge_id: *const c_char,

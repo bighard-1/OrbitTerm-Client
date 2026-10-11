@@ -21,19 +21,37 @@ struct CheckedConnectInput: Hashable, Sendable, CustomStringConvertible,
     let username: String
     let credentialReference: CredentialAccessReference
     let jumpHost: CheckedJumpHostInput?
+    let oneTimeCode: String?
+    let jumpOneTimeCode: String?
 
     init(
         host: String,
         port: UInt16,
         username: String,
         credentialReference: CredentialAccessReference,
-        jumpHost: CheckedJumpHostInput? = nil
+        jumpHost: CheckedJumpHostInput? = nil,
+        oneTimeCode: String? = nil,
+        jumpOneTimeCode: String? = nil
     ) {
         self.host = host
         self.port = port
         self.username = username
         self.credentialReference = credentialReference
         self.jumpHost = jumpHost
+        self.oneTimeCode = oneTimeCode
+        self.jumpOneTimeCode = jumpOneTimeCode
+    }
+
+    func withOneTimeCode(_ code: String, forJump: Bool) -> Self {
+        Self(host: host, port: port, username: username,
+             credentialReference: credentialReference, jumpHost: jumpHost,
+             oneTimeCode: forJump ? oneTimeCode : code,
+             jumpOneTimeCode: forJump ? code : jumpOneTimeCode)
+    }
+
+    func withoutOneTimeCodes() -> Self {
+        Self(host: host, port: port, username: username,
+             credentialReference: credentialReference, jumpHost: jumpHost)
     }
 
     var description: String {

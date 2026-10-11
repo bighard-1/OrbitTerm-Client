@@ -100,4 +100,31 @@ public sealed class ConnectResultTests
         var blocked = Assert.IsType<ConnectResult.Blocked>(result);
         Assert.Equal("changed", blocked.Block.ReasonCode);
     }
+
+    [Theory]
+    [InlineData("verification_code_required", false)]
+    [InlineData("jump_verification_code_required", true)]
+    public void SecondFactorErrorIdentifiesTheCorrectHop(string detailCode, bool forJump)
+    {
+        var outcome = new CheckedConnectOutcome.Failed(new CheckedErrorPayload(
+            "ssh_second_factor_required",
+            "error.ssh.second_factor_required",
+            "request-1",
+            detailCode));
+
+        var result = ConnectResult.FromNative(Guid.NewGuid(), Guid.NewGuid(), outcome);
+
+        Assert.Equal(forJump, Assert.IsType<ConnectResult.RequiresSecondFactor>(result).ForJump);
+    }
+
+    [Fact]
+    public void ConnectionRequestDiagnosticStringDoesNotExposeCredentialsOrCode()
+    {
+        var request = new CheckedConnectionRequest(
+            "host.example", 22, "user", "password-secret", "", "", true,
+            "known-hosts", OneTimeCode: "one-time-secret");
+
+        Assert.DoesNotContain("password-secret", request.ToString());
+        Assert.DoesNotContain("one-time-secret", request.ToString());
+    }
 }

@@ -806,6 +806,9 @@ private struct MainShellView: View {
                 onRetrySave: {
                     Task { await sessionManager.retryCheckedHostKeySave() }
                 },
+                onSubmitSecondFactor: { code in
+                    Task { await sessionManager.submitCheckedSecondFactor(code) }
+                },
                 onClose: sessionManager.closeCheckedHostKeyPresentation,
                 onRemovePreviousTrust: { block in
                     await sessionManager.removePreviousHostKeyTrustAndReconnect(block)

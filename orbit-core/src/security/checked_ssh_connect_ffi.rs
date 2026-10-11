@@ -6,7 +6,7 @@ use super::checked_ssh_connect::{
 };
 use super::checked_test_connection_ffi::{
     connection_error_payload, parse_checked_connection_request,
-    parse_checked_connection_request_with_jump,
+    parse_checked_connection_request_with_jump, parse_optional_string,
 };
 use super::host_key_ffi_api::{ffi_response, success_envelope, FfiOperationResult};
 use super::host_key_ffi_error::{HostKeyFfiErrorCode, HostKeyFfiErrorPayload};
@@ -96,6 +96,79 @@ pub extern "C" fn orbit_ssh_connect_checked_v2(
         let outcome = ORBIT_RUNTIME.block_on(run_checked_ssh_connect(request));
         outcome_to_ffi(outcome, request_id)
     })
+}
+
+/// v3 adds transient, independently scoped SSH keyboard-interactive codes.
+/// Empty codes retain the v2 behavior. Codes are never persisted or returned.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub extern "C" fn orbit_ssh_connect_checked_v3(
+    host: *const c_char,
+    port: i32,
+    username: *const c_char,
+    password: *const c_char,
+    private_key: *const c_char,
+    private_key_passphrase: *const c_char,
+    allow_password_fallback: i32,
+    jump_enabled: i32,
+    jump_host: *const c_char,
+    jump_port: i32,
+    jump_username: *const c_char,
+    jump_password: *const c_char,
+    jump_private_key: *const c_char,
+    jump_private_key_passphrase: *const c_char,
+    jump_allow_password_fallback: i32,
+    known_hosts_path: *const c_char,
+    request_id: *const c_char,
+    one_time_code: *const c_char,
+    jump_one_time_code: *const c_char,
+) -> *mut c_char {
+    ffi_response(|| {
+        let mut request = parse_checked_connection_request_with_jump(
+            host,
+            port,
+            username,
+            password,
+            private_key,
+            private_key_passphrase,
+            allow_password_fallback,
+            jump_enabled,
+            jump_host,
+            jump_port,
+            jump_username,
+            jump_password,
+            jump_private_key,
+            jump_private_key_passphrase,
+            jump_allow_password_fallback,
+            known_hosts_path,
+            request_id,
+        )?;
+        let id = request.request_id().to_string();
+        let code = parse_optional_string(one_time_code, "second_factor_invalid_utf8", &id)?;
+        let jump_code =
+            parse_optional_string(jump_one_time_code, "jump_second_factor_invalid_utf8", &id)?;
+        if !code.is_empty() {
+            request = request
+                .with_one_time_code(code)
+                .map_err(|_| invalid_code(&id))?;
+        }
+        if !jump_code.is_empty() {
+            request = request
+                .with_jump_one_time_code(jump_code)
+                .map_err(|_| invalid_code(&id))?;
+        }
+        let outcome = ORBIT_RUNTIME.block_on(run_checked_ssh_connect(request));
+        outcome_to_ffi(outcome, id)
+    })
+}
+
+fn invalid_code(request_id: &str) -> HostKeyFfiErrorPayload {
+    HostKeyFfiErrorPayload::new(
+        HostKeyFfiErrorCode::InvalidRequest,
+        Some("invalid_second_factor"),
+        Some(request_id.to_string()),
+        None,
+    )
 }
 
 fn outcome_to_ffi(outcome: CheckedSshConnectOutcome, request_id: String) -> FfiOperationResult {

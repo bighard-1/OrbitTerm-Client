@@ -159,6 +159,11 @@ async fn run_checked_ssh_connect_via_jump(
         }
         Ok(Err(error)) => {
             best_effort_disconnect(&jump_session, "jump host authentication failed").await;
+            let error = match error {
+                super::checked_test_connection::CheckedAuthenticationError::SecondFactorRequired =>
+                    super::checked_test_connection::CheckedAuthenticationError::JumpSecondFactorRequired,
+                other => other,
+            };
             return connection_error(CheckedTestConnectionError::Authentication(error));
         }
         Ok(Ok(())) => {}

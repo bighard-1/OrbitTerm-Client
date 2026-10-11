@@ -1,13 +1,13 @@
 import SwiftUI
 
 enum ConnectionPresentationPhase: Equatable {
-    case idle, connecting, reconnecting, awaitingHostKeyDecision, openingTerminal, connected, disconnected, blocked, failed, cancelled
+    case idle, connecting, reconnecting, awaitingHostKeyDecision, awaitingSecondFactor, openingTerminal, connected, disconnected, blocked, failed, cancelled
 
     var allowsConnectionLaunch: Bool {
         switch self {
         case .idle, .disconnected, .failed, .cancelled:
             true
-        case .connecting, .reconnecting, .awaitingHostKeyDecision, .openingTerminal, .connected, .blocked:
+        case .connecting, .reconnecting, .awaitingHostKeyDecision, .awaitingSecondFactor, .openingTerminal, .connected, .blocked:
             false
         }
     }
@@ -53,6 +53,7 @@ enum ConnectionPresentationMapper {
         if input.isAwaitingHostKeyDecision { return .init(phase: .awaitingHostKeyDecision, label: "等待确认主机身份", systemImage: "shield.lefthalf.filled", semanticRole: .warning, showsProgress: false) }
         switch input.explicitPhase {
         case .awaitingHostKeyDecision?: return .init(phase: .awaitingHostKeyDecision, label: "等待确认主机身份", systemImage: "shield.lefthalf.filled", semanticRole: .warning, showsProgress: false)
+        case .awaitingSecondFactor?: return .init(phase: .awaitingSecondFactor, label: "等待 SSH 验证码", systemImage: "lock.shield", semanticRole: .warning, showsProgress: false)
         case .blocked?: return .init(phase: .blocked, label: "服务器身份已阻断", systemImage: "xmark.shield.fill", semanticRole: .blocked, showsProgress: false)
         case .failed?: return .init(phase: .failed, label: "连接失败", systemImage: "exclamationmark.triangle.fill", semanticRole: .danger, showsProgress: false)
         case .cancelled?: return .init(phase: .cancelled, label: "连接已取消", systemImage: "xmark.circle", semanticRole: .disconnected, showsProgress: false)
