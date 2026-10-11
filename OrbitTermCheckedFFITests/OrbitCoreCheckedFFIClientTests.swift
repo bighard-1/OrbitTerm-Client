@@ -91,6 +91,63 @@ final class OrbitCoreCheckedFFIClientTests: XCTestCase {
         }
     }
 
+    func testConnectSeparatesMissingAndUnreadableLocalCredentialsBeforeFFI() async {
+        let cases: [(any CheckedCredentialProvider, CheckedFFIClientError)] = [
+            (FixtureCredentialProvider(value: CheckedCredentials(
+                password: "", privateKey: "", privateKeyPassphrase: "",
+                allowPasswordFallback: true
+            )), .credentialUnavailable),
+            (FailingCredentialProvider(error: .credentialUnavailable), .credentialUnavailable),
+            (FailingCredentialProvider(error: nil), .credentialStorageFailed)
+        ]
+        for (provider, expected) in cases {
+            let counter = FreeCounter()
+            let client = makeClient(
+                json: CheckedFFIFixtures.connected,
+                counter: counter,
+                credentialProvider: provider
+            )
+            do {
+                _ = try await client.connectChecked(requestID: requestID, input: input())
+                XCTFail("Expected local credential failure")
+            } catch let error as CheckedFFIClientError {
+                XCTAssertEqual(error, expected)
+                XCTAssertFalse(String(reflecting: error).contains("fixture-password"))
+            } catch {
+                XCTFail("Unexpected error type")
+            }
+            XCTAssertEqual(counter.count, 0, "Credential failure must not reach the SSH core")
+        }
+    }
+
+    func testJumpCredentialFailureUsesSameSafeCategory() async {
+        let targetID = UUID()
+        let jumpID = UUID()
+        let counter = FreeCounter()
+        let client = makeClient(
+            json: CheckedFFIFixtures.connected,
+            counter: counter,
+            credentialProvider: TargetThenFailingJumpCredentialProvider(targetID: targetID)
+        )
+        let request = CheckedConnectInput(
+            host: "target.example.test", port: 22, username: "user",
+            credentialReference: CredentialAccessReference(id: targetID),
+            jumpHost: CheckedJumpHostInput(
+                host: "jump.example.test", port: 22, username: "user",
+                credentialReference: CredentialAccessReference(id: jumpID)
+            )
+        )
+        do {
+            _ = try await client.connectChecked(requestID: requestID, input: request)
+            XCTFail("Expected jump credential failure")
+        } catch let error as CheckedFFIClientError {
+            XCTAssertEqual(error, .credentialStorageFailed)
+        } catch {
+            XCTFail("Unexpected error type")
+        }
+        XCTAssertEqual(counter.count, 0)
+    }
+
     func testPersistSuccessUsesChallengeCorrelationAndLocalAttemptID() async throws {
         let counter = FreeCounter()
         let client = makeClient(json: CheckedFFIFixtures.trustPersisted, counter: counter)
@@ -659,7 +716,11 @@ final class OrbitCoreCheckedFFIClientTests: XCTestCase {
         XCTAssertFalse(path.hasPrefix(FileManager.default.temporaryDirectory.path))
     }
 
-    private func makeClient(json: String, counter: FreeCounter) -> OrbitCoreCheckedFFIClient {
+    private func makeClient(
+        json: String,
+        counter: FreeCounter,
+        credentialProvider: (any CheckedCredentialProvider)? = nil
+    ) -> OrbitCoreCheckedFFIClient {
         let functions = OrbitCoreCheckedFFIFunctions(
             connect: { _ in allocatedCString(json) },
             persist: { _ in allocatedCString(json) },
@@ -673,7 +734,7 @@ final class OrbitCoreCheckedFFIClientTests: XCTestCase {
             execChecked: { _ in allocatedCString(json) }
         )
         return OrbitCoreCheckedFFIClient(
-            credentialProvider: FixtureCredentialProvider(value: credentials()),
+            credentialProvider: credentialProvider ?? FixtureCredentialProvider(value: credentials()),
             knownHostsPathProvider: FixtureKnownHostsPathProvider(),
             functions: functions,
             resultReader: reader(counter: counter)
@@ -734,6 +795,30 @@ private struct RoutingFixtureCredentialProvider: CheckedCredentialProvider {
             throw CheckedFFIClientError.invalidInput
         }
         return value
+    }
+}
+
+private enum CredentialFixtureFailure: Error { case locked }
+
+private struct FailingCredentialProvider: CheckedCredentialProvider {
+    let error: CheckedFFIClientError?
+
+    func credentials(for reference: CredentialAccessReference) async throws -> CheckedCredentials {
+        _ = reference
+        if let error { throw error }
+        throw CredentialFixtureFailure.locked
+    }
+}
+
+private struct TargetThenFailingJumpCredentialProvider: CheckedCredentialProvider {
+    let targetID: UUID
+
+    func credentials(for reference: CredentialAccessReference) async throws -> CheckedCredentials {
+        guard reference.id == targetID else { throw CredentialFixtureFailure.locked }
+        return CheckedCredentials(
+            password: "fixture-password", privateKey: "", privateKeyPassphrase: "",
+            allowPasswordFallback: true
+        )
     }
 }
 

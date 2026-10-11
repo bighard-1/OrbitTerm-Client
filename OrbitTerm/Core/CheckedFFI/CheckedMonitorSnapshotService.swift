@@ -129,7 +129,8 @@ actor CheckedMonitorSnapshotService: CheckedMonitorSnapshotFetching {
             .pollingCancelled
         case .invalidInput:
             .invalidBaseSessionID
-        case .unavailable, .timeout, .protocolViolation, .nullCStringResult,
+        case .unavailable, .credentialUnavailable, .credentialStorageFailed,
+             .timeout, .protocolViolation, .nullCStringResult,
              .invalidUTF8Result, .jsonDecodeFailed, .unsupportedSchema,
              .internalInvariant:
             .unknownCheckedFFIError

@@ -139,6 +139,19 @@ final class OperationRecoveryPresentationTests: XCTestCase {
         XCTAssertFalse(invalid.diagnosticCode.contains("@"))
     }
 
+    func testSSHLocalCredentialFailuresAreActionableAndDoNotClaimProtocolCorruption() {
+        let missing = OperationRecoveryMapper.connection(.client(.credentialUnavailable))
+        let storage = OperationRecoveryMapper.connection(.client(.credentialStorageFailed))
+
+        XCTAssertEqual(missing.code, .credentialUnavailable)
+        XCTAssertEqual(missing.actions, [.reviewCredentials, .dismiss])
+        XCTAssertEqual(storage.code, .credentialStorageFailed)
+        XCTAssertEqual(storage.actions, [.retry, .dismiss])
+        XCTAssertNotEqual(missing.diagnosticCode, storage.diagnosticCode)
+        XCTAssertFalse(missing.message.contains("fixture-password"))
+        XCTAssertFalse(storage.message.contains("fixture-password"))
+    }
+
     private func makeBlockedPayload() -> HostKeyBlockedPayload {
         HostKeyBlockedPayload(
             host: "sensitive.example.test",

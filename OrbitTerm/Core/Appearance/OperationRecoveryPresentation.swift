@@ -204,6 +204,8 @@ enum OperationFailureCode: String, Equatable, Sendable {
     case hostIdentityBlocked
     case terminalOpenFailed
     case localSecureStorageFailed
+    case credentialUnavailable
+    case credentialStorageFailed
     case operationCancelled
     case protocolViolation
     case unsupportedOperation
@@ -492,6 +494,26 @@ enum OperationRecoveryMapper {
                 code: .localSecureStorageFailed,
                 title: "无法保存主机信任信息",
                 message: "未建立连接，请检查系统钥匙串权限后重试。",
+                symbol: "key.fill",
+                severity: .danger,
+                actions: [.retry, .dismiss]
+            )
+        case .client(.credentialUnavailable):
+            return presentation(
+                domain: .connection,
+                code: .credentialUnavailable,
+                title: "缺少本机 SSH 凭据",
+                message: "请在此设备重新保存该资产的密码或私钥后重试。",
+                symbol: "key.slash.fill",
+                severity: .warning,
+                actions: [.reviewCredentials, .dismiss]
+            )
+        case .client(.credentialStorageFailed):
+            return presentation(
+                domain: .connection,
+                code: .credentialStorageFailed,
+                title: "无法读取本机 SSH 凭据",
+                message: "请解锁设备并检查系统钥匙串后重试；现有凭据不会被覆盖。",
                 symbol: "key.fill",
                 severity: .danger,
                 actions: [.retry, .dismiss]

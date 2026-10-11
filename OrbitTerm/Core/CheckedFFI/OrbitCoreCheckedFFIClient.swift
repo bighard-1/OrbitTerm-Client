@@ -155,17 +155,7 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             }
         }
 
-        let credentials: CheckedCredentials
-        do {
-            credentials = try await credentialProvider.credentials(for: input.credentialReference)
-        } catch let error as CheckedFFIClientError {
-            throw error
-        } catch {
-            throw CheckedFFIClientError.invalidInput
-        }
-        guard !credentials.password.isEmpty || !credentials.privateKey.isEmpty else {
-            throw CheckedFFIClientError.invalidInput
-        }
+        let credentials = try await loadCredentials(for: input.credentialReference)
         let jumpHost: OrbitCoreCheckedJumpHostCall?
         if let configuredJumpHost = input.jumpHost {
             let hopHost = configuredJumpHost.host.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -173,12 +163,7 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             guard !hopHost.isEmpty, !hopUsername.isEmpty, configuredJumpHost.port > 0 else {
                 throw CheckedFFIClientError.invalidInput
             }
-            let hopCredentials = try await credentialProvider.credentials(
-                for: configuredJumpHost.credentialReference
-            )
-            guard !hopCredentials.password.isEmpty || !hopCredentials.privateKey.isEmpty else {
-                throw CheckedFFIClientError.invalidInput
-            }
+            let hopCredentials = try await loadCredentials(for: configuredJumpHost.credentialReference)
             jumpHost = OrbitCoreCheckedJumpHostCall(
                 host: hopHost,
                 port: Int32(configuredJumpHost.port),
@@ -203,6 +188,23 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
         let json = try resultReader.take(functions.connect(call))
         let response = try decodeConnect(json, expectedRequestID: requestID)
         return CheckedClientResponse(requestID: requestID, value: response)
+    }
+
+    private func loadCredentials(
+        for reference: CredentialAccessReference
+    ) async throws -> CheckedCredentials {
+        let credentials: CheckedCredentials
+        do {
+            credentials = try await credentialProvider.credentials(for: reference)
+        } catch let error as CheckedFFIClientError {
+            throw error
+        } catch {
+            throw CheckedFFIClientError.credentialStorageFailed
+        }
+        guard !credentials.password.isEmpty || !credentials.privateKey.isEmpty else {
+            throw CheckedFFIClientError.credentialUnavailable
+        }
+        return credentials
     }
 
     func acceptAndPersistHostKey(

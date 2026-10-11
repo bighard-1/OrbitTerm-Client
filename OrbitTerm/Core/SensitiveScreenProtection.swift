@@ -26,12 +26,69 @@ enum MirroredCaptureQAMode {
     }
 }
 
+#if os(iOS)
+/// UIKit takes the app-switcher snapshot during deactivation, before SwiftUI
+/// is guaranteed to render a scenePhase-driven cover. Install this opaque
+/// view synchronously at willResignActive, then remove it on activation.
+@MainActor
+private final class InactiveSnapshotShield: NSObject {
+    private var covers: [ObjectIdentifier: UIView] = [:]
+
+    override init() {
+        super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(willResignActive),
+            name: UIApplication.willResignActiveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(didBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func willResignActive() {
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+            for window in windowScene.windows where !window.isHidden {
+                let key = ObjectIdentifier(window)
+                guard covers[key] == nil else { continue }
+                let cover = UIView(frame: window.bounds)
+                cover.backgroundColor = .black
+                cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                cover.isUserInteractionEnabled = false
+                window.addSubview(cover)
+                covers[key] = cover
+            }
+        }
+    }
+
+    @objc private func didBecomeActive() {
+        // Let the normal app-lock view settle before uncovering the window.
+        DispatchQueue.main.async { [weak self] in
+            self?.covers.values.forEach { $0.removeFromSuperview() }
+            self?.covers.removeAll()
+        }
+    }
+}
+#endif
+
 @MainActor
 final class SensitiveScreenProtection: ObservableObject {
     static let shared = SensitiveScreenProtection()
 
     @Published private(set) var isScreenCaptured = false
     private var observers: [NSObjectProtocol] = []
+#if os(iOS)
+    private let inactiveSnapshotShield = InactiveSnapshotShield()
+#endif
 
     private init() {
 #if canImport(UIKit)
@@ -142,7 +199,9 @@ private struct SensitiveScreenProtectionModifier: ViewModifier {
                     isScreenCaptured: isCaptureActive
                 ) {
                     SensitiveContentCover()
-                        .transition(.opacity)
+                        // App-switcher snapshots may be captured before an
+                        // opacity transition finishes. Cover immediately.
+                        .transition(.identity)
                 }
             }
             .overlay(alignment: .bottom) {

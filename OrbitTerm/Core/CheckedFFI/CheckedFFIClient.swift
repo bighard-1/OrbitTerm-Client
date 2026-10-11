@@ -142,6 +142,8 @@ enum CheckedFFIClientError: Error, Hashable, Sendable {
     case unexpectedKind(CheckedFFIResultKind)
     case ffiErrorPayload(CheckedFFIErrorPayload)
     case invalidInput
+    case credentialUnavailable
+    case credentialStorageFailed
     case unsupportedSchema(UInt32)
     case unknownKind(String)
     case internalInvariant
@@ -161,6 +163,8 @@ extension CheckedFFIClientError: CustomStringConvertible, CustomDebugStringConve
         case let .unexpectedKind(kind): "checked_ffi_unexpected_kind:\(kind.rawValue)"
         case let .ffiErrorPayload(payload): "checked_ffi_error:\(payload.code.rawValue)"
         case .invalidInput: "checked_ffi_invalid_input"
+        case .credentialUnavailable: "checked_ffi_credential_unavailable"
+        case .credentialStorageFailed: "checked_ffi_credential_storage_failed"
         case let .unsupportedSchema(version): "checked_ffi_unsupported_schema:\(version)"
         case let .unknownKind(kind): "checked_ffi_unknown_kind:\(kind)"
         case .internalInvariant: "checked_ffi_internal_invariant"
