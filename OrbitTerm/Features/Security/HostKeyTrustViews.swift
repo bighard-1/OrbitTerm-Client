@@ -78,8 +78,11 @@ struct HostKeyTrustView: View {
                     onRetry: onRetrySave,
                     onCancel: onCancel
                 )
-            case .failed:
-                HostKeyFailureView(onClose: onClose)
+            case let .failed(_, failure):
+                HostKeyFailureView(
+                    presentation: OperationRecoveryMapper.connection(failure),
+                    onClose: onClose
+                )
             case .cancelled:
                 EmptyView()
             }
@@ -96,6 +99,7 @@ struct HostKeyTrustView: View {
 }
 
 private struct SSHSecondFactorSheet: View {
+    @Environment(\.scenePhase) private var scenePhase
     let forJump: Bool
     let onCancel: () -> Void
     let onSubmit: (String) -> Void
@@ -119,6 +123,12 @@ private struct SSHSecondFactorSheet: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(code.isEmpty || code.utf8.count > 128 || hasControlCharacters)
             }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { code = "" }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .orbitTermClearTransientSensitiveInput)) { _ in
+            code = ""
         }
     }
 
@@ -340,13 +350,17 @@ private struct HostKeyCard<Content: View>: View {
 }
 
 private struct HostKeyFailureView: View {
+    let presentation: OperationRecoveryPresentation
     let onClose: () -> Void
 
     var body: some View {
         HostKeyCard(isWarning: true) {
-            Label("连接无法继续", systemImage: "exclamationmark.triangle.fill")
+            Label(presentation.title, systemImage: presentation.systemImage)
                 .font(.title2.weight(.semibold))
-            Text("OrbitTerm 在打开会话前已安全停止。请检查连接信息后重试。")
+            Text(presentation.message)
+            Text(presentation.diagnosticCode)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
             Button("关闭", action: onClose)
         }
     }

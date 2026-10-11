@@ -28,7 +28,12 @@ final class ServerStore: ObservableObject {
         guard accountScope != scope else { return }
 
         credentialMigrationOwner.invalidate()
-        _ = persist()
+        // A fresh process has not loaded any assets yet. Persisting its empty
+        // in-memory list here would erase every device-local asset before
+        // load(scope:) has a chance to read the local cache.
+        if AccountScopeSnapshotPolicy.shouldFlushBeforeScopeChange(previousScope: accountScope) {
+            _ = persist()
+        }
         accountScope = scope
         DeletedServerRegistry.shared.activate(scope: scope)
         load(scope: scope)
@@ -36,7 +41,11 @@ final class ServerStore: ObservableObject {
 
     func deactivateAccount() {
         credentialMigrationOwner.invalidate()
-        _ = persist()
+        // Signed-out presentation also runs at cold launch. Do not replace a
+        // persisted local-only list with this process's still-empty snapshot.
+        if AccountScopeSnapshotPolicy.shouldFlushBeforeScopeChange(previousScope: accountScope) {
+            _ = persist()
+        }
         accountScope = nil
         servers = loadLocalServers()
         selectedServerID = servers.first?.id

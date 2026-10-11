@@ -128,6 +128,17 @@ final class OperationRecoveryPresentationTests: XCTestCase {
         XCTAssertEqual(value.diagnosticCode, "sync.masterPasswordMismatch")
     }
 
+    func testSSHFailurePresentationExposesOnlyStableSafeCategory() {
+        let timeout = OperationRecoveryMapper.connection(.timeout(nil))
+        let invalid = OperationRecoveryMapper.connection(.protocolViolation)
+
+        XCTAssertEqual(timeout.domain, .connection)
+        XCTAssertEqual(invalid.domain, .connection)
+        XCTAssertNotEqual(timeout.diagnosticCode, invalid.diagnosticCode)
+        XCTAssertFalse(timeout.diagnosticCode.contains("@"))
+        XCTAssertFalse(invalid.diagnosticCode.contains("@"))
+    }
+
     private func makeBlockedPayload() -> HostKeyBlockedPayload {
         HostKeyBlockedPayload(
             host: "sensitive.example.test",

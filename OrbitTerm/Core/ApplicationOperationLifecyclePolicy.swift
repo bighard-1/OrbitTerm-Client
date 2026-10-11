@@ -193,9 +193,42 @@ enum ApplicationOperationLifecyclePolicy {
 enum MobileAutoLockPolicy {
     static func shouldLockOnBackground(
         isAuthenticated: Bool,
-        hasMasterPassword: Bool
+        wasUnlocked: Bool
     ) -> Bool {
-        isAuthenticated && hasMasterPassword
+        isAuthenticated && wasUnlocked
+    }
+
+    static func shouldLockOnProtectedDataLoss(
+        isAuthenticated: Bool,
+        wasUnlocked: Bool
+    ) -> Bool {
+        isAuthenticated && wasUnlocked
+    }
+}
+
+/// An interrupted SSH challenge is never retained as a live authenticated
+/// transport. Only this non-secret, process-local reconnect intent survives
+/// the ordinary mobile account lock.
+struct PendingSecondFactorResumeIntent: Equatable, Sendable {
+    let serverID: UUID
+    let accountScopeID: String
+    let capturedAt: Date
+}
+
+enum MobileSecondFactorResumePolicy {
+    static let maximumAge: TimeInterval = 300
+
+    static func canResume(
+        _ intent: PendingSecondFactorResumeIntent,
+        accountScopeID: String,
+        now: Date,
+        isAuthenticated: Bool,
+        isUnlocked: Bool
+    ) -> Bool {
+        isAuthenticated && isUnlocked &&
+            !accountScopeID.isEmpty && intent.accountScopeID == accountScopeID &&
+            now >= intent.capturedAt &&
+            now.timeIntervalSince(intent.capturedAt) <= maximumAge
     }
 }
 

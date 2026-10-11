@@ -443,16 +443,19 @@ final class AppSession: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                // iPhone Mirroring can background the isolated QA app while
-                // the phone remains locked. Preserve that test-only session;
-                // the normal app and every Release build still auto-lock.
                 guard !MirroredCaptureQAMode.isEnabled else { return }
-                if MobileAutoLockPolicy.shouldLockOnBackground(
-                    isAuthenticated: self.isAuthenticated,
-                    hasMasterPassword: self.hasMasterPassword
-                ) {
-                    self.isUnlocked = false
-                }
+                self.lockForMobileInterruptionIfNeeded(protectedDataLoss: false)
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.protectedDataWillBecomeUnavailableNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                guard !MirroredCaptureQAMode.isEnabled else { return }
+                self.lockForMobileInterruptionIfNeeded(protectedDataLoss: true)
             }
         }
 #elseif canImport(AppKit)
@@ -472,6 +475,28 @@ final class AppSession: ObservableObject {
         }
 #endif
     }
+
+    #if canImport(UIKit)
+    private func lockForMobileInterruptionIfNeeded(protectedDataLoss: Bool) {
+        let shouldLock = protectedDataLoss
+            ? MobileAutoLockPolicy.shouldLockOnProtectedDataLoss(
+                isAuthenticated: isAuthenticated,
+                wasUnlocked: isUnlocked
+            )
+            : MobileAutoLockPolicy.shouldLockOnBackground(
+                isAuthenticated: isAuthenticated,
+                wasUnlocked: isUnlocked
+            )
+        guard shouldLock else { return }
+        // The protected Keychain can already be unavailable here. Use only
+        // verified in-memory state; the regular account-lock path tears down
+        // the old SSH route after this non-secret intent has been captured.
+        let sessionManager = SessionManager.shared
+        sessionManager.captureSecondFactorResume(accountID: username)
+        sessionManager.closeAllTabs()
+        isUnlocked = false
+    }
+    #endif
 
     private func deriveArgon2id(password: String, salt: Data) throws -> Data {
         guard let passwordC = password.cString(using: .utf8) else {

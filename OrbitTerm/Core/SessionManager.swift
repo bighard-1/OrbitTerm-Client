@@ -66,6 +66,9 @@ final class SessionManager: ObservableObject {
     private let liveSessionRecoveryMarker = LiveSessionRecoveryMarker()
     private var connectionLossCleanupTasks: [UUID: Task<Void, Never>] = [:]
     private var connectionLaunchGate = ConnectionLaunchGate()
+    #if os(iOS)
+    private var pendingSecondFactorResume: PendingSecondFactorResumeIntent?
+    #endif
 
     private init(
         connectionSecurityPolicy: ConnectionSecurityPolicy = .applicationDefault,
@@ -117,6 +120,63 @@ final class SessionManager: ObservableObject {
     var tabs: [WorkspaceSession] { workspacePresentation.tabs }
 
     var activeTabID: UUID? { workspacePresentation.activeTabID }
+
+    var isAwaitingCheckedSecondFactor: Bool {
+        guard let route = checkedHostKeyRoute else { return false }
+        if case .awaitingSecondFactor = route.coordinator.state { return true }
+        return false
+    }
+
+    #if os(iOS)
+    var hasPendingSecondFactorResume: Bool { pendingSecondFactorResume != nil }
+
+    /// Save only the route identity before the normal account-lock teardown
+    /// cancels the SSH challenge and closes its tab. No code, password, or
+    /// authenticated socket is retained for a backgrounded app.
+    func captureSecondFactorResume(accountID: String, now: Date = Date()) {
+        guard let route = checkedHostKeyRoute,
+              case .awaitingSecondFactor = route.coordinator.state,
+              let session = tabs.first(where: { $0.id == route.workspaceID }),
+              let scope = AccountScope(username: accountID) else { return }
+        pendingSecondFactorResume = PendingSecondFactorResumeIntent(
+            serverID: session.server.id,
+            accountScopeID: scope.storageIdentifier,
+            capturedAt: now
+        )
+    }
+
+    /// A new checked SSH attempt obtains a fresh server-side challenge after
+    /// the user has unlocked the app. The former challenge is never replayed.
+    @discardableResult
+    func resumeSecondFactorAfterUnlock(
+        accountID: String,
+        isAuthenticated: Bool,
+        isUnlocked: Bool,
+        store: ServerStore,
+        now: Date = Date()
+    ) -> Bool {
+        guard let intent = pendingSecondFactorResume else { return false }
+        pendingSecondFactorResume = nil
+        guard let scope = AccountScope(username: accountID),
+              MobileSecondFactorResumePolicy.canResume(
+                intent,
+                accountScopeID: scope.storageIdentifier,
+                now: now,
+                isAuthenticated: isAuthenticated,
+                isUnlocked: isUnlocked
+              ),
+              store.isActiveAccount(accountID),
+              let server = store.servers.first(where: { $0.id == intent.serverID }) else {
+            return false
+        }
+        openTab(for: server, autoConnect: true)
+        return true
+    }
+
+    func clearPendingSecondFactorResume() {
+        pendingSecondFactorResume = nil
+    }
+    #endif
 
     var activeSession: WorkspaceSession? { workspacePresentation.activeSession }
 

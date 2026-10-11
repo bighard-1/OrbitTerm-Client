@@ -43,3 +43,12 @@ enum AccountMigrationReservationPolicy {
         return reservedOwner == nil || reservedOwner == requestingScope
     }
 }
+
+/// A fresh store starts with an empty in-memory list. Flushing it before the
+/// first account load or signed-out presentation would overwrite the
+/// device-local asset cache with [].
+enum AccountScopeSnapshotPolicy {
+    static func shouldFlushBeforeScopeChange(previousScope: AccountScope?) -> Bool {
+        previousScope != nil
+    }
+}

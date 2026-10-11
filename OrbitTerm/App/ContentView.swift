@@ -89,6 +89,9 @@ struct ContentView: View {
         .task(id: autoSyncTaskKey) {
             guard !isIsolatedUITestLaunch else { return }
             applyOperationLifecycle(event(for: scenePhase))
+            #if os(iOS)
+            resumeInterruptedSecondFactorIfPossible()
+            #endif
             // 每次鉴权/解锁/token变更后都允许重试拉取，避免“仅首轮触发”导致不再同步。
             #if os(iOS)
             scheduleAutoSync(after: 700_000_000)
@@ -113,12 +116,18 @@ struct ContentView: View {
                 return
             }
             applyOperationLifecycle(.becameActive)
+            #if os(iOS)
+            resumeInterruptedSecondFactorIfPossible()
+            #endif
             scheduleAutoSync(after: 0)
         }
         .onChange(of: session.isUnlocked) { _, isUnlocked in
             guard !isIsolatedUITestLaunch else { return }
             if isUnlocked {
                 applyOperationLifecycle(event(for: scenePhase))
+                #if os(iOS)
+                resumeInterruptedSecondFactorIfPossible()
+                #endif
             } else if session.isAuthenticated {
                 cancelAutoSync()
                 applyOperationLifecycle(.accountLocked)
@@ -128,6 +137,9 @@ struct ContentView: View {
             guard !isIsolatedUITestLaunch else { return }
             guard !isAuthenticated else { return }
             cancelAutoSync()
+            #if os(iOS)
+            sessionManager.clearPendingSecondFactorResume()
+            #endif
             applyOperationLifecycle(.accountSignedOut)
         }
         .onDisappear {
@@ -194,6 +206,23 @@ struct ContentView: View {
             sessionManager: sessionManager
         )
     }
+
+    #if os(iOS)
+    private func resumeInterruptedSecondFactorIfPossible() {
+        guard scenePhase == .active,
+              session.isAuthenticated,
+              session.isUnlocked,
+              !session.mustChangePassword,
+              sessionManager.hasPendingSecondFactorResume else { return }
+        configureAccountScope()
+        sessionManager.resumeSecondFactorAfterUnlock(
+            accountID: session.username,
+            isAuthenticated: session.isAuthenticated,
+            isUnlocked: session.isUnlocked,
+            store: serverStore
+        )
+    }
+    #endif
 
     private func event(for phase: ScenePhase) -> ApplicationOperationLifecycleEvent {
         switch phase {

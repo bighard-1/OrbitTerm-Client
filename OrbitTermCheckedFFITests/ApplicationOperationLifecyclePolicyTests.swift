@@ -136,25 +136,71 @@ final class ApplicationOperationLifecyclePolicyTests: XCTestCase {
         }
     }
 
-    func testMobileBackgroundLockRequiresAuthenticatedConfiguredAccount() {
+    func testMobileBackgroundLockRequiresAuthenticatedUnlockedAccount() {
         XCTAssertTrue(
             MobileAutoLockPolicy.shouldLockOnBackground(
                 isAuthenticated: true,
-                hasMasterPassword: true
+                wasUnlocked: true
             )
         )
         XCTAssertFalse(
             MobileAutoLockPolicy.shouldLockOnBackground(
                 isAuthenticated: false,
-                hasMasterPassword: true
+                wasUnlocked: true
             )
         )
         XCTAssertFalse(
             MobileAutoLockPolicy.shouldLockOnBackground(
                 isAuthenticated: true,
-                hasMasterPassword: false
+                wasUnlocked: false
             )
         )
+    }
+
+    func testProtectedDataLossStillLocksAnUnlockedAccount() {
+        XCTAssertTrue(MobileAutoLockPolicy.shouldLockOnProtectedDataLoss(
+            isAuthenticated: true, wasUnlocked: true
+        ))
+        XCTAssertFalse(MobileAutoLockPolicy.shouldLockOnProtectedDataLoss(
+            isAuthenticated: false, wasUnlocked: true
+        ))
+        XCTAssertFalse(MobileAutoLockPolicy.shouldLockOnProtectedDataLoss(
+            isAuthenticated: true, wasUnlocked: false
+        ))
+    }
+
+    func testSecondFactorResumeRequiresSameAccountRecentIntentAndNewUnlock() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let intent = PendingSecondFactorResumeIntent(
+            serverID: UUID(), accountScopeID: "opaque-account-a", capturedAt: start
+        )
+        let now = start.addingTimeInterval(MobileSecondFactorResumePolicy.maximumAge - 1)
+
+        XCTAssertTrue(MobileSecondFactorResumePolicy.canResume(
+            intent, accountScopeID: "opaque-account-a", now: now,
+            isAuthenticated: true, isUnlocked: true
+        ))
+        XCTAssertFalse(MobileSecondFactorResumePolicy.canResume(
+            intent, accountScopeID: "opaque-account-b", now: now,
+            isAuthenticated: true, isUnlocked: true
+        ))
+        XCTAssertFalse(MobileSecondFactorResumePolicy.canResume(
+            intent, accountScopeID: "opaque-account-a", now: now,
+            isAuthenticated: true, isUnlocked: false
+        ))
+        XCTAssertFalse(MobileSecondFactorResumePolicy.canResume(
+            intent, accountScopeID: "opaque-account-a", now: now,
+            isAuthenticated: false, isUnlocked: true
+        ))
+        XCTAssertFalse(MobileSecondFactorResumePolicy.canResume(
+            intent, accountScopeID: "opaque-account-a",
+            now: start.addingTimeInterval(MobileSecondFactorResumePolicy.maximumAge + 1),
+            isAuthenticated: true, isUnlocked: true
+        ))
+        XCTAssertFalse(MobileSecondFactorResumePolicy.canResume(
+            intent, accountScopeID: "opaque-account-a", now: start.addingTimeInterval(-1),
+            isAuthenticated: true, isUnlocked: true
+        ))
     }
 
     func testSessionReconnectRequiresUsableRouteAndExplicitIdleState() {
