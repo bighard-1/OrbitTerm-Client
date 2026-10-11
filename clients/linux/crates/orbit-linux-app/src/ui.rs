@@ -1660,6 +1660,15 @@ pub fn build_application_window(application: &adw::Application) {
     workspace.input_row.set_width_request(320);
     workbench_overlay.add_overlay(&workspace.input_row);
     root.append(&workbench_overlay);
+    // Connection and authentication failures must remain visible in the
+    // workbench. The label is also used by diagnostics, but a label that is
+    // never attached to the widget tree leaves the user with only "失败".
+    let footer_separator = gtk::Separator::new(Orientation::Vertical);
+    sidebar.footer.append(&footer_separator);
+    status_label.set_hexpand(true);
+    status_label.set_margin_start(6);
+    status_label.add_css_class("caption");
+    sidebar.footer.append(&status_label);
     root.append(&sidebar.footer);
 
     let overlay_for_bottom_layout = workbench_overlay.clone();
@@ -7981,6 +7990,14 @@ fn poll_connect_result(
                 );
                 gtk::glib::ControlFlow::Break
             }
+            Ok(Err(BridgeError::Core { code, .. })) if code == "ssh_auth_failed" => {
+                show_session_error(
+                    &context,
+                    asset_id,
+                    "SSH 认证失败（ssh_auth_failed）：服务器未接受当前凭据或认证方式，请核对用户名、密码/密钥及二次验证配置。",
+                );
+                gtk::glib::ControlFlow::Break
+            }
             Ok(Err(error)) => {
                 show_session_error(&context, asset_id, &format!("连接失败：{error}"));
                 gtk::glib::ControlFlow::Break
@@ -9378,6 +9395,18 @@ fn is_local_preinput_clipboard_shortcut(
 fn show_session_error(context: &UiContext, asset_id: Uuid, message: &str) {
     set_session_phase(context, asset_id, WorkspacePhase::Failed);
     context.status.set_label(message);
+    let failed_ssh_is_active =
+        context.session.borrow().active().is_some_and(|runtime| {
+            runtime.asset_id == asset_id && runtime.transport == Transport::Ssh
+        });
+    if failed_ssh_is_active {
+        context.workspace.empty_title.set_label("SSH 连接失败");
+        context.workspace.empty_description.set_label(message);
+        context
+            .workspace
+            .content_stack
+            .set_visible_child_name("empty");
+    }
 }
 
 fn begin_disconnect(context: UiContext) {
