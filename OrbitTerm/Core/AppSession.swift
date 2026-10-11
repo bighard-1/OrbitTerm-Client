@@ -443,7 +443,9 @@ final class AppSession: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                guard !MirroredCaptureQAMode.isEnabled else { return }
+                // Mirror QA only relaxes capture covers. Backgrounding must
+                // still close live sessions and require the master password,
+                // otherwise its MFA handoff results differ from production.
                 self.lockForMobileInterruptionIfNeeded(protectedDataLoss: false)
             }
         }
@@ -454,7 +456,6 @@ final class AppSession: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                guard !MirroredCaptureQAMode.isEnabled else { return }
                 self.lockForMobileInterruptionIfNeeded(protectedDataLoss: true)
             }
         }
