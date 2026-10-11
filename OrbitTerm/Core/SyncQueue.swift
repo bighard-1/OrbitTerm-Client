@@ -807,7 +807,7 @@ final class SyncQueue {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         return base
-            .appendingPathComponent("OrbitTerm", isDirectory: true)
+            .appendingPathComponent(MacQARuntimeIsolation.applicationDirectoryName, isDirectory: true)
             .appendingPathComponent("sync_queue.sqlite", isDirectory: false)
     }
 
@@ -815,7 +815,7 @@ final class SyncQueue {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         return base
-            .appendingPathComponent("OrbitTerm", isDirectory: true)
+            .appendingPathComponent(MacQARuntimeIsolation.applicationDirectoryName, isDirectory: true)
             .appendingPathComponent("sync_queue.json", isDirectory: false)
     }
 }

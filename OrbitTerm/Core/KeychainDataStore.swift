@@ -36,6 +36,9 @@ enum KeychainDataStore {
         }
 
         #if os(macOS)
+        // QA never imports or deletes the production app's legacy file-Keychain
+        // items, even when a test account uses the same service/account names.
+        if MacQARuntimeIsolation.isEnabled { return nil }
         // 仅为此前使用旧式 macOS 文件钥匙串写入的条目提供一次性兼容读取。
         // 成功读取后立即复制到 Data Protection Keychain；即使旧项清理被系统
         // 拒绝，后续读取也会优先命中新条目，不会再次触发旧项的访问控制提示。
@@ -60,6 +63,7 @@ enum KeychainDataStore {
         }
 
         #if os(macOS)
+        if MacQARuntimeIsolation.isEnabled { return }
         let legacyStatus = SecItemDelete(legacyQuery(service: service, account: account) as CFDictionary)
         guard legacyStatus == errSecSuccess || legacyStatus == errSecItemNotFound else {
             throw KeychainManager.KeychainError.unhandled(legacyStatus)

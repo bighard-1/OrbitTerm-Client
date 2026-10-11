@@ -35,7 +35,7 @@ struct ApplicationSupportKnownHostsPathProvider: KnownHostsPathProvider {
             throw KnownHostsPathProviderError.applicationSupportUnavailable
         }
         return applicationSupport
-            .appendingPathComponent("OrbitTerm", isDirectory: true)
+            .appendingPathComponent(MacQARuntimeIsolation.applicationDirectoryName, isDirectory: true)
             .appendingPathComponent("Security", isDirectory: true)
             .appendingPathComponent("known_hosts", isDirectory: false)
             .path
