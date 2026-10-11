@@ -1,6 +1,6 @@
 # 五端整改与真机回归台账
 
-更新：2026-10-10。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
+更新：2026-10-11。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
 
 ## 记账规则
 
@@ -8,6 +8,12 @@
 - 真机记录仅使用测试夹具代号，不写账号、凭据、令牌、主机地址、设备 UDID 或未脱敏请求/响应体。保留失败的原始分类和首次结果；重跑通过另记，不覆盖失败。
 - Apple、Android、Windows 契约源码现已分别固化为 `c62b60f`、`e13b0be`、`7a2ca23`；这是**源码候选**，不是已签名分发包或五端验收。服务端隔离分支尚未部署，不能用线上旧服务替代新契约联调。
 - 每次跨端操作都记录：五端安装包的提交和签名身份、服务端版本、操作方向、是否离线、操作前后活动/最近删除数量、本机凭据状态、持久队列与重复同步结果。永久删除及每个新实例的法律条款接受仍按实际操作时的确认规则执行。
+
+## 2026-10-11 Linux 跨实例隔离及 macOS 最终负向补验
+
+| 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
+| --- | --- | --- | --- | --- | --- |
+| `LINUX-SYNC-ISOLATION-13` | Linux 源码 `30c92bf`、Ubuntu 隔离 Debug 二进制 SHA-256 `4fda88c4f7ce2ad17fd116b005538d93272b4312751c7f2ead241d9e966d3ae5`（未安装）：新增完整五类 XDG＋私有 D-Bus QA 启动器；切账户重置同步节流、只在远端确认及本地游标保存后报告最近拉取成功；侧栏“账户”仅表作用域；服务端通用拒绝只留 HTTP 状态，不再把原始错误文字写入队列。macOS 补测沿用最终签名 QA 哈希 `e049a960…`，iOS 无新包。详见 [Linux 隔离证据](LINUX_SYNC_ISOLATION_ACCEPTANCE_20261011.md) 和 [SSH 专项](SSH_SECOND_FACTOR_ACCEPTANCE.md)。 | macOS 本机 Linux Rust 测试首次因缺 GTK/libsecret 构建依赖退出 101；Ubuntu 隔离源码首次 `/tmp` Cargo 父清单冲突、首次新 HTTP 用例 `Drop` 结构更新编译失败、首次桌面全套 **74/75**（0 游标未立即拉取）均保留。修复后 Linux 同步库 **33/33**、桌面 **75/75**，定向 Clippy `-D warnings` 通过；QA 启动器语法及五类 XDG 环境输出通过。既有 FreeRDP 系统头文件废弃警告仍在。 | 只读确认旧/新 QA 启动均漏设 `XDG_STATE_HOME`、默认状态被共用且游标已推进；因此历史“新实例 0 资产／健康”不能视为合格的跨实例试验。**本轮未运行修正后 Linux GUI 登录/回拉**，旧失败保留；没有触碰旧状态或原安装版。 | 本机 Mac 最终独立 QA 包重连专用 SSH 资产，实际弹出验证码后直接取消，资产/标签显示“连接已取消”，终端输入与发送禁用；未提交验证码、未修改资产。iPhone 13 mini 未重装、未改资产；镜像中曾尝试解锁一个同名应用，但未核实精确 Bundle ID，一次主密码提交被判不正确后停止，未进入资产或验证码页，不能作为功能复测或新的缺陷结论。先前 QA 正向/取消结果独立保留，正式版镜像隐私 `IOS-CAPTURE-03` 仍 P1 开放。 | **五端未完成**。Linux 需用全新、完整隔离状态的实例从 0 游标重拉并核对脱敏云端库存，才可判定 0 资产问题关闭；Android/Windows 到位后核对测试数据与游标同作用域、账户切换立即拉取、失败不显示健康、409/422 不落服务端原文、离线删除与两次同步不复活。iOS 正式版删除旧故障根因和镜像隐私、三端同一发布候选负向矩阵仍未完成。 |
 
 ## 2026-10-11 iPhone 负向与 Mac 真实 OTP 续记
 
