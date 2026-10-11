@@ -853,17 +853,36 @@ impl AuthTokenVault {
     }
 
     pub async fn lookup(&self) -> Result<Option<AuthTokenMaterial>, PlatformError> {
+        use libsecret::prelude::ServiceExtManual;
+
         let schema = auth_token_schema();
         let attributes = HashMap::from([
             ("application", "com.orbitterm.Client"),
             ("account", "active"),
         ]);
+        // A locked collection makes password_lookup_future return None even when
+        // a matching login is stored. Search by stable attributes so existing
+        // entries are found and unlocked, then keep the schema-bound password
+        // lookup as the source of truth.
+        let service = libsecret::Service::get_future(libsecret::ServiceFlags::OPEN_SESSION)
+            .await
+            .map_err(|error| PlatformError::Keyring(error.to_string()))?;
+        let matches = service
+            .search_future(None, attributes.clone(), libsecret::SearchFlags::UNLOCK)
+            .await
+            .map_err(|error| PlatformError::Keyring(error.to_string()))?;
+        if matches.is_empty() {
+            return Ok(None);
+        }
         let value = libsecret::password_lookup_future(Some(&schema), attributes)
             .await
             .map_err(|error| PlatformError::Keyring(error.to_string()))?;
-        value
-            .map(|encoded| serde_json::from_str(encoded.as_str()).map_err(PlatformError::from))
-            .transpose()
+        let encoded = value.ok_or_else(|| {
+            PlatformError::Keyring("saved login could not be read after keyring unlock".into())
+        })?;
+        serde_json::from_str(encoded.as_str())
+            .map(Some)
+            .map_err(PlatformError::from)
     }
 
     pub async fn clear(&self) -> Result<(), PlatformError> {

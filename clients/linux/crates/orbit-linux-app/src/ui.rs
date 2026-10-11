@@ -9568,9 +9568,9 @@ fn restore_saved_account_on_launch(context: UiContext) {
                 present_sync_window(context.clone());
             }
             Ok(None) => {}
-            Err(error) => context
+            Err(_) => context
                 .sync_status
-                .set_label(&format!("无法读取已保存账户：{error}")),
+                .set_label("无法读取已保存账户；请解锁系统密钥环后重试。"),
         }
         install_background_sync_scheduler(context);
     });
@@ -9618,6 +9618,17 @@ fn trigger_manual_sync(context: UiContext) {
 }
 
 fn trigger_background_sync(context: UiContext) {
+    // The startup restore owns the first keyring prompt. A locked or signed-out
+    // app must not request the same unlock every background timer tick.
+    let Some(account) = context.active_account_fingerprint.borrow().clone() else {
+        return;
+    };
+    if !current_unix_ms()
+        .ok()
+        .is_some_and(|now| context.sync_session.password_for(&account, now).is_some())
+    {
+        return;
+    }
     if !context.sync_scheduler.try_begin_background() {
         return;
     }
@@ -16376,7 +16387,7 @@ fn restore_saved_account_session(
                 debug_assert_eq!(saved_account_route(false, false), SavedAccountRoute::SignIn);
                 completion_context.page_stack.set_visible_child_name("auth");
             }
-            Err(error) => {
+            Err(_) => {
                 pending_auth.borrow_mut().take();
                 completion_context.active_account_fingerprint.replace(None);
                 (completion_context.set_asset_access_authorized)(false);
@@ -16385,7 +16396,7 @@ fn restore_saved_account_session(
                 completion_context.summary.set_label("无法读取已保存账户");
                 completion_context
                     .detail
-                    .set_label(&format!("系统密钥环读取失败：{error}"));
+                    .set_label("系统密钥环读取失败；请解锁密钥环后重试，或重新登录。");
                 completion_context.detail.add_css_class("error-message");
                 completion_context.page_stack.set_visible_child_name("auth");
             }
