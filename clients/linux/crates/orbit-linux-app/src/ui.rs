@@ -16085,13 +16085,20 @@ fn present_sync_window_with_close(context: UiContext, on_closed: Option<Rc<dyn F
         let auth_epoch = context.auth_tokens.snapshot();
         let completion_pending = saved_pending.clone();
         set_sync_busy(&context, true, "正在读取系统密钥环中的登录…");
+        context.auth_feedback.remove_css_class("error-message");
+        context
+            .auth_feedback
+            .set_label("正在读取已保存账户；如系统密钥环要求解锁，请在弹窗中完成。");
+        context.auth_feedback.set_visible(true);
         gtk::glib::spawn_future_local(async move {
             let lookup = context.token_vault.lookup().await;
             if !context.auth_tokens.is_current(auth_epoch) {
                 return;
             }
+            set_sync_busy(&context, false, "");
             match lookup {
                 Ok(Some(tokens)) => {
+                    clear_auth_error(&context);
                     let tokens = SyncTokens {
                         access_token: tokens.access_token.clone(),
                         refresh_token: tokens.refresh_token.clone(),
@@ -16104,12 +16111,14 @@ fn present_sync_window_with_close(context: UiContext, on_closed: Option<Rc<dyn F
                         return;
                     }
                     completion_pending.replace(Some(SyncAuthInput::Saved(tokens)));
-                    set_sync_busy(&context, false, "");
                     reset_unlock_feedback(&context);
                     context.page_stack.set_visible_child_name("unlock");
                 }
-                Ok(None) => show_sync_error(&context, "尚未保存云同步登录，请先使用账户密码登录。"),
-                Err(error) => show_sync_error(&context, &format!("无法读取登录令牌：{error}")),
+                Ok(None) => show_auth_error(&context, "尚未保存云同步登录，请先使用账户密码登录。"),
+                Err(_) => show_auth_error(
+                    &context,
+                    "无法读取已保存账户；请解锁系统密钥环后重试，或使用账户密码登录。",
+                ),
             }
         });
     });
