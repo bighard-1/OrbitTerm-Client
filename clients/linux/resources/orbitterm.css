@@ -590,7 +590,7 @@ paned > separator:focus {
 .terminal {
   background-color: @orbit_terminal;
   color: @orbit_terminal_ink;
-  font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
+  font-family: monospace;
   font-size: 12px;
 }
 

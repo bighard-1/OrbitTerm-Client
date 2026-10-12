@@ -15219,10 +15219,7 @@ fn settings_section(title: &str) -> gtk::Box {
 }
 
 fn apply_preferences(terminal: &vte::Terminal, preferences: &AppPreferences) {
-    let font = gtk::pango::FontDescription::from_string(&format!(
-        "JetBrains Mono {}",
-        preferences.terminal_font_size
-    ));
+    let font = terminal_font_description(preferences.terminal_font_size);
     terminal.set_font(Some(&font));
     terminal.set_scrollback_lines(preferences.terminal_scrollback_lines);
     terminal.set_cursor_blink_mode(if preferences.cursor_blink {
@@ -15260,6 +15257,13 @@ fn apply_preferences(terminal: &vte::Terminal, preferences: &AppPreferences) {
         terminal.set_color_foreground(&foreground);
         terminal.set_color_cursor(Some(&cursor));
     }
+}
+
+fn terminal_font_description(size: i32) -> gtk::pango::FontDescription {
+    // An unavailable named family can resolve to a proportional font. VTE then
+    // allocates fixed-width cells around narrow glyphs, visibly spacing out
+    // shell output. Let the system resolve its installed monospace family.
+    gtk::pango::FontDescription::from_string(&format!("monospace {size}"))
 }
 
 fn install_application_palette(palette: &str, dark: bool) {
@@ -20350,6 +20354,13 @@ fn fatal_state(message: &str) -> adw::StatusPage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terminal_font_uses_system_monospace_family_at_selected_size() {
+        let font = terminal_font_description(13);
+        assert_eq!(font.family().as_deref(), Some("monospace"));
+        assert_eq!(font.size(), 13 * gtk::pango::SCALE);
+    }
 
     #[test]
     fn ssh_auth_feedback_does_not_claim_a_submitted_code_was_definitely_wrong() {
