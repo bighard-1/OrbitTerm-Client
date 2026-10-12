@@ -409,6 +409,39 @@ final class OrbitCoreCheckedFFIClientTests: XCTestCase {
         }
     }
 
+    func testSlowMonitorSnapshotDoesNotBlockAnotherCheckedConnection() async throws {
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let counter = FreeCounter()
+        let requestID = self.requestID
+        let baseSessionID = try BaseSessionID("72057594037927936")
+        let client = makeClient(
+            json: CheckedFFIFixtures.connected,
+            counter: counter,
+            monitorSnapshot: { _ in
+                started.signal()
+                _ = release.wait(timeout: .now() + 4)
+                return allocatedCString(CheckedFFIFixtures.monitorSnapshot)
+            }
+        )
+
+        let monitorTask = Task {
+            try await client.monitorSnapshotChecked(requestID: requestID, baseSessionID: baseSessionID)
+        }
+        XCTAssertEqual(started.wait(timeout: .now() + 2), .success)
+        let connectionCompleted = expectation(description: "SSH connect is not queued behind Monitor")
+        let connectInput = input()
+        let connectTask = Task {
+            defer { connectionCompleted.fulfill() }
+            return try await client.connectChecked(requestID: requestID, input: connectInput)
+        }
+        await fulfillment(of: [connectionCompleted], timeout: 2)
+        release.signal()
+        _ = try await connectTask.value
+        _ = try await monitorTask.value
+        XCTAssertEqual(counter.count, 2)
+    }
+
     func testMonitorSnapshotRejectsRequestErrorAndUnexpectedKind() async {
         let stale = CheckedFFIFixtures.monitorSnapshot.replacingOccurrences(
             of: CheckedFFIFixtures.requestID,
@@ -480,6 +513,39 @@ final class OrbitCoreCheckedFFIClientTests: XCTestCase {
         )
         XCTAssertEqual(action.value.action, "restart")
         XCTAssertEqual(action.value.status, .completed)
+    }
+
+    func testSlowDockerListDoesNotBlockAnotherCheckedConnection() async throws {
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let counter = FreeCounter()
+        let requestID = self.requestID
+        let baseSessionID = try BaseSessionID("72057594037927936")
+        let client = makeClient(
+            json: CheckedFFIFixtures.connected,
+            counter: counter,
+            dockerList: { _ in
+                started.signal()
+                _ = release.wait(timeout: .now() + 4)
+                return allocatedCString(CheckedFFIFixtures.dockerContainers)
+            }
+        )
+
+        let dockerTask = Task {
+            try await client.dockerListChecked(requestID: requestID, baseSessionID: baseSessionID)
+        }
+        XCTAssertEqual(started.wait(timeout: .now() + 2), .success)
+        let connectionCompleted = expectation(description: "SSH connect is not queued behind Docker")
+        let connectInput = input()
+        let connectTask = Task {
+            defer { connectionCompleted.fulfill() }
+            return try await client.connectChecked(requestID: requestID, input: connectInput)
+        }
+        await fulfillment(of: [connectionCompleted], timeout: 2)
+        release.signal()
+        _ = try await connectTask.value
+        _ = try await dockerTask.value
+        XCTAssertEqual(counter.count, 2)
     }
 
     func testDockerAdaptersRejectMismatchUnexpectedKindAndUnsafeInput() async throws {
@@ -754,15 +820,17 @@ final class OrbitCoreCheckedFFIClientTests: XCTestCase {
         json: String,
         counter: FreeCounter,
         credentialProvider: (any CheckedCredentialProvider)? = nil,
-        openSFTP: OrbitCoreCheckedFFIFunctions.OpenSFTP? = nil
+        openSFTP: OrbitCoreCheckedFFIFunctions.OpenSFTP? = nil,
+        monitorSnapshot: OrbitCoreCheckedFFIFunctions.MonitorSnapshot? = nil,
+        dockerList: OrbitCoreCheckedFFIFunctions.DockerSession? = nil
     ) -> OrbitCoreCheckedFFIClient {
         let functions = OrbitCoreCheckedFFIFunctions(
             connect: { _ in allocatedCString(json) },
             persist: { _ in allocatedCString(json) },
             openTerminal: { _ in allocatedCString(json) },
             openSFTP: openSFTP ?? { _ in allocatedCString(json) },
-            monitorSnapshot: { _ in allocatedCString(json) },
-            dockerList: { _ in allocatedCString(json) },
+            monitorSnapshot: monitorSnapshot ?? { _ in allocatedCString(json) },
+            dockerList: dockerList ?? { _ in allocatedCString(json) },
             dockerStats: { _ in allocatedCString(json) },
             dockerLogs: { _ in allocatedCString(json) },
             dockerAction: { _ in allocatedCString(json) },

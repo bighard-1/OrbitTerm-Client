@@ -265,14 +265,7 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             baseSessionID: baseSessionID.ffiValue,
             requestID: requestID.rawValue
         )
-        // Native SFTP negotiation can wait on a remote subsystem. Keep that
-        // synchronous FFI call off this actor so a new SSH connection is not
-        // queued behind an unrelated, slow companion-tool startup.
-        let openSFTP = functions.openSFTP
-        let reader = resultReader
-        let json = try await Task.detached(priority: .userInitiated) {
-            try reader.take(openSFTP(call))
-        }.value
+        let json = try await callSessionOperation(call, using: functions.openSFTP)
         let payload: SFTPChannelOpenedPayload = try decodePayload(
             json,
             expectedRequestID: requestID,
@@ -292,7 +285,7 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             baseSessionID: baseSessionID.ffiValue,
             requestID: requestID.rawValue
         )
-        let json = try resultReader.take(functions.monitorSnapshot(call))
+        let json = try await callSessionOperation(call, using: functions.monitorSnapshot)
         let payload: MonitorSnapshotPayload = try decodePayload(
             json,
             expectedRequestID: requestID,
@@ -312,7 +305,7 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             baseSessionID: baseSessionID.ffiValue,
             requestID: requestID.rawValue
         )
-        let json = try resultReader.take(functions.dockerList(call))
+        let json = try await callSessionOperation(call, using: functions.dockerList)
         let payload: DockerContainersPayload = try decodePayload(
             json,
             expectedRequestID: requestID,
@@ -330,7 +323,7 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             baseSessionID: baseSessionID.ffiValue,
             requestID: requestID.rawValue
         )
-        let json = try resultReader.take(functions.dockerStats(call))
+        let json = try await callSessionOperation(call, using: functions.dockerStats)
         let payload: DockerStatsPayload = try decodePayload(
             json,
             expectedRequestID: requestID,
@@ -355,7 +348,7 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             tail: tail,
             requestID: requestID.rawValue
         )
-        let json = try resultReader.take(functions.dockerLogs(call))
+        let json = try await callSessionOperation(call, using: functions.dockerLogs)
         let payload: DockerLogsPayload = try decodePayload(
             json,
             expectedRequestID: requestID,
@@ -383,7 +376,7 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             action: action,
             requestID: requestID.rawValue
         )
-        let json = try resultReader.take(functions.dockerAction(call))
+        let json = try await callSessionOperation(call, using: functions.dockerAction)
         let payload: DockerActionResultPayload = try decodePayload(
             json,
             expectedRequestID: requestID,
@@ -413,7 +406,7 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             maxStderrBytes: options.maxStderrBytes,
             requestID: requestID.rawValue
         )
-        let json = try resultReader.take(functions.execChecked(call))
+        let json = try await callSessionOperation(call, using: functions.execChecked)
         let payload: ExecResultPayload = try decodePayload(
             json,
             expectedRequestID: requestID,
@@ -423,6 +416,20 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             throw CheckedFFIClientError.protocolViolation
         }
         return CheckedClientResponse(requestID: requestID, value: payload)
+    }
+
+    /// A checked session's companion operations may wait on a remote service
+    /// or command. Native FFI is synchronous, so running it on this actor would
+    /// also queue unrelated SSH connects until their outer timeout expires.
+    /// Decode and identity correlation still happen after the call completes.
+    private func callSessionOperation<Call: Sendable>(
+        _ call: Call,
+        using function: @escaping @Sendable (Call) -> UnsafeMutablePointer<CChar>?
+    ) async throws -> String {
+        let reader = resultReader
+        return try await Task.detached(priority: .userInitiated) {
+            try reader.take(function(call))
+        }.value
     }
 
     private static func validateDockerBase(
