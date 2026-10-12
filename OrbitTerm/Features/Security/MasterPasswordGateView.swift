@@ -47,6 +47,13 @@ struct MasterPasswordGateView: View {
                                 .foregroundStyle(palette.textSecondary.color)
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
+#if os(iOS)
+                            Text("若已启用 iPhone 镜像，解锁后的资产与终端可能被授权的 Mac 看到；不需要时请先断开镜像。")
+                                .font(.footnote)
+                                .foregroundStyle(palette.textSecondary.color)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+#endif
+
                             if !message.isEmpty {
                                 Text(message)
                                     .font(.callout)

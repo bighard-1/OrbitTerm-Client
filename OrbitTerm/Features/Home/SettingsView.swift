@@ -325,7 +325,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 #if os(iOS)
-                Text("屏幕共享或 iPhone 镜像可能显示前台资产与终端。应用会遮挡后台预览，并在系统报告捕获时隐藏内容；若系统未报告镜像，前台内容仍可能可见。处理敏感资产前，请在设备设置中关闭不需要的镜像连接。")
+                Text("已授权的 iPhone 镜像可在 Mac 上显示应用前台画面；输入主密码后，资产与终端也可能对该 Mac 可见。应用会遮挡后台预览，并在系统报告捕获时隐藏内容，但无法保证识别并遮挡所有镜像。处理敏感资产前，请检查并关闭不需要的镜像连接。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
