@@ -52,3 +52,11 @@ Ubuntu 同一隔离源码执行桌面端 **75/75** 测试、`cargo clippy -p orb
 | 真实设备/五端边界 | Linux 仍是远程虚拟开发机上的隔离 GUI，不是独立物理 Linux 设备；没有新增 Apple/Android/Windows 令牌恢复真机结论，五端完整验收未完成。隔离账户数据与加密 Keyring 保留供复核；含界面的临时截图不入库。 |
 
 Android/Windows 到位后对照同一顺序：保存成功→进程重启→系统安全存储锁定→恢复且必须再次通过主密码→拒绝解锁安全失败、不重复弹窗、不把有记录误报为无账户；还要覆盖损坏/缺失条目与切换账户。iOS/macOS 使用各自 Keychain，不据 Linux Secret Service 结果推断它们通过。
+
+## 2026-10-12 同源 QA .15 自动化续验
+
+此轮目标是与 Apple 独立 QA `.15` 对齐到已推送客户端源码 `8f06de1`，而非复用旧 Linux Debug 候选。远端 Ubuntu 虚拟开发机可通过既有受信 SSH 密钥登录；其原 `/home` 项目检出仍在旧 `main` 且有大量未提交/未跟踪文件，**没有对其拉取、重置、修改或运行构建**。另外创建用户私有的全新 QA 目录，从本地该提交导出跟踪文件归档后传入；Linux `Cargo.lock` 在两端的 SHA-256 一致。远端 GitHub 的只读 `ls-remote` 查询卡住，精确结束对应查询进程后才改用归档；此次网络阻滞不定性为客户端故障。
+
+在新 QA 目录的 `clients/linux` 中执行 `cargo test --offline --locked -p orbitterm-linux -p orbit-linux-sync -q`：同步库 **33/33**、桌面端 **76/76** 通过；另有 **4 项需要隔离真实账户的集成测试按既有标记忽略**，不得算作通过。`cargo build --offline --locked -p orbitterm-linux -q` 通过，Debug 二进制 SHA-256 `94a19d6fbb677246fbfef30f76f6b89746930d818fd24493d8cc2ff03a804ec9`；尚无可发布包签名或安装证据。没有更改开发机网络、原 Flatpak、测试账户资产、服务端或专用真实 SSH 主机。
+
+本次尝试调用现有 RustDesk 计算机交互通道返回 `timeoutReached`；没有接着用未受检的键鼠脚本对远端 GUI 盲点操作，也没有创建新的 Linux 法律条款接受记录、登录或提交验证码。故 **Linux 同候选 GUI 的正码、错码、取消、密钥环和墓碑交叉均未验收**，前轮不同候选的 GUI 成功不得自动上移。新 QA 源码及构建目录保留，后续先恢复可靠可视/可控通道，再按 `run_isolated_qa.sh` 的完整 XDG/私有 D-Bus 边界建立单独 GUI 实例；需要法律条款时按新实例单独确认。Android/Windows 到位后也须分开记录源码测试与本端可发布包/实机，不得将 33+76 的 Linux 自动化结果写成五端通过。
