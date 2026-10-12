@@ -55,14 +55,15 @@ enum AccountScopeSnapshotPolicy {
 
 /// The independent macOS QA bundle must never read or mutate the production
 /// app's shared Application Support files or legacy file-Keychain items.
-/// Isolation needs both an explicit Debug build flag and the exact QA bundle.
+/// Isolation needs both an explicit QA build flag and the exact QA bundle,
+/// including when validating a Release-configuration QA candidate.
 enum MacQARuntimeIsolation {
     static func isAllowed(bundleIdentifier: String?, isolationRequested: Bool) -> Bool {
         isolationRequested && bundleIdentifier == "com.orbitterm.matrix.macos"
     }
 
     static var isEnabled: Bool {
-        #if os(macOS) && DEBUG && ORBITTERM_MACOS_ISOLATED_QA
+        #if os(macOS) && ORBITTERM_MACOS_ISOLATED_QA
         return isAllowed(bundleIdentifier: Bundle.main.bundleIdentifier, isolationRequested: true)
         #else
         return false

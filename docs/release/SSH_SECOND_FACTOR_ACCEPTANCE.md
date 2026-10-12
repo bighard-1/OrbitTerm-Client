@@ -2,6 +2,14 @@
 
 日期：2026-10-10。关联总台账 `SEC-02` / `SEC-03` / `SSH-MFA-DEVICE-01`。最初的源码修复和回环测试只改客户端与共享核心，没有更新线上服务或操作真实账户资产；后续真实 Debian 测试资产的尝试另记于本文末尾，不覆盖初始结论。
 
+## 2026-10-11 Apple Release 配置独立 QA 构建与安全隔离
+
+基于已推送的 `.10` 基线 `248b0e2`，本次修改 `MacQARuntimeIsolation`：Mac QA 隔离由显式编译标志与精确 QA Bundle ID 共同决定，不再限定 Debug。原实现会让 Release 配置的独立 QA 包回落到正式版 `OrbitTerm` Application Support 目录，并可能触发旧钥匙串迁移；故在修复前**未启动**该包。普通 Bundle ID 或没有 QA 编译标志时隔离分支仍关闭。iOS 的镜像捕获遮挡例外继续只存在于 Debug QA 包，Release 配置不启用。
+
+Apple checked-FFI 全套 XCTest **337/337**，0 失败/跳过；Mac、generic iOS 的独立 QA Release 配置构建 `20261011.11` 与 `codesign --verify --deep --strict` 均通过。Mac/iOS 可执行文件 SHA-256 分别为 `fe16efe58cba0b0f559f04eb117a624e0cc6c1290fef552452a8d0d9dc203e90` 和 `4a86a3344b57a1d1707a580a4e501031960b6fc2751828223173809ec3f4feef`。二者为 **Development 签名的 QA 身份 Release 配置构建**，不是正式身份、App Store 签名或可分发 Release 验收包。Mac 首次构建因旧本地 Rust Release 静态库缺少两项 checked-FFI/Host Key 符号而链接退出 65；按当前源码重新执行 `cargo build --locked --release --target aarch64-apple-darwin` 后相同 Xcode 配置构建成功。首次失败保留，旧 FreeRDP 废弃 API 警告保留。
+
+Mac 实体机上仅启动精确的新 QA 可执行文件：只读进程文件表显示打开的是独立 `OrbitTerm-Mac-QA` 同步队列与片段库，不是正式版目录；测试主密码解锁后，GUI 显示既有隔离分组和原测试 RDP，未建立会话、未点同步。QA 包随后退出，正式版进程保持运行。**本次没有安装 iOS `.11`、没有在任一 Release 配置 QA 包提交 TOTP、没有做真实远端或五端同版验收。**下一步应在固定候选上补 Mac/iOS 真实 TOTP 正反向、iOS 捕获遮挡/切后台恢复、Mac 辅助任务并发与数据隔离回归；Linux、Android、Windows 需各自签名/哈希/设备证据。任何旧 Debug 包成功都不代替这些结果。
+
 ## 问题与目标
 
 已报告症状：SSH 服务器在密码或私钥通过后、进入命令行前要求一次性验证代码；旧客户端双击资产后既不显示验证码入口，也未形成已连接会话。SSH 的 `keyboard-interactive` 属于客户端与 SSH 服务器之间的认证步骤，不依赖 OrbitTerm 业务服务端新接口。

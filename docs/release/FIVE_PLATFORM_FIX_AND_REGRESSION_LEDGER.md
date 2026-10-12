@@ -9,6 +9,12 @@
 - Apple、Android、Windows 契约源码现已分别固化为 `c62b60f`、`e13b0be`、`7a2ca23`；这是**源码候选**，不是已签名分发包或五端验收。服务端隔离分支尚未部署，不能用线上旧服务替代新契约联调。
 - 每次跨端操作都记录：五端安装包的提交和签名身份、服务端版本、操作方向、是否离线、操作前后活动/最近删除数量、本机凭据状态、持久队列与重复同步结果。永久删除及每个新实例的法律条款接受仍按实际操作时的确认规则执行。
 
+## 2026-10-11 Apple Release 配置隔离 QA 构建与 Mac 运行边界
+
+| 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
+| --- | --- | --- | --- | --- | --- |
+| `APPLE-MFA-RELEASE-QA-34` | 基于 `248b0e2` 增加 Mac QA 运行时隔离修复：仅显式 `ORBITTERM_MACOS_ISOLATED_QA` 构建标志且 Bundle ID 精确为 `com.orbitterm.matrix.macos` 时启用私有数据目录和旧钥匙串迁移禁用；不再要求 `DEBUG`，使 Release 配置 QA 包不会误用正式版目录。Mac/iOS 独立 QA **Release 配置、Development 签名** `20261011.11` 可执行文件 SHA-256 分别为 `fe16efe58cba0b0f559f04eb117a624e0cc6c1290fef552452a8d0d9dc203e90`、`4a86a3344b57a1d1707a580a4e501031960b6fc2751828223173809ec3f4feef`；**不是 App Store/正式分发 Release 包**。iOS Release 配置不编入 Debug 专属镜像遮挡例外。详见 [SSH 专项](SSH_SECOND_FACTOR_ACCEPTANCE.md)。 | Apple checked-FFI 完整 **337/337**、0 失败/跳过；两包构建与严格签名校验通过。Mac 首次 Release 链接因本地旧 Rust Release 静态库缺 `_orbit_ssh_connect_checked_v3`、`_orbit_known_hosts_remove_trusted_v1` 而退出 65；按当前源码 `cargo build --locked --release --target aarch64-apple-darwin` 后重建通过。失败保留，不能写成首次即通过；现有 FreeRDP 废弃 API 警告未消除。 | **Mac 实体机 × Release 配置独立 QA**：启动进程路径精确指向新包；`lsof` 只见其打开 `OrbitTerm-Mac-QA` 同步队列和片段库，不见正式版数据目录；测试主密码解锁后显示既有隔离测试分组、原测试 RDP 和“暂无会话”，随后退出 QA。正式版进程保持运行。**只做隔离/启动冒烟，没有在本包发起 SSH/TOTP 或同步**。 | Mac 为真实硬件，但此行只证明 QA 包启动、数据隔离和本地资产显示；iPhone 13 mini **尚未安装或运行** `.11` Release 配置 QA 包。旧 `.10` iPhone 真实 TOTP 正反向结果不能提升为 `.11` 结论。正式版、线上服务、真实主机配置和账户资产未改。 | **五端同版未完成，发布不放行**。先在固定签名候选补 Mac/iOS Release 配置的真实 TOTP、隐私遮挡、后台恢复与负向；再补 Linux 可发布构建和 Android/Windows 到位后的同版设备矩阵。Android/Windows 对照：QA/正式身份与存储必须隔离；新包首次运行不得迁移或修改正式版数据；Release 原生库必须与 checked-FFI ABI 同源，且错码、重连新挑战、慢辅助任务不阻塞、主机密钥/密钥环失败关闭仍需验收。 |
+
 ## 2026-10-11 Apple `.10` 同包真机及 Mac 慢调用 GUI 补验
 
 | 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
