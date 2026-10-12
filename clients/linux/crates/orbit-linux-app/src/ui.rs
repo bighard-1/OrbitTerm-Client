@@ -8085,7 +8085,7 @@ fn prompt_host_key(
     let dialog = adw::AlertDialog::builder()
         .heading("验证服务器身份")
         .body(format!(
-            "算法：{algorithm}\n指纹：{fingerprint}\n\n请通过可信的带外渠道核对指纹。确认后将写入 OrbitTerm 专用 known_hosts。"
+            "算法：{algorithm}\n指纹：{fingerprint}\n\n请通过可信的带外渠道核对指纹。确认后将写入 OrbitTerm 专用 known_hosts，并从头建立连接；此前输入的一次性验证码不会复用，如再次提示请根据‘跳板机’或‘目标服务器’输入相应的新验证码。"
         ))
         .close_response("cancel")
         .build();

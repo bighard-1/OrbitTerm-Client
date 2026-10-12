@@ -2,6 +2,8 @@
 //! Run with `cargo run --example qa_otp_loopback -- --mode=password` (default),
 //! `--mode=key`, `--mode=jump`, or `--mode=target`. The key mode reads only
 //! an ephemeral authorized *public* key path from ORBITTERM_QA_PUBLIC_KEY_PATH.
+//! For repeatable isolated GUI tests, ORBITTERM_QA_HOST_KEY_PATH may point to
+//! an existing, test-only OpenSSH private host key outside the repository.
 //! No mode executes shell commands or listens on a non-loopback address. The
 //! jump mode forwards only to this fixture's fixed loopback target port.
 
@@ -216,9 +218,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let listener = TcpListener::bind(mode.address()).await?;
     let mut config = server::Config::default();
-    config
-        .keys
-        .push(PrivateKey::random(&mut rand10::rng(), Algorithm::Ed25519)?);
+    let host_key = match std::env::var("ORBITTERM_QA_HOST_KEY_PATH") {
+        Ok(path) => PrivateKey::from_openssh(&std::fs::read_to_string(path)?)?,
+        Err(std::env::VarError::NotPresent) => {
+            PrivateKey::random(&mut rand10::rng(), Algorithm::Ed25519)?
+        }
+        Err(error) => return Err(error.into()),
+    };
+    config.keys.push(host_key);
     config.methods = if mode == Mode::Key {
         MethodSet::from(&[MethodKind::PublicKey, MethodKind::KeyboardInteractive][..])
     } else {
