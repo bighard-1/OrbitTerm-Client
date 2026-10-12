@@ -1,6 +1,6 @@
 # 五端整改与真机回归台账
 
-更新：2026-10-11。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
+更新：2026-10-12。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
 
 ## 记账规则
 
@@ -8,6 +8,14 @@
 - 真机记录仅使用测试夹具代号，不写账号、凭据、令牌、主机地址、设备 UDID 或未脱敏请求/响应体。保留失败的原始分类和首次结果；重跑通过另记，不覆盖失败。
 - Apple、Android、Windows 契约源码现已分别固化为 `c62b60f`、`e13b0be`、`7a2ca23`；这是**源码候选**，不是已签名分发包或五端验收。服务端隔离分支尚未部署，不能用线上旧服务替代新契约联调。
 - 每次跨端操作都记录：五端安装包的提交和签名身份、服务端版本、操作方向、是否离线、操作前后活动/最近删除数量、本机凭据状态、持久队列与重复同步结果。永久删除及每个新实例的法律条款接受仍按实际操作时的确认规则执行。
+
+## 2026-10-11–12 iOS Release 配置 QA 真机与应用身份隔离
+
+| 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
+| --- | --- | --- | --- | --- | --- |
+| `APPLE-MFA-QA-IDENTITY-36` | 源码 `961015c`：应用显示名使用 `ORBITTERM_DISPLAY_NAME`；普通构建默认仍为 `OrbitTerm`，专用 `scripts/build_ios_release_qa.sh` 固定精确 QA Bundle ID、`OrbitTerm QA` 名称和 Release 配置并在构建后核对身份/严格签名。iOS QA `20261011.12` 为 **Development 签名的 Release 配置隔离包**，可执行文件 SHA-256 `aa2c7a122e9b947b16fb334316c4e538e9a89d8e4665cd8280a161268b76d4eb`；不是 App Store/正式分发包。正式版 Bundle ID 未改。详见 [SSH 专项](SSH_SECOND_FACTOR_ACCEPTANCE.md)。 | QA Rust Release iOS 原生库与 Xcode Release 构建通过、严格签名和 Info.plist 身份检查通过；另外独立构建未签名的普通 Release 包，确认正式 Bundle ID/显示名仍为原值。`plutil -lint`、`bash -n`、`git diff --check` 通过。本轮未重跑完整 XCTest；此前同一功能基线的 **337/337** 属旧一次运行，不能算本轮新测试。 | 本轮无新增 iOS 模拟器、Mac 或 Linux GUI 验收。iPhone 镜像是**真实 iPhone 的显示/操作通道**，不单列为模拟器证据。`.11` 初测时正式版与 QA 版同名同图标、切换器卡片选错导致一次“解锁后回资产列表”观察，**包身份不确定，不判定为 `.11` 恢复失败**；保留该测试阻滞。 | iPhone 13 mini 原位安装 `.12` 独立 QA，设备应用列表及主屏幕搜索同时显示正式 `OrbitTerm` 与 `OrbitTerm QA`，用户解锁后 QA 测试分组/仅本机资产在。真实专用 TOTP SSH：空白验证码页切后台先经主密码门禁，精确 QA Bundle ID 返回后看到**新空白挑战**；用户提交当期正确码后自动进入在线终端，镜像只读见“已连接”及 shell 提示符；关闭后无活动会话。重连后用户提交故意无效码，显示保守“认证失败／终端未连接”；再重连得到空白新挑战，取消并关闭后无活动会话。镜像输入码未成功，因此正反向提交均明确为**用户辅助**，不记作代理独立输入。正式版未覆盖；原 RDP、业务服务端和主机配置未修改。 | **五端同版未完成，发布不放行**。`.12` 的应用切换器预览为黑屏，但前台 iPhone 镜像仍能显示资产/终端，主动镜像隐私 P1 未关闭；不能用快照黑屏代替前台捕获防护。`.12` 未重测超过 5 分钟过期、进程被杀、切账户、密钥＋码/双跳、Host Key 变化和敏感数据全域审计；Mac `.11` 真实 TOTP、Linux 同候选以及 Android/Windows 实机也仍待补。Android 对照正式/QA 名称和数据身份、后台锁→主密码→新空白挑战、错码失败关闭/正确码自动进终端；Windows 对照正式/QA 身份、任务切换遮挡、错码/取消终端禁用和成功自动聚焦，**不得把 iOS 的移动端锁屏策略直接套用到 Windows**。 |
+
+`.11` 在更名之前已于 iPhone 安装、精确启动并到达空白挑战；一次镜像密码提交被判错与一次应用切换器选错均保留为测试通道/身份不确定的失败观察，不以 `.12` 成功抹除。`.12` 上的后台恢复以**精确 QA Bundle ID** 核验，不依赖同名切换器卡片。测试账户的真实码、主密码、验证器种子、设备标识和完整 SSH 地址均未写入台账。
 
 ## 2026-10-11 Apple Release 配置隔离 QA 构建与 Mac 运行边界
 
