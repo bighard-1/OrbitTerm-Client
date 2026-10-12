@@ -763,15 +763,31 @@ impl CredentialVault {
         &self,
         credential_id: Uuid,
     ) -> Result<Option<CredentialMaterial>, PlatformError> {
+        use libsecret::prelude::ServiceExtManual;
+
         let schema = credential_schema();
         let id = credential_id.simple().to_string();
         let attributes = credential_attributes(&id);
+        // password_lookup_future reports a locked matching collection as None.
+        // Search by the stable credential ID and request an unlock first, so a
+        // temporarily locked keyring cannot be mistaken for a deleted secret.
+        let service = libsecret::Service::get_future(libsecret::ServiceFlags::OPEN_SESSION)
+            .await
+            .map_err(|error| PlatformError::Keyring(error.to_string()))?;
+        let matches = service
+            .search_future(None, attributes.clone(), libsecret::SearchFlags::UNLOCK)
+            .await
+            .map_err(|error| PlatformError::Keyring(error.to_string()))?;
+        if matches.is_empty() {
+            return Ok(None);
+        }
         let value = libsecret::password_lookup_future(Some(&schema), attributes)
             .await
             .map_err(|error| PlatformError::Keyring(error.to_string()))?;
-        value
-            .map(|encoded| serde_json::from_str(encoded.as_str()).map_err(PlatformError::from))
-            .transpose()
+        let encoded = value.ok_or(PlatformError::SavedCredentialUnreadable)?;
+        serde_json::from_str(encoded.as_str())
+            .map(Some)
+            .map_err(PlatformError::from)
     }
 
     pub async fn clear(&self, credential_id: Uuid) -> Result<(), PlatformError> {
@@ -1022,6 +1038,8 @@ pub enum PlatformError {
     SystemClockInvalid,
     #[error("系统密钥环操作失败：{0}")]
     Keyring(String),
+    #[error("已找到保存的资产凭据，但未能读取；请检查或解锁系统密钥环后重试")]
+    SavedCredentialUnreadable,
     #[error(transparent)]
     Io(#[from] io::Error),
     #[error(transparent)]

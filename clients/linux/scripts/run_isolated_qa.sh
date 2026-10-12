@@ -51,4 +51,13 @@ export XDG_STATE_HOME="$qa_root/state"
 export XDG_CACHE_HOME="$qa_root/cache"
 export XDG_RUNTIME_DIR="$qa_root/runtime"
 
+# Keep Secret Service on this instance's private bus. Relying on D-Bus
+# auto-activation can time out under a headless QA display and hide the
+# separate locked-collection behavior. Desktops without GNOME Keyring
+# retain their previous provider/auto-activation behavior.
+if command -v gnome-keyring-daemon >/dev/null 2>&1; then
+  exec dbus-run-session -- bash -c \
+    'gnome-keyring-daemon --foreground --components=secrets & exec "$@"' \
+    qa-keyring "$binary" "$@"
+fi
 exec dbus-run-session -- "$binary" "$@"
