@@ -324,6 +324,12 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+#if os(iOS)
+                Text("屏幕共享或 iPhone 镜像可能显示前台资产与终端。应用会遮挡后台预览，并在系统报告捕获时隐藏内容；若系统未报告镜像，前台内容仍可能可见。处理敏感资产前，请在设备设置中关闭不需要的镜像连接。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+#endif
                 if let biometricFeedback {
                     Text(biometricFeedback.message)
                         .font(.caption)

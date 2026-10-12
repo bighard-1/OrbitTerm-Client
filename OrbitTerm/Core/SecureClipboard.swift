@@ -52,6 +52,19 @@ enum SensitiveScreenVisibilityPolicy {
     }
 }
 
+/// Merge the supported iOS capture observations without mistaking an
+/// unreported iPhone Mirroring session for a protected one.
+enum SensitiveCaptureSignalPolicy {
+    static func isCaptured(
+        swiftUIScene: Bool,
+        uiKitScene: Bool,
+        screen: Bool,
+        qaBypass: Bool
+    ) -> Bool {
+        (swiftUIScene || uiKitScene || screen) && !qaBypass
+    }
+}
+
 @MainActor
 final class ClipboardSecurityNotice: ObservableObject {
     static let shared = ClipboardSecurityNotice()

@@ -27,6 +27,50 @@ enum MirroredCaptureQAMode {
 }
 
 #if os(iOS)
+/// Read the UIKit trait on a view in the actual window scene. This is a
+/// second supported observation path alongside SwiftUI's scene environment;
+/// a global screen object can miss scene-scoped capture transitions.
+@MainActor
+private final class SceneCaptureTraitView: UIView {
+    var onCaptureChange: ((UISceneCaptureState) -> Void)?
+    private var traitRegistration: (any UITraitChangeRegistration)?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        traitRegistration = registerForTraitChanges([UITraitSceneCaptureState.self]) {
+            (view: SceneCaptureTraitView, _) in
+            view.reportCaptureState()
+        }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("SceneCaptureTraitView is created programmatically")
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        reportCaptureState()
+    }
+
+    private func reportCaptureState() {
+        onCaptureChange?(traitCollection.sceneCaptureState)
+    }
+}
+
+private struct SceneCaptureTraitReader: UIViewRepresentable {
+    let onChange: (UISceneCaptureState) -> Void
+
+    func makeUIView(context: Context) -> SceneCaptureTraitView {
+        let view = SceneCaptureTraitView(frame: .zero)
+        view.onCaptureChange = onChange
+        return view
+    }
+
+    func updateUIView(_ view: SceneCaptureTraitView, context: Context) {
+        view.onCaptureChange = onChange
+    }
+}
+
 /// UIKit takes the app-switcher snapshot during deactivation, before SwiftUI
 /// is guaranteed to render a scenePhase-driven cover. Install this opaque
 /// view synchronously at willResignActive, then remove it on activation.
@@ -174,6 +218,7 @@ private struct SensitiveScreenProtectionModifier: ViewModifier {
     @Environment(\.scenePhase) private var scenePhase
 #if os(iOS)
     @Environment(\.isSceneCaptured) private var isSceneCaptured
+    @State private var nativeSceneCaptureState: UISceneCaptureState = .unspecified
 #endif
     @StateObject private var protection = SensitiveScreenProtection.shared
     @StateObject private var clipboardNotice = ClipboardSecurityNotice.shared
@@ -182,7 +227,12 @@ private struct SensitiveScreenProtectionModifier: ViewModifier {
 #if os(iOS)
         // Combine the scene-level and legacy screen-level signals. Neither is
         // guaranteed to report every iPhone Mirroring session on real devices.
-        (isSceneCaptured || protection.isScreenCaptured) && !MirroredCaptureQAMode.isEnabled
+        SensitiveCaptureSignalPolicy.isCaptured(
+            swiftUIScene: isSceneCaptured,
+            uiKitScene: nativeSceneCaptureState == .active,
+            screen: protection.isScreenCaptured,
+            qaBypass: MirroredCaptureQAMode.isEnabled
+        )
 #else
         protection.isScreenCaptured
 #endif
@@ -190,6 +240,14 @@ private struct SensitiveScreenProtectionModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+#if os(iOS)
+            .background(
+                SceneCaptureTraitReader { state in
+                    nativeSceneCaptureState = state
+                }
+                .frame(width: 0, height: 0)
+            )
+#endif
 #if os(macOS)
             .background(SensitiveWindowConfiguration().frame(width: 0, height: 0))
 #endif
@@ -226,6 +284,17 @@ private struct SensitiveScreenProtectionModifier: ViewModifier {
                 guard captured else { return }
                 NotificationCenter.default.post(name: .orbitTermClearTransientSensitiveInput, object: nil)
             }
+#if os(iOS) && ORBITTERM_CAPTURE_DIAGNOSTIC_QA
+            .overlay(alignment: .top) {
+                if Bundle.main.bundleIdentifier == "com.orbitterm.matrix.ios" {
+                    Text("QA capture scene=\(isSceneCaptured ? 1 : 0) trait=\(nativeSceneCaptureState.rawValue) screen=\(protection.isScreenCaptured ? 1 : 0)")
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.white)
+                        .padding(6)
+                        .background(.black)
+                }
+            }
+#endif
     }
 }
 

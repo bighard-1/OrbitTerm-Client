@@ -27,18 +27,27 @@ done
   IPHONEOS_DEPLOYMENT_TARGET=17.0 cargo build --locked --release --target aarch64-apple-ios
 )
 
-xcodebuild build -quiet \
-  -project "${repo_root}/OrbitTerm.xcodeproj" \
-  -scheme OrbitTerm_iOS \
-  -configuration Release \
-  -destination 'generic/platform=iOS' \
-  -derivedDataPath "$derived_data" \
-  PRODUCT_BUNDLE_IDENTIFIER=com.orbitterm.matrix.ios \
-  ORBITTERM_DISPLAY_NAME='OrbitTerm QA' \
-  CURRENT_PROJECT_VERSION="$build_number" \
-  CODE_SIGNING_ALLOWED=YES \
-  CODE_SIGN_STYLE=Automatic \
-  DEVELOPMENT_TEAM="$team_id"
+build_qa_app() {
+  xcodebuild build -quiet \
+    -project "${repo_root}/OrbitTerm.xcodeproj" \
+    -scheme OrbitTerm_iOS \
+    -configuration Release \
+    -destination 'generic/platform=iOS' \
+    -derivedDataPath "$derived_data" \
+    PRODUCT_BUNDLE_IDENTIFIER=com.orbitterm.matrix.ios \
+    ORBITTERM_DISPLAY_NAME='OrbitTerm QA' \
+    CURRENT_PROJECT_VERSION="$build_number" \
+    CODE_SIGNING_ALLOWED=YES \
+    CODE_SIGN_STYLE=Automatic \
+    DEVELOPMENT_TEAM="$team_id" \
+    "$@"
+}
+
+if [[ "${ORBITTERM_QA_CAPTURE_DIAGNOSTICS:-0}" == 1 ]]; then
+  build_qa_app SWIFT_ACTIVE_COMPILATION_CONDITIONS=ORBITTERM_CAPTURE_DIAGNOSTIC_QA
+else
+  build_qa_app
+fi
 
 test -d "$app_path"
 codesign --verify --deep --strict "$app_path"

@@ -42,4 +42,22 @@ final class ClipboardSecurityPolicyTests: XCTestCase {
             )
         )
     }
+
+    func testAnyReportedCaptureSignalRequiresProtection() {
+        XCTAssertFalse(SensitiveCaptureSignalPolicy.isCaptured(
+            swiftUIScene: false, uiKitScene: false, screen: false, qaBypass: false
+        ))
+        XCTAssertTrue(SensitiveCaptureSignalPolicy.isCaptured(
+            swiftUIScene: true, uiKitScene: false, screen: false, qaBypass: false
+        ))
+        XCTAssertTrue(SensitiveCaptureSignalPolicy.isCaptured(
+            swiftUIScene: false, uiKitScene: true, screen: false, qaBypass: false
+        ))
+        XCTAssertTrue(SensitiveCaptureSignalPolicy.isCaptured(
+            swiftUIScene: false, uiKitScene: false, screen: true, qaBypass: false
+        ))
+        XCTAssertFalse(SensitiveCaptureSignalPolicy.isCaptured(
+            swiftUIScene: true, uiKitScene: true, screen: true, qaBypass: true
+        ))
+    }
 }
