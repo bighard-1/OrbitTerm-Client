@@ -2040,6 +2040,7 @@
 					"-lfreerdp-client3",
 					"-lwinpr3",
 				);
+				ORBITTERM_DISPLAY_NAME = OrbitTerm;
 				PRODUCT_NAME = OrbitTerm;
 				SDKROOT = macosx;
 				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos macosx";
@@ -2101,6 +2102,7 @@
 					"-lfreerdp-client3",
 					"-lwinpr3",
 				);
+				ORBITTERM_DISPLAY_NAME = OrbitTerm;
 				PRODUCT_NAME = OrbitTerm;
 				SDKROOT = macosx;
 				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos macosx";
@@ -2225,6 +2227,7 @@
 					"-lfreerdp-client3",
 					"-lwinpr3",
 				);
+				ORBITTERM_DISPLAY_NAME = OrbitTerm;
 				PRODUCT_NAME = OrbitTerm;
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos macosx";
@@ -2479,6 +2482,7 @@
 					"-lfreerdp-client3",
 					"-lwinpr3",
 				);
+				ORBITTERM_DISPLAY_NAME = OrbitTerm;
 				PRODUCT_NAME = OrbitTerm;
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos macosx";
