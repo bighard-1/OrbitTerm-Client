@@ -7977,7 +7977,7 @@ fn poll_connect_result(
                     show_session_error(
                         &context,
                         asset_id,
-                        "SSH 二次验证失败，请检查验证码后重试连接。",
+                        "SSH 二次验证未完成：服务器再次要求验证码。本次连接不会复用已提交的验证码；请重新连接并获取新码。",
                     );
                     return gtk::glib::ControlFlow::Break;
                 }
@@ -7994,7 +7994,7 @@ fn poll_connect_result(
                 show_session_error(
                     &context,
                     asset_id,
-                    "SSH 认证失败（ssh_auth_failed）：服务器未接受当前凭据或认证方式，请核对用户名、密码/密钥及二次验证配置。",
+                    ssh_auth_failure_message(&one_time_code, &jump_one_time_code),
                 );
                 gtk::glib::ControlFlow::Break
             }
@@ -8009,6 +8009,17 @@ fn poll_connect_result(
             }
         }
     });
+}
+
+fn ssh_auth_failure_message(one_time_code: &str, jump_one_time_code: &str) -> &'static str {
+    if one_time_code.is_empty() && jump_one_time_code.is_empty() {
+        "SSH 认证失败（ssh_auth_failed）：服务器未接受当前凭据或认证方式，请核对用户名、密码/密钥及二次验证配置。"
+    } else {
+        // The checked core intentionally reports a generic authentication
+        // failure. A submitted code may be wrong or expired, but another hop,
+        // primary credential, or server policy can also reject the connection.
+        "SSH 认证未通过（ssh_auth_failed）：本次已提交验证码，但服务器仍拒绝连接；验证码可能错误或过期，也可能是其他凭据或认证策略导致。请重新连接并获取新码。"
+    }
 }
 
 fn prompt_ssh_second_factor(
@@ -20339,6 +20350,26 @@ fn fatal_state(message: &str) -> adw::StatusPage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ssh_auth_feedback_does_not_claim_a_submitted_code_was_definitely_wrong() {
+        let primary_failure = ssh_auth_failure_message("", "");
+        assert!(primary_failure.contains("用户名、密码/密钥"));
+        assert!(!primary_failure.contains("已提交验证码"));
+
+        for (target_code, jump_code) in [
+            ("target-code", ""),
+            ("", "jump-code"),
+            ("target-code", "jump-code"),
+        ] {
+            let message = ssh_auth_failure_message(target_code, jump_code);
+            assert!(message.contains("已提交验证码"));
+            assert!(message.contains("可能错误或过期"));
+            assert!(message.contains("其他凭据或认证策略"));
+            assert!(!message.contains(target_code) || target_code.is_empty());
+            assert!(!message.contains(jump_code) || jump_code.is_empty());
+        }
+    }
 
     #[test]
     fn automatic_tombstone_never_clears_shared_credentials() {
