@@ -29,6 +29,12 @@ struct ConnectionLaunchGate {
     }
 }
 
+enum HostKeyTrustReplacementReconnectPolicy {
+    // The normal launch gate rejects `.connecting`; the replacement flow must
+    // return to a launchable phase before it starts the checked connection.
+    static let phaseBeforeReconnect: ConnectionPresentationPhase = .disconnected
+}
+
 enum ConnectionSemanticRole { case connected, connecting, disconnected, warning, danger, blocked }
 
 struct ConnectionPresentation: Equatable {

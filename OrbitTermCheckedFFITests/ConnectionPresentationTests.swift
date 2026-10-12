@@ -45,6 +45,14 @@ final class ConnectionPresentationTests: XCTestCase {
         }
     }
 
+    func testHostKeyReplacementReentersAnAdmissibleLaunchPhase() {
+        let phase = HostKeyTrustReplacementReconnectPolicy.phaseBeforeReconnect
+        XCTAssertEqual(phase, .disconnected)
+        var gate = ConnectionLaunchGate()
+        XCTAssertTrue(gate.begin(sessionID: UUID(), phase: phase))
+        XCTAssertFalse(gate.begin(sessionID: UUID(), phase: .connecting))
+    }
+
     func testPresentationHasAccessibleTextAndDistinctBlockedRole() {
         let blocked = map(phase: .blocked)
         let connected = map(lease: true, channel: true, connected: true)

@@ -880,7 +880,10 @@ final class SessionManager: ObservableObject {
 
         route.orchestrator.close()
         checkedHostKeyRoute = nil
-        workspace.updateConnectionState(.connecting, detail: "旧信任已移除，正在重新验证服务器身份")
+        workspace.updateConnectionState(
+            HostKeyTrustReplacementReconnectPolicy.phaseBeforeReconnect,
+            detail: "旧信任已移除，正在重新验证服务器身份"
+        )
         workspace.appendTerminal("[checked] 旧 Host Key 信任已精确移除；正在请求新的首次信任确认")
         await Task.yield()
         await connect(session: workspace)

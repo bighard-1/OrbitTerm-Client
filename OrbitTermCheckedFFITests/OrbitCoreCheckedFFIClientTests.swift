@@ -313,6 +313,40 @@ final class OrbitCoreCheckedFFIClientTests: XCTestCase {
         }
     }
 
+    func testSlowSFTPOpenDoesNotBlockAnotherCheckedConnection() async throws {
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let counter = FreeCounter()
+        let requestID = self.requestID
+        let baseSessionID = self.baseSessionID
+        let client = makeClient(
+            json: CheckedFFIFixtures.connected,
+            counter: counter,
+            openSFTP: { _ in
+                started.signal()
+                _ = release.wait(timeout: .now() + 4)
+                return allocatedCString(CheckedFFIFixtures.sftpOpened)
+            }
+        )
+
+        let sftpTask = Task {
+            try await client.openSFTPChecked(requestID: requestID, baseSessionID: baseSessionID)
+        }
+        XCTAssertEqual(started.wait(timeout: .now() + 2), .success)
+
+        let connectionCompleted = expectation(description: "SSH connect is not queued behind SFTP")
+        let connectInput = input()
+        let connectTask = Task {
+            defer { connectionCompleted.fulfill() }
+            return try await client.connectChecked(requestID: requestID, input: connectInput)
+        }
+        await fulfillment(of: [connectionCompleted], timeout: 2)
+        release.signal()
+        _ = try await connectTask.value
+        _ = try await sftpTask.value
+        XCTAssertEqual(counter.count, 2)
+    }
+
     func testSFTPOpenRejectsRequestErrorAndUnexpectedKind() async {
         let stale = CheckedFFIFixtures.sftpOpened.replacingOccurrences(
             of: CheckedFFIFixtures.requestID,
@@ -719,13 +753,14 @@ final class OrbitCoreCheckedFFIClientTests: XCTestCase {
     private func makeClient(
         json: String,
         counter: FreeCounter,
-        credentialProvider: (any CheckedCredentialProvider)? = nil
+        credentialProvider: (any CheckedCredentialProvider)? = nil,
+        openSFTP: OrbitCoreCheckedFFIFunctions.OpenSFTP? = nil
     ) -> OrbitCoreCheckedFFIClient {
         let functions = OrbitCoreCheckedFFIFunctions(
             connect: { _ in allocatedCString(json) },
             persist: { _ in allocatedCString(json) },
             openTerminal: { _ in allocatedCString(json) },
-            openSFTP: { _ in allocatedCString(json) },
+            openSFTP: openSFTP ?? { _ in allocatedCString(json) },
             monitorSnapshot: { _ in allocatedCString(json) },
             dockerList: { _ in allocatedCString(json) },
             dockerStats: { _ in allocatedCString(json) },

@@ -12,7 +12,7 @@ struct HostKeyFlowID: Hashable, Sendable, CustomStringConvertible {
 }
 
 enum HostKeyTrustFailure: Hashable, Sendable {
-    case authentication(CheckedFFIErrorPayload)
+    case authentication(CheckedFFIErrorPayload, submittedSecondFactor: Bool)
     case network(CheckedFFIErrorPayload)
     case timeout(CheckedFFIErrorPayload?)
     case store(CheckedFFIErrorPayload)
@@ -218,8 +218,11 @@ final class HostKeyTrustCoordinator: ObservableObject {
                 state = .awaitingSecondFactor(flowID,
                     forJump: requiredForJump)
             } else {
+                let submittedSecondFactor = context?.input.oneTimeCode != nil
+                    || context?.input.jumpOneTimeCode != nil
                 clearTransientCodes()
-                state = .failed(flowID, classify(error))
+                state = .failed(flowID, classify(error,
+                    submittedSecondFactor: submittedSecondFactor))
             }
         }
     }
@@ -230,9 +233,13 @@ final class HostKeyTrustCoordinator: ObservableObject {
         context = active
     }
 
-    private func classify(_ error: CheckedFFIErrorPayload) -> HostKeyTrustFailure {
+    private func classify(
+        _ error: CheckedFFIErrorPayload,
+        submittedSecondFactor: Bool
+    ) -> HostKeyTrustFailure {
         switch error.code.rawValue {
-        case "ssh_auth_failed", "ssh_second_factor_required": .authentication(error)
+        case "ssh_auth_failed", "ssh_second_factor_required":
+            .authentication(error, submittedSecondFactor: submittedSecondFactor)
         case "ssh_connect_failed": .network(error)
         case "ssh_timeout": .timeout(error)
         case "known_hosts_read_failed", "known_hosts_permission_denied",

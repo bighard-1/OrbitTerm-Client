@@ -265,7 +265,14 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             baseSessionID: baseSessionID.ffiValue,
             requestID: requestID.rawValue
         )
-        let json = try resultReader.take(functions.openSFTP(call))
+        // Native SFTP negotiation can wait on a remote subsystem. Keep that
+        // synchronous FFI call off this actor so a new SSH connection is not
+        // queued behind an unrelated, slow companion-tool startup.
+        let openSFTP = functions.openSFTP
+        let reader = resultReader
+        let json = try await Task.detached(priority: .userInitiated) {
+            try reader.take(openSFTP(call))
+        }.value
         let payload: SFTPChannelOpenedPayload = try decodePayload(
             json,
             expectedRequestID: requestID,

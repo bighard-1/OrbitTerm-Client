@@ -83,11 +83,69 @@ final class HostKeyTrustCoordinatorTests: XCTestCase {
         let coordinator = HostKeyTrustCoordinator(client: client)
         _ = await coordinator.begin(input: input())
         await coordinator.submitSecondFactor("wrong-code")
-        guard case .failed(_, .authentication) = coordinator.state else {
+        guard case let .failed(_, failure) = coordinator.state,
+              case let .authentication(_, submittedSecondFactor) = failure else {
             return XCTFail("Repeated verification request must fail")
         }
+        XCTAssertTrue(submittedSecondFactor)
+        let recovery = OperationRecoveryMapper.connection(failure)
+        XCTAssertTrue(recovery.message.contains("再次要求验证码"))
+        XCTAssertFalse(recovery.message.contains("wrong-code"))
         let count = await client.connectRequestIDs.count
         XCTAssertEqual(count, 2)
+    }
+
+    func testAuthFailureAfterSecondFactorExplainsPossibilitiesWithoutLeakingCode() async {
+        let client = ScriptedCheckedFFIClient(connect: [
+            .init(.secondFactor(forJump: false)),
+            .init(.error("ssh_auth_failed")),
+        ])
+        let coordinator = HostKeyTrustCoordinator(client: client)
+        _ = await coordinator.begin(input: input())
+        await coordinator.submitSecondFactor("test-code-not-for-output")
+
+        guard case let .failed(_, failure) = coordinator.state,
+              case let .authentication(_, submittedSecondFactor) = failure else {
+            return XCTFail("Expected authentication failure after submitted code")
+        }
+        XCTAssertTrue(submittedSecondFactor)
+        let recovery = OperationRecoveryMapper.connection(failure)
+        XCTAssertTrue(recovery.message.contains("可能错误或过期"))
+        XCTAssertTrue(recovery.message.contains("其他凭据或认证策略"))
+        XCTAssertFalse(recovery.message.contains("test-code-not-for-output"))
+    }
+
+    func testAuthFailureAfterJumpSecondFactorKeepsTheSameSafeGuidance() async {
+        let client = ScriptedCheckedFFIClient(connect: [
+            .init(.secondFactor(forJump: true)),
+            .init(.error("ssh_auth_failed")),
+        ])
+        let coordinator = HostKeyTrustCoordinator(client: client)
+        _ = await coordinator.begin(input: input())
+        await coordinator.submitSecondFactor("jump-code-not-for-output")
+
+        guard case let .failed(_, failure) = coordinator.state,
+              case let .authentication(_, submittedSecondFactor) = failure else {
+            return XCTFail("Expected authentication failure after jump code")
+        }
+        XCTAssertTrue(submittedSecondFactor)
+        let recovery = OperationRecoveryMapper.connection(failure)
+        XCTAssertTrue(recovery.message.contains("可能错误或过期"))
+        XCTAssertFalse(recovery.message.contains("jump-code-not-for-output"))
+    }
+
+    func testAuthFailureBeforeSecondFactorKeepsPrimaryCredentialGuidance() async {
+        let client = ScriptedCheckedFFIClient(connect: [.init(.error("ssh_auth_failed"))])
+        let coordinator = HostKeyTrustCoordinator(client: client)
+        _ = await coordinator.begin(input: input())
+
+        guard case let .failed(_, failure) = coordinator.state,
+              case let .authentication(_, submittedSecondFactor) = failure else {
+            return XCTFail("Expected primary authentication failure")
+        }
+        XCTAssertFalse(submittedSecondFactor)
+        let recovery = OperationRecoveryMapper.connection(failure)
+        XCTAssertEqual(recovery.message, "请检查凭据后重新连接。")
     }
 
     func testUnknownAwaitsDecisionAndCancelStopsFlow() async {

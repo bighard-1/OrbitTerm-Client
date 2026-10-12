@@ -474,12 +474,18 @@ enum OperationRecoveryMapper {
 
     static func connection(_ failure: HostKeyTrustFailure) -> OperationRecoveryPresentation {
         switch failure {
-        case .authentication:
+        case let .authentication(error, submittedSecondFactor):
+            let submittedCodeMessage: String
+            if error.code.rawValue == "ssh_second_factor_required" {
+                submittedCodeMessage = "服务器再次要求验证码。本次连接不会复用已提交的验证码；请重新连接并获取新码。"
+            } else {
+                submittedCodeMessage = "本次已提交验证码，但服务器仍拒绝连接；验证码可能错误或过期，也可能是其他凭据或认证策略导致。请重新连接并获取新码。"
+            }
             return presentation(
                 domain: .connection,
                 code: .authenticationFailed,
                 title: "认证失败",
-                message: "请检查凭据后重新连接。",
+                message: submittedSecondFactor ? submittedCodeMessage : "请检查凭据后重新连接。",
                 symbol: "person.crop.circle.badge.exclamationmark",
                 severity: .warning,
                 actions: [.reviewCredentials, .reconnect, .dismiss]
