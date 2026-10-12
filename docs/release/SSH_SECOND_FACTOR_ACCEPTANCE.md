@@ -12,6 +12,8 @@ iPhone 13 mini × `.12` × 专用真实 TOTP SSH 主机：QA 版仍显示原本�
 
 隐私边界：`.12` 使用 Release 配置，不包含 Debug 专用镜像可视例外；App 切换器的受保护快照为黑屏。**但前台 iPhone 镜像仍可看到资产和终端内容**，公共捕获信号未必覆盖该镜像场景，故“主动镜像/录屏下前台敏感内容遮挡”P1 保持开放，不能以快照通过冒充全面通过。`.12` 未重测超过 5 分钟恢复窗口、进程被杀、账户切换、密钥＋码、双跳、Host Key 变化、验证码持久层/日志全域审计；Mac `.11` 真实主机、Linux 同版、Android/Windows 实机亦未由这次 iPhone 结果覆盖。五端同版发布门禁仍开放。后续移动端对照先验 QA/正式版可辨身份与隔离，再验验证器切换→主密码→新空白码页、错码/取消失败关闭、正确码自动进终端；桌面端对照任务切换隐私与终端聚焦，但不照搬移动端后台锁策略。
 
+上段记录提交后的自动化补跑：同一源码 `f297353` 在 Mac 执行完整 `OrbitTermCheckedFFITests`，结果包位于仓库外 `/private/tmp/orbitterm-qa12-checkedffi-tests/Logs/Test/`，**337/337 通过、0 失败/跳过**；既有 FreeRDP 废弃接口警告仍在。该补跑不覆盖真机、完整隐私策略或五端同版矩阵，也不改写初次记录时“未重跑”的状态。
+
 ## 2026-10-11 Apple Release 配置独立 QA 构建与安全隔离
 
 基于已推送的 `.10` 基线 `248b0e2`，源码修复提交 `401f19e` 修改 `MacQARuntimeIsolation`：Mac QA 隔离由显式编译标志与精确 QA Bundle ID 共同决定，不再限定 Debug。原实现会让 Release 配置的独立 QA 包回落到正式版 `OrbitTerm` Application Support 目录，并可能触发旧钥匙串迁移；故在修复前**未启动**该包。普通 Bundle ID 或没有 QA 编译标志时隔离分支仍关闭。iOS 的镜像捕获遮挡例外继续只存在于 Debug QA 包，Release 配置不启用。
