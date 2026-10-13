@@ -71,6 +71,76 @@ private struct SceneCaptureTraitReader: UIViewRepresentable {
     }
 }
 
+/// This opt-in is intentionally memory-only. A process restart, account
+/// change, lock, background transition or the deadline restores protection.
+@MainActor
+final class TemporaryCaptureAuthorization: ObservableObject {
+    static let shared = TemporaryCaptureAuthorization()
+
+    @Published private(set) var expiresAt: Date?
+    private var authorizedAccount: String?
+    private var capturedSources = Set<UUID>()
+    private var expirationTask: Task<Void, Never>?
+    private var generation = UUID()
+
+    private init() {}
+
+    func updateReportedCapture(_ reported: Bool, source: UUID) {
+        if reported {
+            capturedSources.insert(source)
+        } else {
+            capturedSources.remove(source)
+        }
+    }
+
+    func removeCaptureObserver(_ source: UUID) {
+        capturedSources.remove(source)
+    }
+
+    @discardableResult
+    func authorize(for account: String, now: Date = Date()) -> Bool {
+        guard !account.isEmpty, capturedSources.isEmpty else { return false }
+        revoke()
+        authorizedAccount = account
+        expiresAt = now.addingTimeInterval(TemporaryCaptureAuthorizationPolicy.lifetime)
+        let currentGeneration = generation
+        expirationTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 180_000_000_000)
+            guard !Task.isCancelled, self?.generation == currentGeneration else { return }
+            self?.revoke()
+        }
+        return true
+    }
+
+    func revoke() {
+        generation = UUID()
+        expirationTask?.cancel()
+        expirationTask = nil
+        authorizedAccount = nil
+        expiresAt = nil
+    }
+
+    func allowsCapture(
+        account: String,
+        now: Date = Date(),
+        isAuthenticated: Bool,
+        isUnlocked: Bool,
+        mustChangePassword: Bool,
+        isSceneActive: Bool
+    ) -> Bool {
+        TemporaryCaptureAuthorizationPolicy.allows(
+            authorizedAccount: authorizedAccount,
+            currentAccount: account,
+            expiresAt: expiresAt,
+            now: now,
+            isAuthenticated: isAuthenticated,
+            isUnlocked: isUnlocked,
+            mustChangePassword: mustChangePassword,
+            isSceneActive: isSceneActive
+        )
+    }
+}
+
 /// UIKit takes the app-switcher snapshot during deactivation, before SwiftUI
 /// is guaranteed to render a scenePhase-driven cover. Install this opaque
 /// view synchronously at willResignActive, then remove it on activation.
@@ -218,7 +288,10 @@ private struct SensitiveScreenProtectionModifier: ViewModifier {
     @Environment(\.scenePhase) private var scenePhase
 #if os(iOS)
     @Environment(\.isSceneCaptured) private var isSceneCaptured
+    @EnvironmentObject private var session: AppSession
     @State private var nativeSceneCaptureState: UISceneCaptureState = .unspecified
+    @State private var captureObserverID = UUID()
+    @StateObject private var temporaryCapture = TemporaryCaptureAuthorization.shared
 #endif
     @StateObject private var protection = SensitiveScreenProtection.shared
     @StateObject private var clipboardNotice = ClipboardSecurityNotice.shared
@@ -238,6 +311,24 @@ private struct SensitiveScreenProtectionModifier: ViewModifier {
 #endif
     }
 
+#if os(iOS)
+    private var isCaptureReported: Bool {
+        isSceneCaptured || nativeSceneCaptureState == .active || protection.isScreenCaptured
+    }
+
+    private var allowsTemporaryCapture: Bool {
+        temporaryCapture.allowsCapture(
+            account: session.username,
+            isAuthenticated: session.isAuthenticated,
+            isUnlocked: session.isUnlocked,
+            mustChangePassword: session.mustChangePassword,
+            isSceneActive: scenePhase == .active
+        )
+    }
+#else
+    private var allowsTemporaryCapture: Bool { false }
+#endif
+
     func body(content: Content) -> some View {
         content
 #if os(iOS)
@@ -254,7 +345,8 @@ private struct SensitiveScreenProtectionModifier: ViewModifier {
             .overlay {
                 if SensitiveScreenVisibilityPolicy.shouldCover(
                     isSceneActive: scenePhase == .active,
-                    isScreenCaptured: isCaptureActive
+                    isScreenCaptured: isCaptureActive,
+                    allowsTemporaryCapture: allowsTemporaryCapture
                 ) {
                     SensitiveContentCover()
                         // App-switcher snapshots may be captured before an
@@ -262,6 +354,26 @@ private struct SensitiveScreenProtectionModifier: ViewModifier {
                         .transition(.identity)
                 }
             }
+#if os(iOS)
+            .overlay(alignment: .top) {
+                if allowsTemporaryCapture, let expiresAt = temporaryCapture.expiresAt {
+                    HStack(spacing: 8) {
+                        Image(systemName: "record.circle")
+                        Text("临时允许录屏")
+                        Text(expiresAt, style: .timer)
+                        Button("停止") { temporaryCapture.revoke() }
+                            .fontWeight(.semibold)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.red.opacity(0.92), in: Capsule())
+                    .padding(.top, 8)
+                    .accessibilityElement(children: .contain)
+                }
+            }
+#endif
             .overlay(alignment: .bottom) {
                 if let message = clipboardNotice.message,
                    scenePhase == .active,
@@ -278,12 +390,42 @@ private struct SensitiveScreenProtectionModifier: ViewModifier {
             }
             .onChange(of: scenePhase) { _, phase in
                 guard phase != .active else { return }
+#if os(iOS)
+                // Control Center can make the scene merely inactive while the
+                // user starts recording. Keep the grant but keep the opaque
+                // cover until the scene is active again. A real background
+                // transition still revokes it.
+                if phase == .background { temporaryCapture.revoke() }
+#endif
                 NotificationCenter.default.post(name: .orbitTermClearTransientSensitiveInput, object: nil)
             }
             .onChange(of: isCaptureActive) { _, captured in
                 guard captured else { return }
                 NotificationCenter.default.post(name: .orbitTermClearTransientSensitiveInput, object: nil)
             }
+#if os(iOS)
+            .onAppear {
+                temporaryCapture.updateReportedCapture(isCaptureReported, source: captureObserverID)
+            }
+            .onDisappear {
+                temporaryCapture.removeCaptureObserver(captureObserverID)
+            }
+            .onChange(of: isCaptureReported) { _, reported in
+                temporaryCapture.updateReportedCapture(reported, source: captureObserverID)
+            }
+            .onChange(of: session.isUnlocked) { _, unlocked in
+                if !unlocked { temporaryCapture.revoke() }
+            }
+            .onChange(of: session.isAuthenticated) { _, authenticated in
+                if !authenticated { temporaryCapture.revoke() }
+            }
+            .onChange(of: session.username) { _, _ in
+                temporaryCapture.revoke()
+            }
+            .onChange(of: session.mustChangePassword) { _, required in
+                if required { temporaryCapture.revoke() }
+            }
+#endif
 #if os(iOS) && ORBITTERM_CAPTURE_DIAGNOSTIC_QA
             .overlay(alignment: .top) {
                 if Bundle.main.bundleIdentifier == "com.orbitterm.matrix.ios" {

@@ -41,6 +41,57 @@ final class ClipboardSecurityPolicyTests: XCTestCase {
                 isScreenCaptured: true
             )
         )
+        XCTAssertFalse(
+            SensitiveScreenVisibilityPolicy.shouldCover(
+                isSceneActive: true,
+                isScreenCaptured: true,
+                allowsTemporaryCapture: true
+            )
+        )
+        XCTAssertTrue(
+            SensitiveScreenVisibilityPolicy.shouldCover(
+                isSceneActive: false,
+                isScreenCaptured: true,
+                allowsTemporaryCapture: true
+            )
+        )
+    }
+
+    func testTemporaryCaptureAuthorizationIsShortLivedAndBoundToUnlockedAccount() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let expiry = now.addingTimeInterval(TemporaryCaptureAuthorizationPolicy.lifetime)
+        func allows(account: String = "qa", time: Date = now,
+                    authenticated: Bool = true, unlocked: Bool = true,
+                    mustChange: Bool = false, active: Bool = true) -> Bool {
+            TemporaryCaptureAuthorizationPolicy.allows(
+                authorizedAccount: "qa",
+                currentAccount: account,
+                expiresAt: expiry,
+                now: time,
+                isAuthenticated: authenticated,
+                isUnlocked: unlocked,
+                mustChangePassword: mustChange,
+                isSceneActive: active
+            )
+        }
+        XCTAssertEqual(TemporaryCaptureAuthorizationPolicy.lifetime, 180)
+        XCTAssertTrue(allows())
+        XCTAssertFalse(allows(account: "other"))
+        XCTAssertFalse(allows(time: expiry))
+        XCTAssertFalse(allows(authenticated: false))
+        XCTAssertFalse(allows(unlocked: false))
+        XCTAssertFalse(allows(mustChange: true))
+        XCTAssertFalse(allows(active: false))
+        XCTAssertFalse(TemporaryCaptureAuthorizationPolicy.allows(
+            authorizedAccount: nil,
+            currentAccount: "qa",
+            expiresAt: expiry,
+            now: now,
+            isAuthenticated: true,
+            isUnlocked: true,
+            mustChangePassword: false,
+            isSceneActive: true
+        ))
     }
 
     func testAnyReportedCaptureSignalRequiresProtection() {
