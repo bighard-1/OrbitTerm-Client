@@ -153,6 +153,9 @@ struct SettingsView: View {
 #if os(iOS)
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var temporaryCapture = TemporaryCaptureAuthorization.shared
+#if ORBITTERM_CAPTURE_DIAGNOSTIC_QA
+    @StateObject private var captureDiagnostics = CaptureQADiagnostics.shared
+#endif
     @State private var showCaptureAuthorization = false
     @State private var verifiedCaptureAccount: String?
     @State private var captureAuthorizationFeedback: String?
@@ -357,6 +360,16 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.red)
                 }
+#if ORBITTERM_CAPTURE_DIAGNOSTIC_QA
+                if Bundle.main.bundleIdentifier == "com.orbitterm.matrix.ios" {
+                    Text("QA 录屏状态（仅状态位，无内容）")
+                        .font(.caption.bold())
+                    Text(captureDiagnostics.entries.joined(separator: "\n"))
+                        .font(.system(size: 10, design: .monospaced))
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+#endif
 #endif
                 if let biometricFeedback {
                     Text(biometricFeedback.message)

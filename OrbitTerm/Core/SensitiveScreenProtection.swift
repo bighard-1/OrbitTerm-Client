@@ -141,6 +141,35 @@ final class TemporaryCaptureAuthorization: ObservableObject {
     }
 }
 
+#if ORBITTERM_CAPTURE_DIAGNOSTIC_QA
+/// Only compiled into an explicitly flagged, separately identified QA app.
+/// Records state transitions, never screen content, identifiers or secrets.
+@MainActor
+final class CaptureQADiagnostics: ObservableObject {
+    static let shared = CaptureQADiagnostics()
+
+    @Published private(set) var entries: [String] = []
+
+    private init() {}
+
+    func record(
+        _ event: String,
+        scenePhase: ScenePhase,
+        captured: Bool,
+        grantExists: Bool,
+        grantAllows: Bool,
+        unlocked: Bool
+    ) {
+        guard Bundle.main.bundleIdentifier == "com.orbitterm.matrix.ios" else { return }
+        let state = UIApplication.shared.applicationState.rawValue
+        let timestamp = Date().formatted(date: .omitted, time: .standard)
+        let sample = "\(timestamp) \(event) scene=\(scenePhase) app=\(state) cap=\(captured ? 1 : 0) grant=\(grantExists ? 1 : 0) allow=\(grantAllows ? 1 : 0) unlock=\(unlocked ? 1 : 0)"
+        entries.append(sample)
+        if entries.count > 12 { entries.removeFirst(entries.count - 12) }
+    }
+}
+#endif
+
 /// UIKit takes the app-switcher snapshot during deactivation, before SwiftUI
 /// is guaranteed to render a scenePhase-driven cover. Install this opaque
 /// view synchronously at willResignActive, then remove it on activation.
@@ -329,6 +358,19 @@ private struct SensitiveScreenProtectionModifier: ViewModifier {
     private var allowsTemporaryCapture: Bool { false }
 #endif
 
+#if os(iOS) && ORBITTERM_CAPTURE_DIAGNOSTIC_QA
+    private func recordCaptureQASample(_ event: String) {
+        CaptureQADiagnostics.shared.record(
+            event,
+            scenePhase: scenePhase,
+            captured: isCaptureReported,
+            grantExists: temporaryCapture.expiresAt != nil,
+            grantAllows: allowsTemporaryCapture,
+            unlocked: session.isUnlocked
+        )
+    }
+#endif
+
     func body(content: Content) -> some View {
         content
 #if os(iOS)
@@ -389,15 +431,17 @@ private struct SensitiveScreenProtectionModifier: ViewModifier {
                 }
             }
             .onChange(of: scenePhase) { _, phase in
-                guard phase != .active else { return }
+                if phase != .active {
 #if os(iOS)
-                // Control Center can make the scene merely inactive while the
-                // user starts recording. Keep the grant but keep the opaque
-                // cover until the scene is active again. A real background
-                // transition still revokes it.
-                if phase == .background { temporaryCapture.revoke() }
+                    // Control Center may make the scene merely inactive while
+                    // recording starts. Keep the grant, but cover the scene.
+                    if phase == .background { temporaryCapture.revoke() }
 #endif
-                NotificationCenter.default.post(name: .orbitTermClearTransientSensitiveInput, object: nil)
+                    NotificationCenter.default.post(name: .orbitTermClearTransientSensitiveInput, object: nil)
+                }
+#if os(iOS) && ORBITTERM_CAPTURE_DIAGNOSTIC_QA
+                recordCaptureQASample("scene")
+#endif
             }
             .onChange(of: isCaptureActive) { _, captured in
                 guard captured else { return }
@@ -406,15 +450,24 @@ private struct SensitiveScreenProtectionModifier: ViewModifier {
 #if os(iOS)
             .onAppear {
                 temporaryCapture.updateReportedCapture(isCaptureReported, source: captureObserverID)
+#if ORBITTERM_CAPTURE_DIAGNOSTIC_QA
+                recordCaptureQASample("appear")
+#endif
             }
             .onDisappear {
                 temporaryCapture.removeCaptureObserver(captureObserverID)
             }
             .onChange(of: isCaptureReported) { _, reported in
                 temporaryCapture.updateReportedCapture(reported, source: captureObserverID)
+#if ORBITTERM_CAPTURE_DIAGNOSTIC_QA
+                recordCaptureQASample("capture")
+#endif
             }
             .onChange(of: session.isUnlocked) { _, unlocked in
                 if !unlocked { temporaryCapture.revoke() }
+#if ORBITTERM_CAPTURE_DIAGNOSTIC_QA
+                recordCaptureQASample("unlock")
+#endif
             }
             .onChange(of: session.isAuthenticated) { _, authenticated in
                 if !authenticated { temporaryCapture.revoke() }
@@ -425,6 +478,11 @@ private struct SensitiveScreenProtectionModifier: ViewModifier {
             .onChange(of: session.mustChangePassword) { _, required in
                 if required { temporaryCapture.revoke() }
             }
+#if ORBITTERM_CAPTURE_DIAGNOSTIC_QA
+            .onChange(of: temporaryCapture.expiresAt) { _, _ in
+                recordCaptureQASample("grant")
+            }
+#endif
 #endif
 #if os(iOS) && ORBITTERM_CAPTURE_DIAGNOSTIC_QA
             .overlay(alignment: .top) {
