@@ -500,7 +500,10 @@ impl SyncOperationRepository {
             .into_iter()
             .filter(|event| event.account_fingerprint == account_fingerprint)
             .collect();
-        events.sort_by_key(|event| std::cmp::Reverse((event.timestamp_unix_ms, event.id)));
+        // Audit events are appended in causal order. Millisecond timestamps can
+        // collide, while UUIDs are random and must not decide which event is
+        // newest (especially for a retry followed immediately by completion).
+        events.reverse();
         events.truncate(limit.min(500));
         Ok(events)
     }
@@ -783,6 +786,38 @@ mod tests {
         let audit = repository.audit("001122aabbcc", 20).unwrap();
         assert_eq!(audit.len(), 5);
         assert_eq!(audit[0].outcome, SyncAuditOutcome::Completed);
+    }
+
+    #[test]
+    fn audit_preserves_append_order_when_timestamps_collide() {
+        let directory = tempfile::tempdir().unwrap();
+        let repository = SyncOperationRepository::new(directory.path().join("operations.json"));
+        let asset_id = Uuid::new_v4();
+        let item = repository
+            .enqueue(
+                "001122aabbcc",
+                SyncOperationKind::KeepLocalUpload,
+                upload(asset_id),
+                None,
+                "offline",
+            )
+            .unwrap();
+        repository.begin_attempt("001122aabbcc", item.id).unwrap();
+        repository
+            .mark_completed("001122aabbcc", item.id, None)
+            .unwrap();
+
+        let mut document = repository.load_or_create().unwrap();
+        for event in &mut document.audit {
+            event.timestamp_unix_ms = 1;
+        }
+        repository.save(&document).unwrap();
+
+        let audit = repository.audit("001122aabbcc", 20).unwrap();
+        assert_eq!(audit.len(), 3);
+        assert_eq!(audit[0].outcome, SyncAuditOutcome::Completed);
+        assert_eq!(audit[1].outcome, SyncAuditOutcome::Retrying);
+        assert_eq!(audit[2].outcome, SyncAuditOutcome::Queued);
     }
 
     #[test]
