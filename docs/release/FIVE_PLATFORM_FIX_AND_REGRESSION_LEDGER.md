@@ -1,6 +1,6 @@
 # 五端整改与真机回归台账
 
-更新：2026-10-12。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
+更新：2026-10-13。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
 
 ## 记账规则
 
@@ -9,11 +9,17 @@
 - Apple、Android、Windows 契约源码现已分别固化为 `c62b60f`、`e13b0be`、`7a2ca23`；这是**源码候选**，不是已签名分发包或五端验收。服务端隔离分支尚未部署，不能用线上旧服务替代新契约联调。
 - 每次跨端操作都记录：五端安装包的提交和签名身份、服务端版本、操作方向、是否离线、操作前后活动/最近删除数量、本机凭据状态、持久队列与重复同步结果。永久删除及每个新实例的法律条款接受仍按实际操作时的确认规则执行。
 
-## 2026-10-12 CI 门禁与 Linux 审计顺序复核
+## 2026-10-13 CI 门禁与 Linux 审计顺序复核
 
 | 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
 | --- | --- | --- | --- | --- | --- |
 | `CI-GATE-AUDIT-55` | 基于 `870ad55` 排查 PR #2 的两处门禁失败：Android/iOS 对齐脚本仍要求旧的“退出所有会话”文案，实际两端均已改为仅退出当前设备；Linux 审计查询以毫秒时间戳和随机 UUID 排序，同毫秒的手动重试/完成会颠倒。**本行所在修复提交**改为检查两端现行相同文案与已测试的“已解锁账户后台上锁”策略，并按持久化追加顺序倒序读取审计；新增同毫秒回归。**旧 CI 失败不删除**：[Android job](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38356480145/job/115160567757)、[Linux job](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38356480280/job/115160462415)。 | 旧 CI：Android Release gate 因旧文案检查失败；Linux `orbit-linux-platform` 27 项中 **26 通过、1 失败**，失败为审计首项期望 `Completed` 却读到 `ManualRetry`。修后本机 Android/iOS 对齐、Android 架构、四端行为对齐脚本和 Linux `cargo fmt --check`、`git diff --check` 通过；Linux 原生单测及完整 Android Release 门禁**待新 CI**。本机磁盘余量不足以安全重复完整构建，不能把静态门禁通过记作构建通过。 | 本轮无隔离 GUI 操作。 | 本轮无新增真实设备操作；iOS `.25` 的旧真机结果不自动转移到本次源码候选。 | **五端未完成，发布不放行**。Android 后续真机核对退出当前设备不影响其他设备、后台锁和录屏到期；Windows 对照同一设备级退出语义及审计/队列同毫秒顺序，另补 Android/Windows 真机墓碑与二次验证。Linux 新 CI 与固定候选 GUI、macOS 新候选门禁也须独立完成。 |
+
+`CI-GATE-AUDIT-55` 后续自动化回执（固定源码 `5e089ab`）：Linux Ubuntu 原生质量/Release、Windows 原生、Rust Release、Android Release、Android 15 模拟器仪表化与迁移、桌面视觉契约、依赖扫描均通过；Apple checked-path 仍失败，另列下项。OpenSSH 候选冒烟与已签名 Mac UI 冒烟为按工作流条件**跳过**，不能计为通过。此回执不改变上述旧失败或 Android/Windows 真机缺口。
+
+| 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
+| --- | --- | --- | --- | --- | --- |
+| `APPLE-ABI-GATE-56` | 在 `5e089ab` 的 [Apple CI 失败](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38358659316/job/115167665564)后，检查发现 Release Swift 实际引用 SSH 验证码 `orbit_ssh_connect_checked_v3`，但发布脚本仍强制要求对象引用旧 `v2`；三平台静态库证据此前也只要求旧 `v2`。**本行所在修复提交**让 Swift 对象门禁核对实际使用的 `v3`，库证据同时保留旧 `v2` ABI 兼容要求并新增 `v3`。CI 页面仅公开“Swift 静态扫描与 Apple 构建矩阵”步骤退出 1，无法直接读取详细日志；本地精确复现旧门禁缺 `v2`，故该漂移是**强定位推断**，须由新 CI 通过最终确认。 | `5e089ab` Apple checked-path **失败保留**，其余同提交门禁见上文。本机复跑 Apple 脚本通过 Rust 六种 Debug/Release 静态库、隐私/权限/来源、checked-FFI、生命周期、资源压力、HTTP 故障、iOS 模拟器 UI、Mac UI 编译、Mac Debug/Release、iOS 模拟器 Debug、iPhoneOS Debug；到 iPhoneOS Release 构建时磁盘剩余约 1 GiB，主动中止，脚本临时目录自动清理，不记为完整通过。随后分段以现有缓存单独完成 iPhoneOS Release、iOS 模拟器 Release、macOS Release；Release fixture 扫描通过；原 `v2` 对象引用检查失败，改为 `v3` 后通过；三平台静态库证据脚本、Shell 语法、`git diff --check` 通过。**新 CI 待执行。** | 本轮仅自动化 iOS 模拟器 UI，非账户隔离 GUI 验收。 | 无新增真机操作；iPhone `.25` 是先前同产品源码的 Development 签名 QA 证据，不能替代新提交的分发签名验收。 | **五端未完成，发布不放行**。Android/Windows 对照客户端实际调用的 MFA ABI 与打包库符号必须一致，且保留旧 ABI 兼容；各自真机需再验验证码成功/错码/取消及墓碑。Apple 新 CI、正式签名 Mac UI/OpenSSH 冒烟和五端实体设备矩阵仍待验。 |
 
 ## 2026-10-12 授权 iPhone 镜像的产品策略
 

@@ -203,7 +203,7 @@ if rg -q '^_orbit_(ssh_connect|test_ssh_connection|sftp_connect|request_channel|
   fail "Release Swift objects reference a dangerous legacy ABI"
 fi
 for symbol in \
-  orbit_ssh_connect_checked_v2 \
+  orbit_ssh_connect_checked_v3 \
   orbit_terminal_open_checked_v1 \
   orbit_sftp_open_checked_v1 \
   orbit_monitor_snapshot_checked_v1 \
