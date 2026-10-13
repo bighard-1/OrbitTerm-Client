@@ -274,6 +274,8 @@ final class SensitiveScreenProtection: ObservableObject {
 }
 
 private struct SensitiveContentCover: View {
+    var captureRecoveryMessage: String? = nil
+
     var body: some View {
         ZStack {
             Color.black
@@ -282,10 +284,16 @@ private struct SensitiveContentCover: View {
                     .font(.system(size: 34, weight: .semibold))
                 Text("OrbitTerm 已保护敏感内容")
                     .font(.headline)
+                if let captureRecoveryMessage {
+                    Text(captureRecoveryMessage)
+                        .font(.footnote)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 28)
+                }
             }
             .foregroundStyle(.white)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("敏感内容已隐藏")
+            .accessibilityLabel(captureRecoveryMessage.map { "敏感内容已隐藏。\($0)" } ?? "敏感内容已隐藏")
         }
         .ignoresSafeArea()
     }
@@ -345,6 +353,11 @@ private struct SensitiveScreenProtectionModifier: ViewModifier {
         isSceneCaptured || nativeSceneCaptureState == .active || protection.isScreenCaptured
     }
 
+    private var captureRecoveryMessage: String? {
+        guard scenePhase == .active, isCaptureActive, !allowsTemporaryCapture else { return nil }
+        return "检测到录屏或共享。请先停止录制，再解锁应用并重新开启临时授权；离开应用后授权会自动失效。"
+    }
+
     private var allowsTemporaryCapture: Bool {
         temporaryCapture.allowsCapture(
             account: session.username,
@@ -355,6 +368,7 @@ private struct SensitiveScreenProtectionModifier: ViewModifier {
         )
     }
 #else
+    private var captureRecoveryMessage: String? { nil }
     private var allowsTemporaryCapture: Bool { false }
 #endif
 
@@ -390,7 +404,7 @@ private struct SensitiveScreenProtectionModifier: ViewModifier {
                     isScreenCaptured: isCaptureActive,
                     allowsTemporaryCapture: allowsTemporaryCapture
                 ) {
-                    SensitiveContentCover()
+                    SensitiveContentCover(captureRecoveryMessage: captureRecoveryMessage)
                         // App-switcher snapshots may be captured before an
                         // opacity transition finishes. Cover immediately.
                         .transition(.identity)
