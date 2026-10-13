@@ -25,6 +25,19 @@ final class OrbitTermiOSUITests: XCTestCase {
         XCTAssertFalse(app.tabBars.buttons["服务器"].exists)
     }
 
+    func testCaptureShieldCoversPresentedSheetAfterAuthorizationExpires() {
+        let app = launch("capture_shield_states")
+        XCTAssertTrue(app.staticTexts["测试弹层内容"].waitForExistence(timeout: 5))
+        app.buttons["模拟授权到期"].tap()
+
+        let shield = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", "OrbitTerm 已保护敏感内容"))
+            .firstMatch
+        XCTAssertTrue(shield.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["测试弹层内容"].isHittable)
+        XCTAssertFalse(app.buttons["模拟授权到期"].isHittable)
+    }
+
     func testLockedLaunchShowsMasterPasswordRootWithoutWorkspace() {
         let app = launch("authenticated_locked")
         XCTAssertTrue(app.staticTexts["设置主密码"].waitForExistence(timeout: 5))
@@ -124,7 +137,14 @@ final class OrbitTermiOSUITests: XCTestCase {
         XCTAssertTrue(masterPassword.waitForExistence(timeout: 5))
         XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
         XCTAssertLessThanOrEqual(masterPassword.frame.maxY, confirmation.frame.minY, "最大辅助字号下，主密码输入框不得重叠")
-        XCTAssertTrue(locked.buttons["保存并解锁"].isHittable)
+        // At the largest accessibility size the form intentionally scrolls;
+        // reachability means the action is accessible after scrolling, not
+        // that it must fit in the initial viewport alongside both fields.
+        let saveAndUnlock = locked.buttons["保存并解锁"]
+        for _ in 0..<3 where !saveAndUnlock.isHittable {
+            locked.scrollViews.firstMatch.swipeUp()
+        }
+        XCTAssertTrue(saveAndUnlock.isHittable)
     }
 
     func testOperationalFailuresExposeRetryRetainedContentAndTransientSuccessLifetime() {

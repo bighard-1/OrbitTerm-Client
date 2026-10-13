@@ -71,6 +71,110 @@ private struct SceneCaptureTraitReader: UIViewRepresentable {
     }
 }
 
+/// A SwiftUI overlay attached to ContentView sits *behind* system sheets.
+/// Keep an opaque, window-level shield above every app presentation while a
+/// reported capture is not authorized. This also covers sheets opened before
+/// a three-minute authorization expires.
+@MainActor
+private final class CaptureWindowShield: NSObject {
+    static let shared = CaptureWindowShield()
+
+    private var covers: [ObjectIdentifier: UIView] = [:]
+    private var isCovered = false
+
+    override private init() {
+        super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowBecameVisible),
+            name: UIWindow.didBecomeVisibleNotification,
+            object: nil
+        )
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    func setCovered(_ covered: Bool) {
+        isCovered = covered
+        guard covered else {
+            covers.values.forEach { $0.removeFromSuperview() }
+            covers.removeAll()
+            return
+        }
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+            for window in windowScene.windows where !window.isHidden {
+                install(on: window)
+            }
+        }
+    }
+
+    @objc private func windowBecameVisible(_ notification: Notification) {
+        guard isCovered, let window = notification.object as? UIWindow else { return }
+        install(on: window)
+    }
+
+    private func install(on window: UIWindow) {
+        let key = ObjectIdentifier(window)
+        if let cover = covers[key], cover.superview === window {
+            window.bringSubviewToFront(cover)
+            return
+        }
+
+        let cover = UIView(frame: window.bounds)
+        cover.backgroundColor = .black
+        cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        cover.isUserInteractionEnabled = true
+        cover.isAccessibilityElement = true
+        cover.accessibilityViewIsModal = true
+        cover.accessibilityLabel = "OrbitTerm 已保护敏感内容。检测到录屏或共享；请先停止录制，再解锁应用并重新开启临时授权。"
+
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let icon = UIImageView(image: UIImage(systemName: "lock.shield.fill"))
+        icon.tintColor = .white
+        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 34, weight: .semibold)
+        let title = UILabel()
+        title.text = "OrbitTerm 已保护敏感内容"
+        title.textColor = .white
+        title.font = .preferredFont(forTextStyle: .headline)
+        title.textAlignment = .center
+        let detail = UILabel()
+        detail.text = "检测到录屏或共享。请先停止录制，再解锁应用并重新开启临时授权。"
+        detail.textColor = .white
+        detail.font = .preferredFont(forTextStyle: .footnote)
+        detail.textAlignment = .center
+        detail.numberOfLines = 0
+        for view in [icon, title, detail] { stack.addArrangedSubview(view) }
+        cover.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: cover.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: cover.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: cover.leadingAnchor, constant: 28),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: cover.trailingAnchor, constant: -28),
+            stack.widthAnchor.constraint(lessThanOrEqualToConstant: 320)
+        ])
+
+        window.addSubview(cover)
+        covers[key] = cover
+    }
+}
+
+#if !ORBITTERM_PUBLIC_RELEASE
+/// Exercises the real window shield over a presented sheet using synthetic,
+/// non-account UI-test content. Never included in public Release builds.
+@MainActor
+enum CaptureWindowShieldUITestHook {
+    static func coverPresentedWindow() {
+        CaptureWindowShield.shared.setCovered(true)
+    }
+}
+#endif
+
 /// This opt-in is intentionally memory-only. A process restart, account
 /// change, lock, background transition or the deadline restores protection.
 @MainActor
@@ -91,18 +195,21 @@ final class TemporaryCaptureAuthorization: ObservableObject {
         } else {
             capturedSources.remove(source)
         }
+        refreshWindowShield()
     }
 
     func removeCaptureObserver(_ source: UUID) {
         capturedSources.remove(source)
+        refreshWindowShield()
     }
 
     @discardableResult
     func authorize(for account: String, now: Date = Date()) -> Bool {
-        guard !account.isEmpty, capturedSources.isEmpty else { return false }
+        guard !account.isEmpty, !isCaptureReported else { return false }
         revoke()
         authorizedAccount = account
         expiresAt = now.addingTimeInterval(TemporaryCaptureAuthorizationPolicy.lifetime)
+        refreshWindowShield()
         let currentGeneration = generation
         expirationTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 180_000_000_000)
@@ -117,7 +224,23 @@ final class TemporaryCaptureAuthorization: ObservableObject {
         expirationTask?.cancel()
         expirationTask = nil
         authorizedAccount = nil
+        // Install the window shield before publishing the settings UI's
+        // expired/blue state; otherwise a presented sheet could draw one
+        // exposed frame while SwiftUI reacts to the deadline.
+        refreshWindowShield()
         expiresAt = nil
+    }
+
+    private var isCaptureReported: Bool {
+        let reportedByScene = UIApplication.shared.connectedScenes.contains { scene in
+            (scene as? UIWindowScene)?.traitCollection.sceneCaptureState == .active
+        }
+        return !capturedSources.isEmpty || UIScreen.main.isCaptured || reportedByScene
+    }
+
+    private func refreshWindowShield(now: Date = Date()) {
+        let hasLiveGrant = authorizedAccount != nil && expiresAt.map { now < $0 } == true
+        CaptureWindowShield.shared.setCovered(isCaptureReported && !hasLiveGrant && !MirroredCaptureQAMode.isEnabled)
     }
 
     func allowsCapture(

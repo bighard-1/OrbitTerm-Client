@@ -68,6 +68,14 @@ struct ContentView: View {
                 } else if AppUITestLaunchState.current == .accountSecurityStates {
                     AccountSecurityStateUITestHarnessView()
                         .accessibilityIdentifier("orbit.root.account-security-states")
+                } else if AppUITestLaunchState.current == .captureShieldStates {
+                    #if os(iOS)
+                    CaptureShieldUITestHarnessView()
+                        .accessibilityIdentifier("orbit.root.capture-shield-states")
+                    #else
+                    MainShellView()
+                        .accessibilityIdentifier("orbit.root.workspace")
+                    #endif
                 } else {
                     MainShellView()
                         .accessibilityIdentifier("orbit.root.workspace")
@@ -406,6 +414,28 @@ struct ContentView: View {
         try? PortForwardProfileStore.shared.activate(username: session.username)
     }
 }
+
+#if os(iOS) && !ORBITTERM_PUBLIC_RELEASE
+/// A sheet fixture with no account data. The button activates the same
+/// UIWindow-level shield used when a real capture grant expires.
+private struct CaptureShieldUITestHarnessView: View {
+    @State private var showsSheet = false
+
+    var body: some View {
+        Text("捕获遮挡层级测试")
+            .onAppear { showsSheet = true }
+            .sheet(isPresented: $showsSheet) {
+                VStack(spacing: 20) {
+                    Text("测试弹层内容")
+                    Button("模拟授权到期") {
+                        CaptureWindowShieldUITestHook.coverPresentedWindow()
+                    }
+                }
+                .presentationDetents([.medium])
+            }
+    }
+}
+#endif
 
 private struct LocalStorageCheckingView: View {
     var body: some View {

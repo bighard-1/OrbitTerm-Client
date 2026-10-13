@@ -68,7 +68,7 @@ final class AppSession: ObservableObject {
             isAuthenticated = true
             isUnlocked = true
             username = "ui-test@example.invalid"
-        case .operationalStates, .syncRecoveryStates, .accountSecurityStates:
+        case .operationalStates, .syncRecoveryStates, .accountSecurityStates, .captureShieldStates:
             isAuthenticated = true
             isUnlocked = true
             username = "ui-test@example.invalid"
