@@ -16,4 +16,19 @@ class SyncVectorClockTest {
     fun `recovers safely from malformed clocks`() {
         assertEquals("{\"android\":1}", SyncVectorClock.bump("not-json", "android"))
     }
+
+    @Test
+    fun `preserves Apple millisecond clock when Android restores a tombstone`() {
+        val appleClock = 1_760_000_000_000L
+        val raw = "{\"mac-device\":$appleClock,\"android\":4}"
+
+        assertEquals(
+            mapOf("mac-device" to appleClock, "android" to 4L),
+            SyncVectorClock.decode(raw),
+        )
+        assertEquals(
+            "{\"android\":5,\"mac-device\":$appleClock}",
+            SyncVectorClock.bump(raw, "android"),
+        )
+    }
 }
