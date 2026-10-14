@@ -56,6 +56,8 @@
 
 `ANDROID-DEVICE-ONBOARD-68` 后续（同一 `0fcc2a8` QA APK，失败不覆盖）：用户插入 SIM 后，第三次 ADB 安装仍因手机端“允许/拒绝”弹窗未确认而返回 `INSTALL_FAILED_USER_RESTRICTED`；随后用户开启“通过 USB 安装”，再次执行 `adb install` 返回 **Success**。设备只读核对已安装 `com.orbitterm.android.qa`、版本 `1.0.0-multiplatform-alpha-qa`，未发现正式版包；启动后隔离 GUI 显示登录、法律条款及凭据输入控件。用户已明确授权此 Android QA 实例接受条款，但 ADB 连接在准备登录时反复短暂消失，勾选状态只读复查仍为 `false`，**尚未提交登录或执行账户/OTP/墓碑测试**。已请求改为直连数据线稳定控制通道；不把“安装/启动成功”记作功能验收通过。`1a38d52` 的 Security Gates 因后继推送取消，`290b490` 新 CI 正运行；待其完成后另记，不沿用取消轮次作通过证据。
 
+`ANDROID-DEVICE-ONBOARD-68` 再续：用户当前只能经扩展坞连接，采用每步只读确认的分段操作。QA 登录页两个字段已确认填入、法律条款复查为 `checked=true`，点击登录按钮后手机自动进入系统 PIN 锁屏；**尚未观察到服务端登录结果或主密码页**，不得记为登录成功，也不在锁屏下重复提交。已请用户本机解锁，不索取设备 PIN。固定提交 `290b490` 的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38541447292) 六项常规作业、[Linux Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38541447410)、[Windows Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38541447417) 均为 success；签名 Mac UI 与 OpenSSH 候选冒烟为条件 skipped。该 CI 是源码/模拟器自动化结果，**不是 K60 GUI、真机 MFA/墓碑或五端放行**；`1a38d52` 被取消的旧 CI 仍保留。
+
 ## 2026-10-13 CI 门禁与 Linux 审计顺序复核
 
 | 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
