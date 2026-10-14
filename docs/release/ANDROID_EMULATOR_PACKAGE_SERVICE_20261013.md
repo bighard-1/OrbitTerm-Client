@@ -22,3 +22,9 @@
 
 - 本地先做 Shell 语法、静态扫描和差异检查；必须由后继 CI 的真实模拟器运行确认 Smoke 与连接仪表化结果。
 - 本轮无隔离账户 GUI 或实体 Android/Windows 测试。后续两端实体设备仍按总台账对照包身份、安装/升级、离线墓碑与最终删除、SSH 二次验证正反向及录屏边界；模拟器基础设施重试不能代替这些结论。
+
+## 2026-10-14 后继 CI 实测
+
+- 固定提交 `4cf96ef` 的 [Android 15 作业](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38522715924/job/115715871946)完成隔离 Smoke 的 16 个状态，最终 `[PASS] Android isolated smoke fixtures`；随后 core、feature、app 三模块连接测试均构建/执行成功，覆盖检查输出 `[PASS] Android instrumentation gates`。这包含迁移与回归用例的 CI 门禁，**不是 Android 实体设备验收**。
+- 该轮日志没有 `dismissing isolated AOSP ATD Fake System App ANR overlay`，所以精确系统 ANR 处理分支**没有被实际触发**；不能把本轮通过归因于自动关闭弹窗。旧轮次包服务消失及 Fake System App ANR 两项失败均保留，后续若再次发生须保留当轮日志和结果。
+- 同一固定源码的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38522715924) 六项常规作业、[Linux Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38522715920) 与 [Windows Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38522715808) 均已完成并成功，合计 **8/8**。OpenSSH 发布候选冒烟、签名 Mac UI 冒烟为条件跳过；本次无五端实体设备矩阵。
