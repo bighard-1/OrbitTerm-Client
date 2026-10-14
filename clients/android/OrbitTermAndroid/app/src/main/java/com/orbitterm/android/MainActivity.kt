@@ -31,6 +31,7 @@ import com.orbitterm.android.app.OrbitTermAppViewModel
 import com.orbitterm.android.app.AppDestination
 import com.orbitterm.android.app.SessionForegroundServiceController
 import com.orbitterm.android.app.backgroundLockDisposition
+import com.orbitterm.android.app.shouldLockOnPause
 import com.orbitterm.android.feature.terminal.TerminalSessionController
 import com.orbitterm.android.feature.assets.AssetsViewModel
 import com.orbitterm.android.domain.settings.AppThemePreference
@@ -190,6 +191,16 @@ class MainActivity : FragmentActivity() {
                             )
                             foregroundSessions.appForegrounded()
                             if (documentInteractionExpired) lockWithoutResume()
+                        }
+                        Lifecycle.Event.ON_PAUSE -> {
+                            hostResumed = false
+                            if (shouldLockOnPause(
+                                isChangingConfigurations = isChangingConfigurations,
+                                isDocumentInteractionPending = externalActivityLockCoordinator.isDocumentInteractionPending(),
+                                isBiometricPromptActive = biometricPromptActive,
+                            )) {
+                                lockForBackground()
+                            }
                         }
                         Lifecycle.Event.ON_STOP -> {
                             hostResumed = false
