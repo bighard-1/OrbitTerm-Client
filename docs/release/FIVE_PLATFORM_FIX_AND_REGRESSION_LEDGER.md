@@ -1,6 +1,6 @@
 # 五端整改与真机回归台账
 
-更新：2026-10-13。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
+更新：2026-10-14。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
 
 ## 记账规则
 
@@ -35,6 +35,18 @@
 | `ANDROID-ATD-ANR-65` | 固定 `2dd118e` 的 [后继 Android 15 作业](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38518784894/job/115703474379)：隔离 APK 已安装，但 ATD 自身 `Fake System App` 无响应系统弹窗挡住首个 Smoke 状态。后继修复提交 `dfdf026` 只在 ATD 隔离档案精确识别该系统弹窗与关闭按钮，全次运行最多处理两次；其他设备/标题不自动触控，产品源码不变。详见 [专项日志](ANDROID_EMULATOR_PACKAGE_SERVICE_20261013.md#新-ci-的另一项失败保留)。 | 原包服务错误本轮未重现，但 `locked` 状态 30 次快照均无预期文案，末次无障碍树是系统 ANR 弹窗，**Smoke 失败、连接仪表化未执行，保留**。本地 Shell/静态及受控 XML 检查通过；`dfdf026` 的 CI 结果须另记。`2dd118e` 同轮 Rust、Android Release、依赖扫描、桌面视觉、Apple checked-path、Linux Client、Windows Client 通过；OpenSSH 和签名 Mac UI 条件跳过，不算通过。 | 失败发生在一次性 CI ATD 模拟器中，并非产品账户 GUI 结果；尚无本修订后的隔离 GUI 通过证据。 | 无实体 Android/Windows 测试，未更改 iPhone、Mac、Linux 设备或测试账户。 | **五端未完成，发布不放行**。后继 CI 须证实 Smoke 全部状态及迁移/仪表化实际执行；若重复弹窗或客户端断言失败，仍失败。Android/Windows 实体机后续对照真实安装、墓碑、MFA 与录屏，不能把 CI 系统弹窗处理当成产品修复。 |
 
 `ANDROID-ATD-ANR-65` 的 **2026-10-14 后继 CI 回执**：固定提交 `4cf96ef` 的 [Android 15 作业](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38522715924/job/115715871946)完成预构建、隔离 Smoke **16/16 状态**、core/feature/app 三模块连接仪表化、迁移及覆盖检查，最终 `[PASS] Android instrumentation gates`。该轮**未出现**“dismissing isolated AOSP ATD Fake System App ANR overlay”日志，因此只证明完整常规路径通过，**不证明精确 ANR 处理分支已在 CI 中触发并验证**；旧 `2dd118e` 的系统 ANR 失败保留。[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38522715924) 六项常规作业，加 [Linux Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38522715920) 和 [Windows Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38522715808) 共 **8/8 成功**；OpenSSH 与签名 Mac UI 条件跳过。隔离模拟器结果不等于 Android 真机，也不关闭五端墓碑/MFA/录屏矩阵。
+
+## 2026-10-14 其他客户端的墓碑状态边界
+
+| 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
+| --- | --- | --- | --- | --- | --- |
+| `CROSS-STATE-66` | 源码提交 `6fadb49`，非签名安装包。源码审查发现 Android、Windows 和 Apple 的拉取逻辑把任何非 `active` 状态等同删除，未来服务端新增状态时存在误删本机资产及凭据的风险；本轮仅允许 `deleted` / `purged` 成为墓碑。Android 在处理任何删除前校验完整库存及分页回收站，未知状态返回无敏感内容的协议错误；Windows 对未知状态拒绝整页、绝不确认游标；Apple 全量和增量拉取均在应用墓碑前校验状态。Linux 原有源码已对 `active` / `deleted` / `purged` 使用明确白名单，本轮未改。 | Android `data:testDebugUnitTest` 与完整本地 Release 门禁通过，后者 **417 个 Gradle 任务**、未签名 arm64/x86_64 APK 构建和安全检查通过；Apple 定向 `SyncPullRecoveryPolicyTests` **24/24**、0 失败/跳过。Apple **全量脚本未通过**：checked-FFI、生命周期、压力及 HTTP 阶段已执行，iOS 模拟器 UI 阶段持续出现本机 Xcode `DebuggerVersionStore.StoreError`，测试宿主未完成启动；约 130 秒后中止，`xcodebuild` 退出 73，**没有新的 UI 12/12 结果**，失败保留。Mac 本机没有 .NET SDK，Windows 新测试尚待 PR 的 Windows CI 真正编译运行；`6fadb49` 的远端 CI 结果另记，不预先称通过。 | 本轮没有账户隔离 GUI 测试；Android 本地构建/单测、Apple macOS 单测不等于应用 GUI。iOS 模拟器 UI 未完成，不计通过。 | 未装新 iPhone/Android/Windows 包，未操作测试账户、真实主机或线上服务；既有真机结果不外推到 `6fadb49`。用户本轮决定暂缓当前唯一 Mac 的签名 UI 冒烟，未尝试覆盖正式版；未调用 RustDesk。 | **五端同版验收未完成，发布不放行**。Android/Windows 后续同签名候选上分别核对：`deleted` 与 `purged` 能清除本机资产和独占凭据、重复同步不复活；模拟未来未知状态须停止删除、保留本机资产/凭据/离线队列、不得错误确认游标；再继续原有离线交叉、MFA、录屏及安装升级矩阵。Apple 新源码也需在下一候选真机补同类边界；Linux 本轮只有源码审查，无新增实体机证据。 |
+
+## 2026-10-14 Android 对照 iOS 的 SSH 二次验证交接
+
+| 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
+| --- | --- | --- | --- | --- | --- |
+| `ANDROID-MFA-PARITY-67` | 基于 `6fadb49` 的 Android 工作树源码候选，**尚无提交或签名安装包**。原源码在正确码后仍要求用户另点“打开终端”；本轮仅在 SSH 已验证且有效 base session 存在时自动打开终端，真正附着同一会话后才跳转；Telnet 明文风险确认不变。后台主密码锁前只保留进程内、无验证码/凭据的资产＋账户作用域＋时间意图，清掉旧挑战和已输入码；同账户解锁后 5 分钟内一次性重新发起 checked SSH，过期/换账号/冷启动不恢复。锁定、取消、账号切换与迟到连接返回时清理原生 lease/Host Key 挑战，终端打开期间旧操作不能附着新页面。详见 [移动端对齐矩阵](../ANDROID_IOS_BEHAVIOR_ALIGNMENT_MATRIX.md)。 | Android `feature:testDebugUnitTest` 和 `app:compileDebugKotlin` 已通过；新增恢复窗口、账号隔离、挑战捕获及“只有受检 SSH 自动进终端”的单测。完整本地 Android Release 门禁已通过，含 **417 个 Gradle 任务**、未签名 ABI Release/隔离 Smoke 构建和安全静态检查；最终边界补强后，定向单测、Debug 编译和 Release 组装重跑通过；完整本地 Release 门禁按最终源码再次通过（417 个任务，0 失败），新增策略测试 **4/4**。远端 CI 尚未运行该工作树候选。 | 未在 Android 模拟器或隔离账户 GUI 操作真实 OTP；旧 Smoke 状态夹具没有真实验证器切换。 | 无 Android 实体设备，未安装本候选；iPhone/Mac/Linux 既有真机或隔离结果属于先前候选，不自动代表这轮 Android 源码。没有操作测试账户、服务器或验证器。 | **五端同候选未完成，发布不放行**。Android 真机优先按“首因子→空白码→切验证器→主密码→新空白码→正确码自动在线”验收；补错码/取消、5 分钟边界、切换账号、强退重开、Host Key 变化、双跳分别要码、密钥＋码、迟到连接不得复活会话，并核查日志/存储/同步负载无验证码。Windows 以后对照正码后会话聚焦、错码/取消终端禁用与迟到 native handle 清理，不照搬移动端后台锁。iOS `.25` 录屏限时授权与 Android 常驻 `FLAG_SECURE` 仍有产品行为差异，另列待决；本轮未放宽 Android 截屏/录屏保护。 |
 
 ## 2026-10-13 CI 门禁与 Linux 审计顺序复核
 

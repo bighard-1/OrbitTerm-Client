@@ -112,6 +112,11 @@ fun AssetsRoute(
             viewModel.openDeepLink(it, onDeepLinkConsumed)
         }
     }
+    LaunchedEffect(uiState.connection) {
+        if (uiState.connection?.shouldAutoOpenVerifiedSsh() == true) {
+            viewModel.openTerminal(onTerminalOpened)
+        }
+    }
 
     if (editor == null) {
         AssetList(
@@ -879,20 +884,26 @@ private fun ConnectionDialog(
                 )
             }) { Text("复制指纹") }
         }
+        ConnectionPhase.Connected if connection.transport == ServerTransportProtocol.ssh -> AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("正在打开终端") },
+            text = { CircularProgressIndicator() },
+            confirmButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        )
         ConnectionPhase.Connected -> OrbitFormDialog(
-            title = if (connection.transport == ServerTransportProtocol.telnet) "Telnet 端口可达" else "服务器身份已验证",
+            title = "Telnet 端口可达",
             confirmLabel = "打开终端",
             onConfirm = onOpenTerminal,
             onDismiss = onDismiss,
         ) {
-            Text(
-                if (connection.transport == ServerTransportProtocol.telnet) {
-                    "将通过明文 Telnet 连接发送用户名、密码和命令；此协议不提供服务器身份验证。"
-                } else {
-                    "已建立经过 Host Key 验证的 SSH 会话。"
-                },
-            )
+            Text("将通过明文 Telnet 连接发送用户名、密码和命令；此协议不提供服务器身份验证。")
         }
+        ConnectionPhase.Connecting if connection.baseSessionId != null -> AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("正在打开终端") },
+            text = { CircularProgressIndicator() },
+            confirmButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        )
         is ConnectionPhase.Blocked, is ConnectionPhase.Failed -> OrbitConfirmationDialog(
             title = connection.phase.presentationHeadline(),
             message = connection.phase.userMessage(),

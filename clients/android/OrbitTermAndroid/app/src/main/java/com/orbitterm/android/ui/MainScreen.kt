@@ -80,6 +80,7 @@ import androidx.core.net.toUri
 import com.orbitterm.android.app.AppDestination
 import com.orbitterm.android.app.OrbitTermAppUiState
 import com.orbitterm.android.feature.assets.AssetsRoute
+import com.orbitterm.android.feature.assets.AssetsViewModel
 import com.orbitterm.android.feature.sftp.SftpRoute
 import com.orbitterm.android.feature.docker.DockerRoute
 import com.orbitterm.android.feature.terminal.TerminalSessionsRoute
@@ -151,6 +152,7 @@ fun MainScreen(
     onTelnetEnabledChanged: (Boolean) -> Unit,
     accountName: String,
     administratorEmail: String,
+    assetsViewModel: AssetsViewModel,
     onLogout: () -> Unit,
     onLock: () -> Unit,
     biometricEnabled: Boolean,
@@ -222,6 +224,7 @@ fun MainScreen(
         when (uiState.destination) {
             AppDestination.Servers -> AssetsRoute(
                 modifier = Modifier.padding(paddingValues),
+                viewModel = assetsViewModel,
                 telnetEnabled = uiState.telnetEnabled,
                 onTerminalOpened = { onDestinationSelected(AppDestination.Sessions) },
                 deepLink = deepLink,

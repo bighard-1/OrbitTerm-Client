@@ -130,13 +130,15 @@ class AssetsViewModel @Inject constructor(
     // Process-local only; never written to assets, credentials, saved state, or sync.
     private val pendingSecondFactors = mutableMapOf<String, Pair<String, String>>()
     private val pendingEditorSecondFactors = mutableMapOf<String, Pair<String, String>>()
+    private var pendingSecondFactorResume: PendingSecondFactorResumeIntent? = null
     init {
         viewModelScope.launch {
             accountScopeController.scope.map { it?.storageId }.distinctUntilChanged().drop(1).collect {
+                pendingSecondFactorResume = null
+                dismissConnectionPrompt()
+                dismissEditorConnectionTest()
                 pendingSecondFactors.clear()
                 pendingEditorSecondFactors.clear()
-                if (connection.value?.secondFactorForJump != null) connection.value = null
-                editor.value = editor.value?.copy(connectionTest = null)
             }
         }
     }
@@ -455,6 +457,7 @@ class AssetsViewModel @Inject constructor(
 
     fun connectAsset(id: String, telnetEnabled: Boolean = false) {
         if (connection.value?.phase is ConnectionPhase.Connecting) return
+        connection.value?.let { operations.invalidate("terminal_open", it.assetId) }
         connection.value?.takeIf { it.assetId != id }?.let { pendingSecondFactors.remove(it.assetId) }
         val operation = operations.begin("ssh_connect", id) ?: return
         viewModelScope.launch {
@@ -494,6 +497,17 @@ class AssetsViewModel @Inject constructor(
                 val state = result.toConnectionUiState(id).rejectRepeatedSecondFactor(codes)
                 if (state.secondFactorForJump == null && state.hostKeyChallenge == null) pendingSecondFactors.remove(id)
                 connection.value = state
+            } else {
+                // A lock, dismissal or newer request won the race. Never retain a late native lease/challenge.
+                when (result) {
+                    is CheckedSshConnectResult.Connected -> withContext(Dispatchers.IO) {
+                        checkedSshNativeClient.disconnect(result.baseSessionId)
+                    }
+                    is CheckedSshConnectResult.HostKeyChallenge -> withContext(Dispatchers.IO) {
+                        checkedSshNativeClient.rejectChallenge(result.challengeId)
+                    }
+                    else -> Unit
+                }
             }
         }
     }
@@ -527,7 +541,11 @@ class AssetsViewModel @Inject constructor(
     fun dismissConnectionPrompt() {
         val current = connection.value
         current?.let { pendingSecondFactors.remove(it.assetId) }
-        current?.let { operations.invalidate("ssh_connect", it.assetId); operations.invalidate("host_key", it.assetId) }
+        current?.let {
+            operations.invalidate("ssh_connect", it.assetId)
+            operations.invalidate("host_key", it.assetId)
+            operations.invalidate("terminal_open", it.assetId)
+        }
         connection.value = null
         when {
             current?.hostKeyChallenge != null -> viewModelScope.launch(Dispatchers.IO) {
@@ -539,10 +557,39 @@ class AssetsViewModel @Inject constructor(
         }
     }
 
+    /** Called before the master-password gate closes, while the current account is still known. */
+    fun onSecurityLock(allowSecondFactorResume: Boolean, nowMillis: Long = System.currentTimeMillis()) {
+        val current = connection.value
+        val scopeId = accountScopeController.scope.value?.storageId
+        pendingSecondFactorResume = if (allowSecondFactorResume) {
+            MobileSecondFactorResumePolicy.capture(current, scopeId, nowMillis)
+        } else null
+        dismissConnectionPrompt()
+        dismissEditorConnectionTest()
+        pendingSecondFactors.clear()
+        pendingEditorSecondFactors.clear()
+    }
+
+    /** One-shot: the old challenge is gone; a fresh checked connection must ask again. */
+    fun resumeSecondFactorAfterUnlock(nowMillis: Long = System.currentTimeMillis()): Boolean {
+        val intent = pendingSecondFactorResume ?: return false
+        pendingSecondFactorResume = null
+        if (!MobileSecondFactorResumePolicy.canResume(
+                intent, accountScopeController.scope.value?.storageId, nowMillis,
+            ) || uiState.value.assets.none { it.id == intent.assetId }
+        ) return false
+        connectAsset(intent.assetId)
+        return true
+    }
+
     fun openTerminal(onOpened: () -> Unit) {
         val current = connection.value ?: return
+        if (current.phase != ConnectionPhase.Connected) return
         val asset = uiState.value.assets.firstOrNull { it.id == current.assetId } ?: return
+        if (asset.transport == ServerTransportProtocol.ssh.name && !current.shouldAutoOpenVerifiedSsh()) return
         val operation = operations.begin("terminal_open", asset.id) ?: return
+        val opening = current.copy(phase = ConnectionPhase.Connecting)
+        connection.value = opening
         viewModelScope.launch {
             val opened = if (asset.transport == ServerTransportProtocol.telnet.name) {
                 val credentials = withContext(Dispatchers.IO) {
@@ -555,19 +602,24 @@ class AssetsViewModel @Inject constructor(
                     assetId = asset.id,
                     displayName = asset.name,
                     baseSessionId = baseSessionId,
-                    shouldAttach = { operations.isCurrent(operation) },
+                    shouldAttach = { operations.isCurrent(operation) && connection.value == opening },
                 )
             }
             if (!operations.isCurrent(operation)) return@launch
+            if (connection.value != opening) return@launch
             if (opened) {
                 connection.value = null
                 onOpened()
             } else {
+                current.baseSessionId?.let { baseSessionId ->
+                    withContext(Dispatchers.IO) { checkedSshNativeClient.disconnect(baseSessionId) }
+                }
                 connection.value = current.copy(
                     phase = ConnectionPhase.Failed(
                         error = ConnectionError.Unknown,
                         retryable = true,
                     ),
+                    baseSessionId = null,
                 )
             }
         }

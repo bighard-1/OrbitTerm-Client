@@ -28,9 +28,11 @@ import com.orbitterm.android.app.BiometricPromptFailure
 import com.orbitterm.android.app.MasterPasswordViewModel
 import com.orbitterm.android.app.SyncViewModel
 import com.orbitterm.android.app.OrbitTermAppViewModel
+import com.orbitterm.android.app.AppDestination
 import com.orbitterm.android.app.SessionForegroundServiceController
 import com.orbitterm.android.app.backgroundLockDisposition
 import com.orbitterm.android.feature.terminal.TerminalSessionController
+import com.orbitterm.android.feature.assets.AssetsViewModel
 import com.orbitterm.android.domain.settings.AppThemePreference
 import com.orbitterm.android.domain.support.AdministratorContactRepository
 import com.orbitterm.android.ui.MainScreen
@@ -64,6 +66,7 @@ class MainActivity : FragmentActivity() {
             val appViewModel: OrbitTermAppViewModel = viewModel()
             val authViewModel: AuthViewModel = viewModel()
             val masterViewModel: MasterPasswordViewModel = viewModel()
+            val assetsViewModel: AssetsViewModel = viewModel()
             val syncViewModel: SyncViewModel = viewModel()
             val recentlyDeletedViewModel: com.orbitterm.android.app.RecentlyDeletedViewModel = viewModel()
             val syncStatus = syncViewModel.status.collectAsStateWithLifecycle().value
@@ -76,6 +79,13 @@ class MainActivity : FragmentActivity() {
             val masterState = masterViewModel.uiState.collectAsStateWithLifecycle().value
             val pendingDeepLink = deepLinks.pending.collectAsStateWithLifecycle().value
             val uiState = appViewModel.uiState.collectAsStateWithLifecycle().value
+            LaunchedEffect(masterState.isUnlocked, authState.session?.username) {
+                if (masterState.isUnlocked && authState.session?.mustChangePassword == false &&
+                    assetsViewModel.resumeSecondFactorAfterUnlock()
+                ) {
+                    appViewModel.selectDestination(AppDestination.Servers)
+                }
+            }
             val recentlyDeletedState = recentlyDeletedViewModel.uiState.collectAsStateWithLifecycle().value
             val administratorEmail = administratorContactRepository.administratorEmail.collectAsStateWithLifecycle().value
             LaunchedEffect(administratorContactRepository) {
@@ -88,6 +98,18 @@ class MainActivity : FragmentActivity() {
             }
             val lifecycleOwner = LocalLifecycleOwner.current
             val coroutineScope = rememberCoroutineScope()
+            val lockWithoutResume = {
+                if (masterViewModel.uiState.value.isUnlocked) {
+                    assetsViewModel.onSecurityLock(allowSecondFactorResume = false)
+                    masterViewModel.lock()
+                }
+            }
+            val lockForBackground = {
+                if (masterViewModel.uiState.value.isUnlocked) {
+                    assetsViewModel.onSecurityLock(allowSecondFactorResume = true)
+                    masterViewModel.lock()
+                }
+            }
             var biometricPromptAction by androidx.compose.runtime.remember {
                 mutableStateOf(BiometricPromptAction.Unlock)
             }
@@ -167,7 +189,7 @@ class MainActivity : FragmentActivity() {
                                 DOCUMENT_INTERACTION_LOCK_GRACE_MILLIS,
                             )
                             foregroundSessions.appForegrounded()
-                            if (documentInteractionExpired) masterViewModel.lock()
+                            if (documentInteractionExpired) lockWithoutResume()
                         }
                         Lifecycle.Event.ON_STOP -> {
                             hostResumed = false
@@ -183,11 +205,11 @@ class MainActivity : FragmentActivity() {
                                     coroutineScope.launch {
                                         delay(DOCUMENT_INTERACTION_LOCK_GRACE_MILLIS)
                                         if (externalActivityLockCoordinator.isDocumentInteractionExpired(DOCUMENT_INTERACTION_LOCK_GRACE_MILLIS)) {
-                                            masterViewModel.lock()
+                                            lockWithoutResume()
                                         }
                                     }
                                 }
-                                BackgroundLockDisposition.LOCK_NOW -> masterViewModel.lock()
+                                BackgroundLockDisposition.LOCK_NOW -> lockForBackground()
                             }
                         }
                         else -> Unit
@@ -214,7 +236,10 @@ class MainActivity : FragmentActivity() {
                     isSubmitting = authState.isChangingPassword,
                     error = authState.loginPasswordFeedback?.takeIf { it.isError }?.message,
                     onChangePassword = authViewModel::changeLoginPassword,
-                    onLogout = authViewModel::logout,
+                    onLogout = {
+                        lockWithoutResume()
+                        authViewModel.logout()
+                    },
                 )
                 else if (!masterState.isUnlocked) MasterPasswordScreen(
                     configured = masterState.isConfigured,
@@ -237,12 +262,13 @@ class MainActivity : FragmentActivity() {
                     appViewModel::setTelnetEnabled,
                     accountName = authState.session.username,
                     administratorEmail = administratorEmail,
+                    assetsViewModel = assetsViewModel,
                     onLogout = {
                         recentlyDeletedViewModel.clear()
-                        masterViewModel.lock()
+                        lockWithoutResume()
                         authViewModel.logout()
                     },
-                    onLock = masterViewModel::lock,
+                    onLock = lockWithoutResume,
                     biometricEnabled = masterState.biometricEnabled,
                     biometricFeedback = masterState.biometricFeedback,
                     loginPasswordFeedback = authState.loginPasswordFeedback,
