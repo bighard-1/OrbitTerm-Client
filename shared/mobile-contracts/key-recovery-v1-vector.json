@@ -1,0 +1,8 @@
+{
+  "password": "备份恢复-pass😀2026",
+  "envelope": {"kind":"terminal_custom_keys","version":1,"payloadSyntaxVersion":1,"revisions":[{"id":"11111111-1111-1111-1111-111111111111","clock":{"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa":1},"value":{"label":"测试😀","payload":"\\x12","section":"common","order":0}}]},
+  "salt": "AAECAwQFBgcICQoLDA0ODw==",
+  "nonce": "EBESExQVFhcYGRob",
+  "swift": "T1RLRVlCSzEAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobZ+/wyPXD5EhT6BsxA+s9JVcQvzAZ/hJFs8KIgFG180725FEnHOEjltkxp4Z8wn4kAURixSrR+oVx1ThJUsg2e6N+G+LWUZCO0U6yDCwOTNR7RDZVC4LTn0xOwhkGmEPDFzvQukQSQZ7NqvCK7uxkuTFGH5d9ZdGKNJeJbJDTqIrBFWdBMcVc3Gzd4EM4Vyf/P/QKs1Bee/STOWzxjhJzPo0tPRSFOUKukY5Y2zd+jwF8Yth2ZxlDLO8izQc5Pd/6tjsme13V2hlLeASKY2XB385YboiMEZHvuBF3UuUwEwlHzkQ/jhFwd1Nq39BJT5SkkQR0zIejP+7Fd88Chm5anDUkHE5Nf4gTtbBU5LNQ+Y18",
+  "kotlin": "T1RLRVlCSzEAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobZ+/wyPXD5EhT6BsxA+s9JVcQvzAZ/hJFs8KIgFG1807w4Fo4Gu8p55pu/8V09WI6HUxp+HGFv8gr8ThNSNIweu83CPSvWNeb1FK4CGBHFcxBXnVdDsGI3FAekklWhBOTW2vM6hReEYKd+rzavrw09WEWT8dubtHGKYTROZDFqNicSzUbIs4W0zyNsBN0B3evI7ha4wBCN6TDaXCh3kIjIt19bVfIelWunJpcmC8/nBAxIst7KVYE6GDSB8TNryUOFCMov4csVtOsqqEiz2WdnMdVeIWHUs/v3m9TP68jDQkYiVQuhAp3Ogdqhp1HTZan3BcrvYnuO+/SdoRX2DEd8DXnKBpMV3dQlUAEJRSPHIvo"
+}

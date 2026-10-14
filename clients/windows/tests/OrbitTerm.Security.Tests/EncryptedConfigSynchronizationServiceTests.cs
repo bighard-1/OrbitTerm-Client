@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using OrbitTerm.Application.Accounts;
 using OrbitTerm.Application.Security;
 using OrbitTerm.Application.Sessions;
@@ -9,6 +10,57 @@ namespace OrbitTerm.Security.Tests;
 
 public sealed class EncryptedConfigSynchronizationServiceTests
 {
+    [Fact]
+    public async Task SharedCustomKeyVectorsDeferOnlyReservedAccountRecordsWithoutPublishing()
+    {
+        OrbitNativeLibraryLoader.Register();
+        var root = OrbitConfigCrypto.DeriveConfigRootKeyV2("correct horse", "scope");
+        using var vectors = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "custom-key-routing-vectors.json")));
+        foreach (var row in vectors.RootElement.EnumerateArray())
+        {
+            var plaintext = Encoding.UTF8.GetBytes(row.GetProperty("plaintext").GetString()!);
+            var reserved = row.GetProperty("reserved").GetBoolean();
+            var encrypted = Convert.ToBase64String(OrbitConfigCrypto.EncryptConfigV2(root, plaintext));
+            foreach (var assetId in new string?[] { null, "", Guid.NewGuid().ToString("D") })
+            {
+                var assets = new Assets();
+                var credentials = new Credentials();
+                var protocol = new Sync([Record(encrypted) with { AssetId = assetId }], assets, credentials);
+                var service = new EncryptedConfigSynchronizationService(protocol, assets, new Snippets(), credentials, new States());
+                var result = await service.SynchronizeAsync(Session, "scope", "correct horse", root, CancellationToken.None);
+                var deferred = reserved && assetId is null;
+                Assert.Equal(deferred ? EncryptedConfigSynchronizationStatus.Completed : EncryptedConfigSynchronizationStatus.UnsupportedConfiguration, result.Status);
+                Assert.Equal(deferred ? 1 : 0, protocol.Acknowledgements);
+                Assert.Empty(assets.Values);
+                Assert.Empty(credentials.Values);
+                Assert.Equal(0, protocol.Uploads);
+                Assert.Equal(plaintext, OrbitConfigCrypto.DecryptConfigV2(root, Convert.FromBase64String(encrypted)));
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("active")]
+    [InlineData("deleted")]
+    public async Task ReservedCustomKeyDoesNotBlockMixedAssetPage(string state)
+    {
+        OrbitNativeLibraryLoader.Register();
+        var root = OrbitConfigCrypto.DeriveConfigRootKeyV2("correct horse", "scope");
+        var opaque = Convert.ToBase64String(OrbitConfigCrypto.EncryptConfigV2(root,
+            "{\"kind\":\"terminal_custom_keys\",\"version\":999,\"entries\":null}"u8.ToArray()));
+        var asset = Convert.ToBase64String(OrbitConfigCrypto.EncryptConfigV2(root, JsonAsset(Guid.NewGuid(), Guid.NewGuid(), "asset")));
+        var assets = new Assets();
+        var credentials = new Credentials();
+        var protocol = new Sync([Record(opaque) with { State = state }, Record(asset) with { Id = 2 }], assets, credentials);
+        var service = new EncryptedConfigSynchronizationService(protocol, assets, new Snippets(), credentials, new States());
+        var result = await service.SynchronizeAsync(Session, "scope", "correct horse", root, CancellationToken.None);
+        Assert.Equal(EncryptedConfigSynchronizationStatus.Completed, result.Status);
+        Assert.Single(assets.Values);
+        Assert.Single(credentials.Values);
+        Assert.Equal(1, protocol.Acknowledgements);
+        Assert.Equal(0, protocol.Uploads);
+    }
+
     [Fact]
     public async Task AppliesV2AndLegacyAssetsBeforeAcknowledgingThePage()
     {

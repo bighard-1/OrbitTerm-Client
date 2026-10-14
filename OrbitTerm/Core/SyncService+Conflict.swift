@@ -406,6 +406,11 @@ extension SyncService {
               let portableData = plainText.data(using: .utf8) else {
             throw NetworkService.NetworkError.decodeFailed
         }
+        switch TerminalCustomKeySyncCompatibility.routing(portableData, assetID: item.asset_id) {
+        case .deferred: throw TerminalCustomKeySyncCompatibility.RoutingError.deferred
+        case .invalidAssetIdentity: throw TerminalCustomKeySyncCompatibility.RoutingError.invalidAssetIdentity
+        case .unrelated: break
+        }
         return try JSONDecoder().decode(PortableServerConfig.self, from: portableData)
     }
 

@@ -117,6 +117,15 @@ targets:
           - Core/SyncRequestIdentity.swift
           - Core/SyncQueueRecoveryPolicy.swift
           - Core/SyncHTTPResponsePolicy.swift
+          - Core/AdministratorContactPolicy.swift
+          - Core/AdministratorContactStore.swift
+          - Core/TerminalCustomKeyPayload.swift
+          - Core/TerminalCustomKeySyncCompatibility.swift
+          - Core/TerminalCustomKeyContract.swift
+          - Core/TerminalCustomKeyLocalDocument.swift
+          - Core/TerminalCustomKeyStore.swift
+          - Core/TerminalCustomKeyRecoveryPackage.swift
+          - Core/TerminalCustomKeyRepairPreview.swift
           - Core/OfficialServiceTLSPinningPolicy.swift
           - Core/OperationOwner.swift
           - Core/WorkspacePresentationCoordinator.swift
@@ -182,6 +191,56 @@ targets:
           - -lfreerdp-client3
           - -lwinpr3
 
+  OrbitTermMobileKeyTestHost:
+    type: application
+    platform: iOS
+    sources:
+      - path: tests/mobile-key-host
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.orbitterm.mobile-key-test-host
+        SWIFT_OBJC_BRIDGING_HEADER: ""
+        CODE_SIGN_ENTITLEMENTS: ""
+        SDKROOT: iphoneos
+        SUPPORTED_PLATFORMS: "iphonesimulator iphoneos"
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+  OrbitTermMobileKeyTests:
+    type: bundle.unit-test
+    platform: iOS
+    dependencies:
+      - target: OrbitTermMobileKeyTestHost
+    sources:
+      - path: OrbitTermMobileKeyTests
+      - path: OrbitTerm
+        includes:
+          - Core/AccountIdentity.swift
+          - Core/AccountScope.swift
+          - Core/KeychainDataStore.swift
+          - Core/KeychainManager.swift
+          - Core/TerminalCustomKeyPayload.swift
+          - Core/TerminalCustomKeyContract.swift
+          - Core/TerminalCustomKeyLocalDocument.swift
+          - Core/TerminalCustomKeyStore.swift
+          - Core/TerminalCustomKeyRecoveryPackage.swift
+          - Core/TerminalCustomKeyRepairPreview.swift
+          - App/MobileTerminalCustomKeysView.swift
+          - App/MobileTerminalKeyRecoveryView.swift
+          - Features/Home/MobileTerminalShortcutAccessory.swift
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.orbitterm.mobile-key-tests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/OrbitTermMobileKeyTestHost.app/OrbitTermMobileKeyTestHost"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        SWIFT_OBJC_BRIDGING_HEADER: ""
+        CODE_SIGN_ENTITLEMENTS: ""
+        SDKROOT: iphoneos
+        SUPPORTED_PLATFORMS: "iphonesimulator iphoneos"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: 5.0
+
   OrbitTermiOSUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -223,6 +282,14 @@ targets:
         SWIFT_VERSION: 5.0
 
 schemes:
+  OrbitTermMobileKeyTests:
+    build:
+      targets:
+        OrbitTermMobileKeyTests: [test, analyze]
+    test:
+      targets:
+        - OrbitTermMobileKeyTests
+
   OrbitTermCheckedFFITests:
     build:
       targets:

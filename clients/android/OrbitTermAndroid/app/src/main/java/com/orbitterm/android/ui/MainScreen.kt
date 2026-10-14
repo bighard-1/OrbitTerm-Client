@@ -76,7 +76,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
+import android.net.Uri
+import com.orbitterm.android.domain.support.AdministratorContactPolicy
 import com.orbitterm.android.app.AppDestination
 import com.orbitterm.android.app.OrbitTermAppUiState
 import com.orbitterm.android.feature.assets.AssetsRoute
@@ -339,6 +340,8 @@ private fun MoreScreen(
     }
     var diagnosticsCopied by remember { mutableStateOf(false) }
     var feedbackLaunchError by remember { mutableStateOf<String?>(null) }
+    var feedbackEmailCopied by remember { mutableStateOf(false) }
+    val feedbackEmail = AdministratorContactPolicy.emailOrDefault(administratorEmail)
     var switchAccountConfirmationVisible by remember { mutableStateOf(false) }
     var logoutConfirmationVisible by remember { mutableStateOf(false) }
     var loginPasswordChangeVisible by remember { mutableStateOf(false) }
@@ -573,17 +576,23 @@ private fun MoreScreen(
             ) {
                 SettingLabel("帮助与反馈", "联系支持并反馈问题")
                 TextButton(onClick = {
+                    feedbackEmailCopied = false
                     val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
-                        data = "mailto:$administratorEmail".toUri()
-                        putExtra(Intent.EXTRA_SUBJECT, "OrbitTerm Android 反馈")
+                        data = Uri.fromParts("mailto", feedbackEmail, null)
+                        putExtra(Intent.EXTRA_SUBJECT, AdministratorContactPolicy.SUBJECT)
                     }
                     val launched = runCatching { context.startActivity(emailIntent) }.isSuccess
-                    feedbackLaunchError = if (launched) null else "未找到可用的邮件应用，可复制邮箱后发送。"
+                    feedbackLaunchError = if (launched) null else AdministratorContactPolicy.UNAVAILABLE_MESSAGE
                 }) {
-                    Text("发送邮件至 $administratorEmail")
+                    Text("发送邮件至 $feedbackEmail")
                 }
                 feedbackLaunchError?.let { message ->
                     OrbitFeedbackBanner(message = message, isError = true)
+                    TextButton(onClick = {
+                        feedbackEmailCopied = SensitiveClipboard.copy(
+                            context, "支持邮箱", feedbackEmail, ClipboardContentKind.ORDINARY_TEXT,
+                        )
+                    }) { Text(if (feedbackEmailCopied) "邮箱已复制" else "复制邮箱") }
                 }
                 TextButton(onClick = { aboutVisible = true }) { Text("关于 OrbitTerm") }
                 TextButton(onClick = { termsVisible = true }) { Text("使用条款与隐私") }

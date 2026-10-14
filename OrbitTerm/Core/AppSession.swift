@@ -9,9 +9,25 @@ import AppKit
 
 @MainActor
 final class AppSession: ObservableObject {
-    @Published var isAuthenticated: Bool = false
-    @Published var isUnlocked: Bool = false
-    @Published var username: String = ""
+    @Published var isAuthenticated: Bool = false {
+        didSet { updateTerminalKeyAccess() }
+    }
+    @Published var isUnlocked: Bool = false {
+        didSet { updateTerminalKeyAccess() }
+    }
+    @Published var username: String = "" {
+        didSet {
+            if AccountScope(username: oldValue) != AccountScope(username: username) {
+                isUnlocked = false
+            }
+            updateTerminalKeyAccess()
+        }
+    }
+    let terminalCustomKeys: TerminalCustomKeyStore
+
+    private func updateTerminalKeyAccess() {
+        terminalCustomKeys.setAccess(account: AccountScope(username: username), unlocked: isAuthenticated && isUnlocked)
+    }
     @Published var transientStatus: String = ""
     @Published private(set) var masterPasswordPersistenceError: String?
     @Published private(set) var authRevision: Int = 0
@@ -36,6 +52,35 @@ final class AppSession: ObservableObject {
         uiTestLaunchState: AppUITestLaunchState = .standard
     ) {
         self.keychain = keychain
+        #if !ORBITTERM_PUBLIC_RELEASE
+        if uiTestLaunchState != .standard {
+            var documents: [String: Data] = [:]
+            let failKeyWrite = ProcessInfo.processInfo.arguments.contains("-orbitTermUITestKeyWriteFailure")
+            let conflictFixture = uiTestLaunchState == .terminalCustomKeys && ProcessInfo.processInfo.arguments.contains("-orbitTermUITestKeyConflict")
+            let corruptFixture = uiTestLaunchState == .terminalCustomKeys && ProcessInfo.processInfo.arguments.contains("-orbitTermUITestKeyCorrupt")
+            terminalCustomKeys = .init(read: { account in
+                if corruptFixture && documents[account] == nil { documents[account] = Data([0xff, 0, 0xc0, 0x80]) }
+                if conflictFixture && documents[account] == nil {
+                    var doc = TerminalCustomKeyLocalDocument.empty(account: account)
+                    let id = "11111111-1111-1111-1111-111111111111"
+                    doc.envelope = .v1([
+                        .init(id: id, clock: ["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa": 1],
+                              value: .init(label: "ConflictKey", payload: "\\r", section: "common", order: 0)),
+                        .init(id: id, clock: ["bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb": 1], value: nil),
+                    ])
+                    documents[account] = try doc.encoded()
+                }
+                return documents[account]
+            }, write: {
+                if failKeyWrite { throw CocoaError(.fileWriteNoPermission) }
+                documents[$0] = $1
+            })
+        } else {
+            terminalCustomKeys = .keychainBacked()
+        }
+        #else
+        terminalCustomKeys = .keychainBacked()
+        #endif
         #if !ORBITTERM_PUBLIC_RELEASE
         guard uiTestLaunchState == .standard else {
             applyUITestLaunchState(uiTestLaunchState)
@@ -63,12 +108,12 @@ final class AppSession: ObservableObject {
             username = "ui-test@example.invalid"
         case .authenticatedUnlocked:
             isAuthenticated = true
-            isUnlocked = true
             username = "ui-test@example.invalid"
-        case .operationalStates, .syncRecoveryStates, .accountSecurityStates:
+            isUnlocked = true
+        case .operationalStates, .syncRecoveryStates, .accountSecurityStates, .terminalCustomKeys:
             isAuthenticated = true
-            isUnlocked = true
             username = "ui-test@example.invalid"
+            isUnlocked = true
         }
         authRevision = 1
     }

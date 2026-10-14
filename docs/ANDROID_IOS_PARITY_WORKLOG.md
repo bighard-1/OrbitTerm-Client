@@ -309,3 +309,161 @@ Android 以 iOS 移动端的功能语义、信息架构和关键操作结果为�
 - iOS 移动端删除不能改变图表窗口的“趋势时间范围”假选项，与 Android 固定最近 5 分钟的六张趋势图一致；同一 SwiftUI 设置页在 macOS 仍保留实时/5/10 分钟选择，因为工作站监控详情真实消费该设置。
 - Apple 发布门禁新增条件编译结构检查，并将后端调试界面文案加入 Release 排除扫描。移动/桌面条件分支分别完成构建，避免通过删除共享字段破坏 macOS 能力。
 - 本轮沿用同一完整验证批次：Android 170 项 JVM 测试、38 项 API 36 模拟器设备化测试以及 Release/隔离冒烟门禁通过，最新 Smoke APK 已部署并冷启动；Apple 299 项 Checked 测试通过，iOS Debug/Release 与 macOS Release 在收尾修改后重新构建通过。本机 Xcode 26.5.1 的 iOS UI runner 工具链故障和真机验收仍单独保留，不作为代码通过证据。
+
+## 2026-09-03：剩余协议项的输入边界与邮件恢复
+
+- 部署回执：最新 ARM64 Smoke APK 已覆盖安装至 API 36 模拟器，冷启动 652ms、前台进程正常，不清应用数据、不自动执行命令。SHA-256：`ffef47f0cdc5e2305e7f6966fee065caf528a01499b1a05fea663ce7a57c2c93`。
+
+> 同日后续：用户提供 OrbitTerm-Master 后端路径后，已找到实际的 recovery-info 接口并完成下一阶段对接。下列“待服务端提供”是该阶段当时状态，以文末更新为准。
+- 核实 Android 管理员邮箱 `refresh()` 实际为空实现，修正旧审计“已支持服务端刷新”的误述。未新增猜测的 HTTP 路由、伪缓存或虚假的同步成功状态。
+- 双端新增一致的管理员地址白名单；拒绝 mailto/query/fragment/换行/百分号编码注入，统一离线默认值与邮件主题。iOS 使用 URLComponents 和原生 openURL 结果回调，Android 使用 Uri/Intent；两端无邮件应用时均提供失败提示和真正可用的复制邮箱按钮。
+- 将 Android 自定义按键解码提取为领域策略，修复 UTF-16 代理对拆分导致 emoji 变为问号，以及 `toIntOrNull(16)` 误接受 `+F`/`-1` 的问题。两端使用同一 UTF-8/转义规则、64 字节结果上限和 256 字节输入上限；Android 编辑器允许输入完整的 64 字节十六进制形式。
+- 自检纠正了旧配置保留边界：读取不因新解码规则删除旧记录；新写入和实际发送严格校验，旧非法项仍在管理列表保留，新增其他按键不能间接清除它们。
+- 新增共享 JSON 回归样例，Android 测试 sourceSet 和 Apple XCTest 共用；Apple 提供不依赖完整 Rust/RDP 重构建的轻量 XCTest 入口。发布门禁纳入相关测试要求，正式应用不打包测试样例。
+- 协议及实施顺序记录在 `shared/mobile-contracts/README.md`：自定义键信封、容量、墓碑/并发冲突、旧版本兼容与安全本机迁移仍待确认；管理员 API 的实际路由、认证、版本与缓存期也待服务端提供。iOS 自定义键编辑器和跨端同步尚未启用，不将协议提案计为已发布能力。
+- 本轮验收：Android 174 项 JVM 测试通过（新增 4 项），Smoke R8 构建、Lint（0 errors、16 warnings）通过；Apple 5 项专项 XCTest（包含共享样例与边界）及 iOS Simulator Debug 构建通过；两套对齐矩阵、脚本语法及 diff 检查通过。Android 复用仓库中未改动的原生库，本轮不冒充全 ABI Rust 源构建门禁；Apple 全量 Checked、平台 Release 与两端设备化 UI 测试本轮未重跑，真机仍未执行。
+
+## 2026-09-03：基于真实后端契约完成管理员联系方式对接
+
+- 只读审查 `/Users/cwz/Desktop/OrbitTerm-Master`：确认公开 `GET /api/v1/auth/recovery-info` 的 success/data 信封与可选 support_contact 字段，配置由管理端 recovery-policy 维护。后端已有未提交修改未改动，不新建路由、不调整线上策略。
+- Apple 新增原生 ObservableObject 联系仓库，Android 将空 refresh 接入现有 Ktor API。请求不带 Authorization、不读取主密码；只采用通过邮箱白名单的字段，不将后端恢复政策文字当作客户端安全规则。
+- 同一服务的公开配置按来源隔离缓存，24 小时有效、前台最短 5 分钟刷新；后台取消请求/轮询。离线恢复仍有效缓存，过期或未来时间戳回退默认值；进程内用 uptime 抵御墙钟跳变。管理员清空字段会明确回退默认邮箱，非法响应不污染旧缓存。
+- 自检修复取消与过期边界：取消请求不发布缓存、不阻碍下一次前台刷新；Apple 来源切换后旧响应不能覆盖新来源。因为此 API 是无认证的公共配置，不为不同账户重复存储同一公开联系地址。
+- 新增原生 HTTP 请求/信封测试及缓存生命周期测试。Apple 完整 Checked 测试 311 项通过、0 跳过/失败；其中 10 项联系人/字节策略还通过轻量独立运行。Android 全模块 JVM 测试 180 项通过；Smoke R8 构建及 Lint 通过（0 errors、16 warnings）。iOS Simulator Debug 构建和双对齐门禁通过；本轮未重跑所有 Release/设备化 UI/真机项目。
+- 最新 ARM64 Smoke APK 已覆盖安装至 API 36 模拟器并冷启动成功（782ms），未清空应用数据。SHA-256：`237c125dc93a1e4886c2e2ca1e7dcd1c8b9bb6ae046c0be2938bfbcdd0b9caed`。本轮客户端代码尚未推送。
+- 剩余 P01：服务端可以存任意密文，但旧客户端辅助类型分流只接受已知种类，未知记录可能进入资产解码并报错。下一步先完成各端类型兼容与主密码轮换覆盖，再开放自定义键 E2EE 写入、迁移及 iOS 编辑器。按此前移动端代码对齐范围粗估约 99%，余约 1%；此估算不代表真机、线上配置或桌面端全部功能已验收。
+
+## 2026-09-03：自定义终端键的只读兼容准备
+
+- Apple（iOS/macOS）、Android、Windows 当前主工作区新增 `terminal_custom_keys` 的只读类型分流。只识别精确种类、不解释版本及按键内容；未知模式仍保留服务端原密文，不创建虚假资产，不执行、不合并、不上传。
+- 明确账户级配置必须无 asset_id；空串/非法值/合法服务器 UUID 都不能借用。Apple 与 Android 的资产准备/冲突候选绕过合法预留记录，不增加解密失败计数，不写资产凭据，不加入去重删除候选。Windows 保留任意其他未知类型阻断策略，合法预留类型可与正常资产同页同步，已删除且保留密文的无身份预留项也不会阻塞资产页。
+- 自检顺带修正 Windows 对非对象 JSON 或非字符串 kind 调用 GetString 的异常边界，统一返回 UnsupportedConfiguration，不把协议错误变成未处理异常。
+- 新增三端共用的 15 组路由样例，覆盖未来/缺失/畸形版本、非法根节点、种类大小写和资产身份混用。Windows 样例走真实本地加密及同步服务，验证不发布/不创建资产/不改写原文；新增混合页用例。Apple 新增原生加密重加密字节保持测试，Windows 实际主密码轮换控制器新增 V2/legacy、active/deleted 不透明按键原文保持测试。
+- 没有为可测试性改写三端现有密码轮换流程：源码确认均直接解密/重加密原文。Apple/Android 完整轮换网络流程、旧发布二进制与外部 Linux 开发分支仍需后续验收。新写入保持关闭；未来消费者必须独立全量拉取，不使用已确认的资产增量游标充当按键缓存。
+- 验证：Apple Checked 313 项全部通过（0 跳过/失败），其中 11 项纯策略也独立通过；iOS Simulator 与 macOS Debug 构建通过。macOS 有既有 FreeRDP deprecated 声明警告。Android 五模块 JVM 181 项通过（0 跳过/失败），Smoke R8 与 Lint 通过（0 errors、16 warnings）；架构和两套跨端对齐检查、脚本语法与 git diff 检查通过。
+- Windows .NET 测试工程本机编译 0 警告/错误，使用本机 Darwin 原生库执行安全/应用测试，不等同于 Windows WPF/安装包构建。首轮 279/280 通过，既有 WorkspaceTabsPreserveIndependentLiveSessionState 的 2 秒等待超时；单独复跑 1/1 通过，完整复跑 280/280 通过、0 跳过。保留首轮失败证据，不通过改宽超时掩盖。
+- 构建/测试证据：`build/custom-key-{android,apple,ios-build,macos-build,windows-build,windows-tests,windows-repeat}.log`；Apple `build/contact-api-apple/Logs/Test/Test-OrbitTermCheckedFFITests-2026.09.03_19-08-05--0700.xcresult`；Windows `build/custom-key-windows-tests/*.trx`。这些为可再生成本机证据，不提交大型产物。
+- 最新 ARM64 Smoke APK 已覆盖安装到 API 36 模拟器，冷启动 792ms、进程正常，未清数据、未发送自定义命令。SHA-256：`0a3d30b4f83861261bd1960bb381e640ac5d497cf5835ddf431c4c16a3095dc2`。
+- 人工模拟器建议：确认原有自定义按键仍在；无修改保存退出后重进配置不丢失；普通资产同步、终端键栏和账户切换无回退。未要求在真实服务器执行按键，未进行真机验证。本轮复用未改动的 Android 原生库，未重跑全平台 Release/所有设备化 UI 门禁。
+- 下一步：先做无网络写入的 v1 模型与确定性并发编辑/删除合并，保留冲突版本；再做 Android 原配置迁移、Apple 安全本机存储与原生编辑器。旧端发布兼容安排完成后才开放 E2EE 写入。本轮计划项完成 100%；按此前移动对齐口径整体仍粗估约 99%（剩余约 1%），不是完整产品验收比例。
+- 后端仓库、外部 Linux 脏工作区、密钥和工具链未修改；客户端变更尚未提交或推送。
+
+## 2026-09-04：自定义键模型、因果合并及无损迁移预检
+
+- Apple/Android 增加相同的版本化领域模型：kind/version/payloadSyntaxVersion/revisions；以 revision.value=null 表示删除，避免独立编辑/墓碑数组互相覆盖。因果时钟采用每键 actor→计数，不使用设备墙钟，也不替代现有服务端 vector_clock/CAS。
+- 已观察后继覆盖前驱；并发编辑保留多版本，并发删除/编辑不生成可发送按钮。明确解决冲突时汇总所有观察计数并递增本 actor，旧快照重放不会复活已删除项。同名不同 UUID 不合并。超过 64 个活动逻辑 ID、256 个修订、单键 8 个版本、32 个 actor、计数或 JSON 容量上限均整体拒绝，不静默裁剪。
+- 自检修复跨语言细节：Swift 对标签/payload 的修订相等比较改为 UTF-8 字节，避免 Unicode 规范等价吞掉不同发送字节；两端拒绝重复 JSON 字段及转义同名字段；精确处理整数值写法，不用 Double 舍入计数。UUID 拒绝尾随换行；标签按 Unicode 标量计数，Android 输入不再截断 UTF-16 代理对。
+- Android 新增原始 preference JSON 的只读迁移预检，保留原 UUID、文本、payload、分区和数组顺序；任意未知/损坏/超限项或重复身份阻断整个计划，不生成部分迁移，不写新存储，不改旧记录。
+- 顺带修复旧存储的真实丢数据风险：写入不再复用会过滤不可见项的读取列表；无关编辑保留结构可读但无效/不可见的旧行。损坏 JSON、未知字段、重复身份/字段阻止整个 DataStore 保存/删除事务，不把解析失败当作空列表覆盖。UI 捕获写入异常，保留用户输入并给出无敏感数据的提示，仅成功后清空；忙碌时阻止重复提交，取消单独传播。
+- 自动化：共享 8 组合并样例，双方各覆盖 125 组三快照结合律组合，及交换律/幂等律、解决冲突后旧版本重放、字节碰撞、墓碑容量、未知模式等；Android 另有 5 项迁移/旧存储保留回归。门禁增加模型和迁移测试结果要求。
+- 最终验证：Apple Checked 319 项全通过，0 失败/跳过；轻量策略 17 项通过；iOS Simulator/macOS Debug 构建通过（macOS 仍有既有 FreeRDP deprecated 头文件警告）。Android 五模块 JVM 192 项全通过，0 失败/跳过；Smoke R8 与 Lint 通过（0 errors、16 warnings），架构、两套对齐检查、脚本语法及 diff 检查通过。
+- 证据：`build/custom-key-model-*.log`；Apple `build/contact-api-apple/Logs/Test/Test-OrbitTermCheckedFFITests-2026.09.04_00-33-41--0700.xcresult`。本轮 Windows 实现未改动，未重跑其测试/安装包；未重跑所有 Release、Android 全 ABI 原生源构建和设备化 UI 门禁，未执行真机或真实服务器自定义命令测试。
+- 新 ARM64 Smoke APK 已覆盖安装到 emulator-5554，冷启动 922ms、进程正常，未清应用数据。SHA-256：`84d1662c10f2eff9938664a8f4ddd3e516227a98d69441b2b18b33264c3c58bc`。
+- 人工模拟器验证：旧按键仍在；新增中文/emoji 名称的按键后关闭管理页再打开仍保留；删除一项不影响其他项；输入无效转义时不能添加；成功添加才清空输入。只需保存配置，不需连接真实服务器执行；损坏存储的注入已由自动化覆盖，不要求用户修改自己的真实数据。
+- 下一步：账户隔离的 actor 身份及加密新存储、原始备份/原子提交/回滚、迁移完成标记与迟到回调阻断；之后接入 iOS 原生编辑器和双端冲突/导出修复界面。云端写入和实际迁移仍关闭，旧版本/Linux 兼容发布条件仍保留。详细契约见 `shared/mobile-contracts/custom-key-model-v1.md`。
+- 本轮计划范围完成 100%。整体继续沿用此前移动端对齐粗估约 99%、剩余约 1%；无可核算的新总分母，不把纯模型通过包装成产品整体完成度提升。后端、外部 Linux 工作区、密钥和工具链未修改，客户端代码未提交或推送。
+
+## 2026-09-04：Android 自定义按键的加密存储与原子迁移
+
+- 已接通解锁后读取/保存路径，而非仅增加预检：有效旧 JSON 经 v1 验证后建立稳定 actor、模型与原始备份，以专属账户 Keystore AES-256-GCM 密钥加密。AAD 绑定用途/版本/账户；新密文解密核验成功后，DataStore 同一次事务写入新文档并移除旧明文字段。新文档自身作为完成记录，不另设可提前成功的标记。
+- 原始 JSON 保留在密文内，重建存储后 actor/修订不丢失。无效/超限/未知旧记录不迁移、不删除，管理页提示仍在旧存储；既有无损编辑策略继续适用。损坏密文/缺失密钥不得从旧源或空配置重建，解密路径不生成替代密钥。
+- 新增与删除更新因果修订/墓碑，备份保持不变。提供仅在迁移后没有任何编辑时可用的显式回滚接口：原文恢复、密文撤销、暂停自动迁移同事务完成；已有新进度则拒绝回滚。本轮未开放回滚/恢复按钮，避免用户在没有完整说明与导出工具时误用；该接口由自动化验证。
+- 解锁权限只在进程内保存，绑定账户、generation、解锁序号；锁定/退出撤销，账户切换或同账户代次变更阻断迟到结果。检查覆盖事务变换前后与结果发布；已进入磁盘提交的旧操作至多完成原账户密文写入，不能发布到另一账户。未承诺托管 String 的物理内存擦除。
+- 终端 UI 停止订阅后过期其重放快照；使用计数变更不再重复解密整份按键库。系统备份原已关闭，另明确排除 DataStore 目录。使用次数仍为本机旧统计元数据（可能含标签），不迁入/上传 v1；不宣称历史磁盘残留已安全擦除。
+- 自检额外修复生物识别回调归属：解锁/启用请求绑定原 Cipher 实例、账户与 generation，一次消费；锁定、账户切换、失败取消清除请求，旧回调不能在安全边界之后重新授予解锁权限。同账户退出重登和旧回调不消费新请求均新增测试。
+- 最终 Android 五模块 JVM 200 项测试全通过，0 失败/跳过；API 36 模拟器真实 Keystore/DataStore 专项 7 项全通过，0 失败/跳过，覆盖磁盘关闭重开、原子替换、精确保留/回滚、迁移后编辑保护、锁定中断、验证失败、坏密文不回退、无效旧记录、随机 IV/篡改/账户调换和缺失密钥不重建。
+- Smoke R8 构建和 Lint 通过（0 errors、16 warnings）；Android 架构、两套跨端对齐门禁、脚本语法、git diff 检查通过。证据为 `build/custom-key-storage-final.log`、模块 JVM XML 和 `app/build/outputs/androidTest-results/connected/debug/TEST-OrbitTerm_API36_ARM(AVD) - 16-_app-.xml`。本轮仅跑上述设备化专项，不冒充所有 UI/所有平台 Release 门禁；未改动原生库，未重建全 ABI Rust。
+- 最新 ARM64 Smoke APK 已覆盖安装 emulator-5554，冷启动 781ms、进程正常，保留原应用数据。SHA-256：`35af8aee2a9ee4cddd02c9584db22b2708c9179f7255ef41476858ef2ed6e802`。测试用随机账户、临时 DataStore 与独立 alias；只清理这些测试产物，不接触真实账号密钥。
+- 人工模拟器验证：解锁后进入终端按键管理，确认旧按键完整；新增/删除后退出重进、锁定解锁、重启应用仍正确；若出现“旧按键需修复”提示，原数据应仍保留，不清应用数据。只操作配置，不要求向真实服务器执行按键。生物识别实际硬件体验、断电/厂商文件系统及 Keystore 差异仍待真机验证。
+- 下一步：Apple 等价安全本机存储、actor 生命周期与 iOS 原生编辑器；之后完善双端冲突、导出修复/恢复入口，并在旧版本/Linux 兼容发布条件明确后启用账户 E2EE 网络往返。云端写入仍关闭。契约详见 `shared/mobile-contracts/android-key-storage-v1.md`。
+- 本轮 Android 存储阶段完成 100%；整体沿用此前移动端对齐粗估约 99%、剩余约 1%，并非可审计产品总完成率。Apple/Windows 本轮未改代码也未重跑构建；后端、外部 Linux 脏工作区及本地工具链未改动，客户端累计变更尚未提交/推送。
+
+## 2026-09-04：Apple 自定义按键安全存储与 iOS 原生编辑器
+
+- 实现账户隔离的 Apple Keychain 本机文档、稳定 actor、共享 v1 修订/墓碑。使用系统 `WhenUnlockedThisDeviceOnly` 保护，不落地明文配置，不开启 iCloud Keychain 或账户配置云端同步。Apple 无旧版自定义键，无需迁移旧数据。
+- `AppSession` 直接管理存储访问：认证失效、锁定、账户切换立即撤销租约并移除快照。旧编辑器及按钮不能跨解锁周期复用；用户名跨账户变化先锁定。UI 测试账户使用内存存储，故障注入仅在非公开测试启动路径生效。
+- 存储读写失败不视为空库；严格拒绝未知版本/字段、重复字段、错账户、坏 actor 和非法信封。写前比对原文档防止覆盖外部变化，一次 Keychain 事务替换整份配置；失败保留草稿、禁用重复保存并提示重新读取。未承诺跨进程 CAS、托管内存物理清零或主密码派生的本机加密。
+- iOS 会话 → 快捷指令新增“管理自定义按键”；SwiftUI 原生列表/表单支持常用/符号分组、添加、编辑、删除、当前页面内撤销及错误提示。与 Android 共用 Unicode/转义/容量规则，CR/LF 提示立即执行风险；编辑/保存不向服务器发送内容。
+- UIKit 终端键栏追加自定义键和“编辑”入口，“常用/符号”和收键盘控件固定在横向滚动区之外。按键只保留 ID，点击时获取当前账户/租约/活动会话对应字节。抽出独立 `MobileTerminalShortcutAccessory.swift`，未堆入现有大文件；相关控件触摸目标至少 44pt。
+- Hallmark 按原生组件范围使用，保留 `design.md` 的信息架构与原生字体/主题，不引入网页、跨端 UI 框架、装饰资源或动画库。检查了 320/375/414/768pt 组件截图、深色、大字体。自检修复按钮对子文本的浅蓝染色、纯样式列表行空白区域无法点击；撤销按钮改短文案以避免长名称挤压。未把网页专用 58 条检查或组件截图冒充全设备可访问性认证。
+- 新增 12 项存储回归；最终 Apple Checked **331 项通过，0 失败/跳过**。轻量移动契约 **17 项通过**（为 Checked 内部分测试的独立入口，不重复计入新增数量）。
+- 独立无网络、无产品账户的模拟器测试宿主：真实 Keychain 读写/属性/重开/账户隔离、UIKit 分组固定/更新回调/旧动作撤销、原生布局截图，共 **4 项通过，0 失败/跳过**。仅测试随机账户条目，结束清理自己创建的条目；不接触用户凭据。
+- iOS 界面专项 **6 项通过，0 失败/跳过**：4 项新编辑流程（增改取消删除撤销、非法内容/回车警告、大字体、写失败保留草稿），另重跑原有锁定与解锁主页两项。首次测试修复 iOS 26 多行输入 AX 类型定位错误；后续捕获并修复整行点击区域问题。无签名宿主无法有效验证 Keychain，最终按项目门禁采用正常模拟器临时签名后原生与页面专项均通过；保留失败及复跑日志。Xcode `DebuggerVersionStore` 告警仍存在，但最终结果通过。
+- iOS Simulator 与 macOS Debug 构建通过；两套跨端对齐检查、脚本语法及 `git diff --check` 通过。未重跑全平台 Release、全部 UI、Android/Windows 构建或 Rust 全 ABI；不将本轮专项宣称为全项目发布验收。
+- 最终证据：`build/apple-custom-keys-tests-final.log`、`build/apple-custom-keys-native-verified.log`、`build/apple-custom-keys-ui-signed-final.log`、`build/apple-custom-keys-macos-final.log`。结果包分别为 `build/contact-api-apple/Logs/Test/Test-OrbitTermCheckedFFITests-2026.09.04_05-32-01--0700.xcresult`、`build/mobile-contracts-ios/Logs/Test/Test-OrbitTermMobileKeyTests-2026.09.04_05-36-14--0700.xcresult`、`build/mobile-contracts-ios/Logs/Test/Test-OrbitTermiOSUITests-2026.09.04_05-37-07--0700.xcresult`。10 张最终组件截图位于 `build/apple-custom-keys-snapshots-final/`。
+- 最新 iOS Debug 在测试结束后再次显式覆盖安装至本机 iPhone 17 Pro 模拟器（`B0E2430E-1F4C-477A-8AE2-68EBF84C1AD1`），按正常入口启动，已通过界面确认停在登录页；未清用户数据，需要用户手动登录。本轮 Android 未改代码，不替换已部署 APK。macOS 为共用安全存储代码/构建回归，未新增桌面编辑入口。
+- 人工验证：解锁后添加中文/emoji 名称与 `\\t`、`\\x12` 等按键，重开/重启仍保留；编辑取消不保存；删除可撤销；键栏常用/符号固定；无效转义不能保存；回车风险提示正确；锁定或切换账户不残留前账户按键。只需管理配置，不要求向真实服务器执行命令。软键盘组合、VoiceOver、后台锁定及设备 Keychain 行为仍待设备验证。
+- 下一步：双端冲突解释、受保护导出修复与恢复入口；之后明确旧发布版本/Linux 分支兼容策略和最低版本，再开启账户 E2EE 网络往返。详见 `shared/mobile-contracts/apple-key-storage-v1.md`。
+- 本阶段完成 **100%**。整体仅沿用此前移动端对齐的粗估约 **99% / 剩余约 1%**，不等于全产品或真机发布完成率。后端、外部 Linux 工作区、工具链及用户密钥未修改；未提交或推送累计代码。磁盘可用空间约 41GiB。
+
+## 2026-09-04：双端自定义按键冲突审核与安全重读
+
+- 两端管理页新增待处理冲突计数、完整版本/删除记录、原因解释和回车风险说明；不再仅隐藏冲突按键而不给解释。冲突项仍不能发送。版本编号不代表时间顺序，没有默认赢家；保留或删除都需用户选择及二次确认，取消不写入、不发送、不上传。
+- 领域层比较完整的归一化审核快照，拒绝遗漏分支、迟到新版本、伪造候选、把墓碑作为保留内容，以及已解决冲突的重复提交。普通编辑/删除不能绕过审核。汇总因果时钟后生成后继，旧版本重放不复活；Android 迁移备份及 actor 保留，解决冲突算作新编辑，禁止用迁移回滚丢弃它。
+- Apple 冲突操作使用账户租约及写前持久字节比较；Android 审核票据绑定随机进程内租约，重读、锁定、重解锁或账户代次变化使旧票据失效，DataStore 事务内重新验证后原子写密文。只支持本机已有有效修订，不通过网络或真实用户账户注入冲突。
+- 双端增加明确重读入口。Android 失败数据流现在可以通过原子租约续期重启，锁定后不能借重读重新授权；错误提示归属原租约，不跨账户显示。自检修复 Android 加密文档对重复/转义同名 JSON 字段的接受问题，包含迁移编辑计数，杜绝解析器选择字段赢家。
+- Android 冲突详情独立为原生 Compose 组件；管理页与详情补可滚动内容区。模拟器首轮发现详情缺少滚动语义/长内容可达性问题，修复后增加 8 版本和 2 倍字体场景；最终 4 项 Compose 专项全通过。
+- 最终验证：Android 五模块 JVM **205 项通过**，真实 Keystore/DataStore **10 项**及 Compose **4 项**，合计模拟器 **14 项通过**，均 0 失败/跳过。Smoke R8/资源压缩构建和 Lint 通过（0 errors、16 warnings，既有 kotlinx.serialization R8 规则告警保留）。没有改动原生库，复用现有 ABI 产物，未运行生产签名 Release／Rust 全 ABI 源构建。
+- Apple Checked **337 项通过**；轻量策略 **20 项通过**（Checked 内子集，不能相加算新增）；真实 Keychain/UIKit 独立宿主 **4 项通过**；iOS 编辑/冲突 UI **7 项通过**，均 0 失败/跳过。首轮 UI 为 6/7，大字体测试在列表虚拟化后过早查找屏外按钮；改为等待导航页面后滚动验证可达性，完整复跑 7/7。Xcode DebuggerVersionStore 告警仍存在，最终测试成功。
+- iOS Simulator Debug 测试构建及 macOS Debug 构建通过；Android 架构、双对齐矩阵、脚本语法、`git diff --check` 通过。没有重跑所有平台 Release、所有 UI/真机测试；Windows、后端、外部 Linux 工作区及工具链未改动，累计代码未提交/推送。
+- Android ARM64 Smoke APK 已覆盖安装 `emulator-5554`，保留 Smoke 应用数据。SHA-256：`11d968f0246022b824c9a1d6eeb295aab303e002b903f4b5df9754e0445412e0`。iOS 最新 Debug 也再次显式覆盖安装原 iPhone 17 Pro 模拟器，并按正常入口启动，不保留 UI 测试启动参数。
+- 证据：`build/key-conflict-android-verified.log`、各模块 JVM XML、`app/build/outputs/androidTest-results/connected/debug/TEST-OrbitTerm_API36_ARM(AVD) - 16-_app-.xml`；`build/key-conflict-apple.log`、`build/key-conflict-ios-ui-final.log`、`build/key-conflict-ios-native.log`、`build/key-conflict-macos.log`。最终 Apple xcresult 时间分别为 Checked `07-39-16`、UI `07-44-06`、原生 `07-46-51`（本机 2026-09-04 时区）；首轮失败日志仍保留。
+- 人工模拟器验收：已有按键可正常管理；点击重试读取不丢配置；长列表/大字体能滚动到最后项；锁定/解锁后不残留前账户内容。正常本机库没有冲突是预期，不需人为修改用户数据；冲突的选择、取消、确认、失败和重放由隔离自动化覆盖，不要求连接真实服务器执行。
+- 本轮“冲突审核＋安全重读”范围完成 **100%**。**受保护导出/导入修复未完成**，不以明文文件或清数据操作替代，下一阶段先定义跨端认证加密恢复包，再做原生文件选择器与导入差异预览/确认。之后仍需旧发布版本/Linux 兼容条件及 E2EE 网络往返；整体不重新编造可审计的产品完成百分比。详见 `shared/mobile-contracts/custom-key-conflict-review-v1.md`。
+
+## 2026-09-04：有效按键库的原生受保护文件备份与恢复
+
+- 完成 iOS/Android“按键备份与恢复”入口：独立导出口令及二次输入、系统文件导出/选择、解密校验、逐项当前/合并后预览、二次确认合并、取消与失败状态。iOS 使用 SwiftUI Form/FileDocument/系统 Files；Android 使用 Compose 和 Storage Access Framework；没有 WebView、跨端 UI 框架或新加密依赖。
+- 便携 `.orbkeys` v1：固定格式 `OTKEYBK1`、随机 16 字节盐、随机 12 字节 nonce、PBKDF2-HMAC-SHA256 600,000 次、AES-256-GCM 128 位标签；头部整体认证。最大文件 262,196 字节，有界读取，不信任外部 KDF 参数或文件声明长度。CommonCrypto/CryptoKit 与 JCE 各自原生实现，加解密在后台执行。
+- 载荷只有共享按键信封与因果历史，不读登录/主密码/资产凭据，也不导出本机 wrapper 的账户、writer actor 或迁移原文。明确告知：用户若在按键内自行保存了敏感文本，该文本仍包含在加密载荷内；独立口令丢失不能解密。文件能显式导入任意当前解锁账户，保留目标本机 writer actor，不克隆源设备写入身份。
+- 预览只读，展示变化前后内容、分区、顺序、删除记录和最终可用/冲突数量；确认才合并，不整库替换、不发送命令。文件没有的本机键保留，旧备份不复活已被后继删除的键，较新的墓碑会参与预览；无变化不写入。UI 提醒先备份，合并无一键撤销。
+- 提交绑定解锁租约和完整预览基线；Apple 还比对 Keychain 原始字节，Android 比对持久密文指纹并在 DataStore 事务内重算合并。锁定、账户切换、迟到回调、预览后本机编辑、损坏文件/坏库、容量超限及写入失败均不触发部分恢复。Android 迁移原文保留，导入计入新编辑，不允许迁移回滚丢弃导入进度。
+- 原生文件往返审查补修 Android 生命周期：接入已有 **2 分钟**文档交互锁定宽限，超时规则不变，选择器启动异常撤销宽限。按键管理页面移到活动终端条件之外，防止文件选择器返回时空会话快照销毁恢复状态；无活动连接也能从终端空页进入按键管理。页面关闭/锁定清除口令和预览；已经送入文档提供方的加密写出可能完成，不宣称能撤销其已接收字节。
+- 独立 Node/OpenSSL 已知答案样例覆盖中文/emoji 口令与 Swift/Kotlin 两种 JSON 字段顺序；双方既验证固定导出字节，也解密另一端格式。覆盖随机盐/nonce、头部/密文/标签篡改、错误口令、尾部追加、容量、墓碑/冲突以及重放。正式 Smoke APK 已检查不包含共享恢复测试向量。
+- 最终 Android **216 项 JVM 测试通过**（0 失败/跳过）；API 36 模拟器真实 Keystore/DataStore **12 项**、冲突 Compose **4 项**、恢复 Compose **2 项**，合计 **18 项全通过**。原生测试实际解密 Swift 格式文件、预览无写入、提交后重开保留、错误口令及过期预览不覆盖。控制器测试覆盖取消、重复提交、迟到结果、文件大小和文档宽限异常撤销。
+- 最终 Apple Checked **344 项通过**；轻量策略 **20 项通过**（Checked 子集，不相加计数）。iOS 真实 Keychain/UIKit/本机文件专项 **6 项通过**，新增加密文件写入/有界读取/跨测试账户预览合并/重开及 actor 保持；编辑/冲突/恢复 UI **8 项全通过**，含口令确认门槛和系统 Files 取消不写入。
+- 首轮 Android 设备测试中两项因从目标应用而非测试 APK 查找样例失败，修正为 instrumentation context；一项文本框断言误将标签文本计入空输入，改为检查 EditableText 语义。iOS 首轮为 7/8，系统 Files 的取消按钮使用系统英文，测试改为同时识别系统中英文。保留首轮证据，未降低产品安全约束。Xcode DebuggerVersionStore 告警仍存在。
+- Android Smoke R8/资源压缩构建及最终单独 Lint 通过（0 errors、16 warnings）。首次并行构建 Lint 遇到生成 Java 文件索引 FileNotFoundException，构建完成后独立复跑通过，未关闭规则；既有 kotlinx.serialization R8 规则警告保留。iOS Simulator Debug 测试构建和 macOS Debug 构建通过；架构、双对齐矩阵、脚本语法及 diff 检查通过。
+- Android 最新 ARM64 Smoke APK 已覆盖安装 `emulator-5554`，冷启动 1497ms、进程正常，未清 Smoke 应用数据。SHA-256：`82b81177408138c347920d9c87389750bccbcce94c66a9d2292970cc8859190e`。iOS Debug 也显式覆盖安装原 iPhone 17 Pro 模拟器，并按正常入口启动，不携带 UI 测试参数。
+- 最终日志：`build/key-recovery-android-complete.log`、`build/key-recovery-lint-complete.log`、模块 JVM XML 和 connected XML；`build/key-recovery-apple-tests.log`、`build/key-recovery-ios-native.log`、`build/key-recovery-ios-ui-final.log`、`build/key-recovery-macos.log`。Apple xcresult：Checked `2026.09.04_08-51-58--0700`，原生 `08-53-42`，UI `08-59-41`。未重跑所有平台生产签名 Release、全部 UI、Rust 全 ABI 源构建或真机；本轮不把本机文件回环宣称为全部第三方文档提供方验收。
+- 人工模拟器验证：无需真实终端连接，进入按键管理 → 备份与恢复；输入独立强口令并确认，导出到系统目录；再次选择该文件、填写原导出口令，正常情况下同一库应预览“无变化”，不能重复写入。再检查取消选择及错误口令不改动旧键。Android 选择器超过 2 分钟触发锁定属于既有安全规则。双端可人工交换文件核对预览；不要通过删除现有数据来制造恢复场景，不向真实服务器发送测试命令。
+- 本轮“有效库加密导出＋预览确认恢复”完成 **100%**。**损坏/未知/超限旧库的受保护原始数据救援与修复重建未完成**，本轮拒绝覆盖这些库；下一阶段单独处理。旧版本/Linux 兼容发布与账户 E2EE 网络往返仍待完成，云端写入继续关闭。契约见 `shared/mobile-contracts/key-recovery-package-v1.md`。后端、外部 Linux 工作区、Windows 代码、工具链和用户密钥未改动，累计代码未提交/推送；磁盘可用约 39GiB。
+## 2026-09-04：损坏按键库的只读加密救援
+
+- 复核结论：有效库 `.orbkeys` 导入不能覆盖未知/损坏的本机库；Android 缺失 Keystore 密钥不能通过“重新生成密钥”修好，Apple Keychain 读取错误不能当作空库。本阶段只做原始数据保全，未增加清空、重建或修复写回。
+- iOS / Android 在自定义按键存储警告下增加原生“原始配置加密救援”入口，要求独立口令及确认；无选择导入、合并、删除或重建按钮。错误后普通备份页模式固定，不自动变成救援模式。紧凑宽度截图检查后移除了救援页残留的普通“导入”说明。
+- Apple 原样保存专用 Keychain Data，非法 UTF-8 和未知结构也不解析/替换。Android 同次快照完整保存 protected、legacy、paused；字符串按 UTF-16BE code unit 手工编码，不丢孤立代理项，不调用设备加解密、不创建本机密钥、不删除旧字段。缺失设备密钥时只能保全已有密文，明确不保证恢复其内容。
+- 新 `.orbrescue` / `OTKEYRS1` 与有效备份格式严格分离；复用原生 AES-256-GCM、PBKDF2-HMAC-SHA256 600000 次、系统随机盐/nonce 和独立口令规则。原始总量上限 4 MiB，拒绝超限而不截断；严格验证平台、来源标签、长度、顺序及尾随数据。加密前后校验账户租约和来源快照；锁定、换账户、重读后迟到结果不能继续发起导出。
+- 独立 Node/OpenSSL 已知答案同时被 Swift/Kotlin 验证，包含损坏 UTF-16 与截断 JSON；新增测试覆盖原始二进制往返、随机导出、篡改/错误口令/容量/格式隔离、坏 Keychain 不写回、缺失/不可读来源、旧租约，以及 Android 双源/paused 保留和不访问 Keystore。UI 测试采用隔离假数据，未故意破坏用户库；Apple 新故障注入限定非公开 UI 测试启动路径，正常启动不生效。
+- Android 最终五模块 JVM **220 项通过**，API 36 模拟器专项 **21 项通过**，均 0 失败/跳过。Smoke R8 构建、Lint 通过（0 errors、16 个既有 warnings）。相关命名用例已加入发布/设备化门禁；本轮执行专项而非全平台 Release 门禁，不重建未修改的 Rust 全 ABI。
+- Apple Checked **349 项通过**，iOS 原生 **7 项通过**，iOS 自定义按键页面 **9 项通过**，均 0 失败/跳过。移动契约独立入口 20 项通过（Checked 的子集，不重复计数）；iOS Simulator / macOS Debug 构建通过。macOS 仅共用核心构建回归，没有新增桌面救援页面。Xcode DebuggerVersionStore 与 Android kotlinx.serialization R8 既有告警未扩大成本轮阻塞。
+- Android 架构、两套行为对齐门禁、修改脚本语法与 `git diff --check` 通过。主要证据：`build/key-rescue-android-verified.log`、`build/key-rescue-lint-verified.log`、`build/key-rescue-apple-final.log`、`build/key-rescue-ios-native-verified.log`、`build/key-rescue-ios-ui-verified.log`、`build/key-rescue-macos.log`。最终截图在 `build/key-rescue-snapshots-final/`；格式及限制见 `shared/mobile-contracts/key-rescue-package-v1.md`。测试后 iOS Debug 也重新覆盖安装至 iPhone 17 Pro 模拟器，并以不带测试参数的正常入口启动。
+- 最新 ARM64 Smoke APK 已覆盖安装 `emulator-5554`，冷启动 854ms、进程正常，未清除应用数据。SHA-256：`80516979126f204735c7fc54d9435e01879b366f5ff1d2cd118111e1c2262098`。正式 APK 无恢复/救援测试资源。没有向真实服务器发送按键，也未修改用户密钥、工具链、后端或外部 Linux 脏工作区；未提交/推送累计代码。
+- 人工模拟器验证：正常库仍使用原有备份/恢复；文件选择器取消不改配置，关闭/锁定后独立口令不复用。仅在真实存在存储警告时查看救援入口，不要人为破坏正常数据；救援文件不可当作普通备份导入，导出成功也不要卸载或清数据。第三方文档提供方可靠性、磁盘不足/断电及真实设备 Keystore/Keychain 行为仍需后续验证。
+- 本轮“只读加密救援”范围完成 **100%**，不代表整个修复链路或全产品完成。下一步：救援文件回读核验及只读检查报告，然后对结构可解析旧库设计逐项修复预览；来源不变、原始包验证和用户确认等条件完整前不开放写回。未知版本/截断数据/丢失密钥不猜测重建，E2EE 云端写入继续关闭。
+
+## 2026-09-04：救援文件回读核验与只读诊断
+
+- iOS / Android 救援页新增原生文件选择和“解密并核验”。用户必须重新选择 `.orbrescue`、再次输入原文件口令；先验证大小、magic、KDF/GCM 认证及严格载荷，再生成报告。选新文件清除旧报告，成功后清除口令；关闭、锁定、换账户或重读使报告及迟到结果失效。
+- 报告只显示来源平台、是否属于当前账户、当前来源是否逐字节一致/已变化/不存在或不可读、来源种类、字节数和有限诊断。不显示用户名、按键标签/载荷、旧 JSON、密文或稳定内容摘要，不保存/上传报告，也不把报告作为未来写入授权。
+- 同平台报告在核验前后重新读取并比较当前完整来源；来源变化则拒绝旧结论。不同平台可验证文件真实性，但明确显示“不可比较”并保持不透明。Apple 在后台严格解析完整本机文档，只区分有效/无效，避免主线程解析最大 4 MiB 原文。Android protected 只区分“本设备可解密且完整验证”与“无法解密或验证”，不猜测究竟是密钥不可用还是密文损坏；legacy 区分结构损坏、重复 ID、契约拒绝和结构完整可迁移；paused 只确认标记完整。
+- 自检修正 Android 救援核验区曾错误嵌套于普通导入条件的问题；普通备份和救援继续固定分流。返回对象新增租约 token 归属校验，错误账户/旧租约结果不能发布。Android 临时来源字节尽力清零，仍不承诺托管运行时物理擦除。
+- 安全审查额外发现 Android 本机 AES-GCM 文档过去使用可替代非法字节的 UTF-8 转换。现改为严格 decoder：即使认证标签有效，非法 UTF-8 也必须拒绝，不能在 JSON 校验前被 U+FFFD 静默改写；真实 Android Keystore 构造认证但非法的测试向量已覆盖。
+- Android 最终五模块 JVM **222 项通过**，API 36 模拟器专项 **24 项通过**，均 0 失败/跳过；包含真实 Keystore/DataStore、来源一致/变化、不同平台、不透明密文、严格 UTF-8、报告语义、边界读取和旧租约。Smoke R8 构建及独立 Lint 通过（0 errors、16 个既有 warnings），正式 APK 不含恢复/救援测试资源。
+- Apple Checked **350 项通过**，iOS 原生 **7 项通过**，iOS 自定义按键页面 **9 项通过**，均 0 失败/跳过；移动契约独立入口 **20 项通过**（Checked 子集，不重复计数）。iOS Simulator 与 macOS Debug 构建通过。320pt 导出/核验报告截图已人工检查，可滚动、无截断；macOS 仍只有共用核心回归，没有桌面救援入口。
+- 架构、Android/iOS 源码与行为矩阵、四平台行为矩阵、脚本语法和 `git diff --check` 通过。证据：`build/key-rescue-inspection-complete.log`、`build/key-rescue-inspection-package-complete.log`、`build/key-rescue-inspection-lint.log`、`build/key-rescue-inspection-apple-complete.log`、`build/key-rescue-inspection-ios-native-complete.log`、`build/key-rescue-inspection-ios-ui-complete.log`、`build/key-rescue-inspection-macos-complete.log`、`build/key-rescue-inspection-contracts.log`；截图在 `build/key-rescue-inspection-snapshots/`。
+- 最新 ARM64 Smoke APK 已覆盖安装 `emulator-5554`，保留应用数据；冷启动 **473ms**、进程正常。SHA-256：`d10d19e844df3b799d67fa64d63cabeadc3cdd5d003cd5553214766e65762efc`。最新 iOS Debug 同样覆盖安装 iPhone 17 Pro 模拟器并以正常入口启动。未执行真实服务器命令，未修改用户密钥、后端、外部 Linux 工作区或工具链，未提交/推送累计代码。
+- 人工验证：仅在实际出现按键存储警告时进入救援页；选择先前导出的 `.orbrescue`，输入文件原口令后确认平台/账户/当前存储状态及来源诊断。错误口令、普通 `.orbkeys`、换账户和锁定后的旧文件回调均不得生成报告；核验后原警告和本机数据应保持不变。无需人为损坏正常数据。
+- 本轮“回读核验与只读诊断”范围完成 **100%**，修复写回仍为 **0%** 且没有隐藏入口。下一步仅对结构可枚举的 Android legacy / Apple 旧文档设计逐项修复预览与明确排除原因；原始救援包可回读、当前来源仍一致、结果完整预览及用户二次确认全部满足前，不开放原子写回。截断结构、未知版本及不可用设备密钥继续禁止猜测重建；云端 E2EE 写入保持关闭。
+
+## 2026-09-08：损坏按键来源的有界逐条修复预览
+
+- iOS / Android 救援核验报告新增“逐条修复预览（只读）”。预览只在救援包平台与本机一致、账户摘要与当前解锁账户一致、且当前专用存储和包内来源逐字节一致时出现；来源已变、缺失、不可读、跨平台或账户不符均不生成旧结论。
+- Apple 只枚举本机文档 revisions；Android 只枚举 legacy JSON 数组。Android protected 密文继续保持不透明，protected 与 legacy 并存时明确提示来源冲突，后续不得直接覆盖 protected。两端均没有生成替换数据、导入、合并、清库或写回 API/按钮。
+- 逐项报告覆盖未知字段、字段类型、ID/标签/payload/分区、时钟、版本碰撞、重复 ID、单键版本上限及 64 项容量。畸形/重复 JSON 键、根结构不可枚举或超过 256 行时整体阻断；容量超限只标记“需要人工取舍”，不静默裁剪。摘要最多 24 个 Unicode 标量并转义控制/格式字符；payload 只报告严格 UTF-8 字节数，不显示内容。
+- 自检同步修正文档中两处过期描述，避免将已经完成的预览误列为未开放。修复决策和受保护原子写回仍未开放，预览不是写入授权；未知版本、截断结构与缺失设备密钥仍禁止猜测重建。
+- Android 五模块 JVM **225 项通过**，0 失败/错误/跳过；API 36 模拟器的救援存储、回读和 UI 专项 **27 项通过**，0 失败/错误/跳过。Smoke R8 与 Lint 通过（0 errors、16 个既有 warnings）。为适应模拟器当时内存压力，将一个过长测试夹具拆成三个独立用例，未放宽生产超时或安全条件。
+- Apple Checked **353 项通过**，iOS 原生 Keychain/文件专项 **7 项通过**，iOS 自定义按键 UI **9 项通过**，均 0 失败/跳过；iOS Simulator 与 macOS Debug 构建通过。移动契约 **20 项**独立检查、Android 架构、Android/iOS 对齐矩阵、四平台行为矩阵、脚本语法及 `git diff --check` 通过。
+- 最新 ARM64 Smoke APK 已覆盖安装 `emulator-5554` 并正常冷启动，保留应用数据，进程无 AndroidRuntime 崩溃；最终本地产物与模拟器内 `base.apk` 的 SHA-256 均为 `3ef83f4f47f38ea77763dde47d450b15ab0399743723c752763f865d73e0ac3f`。最新 iOS Debug 同样覆盖安装至当前 iPhone 17 模拟器并按正常入口启动。未连接真实服务器、未发送命令、未修改后端、密钥或工具链，累计代码未提交/推送。
+- 人工模拟器验收：正常账户不会凭空出现救援入口；仅对先前真实导出的同平台 `.orbrescue` 重选文件并输入原口令。来源一致且结构可枚举时检查逐项摘要、问题和处置建议；错误口令、跨平台、账户不符、来源变化或超限文件不得出现可写动作，本机按键与警告状态必须保持不变。无需人为破坏现有正常库。
+- 本轮“有界逐条修复预览”完成 **100%**；下一阶段建议先定义逐项显式决策模型（保留、修正、删除、容量取舍）及可审计的二次确认基线，仍不写回。模型和测试稳定后，才实现以已核验救援备份、账户租约、来源逐字节一致和原子事务为前置条件的受保护重建；E2EE 云端写入继续关闭。

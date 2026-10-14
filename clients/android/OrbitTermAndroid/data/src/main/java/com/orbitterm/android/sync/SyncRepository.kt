@@ -11,6 +11,8 @@ import com.orbitterm.android.domain.error.OrbitErrorCode
 import com.orbitterm.android.domain.error.syncError
 import com.orbitterm.android.domain.session.CustomQuickCommand
 import com.orbitterm.android.domain.session.QuickCommandRepository
+import com.orbitterm.android.domain.session.TerminalCustomKeySyncCompatibility
+import com.orbitterm.android.domain.session.TerminalCustomKeySyncCompatibility.Routing
 import com.orbitterm.android.domain.sync.PrivacySafeSyncMetrics
 import com.orbitterm.android.domain.sync.RetryClockGuard
 import com.orbitterm.android.domain.sync.SyncDiagnosticEvent
@@ -614,7 +616,7 @@ class SyncRepository @Inject constructor(
             .mapNotNull { item ->
                 runCatching {
                     val plaintext = configCipherSession.decrypt(masterPassword, accountScope, item.encrypted_blob_base64)
-                    if (isAuxiliaryEnvelope(plaintext)) return@mapNotNull null
+                    if (isAuxiliaryEnvelope(plaintext, item.asset_id)) return@mapNotNull null
                     val portable = json.decodeFromString<PortableServerConfig>(plaintext).validate()
                     portable.id to RemoteAssetCandidate(item, portable)
                 }.getOrNull()
@@ -783,7 +785,7 @@ class SyncRepository @Inject constructor(
         val assets = activeItems.mapNotNull { item ->
             runCatching {
                 val plaintext = configCipherSession.decrypt(masterPassword, accountScope, item.encrypted_blob_base64)
-                if (isAuxiliaryEnvelope(plaintext)) return@mapNotNull null
+                if (isAuxiliaryEnvelope(plaintext, item.asset_id)) return@mapNotNull null
                 val portable = json.decodeFromString<PortableServerConfig>(plaintext).validate()
                 if (portable.id in excludedAssetIds) return@mapNotNull null
                 credentialStore.save(
@@ -1139,10 +1141,17 @@ class SyncRepository @Inject constructor(
         json.decodeFromString<SnippetSyncEnvelope>(plaintext).kind == SnippetSyncEnvelope.MARKER
     }.getOrDefault(false)
 
-    private fun isAuxiliaryEnvelope(plaintext: String): Boolean =
-        isSnippetEnvelope(plaintext) ||
+    private fun isAuxiliaryEnvelope(plaintext: String, assetId: String?): Boolean {
+        when (TerminalCustomKeySyncCompatibility.routing(plaintext, assetId)) {
+            Routing.DEFERRED -> return true
+            Routing.INVALID_ASSET_IDENTITY ->
+                error("Account configuration cannot carry an asset identity")
+            Routing.UNRELATED -> Unit
+        }
+        return isSnippetEnvelope(plaintext) ||
             SshKeySyncContract.decode(plaintext) != null ||
             PortForwardProfileSyncContract.decode(plaintext) != null
+    }
 
     private fun sanitizeKeyReference(raw: String): String {
         if (!raw.contains("PRIVATE KEY")) return ""

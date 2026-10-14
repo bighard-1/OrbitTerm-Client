@@ -88,8 +88,10 @@ public sealed class AccountUnlockControllerTests
         Assert.NotNull(verifierStore.Value);
     }
 
-    [Fact]
-    public async Task MasterPasswordRotationReencryptsV2AndLegacyCiphertextAndUpdatesLocalVerifier()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MasterPasswordRotationReencryptsV2AndLegacyCiphertextAndUpdatesLocalVerifier(bool customKeyEnvelope)
     {
         OrbitNativeLibraryLoader.Register();
         const string username = "rotation-user";
@@ -97,15 +99,19 @@ public sealed class AccountUnlockControllerTests
         const string nextMaster = "Next-master-456!";
         var scope = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(username))).ToLowerInvariant();
         var currentRoot = OrbitConfigCrypto.DeriveConfigRootKeyV2(currentMaster, scope);
-        var activePlaintext = Encoding.UTF8.GetBytes("{\"kind\":\"asset\",\"name\":\"active\"}");
-        var deletedPlaintext = Encoding.UTF8.GetBytes("{\"kind\":\"asset\",\"name\":\"deleted\"}");
+        var activePlaintext = Encoding.UTF8.GetBytes(customKeyEnvelope
+            ? " {\"kind\":\"terminal_custom_keys\",\"version\":999,\"future\":{\"text\":\"中文😀\",\"n\":1.00}}\n"
+            : "{\"kind\":\"asset\",\"name\":\"active\"}");
+        var deletedPlaintext = Encoding.UTF8.GetBytes(customKeyEnvelope
+            ? "{\"kind\":\"terminal_custom_keys\",\"version\":\"unknown\",\"entries\":null}"
+            : "{\"kind\":\"asset\",\"name\":\"deleted\"}");
         var activeCiphertext = OrbitConfigCrypto.EncryptConfigV2(currentRoot, activePlaintext);
         var deletedCiphertext = OrbitConfigCrypto.EncryptConfigLegacy(currentMaster, deletedPlaintext);
         CryptographicOperations.ZeroMemory(currentRoot);
 
         var protocol = new RotationProtocol([
-            new EncryptedConfigRecord(1, Guid.NewGuid().ToString("D"), null, Convert.ToBase64String(activeCiphertext), "clock-a", "active", 1, DateTimeOffset.UtcNow),
-            new EncryptedConfigRecord(2, Guid.NewGuid().ToString("D"), null, Convert.ToBase64String(deletedCiphertext), "clock-b", "deleted", 2, DateTimeOffset.UtcNow),
+            new EncryptedConfigRecord(1, customKeyEnvelope ? null : Guid.NewGuid().ToString("D"), null, Convert.ToBase64String(activeCiphertext), "clock-a", "active", 1, DateTimeOffset.UtcNow),
+            new EncryptedConfigRecord(2, customKeyEnvelope ? null : Guid.NewGuid().ToString("D"), null, Convert.ToBase64String(deletedCiphertext), "clock-b", "deleted", 2, DateTimeOffset.UtcNow),
         ]);
         var sessionStore = new Store();
         var verifierStore = new VerifierStore();

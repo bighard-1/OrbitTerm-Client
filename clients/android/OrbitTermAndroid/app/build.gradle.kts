@@ -64,6 +64,7 @@ android {
 
     sourceSets {
         getByName("androidTest").assets.srcDir("$projectDir/schemas")
+        getByName("androidTest").assets.srcDir(rootProject.file("../../../shared/mobile-contracts"))
     }
 
     if (productionSigningConfigured) {

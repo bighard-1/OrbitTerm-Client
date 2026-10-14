@@ -1,0 +1,20 @@
+{
+  "revisions": [
+    {"id":"11111111-1111-1111-1111-111111111111","clock":{"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa":1},"value":{"label":"连接","payload":"é\\r","section":"common","order":0}},
+    {"id":"11111111-1111-1111-1111-111111111111","clock":{"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa":2},"value":{"label":"编辑A","payload":"😀\\x1B","section":"common","order":2}},
+    {"id":"11111111-1111-1111-1111-111111111111","clock":{"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa":1,"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb":1},"value":{"label":"编辑B","payload":"é\\n","section":"symbols","order":1}},
+    {"id":"11111111-1111-1111-1111-111111111111","clock":{"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa":2},"value":null},
+    {"id":"11111111-1111-1111-1111-111111111111","clock":{"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa":3,"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb":1},"value":null},
+    {"id":"22222222-2222-2222-2222-222222222222","clock":{"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb":1},"value":{"label":"连接","payload":"é\\r","section":"common","order":0}}
+  ],
+  "cases": [
+    {"left":[0],"right":[1],"expected":[1],"active":1},
+    {"left":[1],"right":[2],"expected":[1,2],"active":0},
+    {"left":[3],"right":[2],"expected":[3,2],"active":0},
+    {"left":[3],"right":[0],"expected":[3],"active":0},
+    {"left":[4],"right":[0,1,2],"expected":[4],"active":0},
+    {"left":[0],"right":[5],"expected":[0,5],"active":2},
+    {"left":[0],"right":[0],"expected":[0],"active":1},
+    {"left":[],"right":[],"expected":[],"active":0}
+  ]
+}

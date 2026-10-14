@@ -1,5 +1,9 @@
 import Foundation
 
+struct PublicRecoveryContact: Decodable {
+    let support_contact: String?
+}
+
 struct AuthRequest: Encodable {
     let username: String
     let password: String

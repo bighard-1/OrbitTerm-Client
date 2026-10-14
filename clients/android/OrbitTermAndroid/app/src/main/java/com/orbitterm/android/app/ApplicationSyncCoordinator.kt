@@ -1,6 +1,7 @@
 package com.orbitterm.android.app
 
 import com.orbitterm.android.domain.auth.AccountScope
+import com.orbitterm.android.data.settings.TerminalKeyAccess
 import com.orbitterm.android.sync.AssetSyncConflict
 import com.orbitterm.android.sync.SyncFailure
 import com.orbitterm.android.sync.SyncRepository
@@ -27,6 +28,7 @@ class ApplicationSyncCoordinator @Inject constructor(
     private val syncRepository: SyncRepository,
     private val state: SyncWorkStateStore,
     private val operations: OperationScopeCoordinator,
+    private val terminalKeyAccess: TerminalKeyAccess,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val conflictJobs = ConcurrentHashMap<Long, Job>()
@@ -43,6 +45,7 @@ class ApplicationSyncCoordinator @Inject constructor(
     }
 
     fun onUnlocked(accountScope: AccountScope) {
+        terminalKeyAccess.unlock(accountScope)
         // A fresh unlock also forms an account boundary for transient V2 root
         // material; the repository will derive it lazily only if a V2 record
         // is actually encountered.
@@ -55,6 +58,7 @@ class ApplicationSyncCoordinator @Inject constructor(
     }
 
     fun onLockedOrLoggedOut(accountScope: AccountScope) {
+        terminalKeyAccess.lock()
         conflictJobs.values.forEach(Job::cancel)
         conflictJobs.clear()
         syncRepository.clearTransientConfigCrypto()

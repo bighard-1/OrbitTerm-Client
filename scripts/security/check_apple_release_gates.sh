@@ -91,6 +91,16 @@ stage_checked_test_runtime() {
 }
 
 section "Checked FFI XCTest"
+[[ -f "$ORBIT_ROOT/OrbitTermCheckedFFITests/TerminalCustomKeyStoreTests.swift" ]] || fail "missing custom-key storage lifecycle regressions"
+[[ -f "$ORBIT_ROOT/OrbitTermCheckedFFITests/TerminalCustomKeyRecoveryTests.swift" ]] || fail "missing portable recovery cryptography regressions"
+[[ -f "$ORBIT_ROOT/OrbitTermiOSUITests/TerminalCustomKeyEditorUITests.swift" ]] || fail "missing native custom-key editor regressions"
+rg -q 'testStalePartialAndInventedConflictChoicesAreRejected' "$ORBIT_ROOT/OrbitTermCheckedFFITests/TerminalCustomKeyContractTests.swift" || fail "missing stale conflict review regressions"
+rg -q 'testConflictRequiresChoiceAndConfirmationBeforeKeepingVersion' "$ORBIT_ROOT/OrbitTermiOSUITests/TerminalCustomKeyEditorUITests.swift" || fail "missing native conflict confirmation regressions"
+rg -q 'testRescueIndependentAndroidVectorPreservesMalformedUTF16AndIsNotImportable' "$ORBIT_ROOT/OrbitTermCheckedFFITests/TerminalCustomKeyRecoveryTests.swift" || fail "missing raw rescue cryptography regressions"
+rg -q 'testRescueInspectionRejectsOldLeaseAndTreatsForeignPlatformAsOpaque' "$ORBIT_ROOT/OrbitTermCheckedFFITests/TerminalCustomKeyStoreTests.swift" || fail "missing read-only rescue inspection lifecycle regressions"
+rg -q 'testEnumeratesRowsWithSanitizedSummariesAndNoPayloadMaterial' "$ORBIT_ROOT/OrbitTermCheckedFFITests/TerminalCustomKeyRepairPreviewTests.swift" || fail "missing bounded per-item rescue repair preview regressions"
+rg -q 'testCorruptLibraryOffersOnlyReadOnlyRescueAndNeverImportOrReset' "$ORBIT_ROOT/OrbitTermiOSUITests/TerminalCustomKeyEditorUITests.swift" || fail "missing read-only rescue UI regressions"
+bash "$ORBIT_ROOT/scripts/security/check_mobile_contracts.sh"
 stage_checked_test_runtime "$derived_data/Build/Products/Debug"
 xcodebuild test -quiet -project "$project" -scheme OrbitTermCheckedFFITests \
   -destination 'platform=macOS,arch=arm64' -derivedDataPath "$derived_data" CODE_SIGNING_ALLOWED=NO
@@ -138,6 +148,11 @@ simulator_id="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ { 
 [[ -n "$simulator_id" ]] || fail "no available iPhone simulator for UI lifecycle tests"
 xcrun simctl boot "$simulator_id" 2>/dev/null || true
 xcrun simctl bootstatus "$simulator_id" -b
+section "Native custom-key Keychain and UIKit contracts"
+# This isolated application host requires normal simulator ad-hoc signing for
+# SecItem access. It never loads a product account or opens network services.
+xcodebuild test -quiet -project "$project" -scheme OrbitTermMobileKeyTests \
+  -destination "platform=iOS Simulator,id=$simulator_id" -derivedDataPath "$derived_data"
 # Xcode 26.6 can compile an unsigned UI-test bundle but cannot reliably launch
 # its test host (the runner reports missing debugger metadata and app roots are
 # never exposed). Simulator signing is ephemeral and uses no distribution

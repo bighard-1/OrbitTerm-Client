@@ -6,11 +6,24 @@ struct MobileSessionView: View {
     let onBackToAssets: () -> Void
     @Binding var selectedTab: MobileShellTab
     @EnvironmentObject private var appSession: AppSession
+
+    var body: some View {
+        MobileSessionWorkspaceView(onBackToAssets: onBackToAssets, selectedTab: $selectedTab,
+                                   customKeys: appSession.terminalCustomKeys)
+    }
+}
+
+private struct MobileSessionWorkspaceView: View {
+    let onBackToAssets: () -> Void
+    @Binding var selectedTab: MobileShellTab
+    @ObservedObject var customKeys: TerminalCustomKeyStore
+    @EnvironmentObject private var appSession: AppSession
     @ObservedObject private var manager = SessionManager.shared
     @StateObject private var snippetStore = SnippetStore.shared
     @StateObject private var networkAvailability = ApplicationNetworkAvailability.shared
     @State private var selectedModule: MobileSessionModule = .terminal
     @State private var terminalViewportCommand: TerminalViewportCommand?
+    @State private var showingCustomKeys = false
     @AppStorage("orbitterm.mobile.terminal-key-usage.v1") private var terminalKeyUsageData: String = ""
 
     private let terminalKeys: [MobileTerminalKey] = [
@@ -76,6 +89,7 @@ struct MobileSessionView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .navigationTitle("会话")
+        .sheet(isPresented: $showingCustomKeys) { MobileTerminalCustomKeysView(store: customKeys) }
         .navigationBarTitleDisplayMode(.inline)
         // The terminal is a dedicated workspace. Navigation happens through
         // its own controls, so the application Dock never consumes viewport
@@ -213,6 +227,29 @@ struct MobileSessionView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Section("自定义按键（仅本机）") {
+                Button("管理自定义按键") { showingCustomKeys = true }
+                    .accessibilityIdentifier("terminal.customKeys.manage")
+                if let notice = customKeys.notice {
+                    Label(notice, systemImage: "exclamationmark.lock").font(.footnote)
+                }
+                ForEach(customKeys.keys, id: \.id) { key in
+                    if let value = key.value {
+                        let lease = customKeys.lease
+                        Button {
+                            sendCustomKey(key.id, lease: lease, session: session)
+                        } label: {
+                            HStack {
+                                Text(value.label).lineLimit(1)
+                                Spacer()
+                                Text(value.section == "common" ? "常用" : "符号").foregroundStyle(.secondary)
+                                Image(systemName: "bolt.fill").accessibilityHidden(true)
+                            }
+                        }
+                        .accessibilityLabel("发送自定义按键：\(value.label)")
+                    }
+                }
+            }
             Section("快捷键 / 组合键（点击即触发）") {
                 ForEach(orderedTerminalKeys(terminalKeys)) { key in
                     quickActionRow(key.label, bytes: key.bytes, session: session)
@@ -251,6 +288,11 @@ struct MobileSessionView: View {
                 searchText: "",
                 searchCommand: nil,
                 viewportCommand: terminalViewportCommand,
+                customKeys: customKeys.keys,
+                onCustomKey: { [lease = customKeys.lease] id in
+                    sendCustomKey(id, lease: lease, session: session)
+                },
+                onManageCustomKeys: { showingCustomKeys = true },
                 onSearchFeedback: { _, _ in }
             )
             // A UIKit terminal view owns keyboard responder and byte-stream
@@ -292,6 +334,13 @@ struct MobileSessionView: View {
             .allowsHitTesting(selectedModule == .snippets)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private func sendCustomKey(_ id: String, lease: TerminalCustomKeyStore.Lease?, session: WorkspaceSession) {
+        guard appSession.isAuthenticated, appSession.isUnlocked,
+              manager.activeSession?.id == session.id,
+              let bytes = customKeys.bytes(id: id, lease: lease) else { return }
+        manager.enqueueTerminalInput(session: session, bytes: bytes)
     }
 
     private func quickActionRow(_ title: String, bytes: [UInt8], session: WorkspaceSession) -> some View {
@@ -341,6 +390,8 @@ private struct MobileTerminalKey: Identifiable {
 }
 
 struct MobileMoreView: View {
+    @StateObject private var administratorContact = AdministratorContactStore.shared
+    @Environment(\.scenePhase) private var contactScenePhase
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var serverStore: ServerStore
     @EnvironmentObject private var syncService: SyncService
@@ -353,6 +404,8 @@ struct MobileMoreView: View {
     @State private var showKeyManagement = false
     @State private var showPortForwarding = false
     @State private var showBatchCommands = false
+    @State private var feedbackLaunchFailed = false
+    @State private var feedbackEmailCopied = false
 
     var body: some View {
         ZStack {
@@ -418,11 +471,30 @@ struct MobileMoreView: View {
                     ) {
                         MobilePersonalCenterActionRow(
                             title: "帮助与反馈",
-                            detail: "联系支持并反馈问题",
+                            detail: "发送邮件至 \(administratorContact.email)",
                             systemImage: "envelope"
                         ) {
-                            if let url = URL(string: "mailto:orbitterm@163.com?subject=OrbitTerm%20iOS%20反馈") {
-                                openURL(url)
+                            if let url = AdministratorContactPolicy.mailURL(email: administratorContact.email) {
+                                openURL(url) { accepted in
+                                    feedbackLaunchFailed = !accepted
+                                    feedbackEmailCopied = false
+                                }
+                            } else {
+                                feedbackLaunchFailed = true
+                            }
+                        }
+                        if feedbackLaunchFailed {
+                            Text(AdministratorContactPolicy.unavailableMessage)
+                                .font(.footnote)
+                                .accessibilityIdentifier("support.mail.unavailable")
+                            MobilePersonalCenterActionRow(
+                                title: feedbackEmailCopied ? "邮箱已复制" : "复制邮箱",
+                                detail: administratorContact.email,
+                                systemImage: "doc.on.doc"
+                            ) {
+                                feedbackEmailCopied = SecureClipboard.copy(
+                                    administratorContact.email, kind: .ordinaryText
+                                )
                             }
                         }
                         NavigationLink {
@@ -473,6 +545,14 @@ struct MobileMoreView: View {
             }
         }
         .navigationTitle("个人中心")
+        .task(id: contactScenePhase) {
+            guard contactScenePhase == .active else { return }
+            while !Task.isCancelled {
+                await administratorContact.refresh()
+                do { try await Task.sleep(for: .seconds(300)) }
+                catch { return }
+            }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showSettings) {
             NavigationStack {

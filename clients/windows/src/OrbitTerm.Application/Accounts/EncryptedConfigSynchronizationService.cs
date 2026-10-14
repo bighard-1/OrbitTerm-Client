@@ -566,7 +566,7 @@ public sealed class EncryptedConfigSynchronizationService(
                     continue;
                 }
 
-                return SyncPagePlan.UnsupportedPlan;
+                if (item.AssetId is not null) return SyncPagePlan.UnsupportedPlan;
             }
 
             byte[]? plaintext = null;
@@ -574,6 +574,19 @@ public sealed class EncryptedConfigSynchronizationService(
             {
                 plaintext = Decrypt(item.EncryptedBlobBase64, masterPassword, rootKey);
                 using var document = JsonDocument.Parse(plaintext);
+                if (document.RootElement.ValueKind != JsonValueKind.Object) return SyncPagePlan.UnsupportedPlan;
+                if (document.RootElement.TryGetProperty("kind", out var discriminator) &&
+                    discriminator.ValueKind != JsonValueKind.String) return SyncPagePlan.UnsupportedPlan;
+                if (discriminator.ValueKind == JsonValueKind.String &&
+                    discriminator.GetString() == "terminal_custom_keys")
+                {
+                    // Reserved account-level payload. Preserve all versions opaquely;
+                    // never publish, execute, deduplicate, or treat it as an asset.
+                    if (item.AssetId is not null) return SyncPagePlan.UnsupportedPlan;
+                    continue;
+                }
+                if (item.State is not null && !string.Equals(item.State, "active", StringComparison.OrdinalIgnoreCase))
+                    return SyncPagePlan.UnsupportedPlan;
                 if (document.RootElement.TryGetProperty("kind", out var kind) &&
                     string.Equals(kind.GetString(), SnippetMarker, StringComparison.Ordinal))
                 {

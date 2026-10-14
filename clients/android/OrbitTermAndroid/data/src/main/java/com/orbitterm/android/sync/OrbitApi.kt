@@ -159,6 +159,12 @@ data class TrashConfigData(
 private data class AuthEnvelope(val success: Boolean, val data: AuthResponse? = null, val error: String? = null)
 
 @Serializable
+private data class RecoveryContact(val support_contact: String? = null)
+
+@Serializable
+private data class RecoveryContactEnvelope(val success: Boolean, val data: RecoveryContact? = null)
+
+@Serializable
 private data class UploadEnvelope(val success: Boolean, val data: UploadConfigData? = null, val error: String? = null)
 
 @Serializable
@@ -176,6 +182,16 @@ class OrbitApi internal constructor(
     private val client: HttpClient,
 ) {
     constructor(baseUrl: String = "https://server.orbitterm.com") : this(baseUrl, createClient())
+
+    val supportContactSource: String get() = baseUrl
+
+    /** Public policy endpoint: deliberately no bearer token or account refresh. */
+    suspend fun fetchSupportContact(): String? = apiCall(OrbitErrorCode.RemoteServiceRejected) {
+        val envelope = client.get("$baseUrl/api/v1/auth/recovery-info").body<RecoveryContactEnvelope>()
+        val payload = envelope.data?.takeIf { envelope.success }
+            ?: throw OrbitServiceFailure(syncError(OrbitErrorCode.RemoteProtocolViolation))
+        payload.support_contact
+    }
 
     private companion object {
         fun createClient(): HttpClient = HttpClient {

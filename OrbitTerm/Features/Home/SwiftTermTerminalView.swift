@@ -29,6 +29,9 @@ struct SwiftTermTerminalView: View {
     let searchCommand: TerminalSearchCommand?
     let viewportCommand: TerminalViewportCommand?
     let focusRequest: Int
+    let customKeys: [TerminalCustomKeyRevision]
+    let onCustomKey: ((String) -> Void)?
+    let onManageCustomKeys: (() -> Void)?
     let onSearchFeedback: (Bool, TerminalSearchAction) -> Void
     @AppStorage(TerminalThemeManager.storageKey) private var terminalThemeID: String = TerminalThemeManager.defaultThemeID
     @AppStorage(TerminalThemeManager.followsApplicationThemeStorageKey) private var terminalFollowsApplicationTheme = false
@@ -43,6 +46,9 @@ struct SwiftTermTerminalView: View {
         searchCommand: TerminalSearchCommand?,
         viewportCommand: TerminalViewportCommand? = nil,
         focusRequest: Int = 0,
+        customKeys: [TerminalCustomKeyRevision] = [],
+        onCustomKey: ((String) -> Void)? = nil,
+        onManageCustomKeys: (() -> Void)? = nil,
         onSearchFeedback: @escaping (Bool, TerminalSearchAction) -> Void
     ) {
         self.channelID = channelID
@@ -52,6 +58,9 @@ struct SwiftTermTerminalView: View {
         self.searchCommand = searchCommand
         self.viewportCommand = viewportCommand
         self.focusRequest = focusRequest
+        self.customKeys = customKeys
+        self.onCustomKey = onCustomKey
+        self.onManageCustomKeys = onManageCustomKeys
         self.onSearchFeedback = onSearchFeedback
     }
 
@@ -73,6 +82,9 @@ struct SwiftTermTerminalView: View {
                     searchCommand: searchCommand,
                     viewportCommand: viewportCommand,
                     focusRequest: focusRequest,
+                    customKeys: customKeys,
+                    onCustomKey: onCustomKey,
+                    onManageCustomKeys: onManageCustomKeys,
                     onSearchFeedback: onSearchFeedback
                 )
             } else {
@@ -104,6 +116,9 @@ private struct TerminalRepresentable: PlatformRepresentable {
     let searchCommand: TerminalSearchCommand?
     let viewportCommand: TerminalViewportCommand?
     let focusRequest: Int
+    let customKeys: [TerminalCustomKeyRevision]
+    let onCustomKey: ((String) -> Void)?
+    let onManageCustomKeys: (() -> Void)?
     let onSearchFeedback: (Bool, TerminalSearchAction) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -141,11 +156,13 @@ private struct TerminalRepresentable: PlatformRepresentable {
             on: view,
             sendBytes: context.coordinator.emitInput
         )
+        updateAccessory(view)
         context.coordinator.attach(view: view, channelID: channelID, theme: theme, fontSize: fontSize)
         return view
     }
 
     func updateUIView(_ uiView: TerminalView, context: Context) {
+        updateAccessory(uiView)
         context.coordinator.updateCallbacks(
             onResize: onResize,
             onInput: onInput,
@@ -161,6 +178,14 @@ private struct TerminalRepresentable: PlatformRepresentable {
             viewportCommand: viewportCommand,
             focusRequest: focusRequest
         )
+    }
+
+    private func updateAccessory(_ view: TerminalView) {
+        guard let accessory = view.inputAccessoryView as? ShortcutAccessoryView else { return }
+        accessory.updateCustomKeys(customKeys, onSend: onCustomKey, onManage: { [weak view] in
+            _ = view?.resignFirstResponder()
+            onManageCustomKeys?()
+        }, canManage: onManageCustomKeys != nil)
     }
 #endif
 

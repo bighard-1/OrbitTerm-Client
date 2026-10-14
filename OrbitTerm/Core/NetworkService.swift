@@ -69,6 +69,15 @@ final class NetworkService: NSObject {
         diagnosticsManager = diagnostics
     }
 
+    /// Public recovery policy: no access token, refresh token, or master password.
+    func fetchSupportContact() async throws -> String? {
+        let info = try await sendWithoutBody(
+            path: "/api/v1/auth/recovery-info", method: "GET", token: nil,
+            responseType: PublicRecoveryContact.self
+        )
+        return info.support_contact
+    }
+
     enum NetworkError: Error, LocalizedError {
         case invalidURL
         case invalidBaseURL

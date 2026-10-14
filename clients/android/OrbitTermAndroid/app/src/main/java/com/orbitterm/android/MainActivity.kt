@@ -12,6 +12,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -70,15 +71,20 @@ class MainActivity : FragmentActivity() {
             val uiState = appViewModel.uiState.collectAsStateWithLifecycle().value
             val recentlyDeletedState = recentlyDeletedViewModel.uiState.collectAsStateWithLifecycle().value
             val administratorEmail = administratorContactRepository.administratorEmail.collectAsStateWithLifecycle().value
-            LaunchedEffect(administratorContactRepository) {
-                administratorContactRepository.refresh()
+            val lifecycleOwner = LocalLifecycleOwner.current
+            LaunchedEffect(administratorContactRepository, lifecycleOwner) {
+                lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    while (true) {
+                        administratorContactRepository.refresh()
+                        delay(300_000)
+                    }
+                }
             }
             val isDark = when (uiState.appThemePreference) {
                 AppThemePreference.System -> isSystemInDarkTheme()
                 AppThemePreference.Light -> false
                 AppThemePreference.Dark -> true
             }
-            val lifecycleOwner = LocalLifecycleOwner.current
             val coroutineScope = rememberCoroutineScope()
             var biometricPromptAction by androidx.compose.runtime.remember {
                 mutableStateOf(BiometricPromptAction.Unlock)

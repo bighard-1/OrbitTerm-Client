@@ -1,0 +1,17 @@
+[
+  {"plaintext":"{\"kind\":\"terminal_custom_keys\",\"version\":1,\"entries\":[]}","reserved":true},
+  {"plaintext":"{\"kind\":\"terminal_custom_keys\",\"version\":999,\"future\":{\"text\":\"中文😀\"}}","reserved":true},
+  {"plaintext":"{\"kind\":\"terminal_custom_keys\"}","reserved":true},
+  {"plaintext":"{\"kind\":\"terminal_custom_keys\",\"version\":\"future\",\"entries\":null}","reserved":true},
+  {"plaintext":"{\"kind\":\"terminal_custom_keys\",\"version\":-1}","reserved":true},
+  {"plaintext":"{\"kind\":\"future_format\"}","reserved":false},
+  {"plaintext":"{\"kind\":\"Terminal_custom_keys\"}","reserved":false},
+  {"plaintext":"{\"kind\":\" terminal_custom_keys\"}","reserved":false},
+  {"plaintext":"{\"kind\":42}","reserved":false},
+  {"plaintext":"{\"kind\":null}","reserved":false},
+  {"plaintext":"{\"kind\":{\"kind\":\"terminal_custom_keys\"}}","reserved":false},
+  {"plaintext":"[{\"kind\":\"terminal_custom_keys\"}]","reserved":false},
+  {"plaintext":"null","reserved":false},
+  {"plaintext":"{}","reserved":false},
+  {"plaintext":"{\"kind\":\"terminal_custom_keys\"","reserved":false}
+]

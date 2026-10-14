@@ -2,6 +2,31 @@ import Foundation
 import XCTest
 
 final class NetworkServiceFaultInjectionTests: XCTestCase {
+    func testPublicSupportContactUsesActualContractWithoutAuthorization() async throws {
+        ScriptedURLProtocol.install([
+            .init(statusCode: 200, body: #"{"success":true,"data":{"support_contact":"support@example.com","master_password_recoverable":false}}"#)
+        ])
+        let contact = try await makeService().fetchSupportContact()
+        XCTAssertEqual(contact, "support@example.com")
+        let request = try XCTUnwrap(ScriptedURLProtocol.requests().first)
+        XCTAssertEqual(request.httpMethod, "GET")
+        XCTAssertEqual(request.url?.path, "/api/v1/auth/recovery-info")
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertNil(request.httpBody)
+    }
+
+    func testPublicSupportContactOmissionIsDefaultButFailedEnvelopeIsRejected() async throws {
+        ScriptedURLProtocol.install([.init(statusCode: 200, body: #"{"success":true,"data":{}}"#)])
+        let missing = try await makeService().fetchSupportContact()
+        XCTAssertNil(missing)
+        ScriptedURLProtocol.install([.init(statusCode: 200, body: #"{"success":false,"data":{"support_contact":"other@example.com"}}"#)])
+        do {
+            _ = try await makeService().fetchSupportContact()
+            XCTFail("Invalid envelope must not supply a contact")
+        } catch let error as NetworkService.NetworkError {
+            guard case .decodeFailed = error else { return XCTFail("Unexpected error") }
+        }
+    }
     override func tearDown() {
         ScriptedURLProtocol.reset()
         super.tearDown()
@@ -230,6 +255,7 @@ private final class ScriptedURLProtocol: URLProtocol {
     private static var stubs: [Stub] = []
     private(set) static var requestCount = 0
     private static var capturedIdempotencyKeys: [String?] = []
+    private static var capturedRequests: [URLRequest] = []
 
     static func install(_ newStubs: [Stub]) {
         lock.lock()
@@ -237,6 +263,7 @@ private final class ScriptedURLProtocol: URLProtocol {
         stubs = newStubs
         requestCount = 0
         capturedIdempotencyKeys = []
+        capturedRequests = []
     }
 
     static func reset() {
@@ -249,10 +276,17 @@ private final class ScriptedURLProtocol: URLProtocol {
         return capturedIdempotencyKeys
     }
 
+    static func requests() -> [URLRequest] {
+        lock.lock()
+        defer { lock.unlock() }
+        return capturedRequests
+    }
+
     private static func nextStub(for request: URLRequest) -> Stub? {
         lock.lock()
         defer { lock.unlock() }
         requestCount += 1
+        capturedRequests.append(request)
         capturedIdempotencyKeys.append(request.value(forHTTPHeaderField: SyncRequestIdentity.header))
         guard !stubs.isEmpty else { return nil }
         return stubs.removeFirst()

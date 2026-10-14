@@ -65,6 +65,13 @@ struct ContentView: View {
                 } else if AppUITestLaunchState.current == .accountSecurityStates {
                     AccountSecurityStateUITestHarnessView()
                         .accessibilityIdentifier("orbit.root.account-security-states")
+                } else if AppUITestLaunchState.current == .terminalCustomKeys {
+                    #if os(iOS)
+                    MobileTerminalCustomKeysView(store: session.terminalCustomKeys)
+                        .accessibilityIdentifier("orbit.root.terminal-custom-keys")
+                    #else
+                    Text("自定义按键编辑器测试仅用于 iOS。")
+                    #endif
                 } else {
                     MainShellView()
                         .accessibilityIdentifier("orbit.root.workspace")

@@ -822,6 +822,10 @@ extension SyncService {
                     } else {
                         bestByServerID[portable.id] = decoded
                     }
+                } catch TerminalCustomKeySyncCompatibility.RoutingError.deferred {
+                    // Keep this account-level record on the server, outside asset
+                    // credentials, deduplication, deletion and failure counters.
+                    continue
                 } catch {
                     skipped += 1
                 }

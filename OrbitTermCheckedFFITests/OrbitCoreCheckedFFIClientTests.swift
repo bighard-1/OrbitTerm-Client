@@ -788,6 +788,21 @@ private func allocatedCString(_ value: String) -> UnsafeMutablePointer<CChar> {
 }
 
 final class ConfigCryptoV2FFITests: XCTestCase {
+    func testOpaqueCustomKeyBytesSurviveReencryptionWithoutSchemaRoundTrip() throws {
+        let plaintext = """
+        { "kind": "terminal_custom_keys", "version": 999,
+          "future": { "text": "中文😀", "literal": "\\\\x1B", "n": 1.00 }, "entries": null }
+        """
+        let oldRoot = try configV2Root(password: "old-test-master", scope: "account-scope-a")
+        let newRoot = try configV2Root(password: "new-test-master", scope: "account-scope-a")
+        let original = try configV2Encrypt(root: oldRoot, plaintext: plaintext)
+        let decrypted = try configV2Decrypt(root: oldRoot, encrypted: original)
+        XCTAssertEqual(TerminalCustomKeySyncCompatibility.routing(Data(decrypted.utf8), assetID: nil), .deferred)
+        let replacement = try configV2Encrypt(root: newRoot, plaintext: decrypted)
+        XCTAssertEqual(Data(try configV2Decrypt(root: newRoot, encrypted: replacement).utf8), Data(plaintext.utf8))
+        XCTAssertThrowsError(try configV2Decrypt(root: oldRoot, encrypted: replacement))
+    }
+
     func testV2RoundTripUsesAccountScopedRootAndRandomRecordMaterial() throws {
         let root = try configV2Root(password: "test-master-password", scope: "account-scope-a")
         let first = try configV2Encrypt(root: root, plaintext: "portable configuration")

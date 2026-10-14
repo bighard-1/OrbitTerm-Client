@@ -36,6 +36,8 @@ class MasterPasswordViewModel @Inject constructor(
     private val rotationRepository: MasterPasswordRotationRepository,
     private val applicationSync: ApplicationSyncCoordinator,
 ) : ViewModel() {
+    private val biometricUnlockRequest = BiometricRequestFence(accountScopeController)
+    private val biometricEnrollmentRequest = BiometricRequestFence(accountScopeController)
     private var unlockedMasterPassword: String? = null
     private var rotationGeneration = 0L
     private var rotationFeedbackRevision = 0L
@@ -47,6 +49,8 @@ class MasterPasswordViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             accountScopeController.scope.collect { scope ->
+                biometricUnlockRequest.clear()
+                biometricEnrollmentRequest.clear()
                 rotationGeneration += 1
                 rotationFeedbackJob?.cancel()
                 biometricFeedbackJob?.cancel()
@@ -96,7 +100,7 @@ class MasterPasswordViewModel @Inject constructor(
             publishBiometricFeedback(SecurityOperationFeedbackKind.FAILURE, "请先使用主密码解锁后再启用生物识别。")
             return null
         }
-        return secureStore.biometricEnrollmentCipher(scope.storageId) ?: run {
+        return biometricEnrollmentRequest.issue(secureStore.biometricEnrollmentCipher(scope.storageId)) ?: run {
             publishBiometricFeedback(
                 SecurityOperationFeedbackKind.RECOVERY_REQUIRED,
                 SecurityOperationPresentation.BIOMETRIC_UNAVAILABLE,
@@ -106,6 +110,7 @@ class MasterPasswordViewModel @Inject constructor(
     }
 
     fun completeBiometricEnrollment(cipher: javax.crypto.Cipher) {
+        if (!biometricEnrollmentRequest.consume(cipher)) return
         val scope = accountScopeController.scope.value ?: return
         val master = unlockedMasterPassword ?: return
         runCatching { secureStore.completeBiometricEnrollment(scope.storageId, master, cipher) }
@@ -146,10 +151,11 @@ class MasterPasswordViewModel @Inject constructor(
                 ),
             )
         }
-        return cipher
+        return biometricUnlockRequest.issue(cipher)
     }
 
     fun completeBiometricUnlock(cipher: javax.crypto.Cipher) {
+        if (!biometricUnlockRequest.consume(cipher)) return
         val scope = accountScopeController.scope.value ?: return
         val master = secureStore.readMasterPasswordAfterBiometric(scope.storageId, cipher)
         if (master == null) {
@@ -173,6 +179,8 @@ class MasterPasswordViewModel @Inject constructor(
     }
 
     fun reportBiometricPromptFailure(failure: BiometricPromptFailure) {
+        biometricUnlockRequest.clear()
+        biometricEnrollmentRequest.clear()
         val presentation = biometricFailurePresentation(failure) ?: return
         if (failure == BiometricPromptFailure.UNAVAILABLE) {
             accountScopeController.scope.value?.let { secureStore.invalidateBiometricUnlock(it.storageId) }
@@ -397,6 +405,8 @@ class MasterPasswordViewModel @Inject constructor(
 
     /** Clears the in-memory secret when the account session ends or the task is locked. */
     fun lock() {
+        biometricUnlockRequest.clear()
+        biometricEnrollmentRequest.clear()
         rotationGeneration += 1
         rotationFeedbackJob?.cancel()
         biometricFeedbackJob?.cancel()

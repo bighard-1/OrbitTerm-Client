@@ -46,6 +46,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.asStateFlow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
@@ -60,6 +62,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalView
@@ -79,7 +82,12 @@ import com.orbitterm.android.domain.session.CommandSnippetTemplate
 import com.orbitterm.android.domain.session.QuickCommandRepository
 import com.orbitterm.android.domain.session.TerminalKeyUsageRepository
 import com.orbitterm.android.domain.session.TerminalCustomKey
+import com.orbitterm.android.domain.session.TerminalCustomKeyPayload
+import com.orbitterm.android.domain.session.TerminalCustomKeyContract
 import com.orbitterm.android.domain.session.TerminalCustomKeySection
+import com.orbitterm.android.domain.session.TerminalCustomKeyState
+import com.orbitterm.android.domain.session.TerminalCustomKeyConflictReview
+import com.orbitterm.android.domain.session.TerminalCustomKeyRevision
 import com.orbitterm.android.domain.assets.AssetRepository
 import com.orbitterm.android.domain.assets.ServerCredentials
 import com.orbitterm.android.domain.assets.AndroidTransportSupportPolicy
@@ -123,6 +131,7 @@ data class TerminalSessionsUiState(
     val isNetworkUsable: Boolean = true,
     val specialKeyUsage: Map<String, Int> = emptyMap(),
     val customTerminalKeys: List<TerminalCustomKey> = emptyList(),
+    val customKeyConflicts: List<TerminalCustomKeyConflictReview> = emptyList(),
 )
 
 enum class SessionWorkspaceModule(val label: String) {
@@ -144,15 +153,21 @@ class TerminalSessionsViewModel @Inject constructor(
     private val terminalKeyUsageRepository: TerminalKeyUsageRepository,
     private val operations: OperationScopeCoordinator,
     private val networkAvailability: SessionNetworkAvailability,
+    val keyDocumentInteraction: com.orbitterm.android.core.DocumentInteractionCoordinator,
 ) : ViewModel() {
+    data class CustomKeyWriteState(val busy: Boolean = false, val error: String? = null)
+    private val customKeyWrite = MutableStateFlow(CustomKeyWriteState())
+    val customKeyWriteState = customKeyWrite.asStateFlow()
+    val customKeyStorageNotice = terminalKeyUsageRepository.customKeyStorageNotice
+    val keyRecoveryRepository: TerminalKeyUsageRepository get() = terminalKeyUsageRepository
     private data class TerminalKeyPreferences(
         val usage: Map<String, Int>,
-        val customKeys: List<TerminalCustomKey>,
+        val snapshot: TerminalCustomKeyState,
     )
 
     private val terminalKeyPreferences = combine(
         terminalKeyUsageRepository.usageCounts,
-        terminalKeyUsageRepository.customKeys,
+        terminalKeyUsageRepository.customKeyState,
     ) { usage, customKeys -> TerminalKeyPreferences(usage, customKeys) }
     private val selectedSessionId = MutableStateFlow<String?>(null)
     private val selectedModule = MutableStateFlow(SessionWorkspaceModule.Terminal)
@@ -202,11 +217,12 @@ class TerminalSessionsViewModel @Inject constructor(
             processRecoveryNotice = recoveryNotice,
             isNetworkUsable = workspace.reconnectAvailability.isNetworkUsable,
             specialKeyUsage = keyPreferences.usage,
-            customTerminalKeys = keyPreferences.customKeys,
+            customTerminalKeys = keyPreferences.snapshot.keys,
+            customKeyConflicts = keyPreferences.snapshot.conflicts,
         )
     }.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000),
+        started = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000, replayExpirationMillis = 0),
         initialValue = TerminalSessionsUiState(),
     )
 
@@ -236,10 +252,10 @@ class TerminalSessionsViewModel @Inject constructor(
         viewModelScope.launch { terminalKeyUsageRepository.recordUse(label) }
     }
 
-    fun saveCustomTerminalKey(label: String, payload: String, section: TerminalCustomKeySection) {
+    fun saveCustomTerminalKey(label: String, payload: String, section: TerminalCustomKeySection, onSaved: () -> Unit) {
         val normalizedLabel = label.trim()
-        if (normalizedLabel.isEmpty() || parseTerminalCustomKeyPayload(payload) == null) return
-        viewModelScope.launch {
+        if (!TerminalCustomKeyContract.validLabel(normalizedLabel) || parseTerminalCustomKeyPayload(payload) == null) return
+        writeCustomKey(onSaved) {
             terminalKeyUsageRepository.saveCustomKey(
                 TerminalCustomKey(
                     id = UUID.randomUUID().toString(),
@@ -252,7 +268,30 @@ class TerminalSessionsViewModel @Inject constructor(
     }
 
     fun deleteCustomTerminalKey(id: String) {
-        viewModelScope.launch { terminalKeyUsageRepository.deleteCustomKey(id) }
+        writeCustomKey { terminalKeyUsageRepository.deleteCustomKey(id) }
+    }
+
+    fun reloadCustomKeys() { writeCustomKey { terminalKeyUsageRepository.reloadCustomKeys() } }
+
+    fun resolveCustomKey(review: TerminalCustomKeyConflictReview, keeping: TerminalCustomKeyRevision?, onSaved: () -> Unit) {
+        writeCustomKey(onSaved) { terminalKeyUsageRepository.resolveCustomKey(review, keeping) }
+    }
+
+    private fun writeCustomKey(onSaved: () -> Unit = {}, operation: suspend () -> Unit) {
+        if (customKeyWrite.value.busy) return
+        customKeyWrite.value = CustomKeyWriteState(busy = true)
+        viewModelScope.launch {
+            try {
+                operation()
+                onSaved()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                customKeyWrite.value = CustomKeyWriteState(error = "未能保存更改，原有配置已保留。配置可能已变化或存储暂不可用，请重试读取后重新确认。")
+            } finally {
+                customKeyWrite.value = customKeyWrite.value.copy(busy = false)
+            }
+        }
     }
 
     fun executeCommand(sessionId: String, command: String) {
@@ -443,12 +482,32 @@ fun TerminalSessionsRoute(
     batchViewModel: BatchCommandViewModel = viewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val customKeyWriteState by viewModel.customKeyWriteState.collectAsStateWithLifecycle()
+    val customKeyStorageNotice by viewModel.customKeyStorageNotice.collectAsStateWithLifecycle(initialValue = null)
     val batchState by batchViewModel.uiState.collectAsStateWithLifecycle()
     val session = uiState.selectedSession
     var terminalCanvas by remember { mutableStateOf<RemoteTerminalCanvasView?>(null) }
     var customKeyEditorSection by remember { mutableStateOf<TerminalCustomKeySection?>(null) }
     var sessionMenuExpanded by rememberSaveable { mutableStateOf(false) }
     val isImeVisible = rememberReliableImeVisibility()
+    // Account settings must survive a temporary empty session snapshot when
+    // lifecycle-aware collection restarts after the system document picker.
+    customKeyEditorSection?.let { section ->
+        TerminalCustomKeyDialog(
+            initialSection = section,
+            customKeys = uiState.customTerminalKeys,
+            writeState = customKeyWriteState,
+            storageNotice = customKeyStorageNotice,
+            recoveryRepository = viewModel.keyRecoveryRepository,
+            documentInteraction = viewModel.keyDocumentInteraction,
+            conflicts = uiState.customKeyConflicts,
+            onReload = viewModel::reloadCustomKeys,
+            onResolve = viewModel::resolveCustomKey,
+            onSaveCustomKey = viewModel::saveCustomTerminalKey,
+            onDeleteCustomKey = viewModel::deleteCustomTerminalKey,
+            onDismiss = { customKeyEditorSection = null },
+        )
+    }
     if (session == null) {
         Column(
             modifier = modifier.fillMaxSize().padding(24.dp),
@@ -467,6 +526,9 @@ fun TerminalSessionsRoute(
                 color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
                 style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
             )
+            TextButton(onClick = { customKeyEditorSection = TerminalCustomKeySection.Common }) {
+                Text("管理自定义按键")
+            }
         }
         return
     }
@@ -666,15 +728,6 @@ fun TerminalSessionsRoute(
             )
         }
     }
-    customKeyEditorSection?.let { section ->
-        TerminalCustomKeyDialog(
-            initialSection = section,
-            customKeys = uiState.customTerminalKeys,
-            onSaveCustomKey = viewModel::saveCustomTerminalKey,
-            onDeleteCustomKey = viewModel::deleteCustomTerminalKey,
-            onDismiss = { customKeyEditorSection = null },
-        )
-    }
 }
 
 /**
@@ -767,34 +820,7 @@ internal fun orderedTerminalSpecialKeys(
 
 /** Parses the deliberately small, auditable escape grammar accepted by the custom-key editor. */
 internal fun parseTerminalCustomKeyPayload(payload: String): ByteArray? {
-    if (payload.isEmpty()) return null
-    val result = ArrayList<Byte>(payload.length)
-    var index = 0
-    while (index < payload.length) {
-        val character = payload[index]
-        if (character != '\\') {
-            result += character.toString().toByteArray(Charsets.UTF_8).toList()
-            index += 1
-            continue
-        }
-        if (index + 1 >= payload.length) return null
-        when (val escaped = payload[index + 1]) {
-            't' -> result += 9
-            'r' -> result += 13
-            'n' -> result += 10
-            'e' -> result += 27
-            '\\' -> result += '\\'.code.toByte()
-            'x' -> {
-                if (index + 3 >= payload.length) return null
-                val value = payload.substring(index + 2, index + 4).toIntOrNull(16) ?: return null
-                result += value.toByte()
-                index += 2
-            }
-            else -> return null
-        }
-        index += 2
-    }
-    return result.toByteArray().takeIf { it.isNotEmpty() && it.size <= 64 }
+    return TerminalCustomKeyPayload.decode(payload)
 }
 
 @Composable
@@ -873,27 +899,74 @@ private fun TerminalKeyBar(
 private fun TerminalCustomKeyDialog(
     initialSection: TerminalCustomKeySection,
     customKeys: List<TerminalCustomKey>,
-    onSaveCustomKey: (String, String, TerminalCustomKeySection) -> Unit,
+    writeState: TerminalSessionsViewModel.CustomKeyWriteState,
+    storageNotice: String?,
+    recoveryRepository: TerminalKeyUsageRepository,
+    documentInteraction: com.orbitterm.android.core.DocumentInteractionCoordinator,
+    conflicts: List<TerminalCustomKeyConflictReview>,
+    onReload: () -> Unit,
+    onResolve: (TerminalCustomKeyConflictReview, TerminalCustomKeyRevision?, () -> Unit) -> Unit,
+    onSaveCustomKey: (String, String, TerminalCustomKeySection, () -> Unit) -> Unit,
     onDeleteCustomKey: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var customKeyLabel by remember { mutableStateOf("") }
     var customKeyPayload by remember { mutableStateOf("") }
     var customKeySection by remember(initialSection) { mutableStateOf(initialSection) }
+    var reviewing by remember { mutableStateOf<TerminalCustomKeyConflictReview?>(null) }
+    var recovery by remember { mutableStateOf(false) }
+    var rescue by remember { mutableStateOf(false) }
+    if (recovery) {
+        TerminalKeyRecoveryDialog(recoveryRepository, documentInteraction, rescueOnly = rescue) { recovery = false }
+        return
+    }
+    LaunchedEffect(conflicts) {
+        if (reviewing !in conflicts) reviewing = null
+    }
+    reviewing?.let { review ->
+        TerminalCustomKeyConflictDialog(
+            review = review, busy = writeState.busy, error = writeState.error,
+            onResolve = { keeping -> onResolve(review, keeping) { reviewing = null } },
+            onDismiss = { reviewing = null },
+        )
+        return
+    }
     val parsedPayload = parseTerminalCustomKeyPayload(customKeyPayload)
     val duplicateLabel = terminalSpecialKeys.any { it.label.equals(customKeyLabel.trim(), ignoreCase = true) } ||
         customKeys.any { it.label.equals(customKeyLabel.trim(), ignoreCase = true) }
     OrbitFormDialog(
         title = "自定义终端按键",
         confirmLabel = "添加",
-        confirmEnabled = customKeyLabel.isNotBlank() && parsedPayload != null && !duplicateLabel,
+        confirmEnabled = !writeState.busy && TerminalCustomKeyContract.validLabel(customKeyLabel.trim()) && parsedPayload != null && !duplicateLabel,
         onConfirm = {
-            onSaveCustomKey(customKeyLabel, customKeyPayload, customKeySection)
-            customKeyLabel = ""
-            customKeyPayload = ""
+            onSaveCustomKey(customKeyLabel, customKeyPayload, customKeySection) {
+                customKeyLabel = ""
+                customKeyPayload = ""
+            }
         },
         onDismiss = onDismiss,
     ) {
+      Column(Modifier.verticalScroll(rememberScrollState()),
+          verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
+        (writeState.error ?: storageNotice)?.let { message ->
+            Text(message, color = androidx.compose.material3.MaterialTheme.colorScheme.error,
+                modifier = Modifier.semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite })
+        }
+        TextButton(enabled = !writeState.busy, onClick = onReload) { Text("重试读取") }
+        TextButton(enabled = !writeState.busy && storageNotice == null, onClick = { rescue = false; recovery = true }) { Text("按键备份与恢复") }
+        if (storageNotice != null) {
+            TextButton(enabled = !writeState.busy, onClick = { rescue = true; recovery = true }) { Text("原始配置加密救援") }
+        }
+        if (conflicts.isNotEmpty()) {
+            Text("待处理冲突（${conflicts.size}）", style = androidx.compose.material3.MaterialTheme.typography.titleSmall)
+            Text("冲突按键暂不显示在终端键栏，也不能发送。选择保留版本或删除后才会恢复确定状态。")
+            conflicts.forEach { review ->
+                TextButton(enabled = !writeState.busy, onClick = { reviewing = review },
+                    modifier = Modifier.testTag("terminal_custom_key_conflict_${review.conflict.id}")) {
+                    Text("${review.conflict.revisions.firstNotNullOfOrNull { it.value?.label } ?: "已删除按键"} · ${review.conflict.revisions.size} 个并发版本 · 查看并处理")
+                }
+            }
+        }
         Text(
             "自定义内容仅发送到当前终端。支持普通字符以及 \\t、\\r、\\n、\\e、\\xNN；包含 \\r 或 \\n 时可能立即执行命令。",
             color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
@@ -902,18 +975,21 @@ private fun TerminalCustomKeyDialog(
         androidx.compose.foundation.layout.Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
             FilterChip(
                 selected = customKeySection == TerminalCustomKeySection.Common,
+                enabled = !writeState.busy,
                 onClick = { customKeySection = TerminalCustomKeySection.Common },
                 label = { Text("常用") },
             )
             FilterChip(
                 selected = customKeySection == TerminalCustomKeySection.Symbols,
+                enabled = !writeState.busy,
                 onClick = { customKeySection = TerminalCustomKeySection.Symbols },
                 label = { Text("符号") },
             )
         }
         OutlinedTextField(
             value = customKeyLabel,
-            onValueChange = { customKeyLabel = it.take(16) },
+            enabled = !writeState.busy,
+            onValueChange = { if (it.codePointCount(0, it.length) <= 16) customKeyLabel = it },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             label = { Text("按钮名称") },
@@ -921,7 +997,8 @@ private fun TerminalCustomKeyDialog(
         )
         OutlinedTextField(
             value = customKeyPayload,
-            onValueChange = { customKeyPayload = it.take(64) },
+            enabled = !writeState.busy,
+            onValueChange = { if (it.length <= 256) customKeyPayload = it },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             label = { Text("发送内容") },
@@ -938,12 +1015,13 @@ private fun TerminalCustomKeyDialog(
                         "${key.label} · ${if (key.section == TerminalCustomKeySection.Common) "常用" else "符号"}",
                         modifier = Modifier.weight(1f),
                     )
-                    IconButton(onClick = { onDeleteCustomKey(key.id) }) {
+                    IconButton(enabled = !writeState.busy, onClick = { onDeleteCustomKey(key.id) }) {
                         Icon(Icons.Rounded.Delete, contentDescription = "删除 ${key.label}")
                     }
                 }
             }
         }
+      }
     }
 }
 

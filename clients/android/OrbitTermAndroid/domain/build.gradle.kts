@@ -10,6 +10,7 @@ android {
     namespace = "com.orbitterm.android.domain"
     compileSdk = 36
     defaultConfig { minSdk = 26 }
+    sourceSets.getByName("test").resources.srcDir(rootProject.file("../../../shared/mobile-contracts"))
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

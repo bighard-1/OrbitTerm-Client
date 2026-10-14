@@ -48,6 +48,9 @@ data_unit_results_root="$ANDROID_PROJECT/data/build/test-results/testDebugUnitTe
 [[ -d "$data_unit_results_root" ]] || fail "Android data unit-test results are missing"
 rg -q 'OrbitApiFaultInjectionTest' "$data_unit_results_root" || \
   fail "Android native HTTP fault-injection regression test did not run"
+for contact_test in AdministratorContactRepositoryTest SupportContactApiTest; do
+  rg -q "$contact_test" "$data_unit_results_root" || fail "Missing public-contact regression: $contact_test"
+done
 for required_fault_regression in \
   'timeoutAndConnectionInterruptionUseStableTransportErrors' \
   'malformedSuccessfulResponseIsBlockedProtocolViolation' \
@@ -60,8 +63,32 @@ domain_unit_results_root="$ANDROID_PROJECT/domain/build/test-results/testDebugUn
 [[ -d "$domain_unit_results_root" ]] || fail "Android domain unit-test results are missing"
 rg -q 'RetryClockGuardTest' "$domain_unit_results_root" || \
   fail "Android monotonic retry-clock regression test did not run"
+rg -q 'MobileContractPolicyTest' "$domain_unit_results_root" || \
+  fail "Android shared mobile contact/payload regression tests did not run"
+rg -q 'reservedCustomKeyRoutingNeverUsesAssetIdentity' "$domain_unit_results_root" || \
+  fail "Android opaque custom-key compatibility regression did not run"
+rg -q 'TerminalCustomKeyContractTest' "$domain_unit_results_root" || \
+  fail "Android versioned custom-key merge regressions did not run"
+rg -q 'stalePartialAndInventedChoicesAreRejected' "$domain_unit_results_root" || \
+  fail "Android stale conflict review regression did not run"
+rg -q 'TerminalCustomKeyMigrationTest' "$data_unit_results_root" || \
+  fail "Android lossless custom-key migration regressions did not run"
+rg -q 'TerminalKeyLocalDocumentTest' "$data_unit_results_root" || \
+  fail "Android encrypted custom-key document and access regressions did not run"
+rg -q 'TerminalKeyRecoveryPackageTest' "$data_unit_results_root" || \
+  fail "Android portable key recovery cryptography regressions did not run"
+rg -q 'rescueIndependentVectorPreservesMalformedUTF16AndIsNotImportable' "$data_unit_results_root" || \
+  fail "Android raw rescue cryptography and format-isolation regression did not run"
+rg -q 'TerminalKeyRepairPreviewTest' "$data_unit_results_root" || \
+  fail "Android bounded per-item rescue repair preview regressions did not run"
+rg -q 'BiometricRequestFenceTest' "$ANDROID_PROJECT/app/build/test-results/testDebugUnitTest" || \
+  fail "Android biometric callback ownership regressions did not run"
 feature_unit_results_root="$ANDROID_PROJECT/feature/build/test-results/testDebugUnitTest"
 [[ -d "$feature_unit_results_root" ]] || fail "Android feature unit-test results are missing"
+rg -q 'rescueInspectionIsBoundedReadOnlyAndClearedByLock' "$feature_unit_results_root" || \
+  fail "Android read-only rescue inspection lifecycle regression did not run"
+rg -q 'repositoryResultFromAnotherLeaseIsNeverPublished' "$feature_unit_results_root" || \
+  fail "Android rescue response ownership regression did not run"
 rg -q 'SftpShareArchivePolicyTest' "$feature_unit_results_root" || \
   fail "Android SFTP share-policy regression test did not run"
 rg -q 'SftpPathNavigationTest' "$feature_unit_results_root" || \

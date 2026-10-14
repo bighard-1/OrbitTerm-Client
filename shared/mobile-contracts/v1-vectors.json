@@ -1,0 +1,32 @@
+{
+  "payloads": [
+    {"input":"echo hi\\r", "bytes":[101,99,104,111,32,104,105,13]},
+    {"input":"😀", "bytes":[240,159,152,128]},
+    {"input":"中", "bytes":[228,184,173]},
+    {"input":"\\t\\r\\n\\e\\\\\\x00\\xFF", "bytes":[9,13,10,27,92,0,255]},
+    {"input":"\\x7c", "bytes":[124]},
+    {"input":"\\x+F", "bytes":null},
+    {"input":"\\x-1", "bytes":null},
+    {"input":"\\x０1", "bytes":null},
+    {"input":"\\x0", "bytes":null},
+    {"input":"\\q", "bytes":null},
+    {"input":"\\", "bytes":null},
+    {"input":"", "bytes":null}
+  ],
+  "contacts": [
+    {"input":"orbitterm@163.com", "email":"orbitterm@163.com"},
+    {"input":"Support+mobile@EXAMPLE.COM", "email":"Support+mobile@example.com"},
+    {"input":" support@example.com", "email":null},
+    {"input":"support@example.com?bcc=other@example.com", "email":null},
+    {"input":"support@example.com\r\nBcc:other@example.com", "email":null},
+    {"input":"support%0d%0a@example.com", "email":null},
+    {"input":"mailto:support@example.com", "email":null},
+    {"input":"support@example.com#fragment", "email":null},
+    {"input":"a..b@example.com", "email":null},
+    {"input":"support@-example.com", "email":null},
+    {"input":"support@example..com", "email":null},
+    {"input":"support@localhost", "email":null},
+    {"input":"支持@example.com", "email":null},
+    {"input":"", "email":null}
+  ]
+}
