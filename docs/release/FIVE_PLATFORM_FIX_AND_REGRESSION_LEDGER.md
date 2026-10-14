@@ -74,6 +74,8 @@
 
 `ANDROID-MAC-TOMBSTONE-70` 的远端 CI 后续回执（固定源码 `4fd335d`）：[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38577409923) 最终为 `success`，Rust Release、Apple checked-path、依赖/许可、桌面视觉、Android Release、Android 15 模拟器与迁移六项常规作业均成功；签名 macOS UI 冒烟及 OpenSSH 发布候选冒烟是条件 `skipped`，不能计通过。[Linux Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38577409931) 与 [Windows Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38577410004) 亦为 `success`。这些是**修复前**提交的源码/自动化结果，不能替代 `ANDROID-VECTOR64-71` 新提交 CI 或 K60 新包恢复 GUI 验收。
 
+`ANDROID-VECTOR64-71` 远程复测补记：用户不在 K60 旁，已授权远程查看；扩展坞 ADB 可短暂访问，但屏幕关闭时截图全黑、后续界面读取传输失败，无法可靠定位恢复控件。未盲点、未改资产，临时诊断文件已清理并发送锁屏指令。**本次是设备控制通道失败，新 QA 恢复功能尚未验收**，不覆盖旧 QA 的明确失败。修复提交 `8fcbe80` 的新一轮 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38584995077) 查询时仍在运行；其自动化结论与实体 GUI 结论须分开记录。
+
 ## 2026-10-13 CI 门禁与 Linux 审计顺序复核
 
 | 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
