@@ -16,6 +16,7 @@
 
 - 后继提交 `2dd118e` 的 [Android 15 作业](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38518784894/job/115703474379)已跨过原包服务失败：隔离 Smoke APK 安装成功并启动首个 `locked` 状态，但在 30 次无障碍快照后仍未读到预期文案。最后的层级树显示最上层是系统 `Fake System App isn't responding` 弹窗，测试应用 Activity 位于其后。**夹具断言失败保留**，不能把安装成功写成 Smoke 或仪表化通过。
 - 第二次修订只对 `aosp-atd-api35` 隔离 CI 档案生效：无障碍树同时精确匹配该系统弹窗标题和 `android:id/aerr_close` 按钮时，最多关闭两次并继续读取夹具状态；其他标题、真实设备和标准档案绝不自动点击。若弹窗持续出现或仍无预期内容，测试照常失败。
+- `2dd118e` 同轮的 Apple checked-path、Rust、Android Release、依赖扫描、桌面视觉、Linux Client、Windows Client 最终均通过；Security Gates 总体因本项 Android Smoke 失败。条件 OpenSSH 与签名 Mac UI 作业跳过，不是通过。
 
 ## 验收边界
 
