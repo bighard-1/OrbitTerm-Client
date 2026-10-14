@@ -54,6 +54,8 @@
 | --- | --- | --- | --- | --- | --- |
 | `ANDROID-DEVICE-ONBOARD-68` | 基于已推送的 Android MFA 源码 `1a38d52`，提交 `0fcc2a8` 新增独立 `qa` 构建类型：沿用 Release 压缩与资源收缩，但用开发调试签名、应用 ID `com.orbitterm.android.qa`、桌面名称“OrbitTerm QA”，与正式版及仅状态夹具的 Smoke 包隔离。arm64 APK SHA-256 `463d890e2a2f3a4ef16227c80dbad6ca51bcdff2a18ea23b3a1badd5f1d42782`，非生产签名/发布包。 | `:app:assembleQa` 成功；`aapt2` 核实 QA 包名、名称及 arm64 ABI，`apksigner` 核实单签名者与 v2 签名。`1a38d52` 远端 Android Release 已通过，Android 仪表化及 Apple checked-path 在本次查询时仍运行中；远端不包含本行 QA 变体。 | 尚未启动 QA GUI，也未做账户/OTP/墓碑测试。 | Mac USB 层识别用户提供的红米 K60；ADB 曾短暂显示已授权物理设备，读取到 Android 15/API 35、现无 OrbitTerm 包。首次 `adb install` 前连接即断，返回 `adb: no devices found`；用户重新连接后 ADB 稳定显示已授权，但第二次安装返回 `INSTALL_FAILED_USER_RESTRICTED: Install canceled by user`。**两次安装失败均保留**；手机无 SIM，厂商系统禁止开启“通过 USB 安装”。改由 ADB 只复制 QA APK 到下载目录、手机端 SHA-256 与构建产物一致，待用户从文件管理器手动确认安装。没有读取设备 UDID、其他文件、账号或短信；尚未安装包或改资产。 | **五端完整验收未完成，不放行**。手动安装成功后先核对 QA 独立安装/启动和法律条款，再在同一候选上按 MFA、墓碑、同步、录屏/后台门禁及输入体验逐项真机记录；Windows 后续用独立签名安装包复现对应墓碑/MFA/失焦边界。当前仅完成源码构建与设备识别，不能记为 Android GUI 或真机功能通过；正式版不覆盖。 |
 
+`ANDROID-DEVICE-ONBOARD-68` 后续（同一 `0fcc2a8` QA APK，失败不覆盖）：用户插入 SIM 后，第三次 ADB 安装仍因手机端“允许/拒绝”弹窗未确认而返回 `INSTALL_FAILED_USER_RESTRICTED`；随后用户开启“通过 USB 安装”，再次执行 `adb install` 返回 **Success**。设备只读核对已安装 `com.orbitterm.android.qa`、版本 `1.0.0-multiplatform-alpha-qa`，未发现正式版包；启动后隔离 GUI 显示登录、法律条款及凭据输入控件。用户已明确授权此 Android QA 实例接受条款，但 ADB 连接在准备登录时反复短暂消失，勾选状态只读复查仍为 `false`，**尚未提交登录或执行账户/OTP/墓碑测试**。已请求改为直连数据线稳定控制通道；不把“安装/启动成功”记作功能验收通过。`1a38d52` 的 Security Gates 因后继推送取消，`290b490` 新 CI 正运行；待其完成后另记，不沿用取消轮次作通过证据。
+
 ## 2026-10-13 CI 门禁与 Linux 审计顺序复核
 
 | 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
