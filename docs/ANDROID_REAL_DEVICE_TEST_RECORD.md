@@ -20,6 +20,7 @@
 ## 当前执行状态
 
 - 2026-07-28：本机仅检测到 Android 15 ARM64 模拟器，未检测到真实 Android 设备。
+- 2026-10-14：用户提供红米 K60（Android 15 / API 35）作为首台实体 Android 验收设备。Mac USB 层已识别；ADB 首次短暂授权后在安装前断开，`adb install` 返回 `adb: no devices found`。重新连接后 ADB 稳定授权，第二次安装返回 `INSTALL_FAILED_USER_RESTRICTED: Install canceled by user`；手机无 SIM，厂商系统禁止开启“通过 USB 安装”。已将独立 QA APK 复制到手机下载目录，设备端 SHA-256 与 Mac 构建产物一致，待用户在文件管理器手动安装。**尚未安装、启动、登录或执行功能场景**；两次失败均保留。候选及安全边界见 [五端台账 `ANDROID-DEVICE-ONBOARD-68`](release/FIVE_PLATFORM_FIX_AND_REGRESSION_LEDGER.md#2026-10-14-红米-k60-android-真机接入与隔离包)。
 - A01–A07 **尚未在真实设备执行**；模拟器自动化已覆盖部分字体 200%、横屏和硬件键映射，但不能替代 TalkBack、分屏、多厂商 IME 或外接硬件键盘的真实结果。
 - 发布演练的人工前置条件：真实设备接入后完成 A01–A07，并在本文件填写结果、设备条件及必要的脱敏回执。
 

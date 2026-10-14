@@ -48,6 +48,12 @@
 | --- | --- | --- | --- | --- | --- |
 | `ANDROID-MFA-PARITY-67` | 基于 `6fadb49` 的 Android 工作树源码候选，**尚无提交或签名安装包**。原源码在正确码后仍要求用户另点“打开终端”；本轮仅在 SSH 已验证且有效 base session 存在时自动打开终端，真正附着同一会话后才跳转；Telnet 明文风险确认不变。后台主密码锁前只保留进程内、无验证码/凭据的资产＋账户作用域＋时间意图，清掉旧挑战和已输入码；同账户解锁后 5 分钟内一次性重新发起 checked SSH，过期/换账号/冷启动不恢复。锁定、取消、账号切换与迟到连接返回时清理原生 lease/Host Key 挑战，终端打开期间旧操作不能附着新页面。详见 [移动端对齐矩阵](../ANDROID_IOS_BEHAVIOR_ALIGNMENT_MATRIX.md)。 | Android `feature:testDebugUnitTest` 和 `app:compileDebugKotlin` 已通过；新增恢复窗口、账号隔离、挑战捕获及“只有受检 SSH 自动进终端”的单测。完整本地 Android Release 门禁已通过，含 **417 个 Gradle 任务**、未签名 ABI Release/隔离 Smoke 构建和安全静态检查；最终边界补强后，定向单测、Debug 编译和 Release 组装重跑通过；完整本地 Release 门禁按最终源码再次通过（417 个任务，0 失败），新增策略测试 **4/4**。远端 CI 尚未运行该工作树候选。 | 未在 Android 模拟器或隔离账户 GUI 操作真实 OTP；旧 Smoke 状态夹具没有真实验证器切换。 | 无 Android 实体设备，未安装本候选；iPhone/Mac/Linux 既有真机或隔离结果属于先前候选，不自动代表这轮 Android 源码。没有操作测试账户、服务器或验证器。 | **五端同候选未完成，发布不放行**。Android 真机优先按“首因子→空白码→切验证器→主密码→新空白码→正确码自动在线”验收；补错码/取消、5 分钟边界、切换账号、强退重开、Host Key 变化、双跳分别要码、密钥＋码、迟到连接不得复活会话，并核查日志/存储/同步负载无验证码。Windows 以后对照正码后会话聚焦、错码/取消终端禁用与迟到 native handle 清理，不照搬移动端后台锁。iOS `.25` 录屏限时授权与 Android 常驻 `FLAG_SECURE` 仍有产品行为差异，另列待决；本轮未放宽 Android 截屏/录屏保护。 |
 
+## 2026-10-14 红米 K60 Android 真机接入与隔离包
+
+| 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
+| --- | --- | --- | --- | --- | --- |
+| `ANDROID-DEVICE-ONBOARD-68` | 基于已推送的 Android MFA 源码 `1a38d52`，提交 `0fcc2a8` 新增独立 `qa` 构建类型：沿用 Release 压缩与资源收缩，但用开发调试签名、应用 ID `com.orbitterm.android.qa`、桌面名称“OrbitTerm QA”，与正式版及仅状态夹具的 Smoke 包隔离。arm64 APK SHA-256 `463d890e2a2f3a4ef16227c80dbad6ca51bcdff2a18ea23b3a1badd5f1d42782`，非生产签名/发布包。 | `:app:assembleQa` 成功；`aapt2` 核实 QA 包名、名称及 arm64 ABI，`apksigner` 核实单签名者与 v2 签名。`1a38d52` 远端 Android Release 已通过，Android 仪表化及 Apple checked-path 在本次查询时仍运行中；远端不包含本行 QA 变体。 | 尚未启动 QA GUI，也未做账户/OTP/墓碑测试。 | Mac USB 层识别用户提供的红米 K60；ADB 曾短暂显示已授权物理设备，读取到 Android 15/API 35、现无 OrbitTerm 包。首次 `adb install` 前连接即断，返回 `adb: no devices found`；用户重新连接后 ADB 稳定显示已授权，但第二次安装返回 `INSTALL_FAILED_USER_RESTRICTED: Install canceled by user`。**两次安装失败均保留**；手机无 SIM，厂商系统禁止开启“通过 USB 安装”。改由 ADB 只复制 QA APK 到下载目录、手机端 SHA-256 与构建产物一致，待用户从文件管理器手动确认安装。没有读取设备 UDID、其他文件、账号或短信；尚未安装包或改资产。 | **五端完整验收未完成，不放行**。手动安装成功后先核对 QA 独立安装/启动和法律条款，再在同一候选上按 MFA、墓碑、同步、录屏/后台门禁及输入体验逐项真机记录；Windows 后续用独立签名安装包复现对应墓碑/MFA/失焦边界。当前仅完成源码构建与设备识别，不能记为 Android GUI 或真机功能通过；正式版不覆盖。 |
+
 ## 2026-10-13 CI 门禁与 Linux 审计顺序复核
 
 | 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
