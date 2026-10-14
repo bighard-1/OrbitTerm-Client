@@ -65,6 +65,24 @@ install_smoke_fixture() {
       return 0
     fi
     case "$output" in
+      *"Can't find service: package"*)
+        # ADB may stay online while the software-emulated system_server is
+        # restarting. Do not classify that as a product test failure, and do
+        # not retry install until PackageManager actually answers again.
+        if (( attempt < 3 )); then
+          warn "Android package service disappeared during fixture install; waiting for recovery ($attempt/3)"
+          local ready=false probe
+          for probe in $(seq 1 45); do
+            if bounded_adb 20 shell cmd package list packages >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          [[ "$ready" == true ]] || fail "Android emulator package service did not recover after fixture install failure"
+          continue
+        fi
+        ;;
       *"Broken pipe"*|*"device offline"*|*"Connection reset"*|*"ADB command timed out"*)
         if (( attempt < 3 )); then
           warn "transient ADB transport failure during isolated fixture install; retrying ($attempt/3)"

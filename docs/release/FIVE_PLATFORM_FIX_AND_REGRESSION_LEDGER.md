@@ -29,6 +29,10 @@
 
 `MACOS-SIGNED-UI-PREP-63` 本机后续：在 UI 测试目标允许签名的修订之后，使用无签名源码路径重新执行**完整** `check_apple_release_gates.sh`，退出 0、最终 `[PASS] Apple release gates`，其中 iOS 模拟器 UI 结果包 **12/12 通过、0 失败/跳过**；macOS UI 目标仍只编译，**签名 UI 5 条未执行**。这是本机结果，非上述 `ab277b8` 远端运行的结果，也不抹除签名 profile 缺失的预检失败。专用 runner 标记缺失和本机已有应用/数据两种前置拒绝均已分别核对，不会清理用户数据以绕过。
 
+| 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
+| --- | --- | --- | --- | --- | --- |
+| `ANDROID-EMULATOR-PACKAGE-64` | `7f5031a` 的 [Android 15 CI 作业](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38509529791/job/115674600175)在模拟器安装隔离 Smoke APK 前失败；本行所在后继提交仅调整**测试基础设施**：ATD 模式使用工作流已预构建的 x86_64 APK，安装前确认运行时就绪，若安装时包服务短暂消失则限时等待恢复并最多重试两次；不改变产品源码、资产或线上服务。详见 [Android 模拟器包服务专项](ANDROID_EMULATOR_PACKAGE_SERVICE_20261013.md)。 | 旧作业在 `sys.boot_completed=1` 后约 76 秒、且预检查曾能调用包服务时，`adb install` 返回 `cmd: Can't find service: package`，**Android 夹具/仪表化均未执行，旧 CI 失败保留**。本地 Shell 语法、静态检查与差异检查是修订预检，后继完整 CI 结果另记，不能先称通过。 | 无应用隔离 GUI 结果；失败发生在 CI 软件模拟器的 APK 安装前。 | 无 Android 实体设备；没有新增 iPhone、Mac、Linux 或 Windows 真机操作。 | **五端未完成，发布不放行**。新 CI 必须实际完成 Android Smoke、迁移和仪表化结果，不能把重试本身当功能通过；若包服务无法恢复，保留环境故障并收集系统日志。Android 实体机到位后仍须对照安装/升级、墓碑、二次验证和录屏；Windows 实机继续对照同源契约及独立包身份。 |
+
 ## 2026-10-13 CI 门禁与 Linux 审计顺序复核
 
 | 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |

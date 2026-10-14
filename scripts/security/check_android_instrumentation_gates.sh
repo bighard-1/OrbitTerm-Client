@@ -36,11 +36,11 @@ if [[ "$instrumentation_profile" == "aosp-atd-api35" ]]; then
   # Run the isolated fixture on the freshly booted hosted emulator. Connected
   # suites can leave a system-app ANR overlay, while rebooting afterward has
   # repeatedly left ADB install/shell stalled on software-only runners.
+  # The workflow prebuilds this APK before starting the software-only emulator.
+  # Re-running Gradle after boot adds load while Android services are settling.
+  [[ -f "$ANDROID_PROJECT/app/build/outputs/apk/smoke/app-x86_64-smoke.apk" ]] \
+    || fail "prebuilt Android x86_64 smoke fixture APK is missing"
   wait_for_android_runtime
-  (
-    cd "$ANDROID_PROJECT"
-    ./gradlew --no-daemon :app:assembleSmoke
-  )
   "$ORBIT_ROOT/scripts/security/run_android_smoke_fixtures.sh"
 fi
 section "Android connected instrumentation tests"
