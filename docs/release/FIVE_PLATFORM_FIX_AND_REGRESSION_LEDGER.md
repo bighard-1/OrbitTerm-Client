@@ -9,6 +9,12 @@
 - Apple、Android、Windows 契约源码现已分别固化为 `c62b60f`、`e13b0be`、`7a2ca23`；这是**源码候选**，不是已签名分发包或五端验收。服务端隔离分支尚未部署，不能用线上旧服务替代新契约联调。
 - 每次跨端操作都记录：五端安装包的提交和签名身份、服务端版本、操作方向、是否离线、操作前后活动/最近删除数量、本机凭据状态、持久队列与重复同步结果。永久删除及每个新实例的法律条款接受仍按实际操作时的确认规则执行。
 
+## 2026-10-13 外置盘迁移后的本地验收环境
+
+| 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
+| --- | --- | --- | --- | --- | --- |
+| `LOCAL-STORAGE-READINESS-58` | 固定源码 `8fbe488`，**无产品源码修复、无可移植提交**。当前 Codex 工作树在 Git 忽略的 `.tooling/android-sdk` 建立指向外置盘专用 Android SDK 的本地链接，并在 Git 忽略的 Android `local.properties` 配置该链接；SDK 文件未改。两条指向空目录的旧 AVD `.ini`（`OrbitTermReleaseSmoke_API35_ARM64`、`OrbitTerm_API35_ARM64`）移至同盘 `Recovery/2026-10-13/stale-avd-entries`，可移回；未删除旧空目录或有效 AVD。 | 迁移初查时完整 Android Release 脚本首先因 `ANDROID_NDK_HOME is missing` **失败**；补链接后 Rust 双 ABI 构建通过，但 Gradle 因 `SDK location not found` 再次 **失败**；补工作树本地属性后完整 `check_android_release_gates.sh` **通过**：417 个 Gradle 任务（294 执行、123 up-to-date）、单测、未签名 Release/Smoke 构建与产物安全检查通过。arm64/x86_64 未签名 Release APK SHA-256 分别为 `e43d7a5dc2c565188d3d493d6de8d9fca6fb1e8d6be4394381fbf5270477de65` / `d1a53a6a65350bba1f9366c52979b7521ffe20916059371e7173d3348c6351d0`；**不等于生产签名门禁**。AVD 列表从含两条不可用配置的 5 项变为 3 项有效配置；本轮未再次冷启动，迁移初查的 Android 15/16 只读冷启动及 SDK 临时 CRUD 探针通过。 | 本轮无客户端隔离 GUI 操作；模拟器只读冷启动属于前轮本地环境核查，不是账户 GUI 验收。 | 本轮无 iPhone、Android 或 Windows 实体设备操作；未修改测试账户或线上服务。 | **五端未完成，发布不放行**。Android 后续在新工作树/CI 重验 SDK/NDK 路径、完整门禁、生产签名和实体设备；需用到旧 Smoke AVD 时重新创建，不把空目录配置视为可用。Windows 测试归档此前哈希/ZIP 检查通过，但安装与真机矩阵未做。外置盘目前未加密且无独立备份目标，同盘 Recovery 不能抵御整盘故障；用户暂无第二盘，备份与加密待独立目标就绪后执行并验证。拔盘或卷名变化会使本地 Android 工具链失效。 |
+
 ## 2026-10-13 CI 门禁与 Linux 审计顺序复核
 
 | 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
