@@ -97,6 +97,40 @@ install_smoke_fixture() {
 }
 
 install_smoke_fixture
+atd_anr_dismissals=0
+
+dismiss_atd_fake_system_anr() {
+  local snapshot="$1" tap x y
+  [[ "${ORBITTERM_ANDROID_TEST_PROFILE:-}" == "aosp-atd-api35" ]] || return 1
+  tap="$(printf '%s' "$snapshot" | python3 -c '
+import re
+import sys
+import xml.etree.ElementTree as ET
+
+try:
+    nodes = list(ET.fromstring(sys.stdin.read()).iter("node"))
+except ET.ParseError:
+    raise SystemExit(1)
+
+if not any(node.get("resource-id") == "android:id/alertTitle"
+           and node.get("text") == "Fake System App isn\x27t responding"
+           for node in nodes):
+    raise SystemExit(1)
+
+for node in nodes:
+    if node.get("resource-id") != "android:id/aerr_close" or node.get("text") != "Close app":
+        continue
+    match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.get("bounds", ""))
+    if match:
+        left, top, right, bottom = map(int, match.groups())
+        print((left + right) // 2, (top + bottom) // 2)
+        raise SystemExit(0)
+raise SystemExit(1)
+')" || return 1
+  read -r x y <<< "$tap"
+  warn "dismissing isolated AOSP ATD Fake System App ANR overlay"
+  bounded_adb 20 shell input tap "$x" "$y"
+}
 
 assert_state() {
   local state="$1"
@@ -116,6 +150,14 @@ assert_state() {
     bounded_adb 20 shell rm -f "$remote_xml" >/dev/null 2>&1 || true
     if bounded_adb 30 shell uiautomator dump "$remote_xml" >/dev/null 2>&1; then
       fixture_xml="$(bounded_adb 20 shell cat "$remote_xml" 2>/dev/null || true)"
+      if [[ "${ORBITTERM_ANDROID_TEST_PROFILE:-}" == "aosp-atd-api35" &&
+            "$fixture_xml" == *"Fake System App isn"* ]]; then
+        if (( atd_anr_dismissals < 2 )) && dismiss_atd_fake_system_anr "$fixture_xml"; then
+          (( atd_anr_dismissals += 1 ))
+          continue
+        fi
+        fail "isolated AOSP ATD Fake System App ANR overlay persisted or could not be safely identified"
+      fi
       if [[ "$fixture_xml" == *"$expected"* ]]; then
         return
       fi

@@ -12,6 +12,11 @@
 - 安装前继续等待启动标志及 `cmd package list packages` 可用。若 APK 安装时仍收到 `Can't find service: package`，仅在包服务恢复后重试，最多三次安装和两轮各 90 秒等待；长期不可用则明确失败，不标记测试通过。其余安装错误仍原样失败。
 - 此修改只涉及 CI/隔离 Smoke 脚本；不修改 Android 客户端、测试账户、线上服务或实体设备。
 
+## 新 CI 的另一项失败（保留）
+
+- 后继提交 `2dd118e` 的 [Android 15 作业](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38518784894/job/115703474379)已跨过原包服务失败：隔离 Smoke APK 安装成功并启动首个 `locked` 状态，但在 30 次无障碍快照后仍未读到预期文案。最后的层级树显示最上层是系统 `Fake System App isn't responding` 弹窗，测试应用 Activity 位于其后。**夹具断言失败保留**，不能把安装成功写成 Smoke 或仪表化通过。
+- 第二次修订只对 `aosp-atd-api35` 隔离 CI 档案生效：无障碍树同时精确匹配该系统弹窗标题和 `android:id/aerr_close` 按钮时，最多关闭两次并继续读取夹具状态；其他标题、真实设备和标准档案绝不自动点击。若弹窗持续出现或仍无预期内容，测试照常失败。
+
 ## 验收边界
 
 - 本地先做 Shell 语法、静态扫描和差异检查；必须由后继 CI 的真实模拟器运行确认 Smoke 与连接仪表化结果。
