@@ -6,6 +6,15 @@ import Combine
 /// Incremental sync is authoritative for deltas, but an empty delta cannot
 /// reconstruct an empty cache when the server has pre-existing legacy assets.
 enum SyncPullRecoveryPolicy {
+    /// Unknown future states must not be interpreted as deletion tombstones.
+    static func isSupportedRemoteState(_ state: String?) -> Bool {
+        state == nil || state == "active" || state == "deleted" || state == "purged"
+    }
+
+    static func isRemoteDeletion(_ state: String?) -> Bool {
+        state == "deleted" || state == "purged"
+    }
+
     /// The portable sync protocol identifies a server by UUID.  Every client
     /// must compare this value in the same representation; otherwise an Apple
     /// uppercase UUID and a Windows/Android lowercase UUID can describe the

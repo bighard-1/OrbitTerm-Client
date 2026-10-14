@@ -405,6 +405,55 @@ public sealed class EncryptedConfigSynchronizationServiceTests
         Assert.Empty(credentials.Values);
     }
 
+    [Theory]
+    [InlineData("deleted")]
+    [InlineData("purged")]
+    public async Task DeclaredTombstonesRemoveLocalAssetAndCredential(string remoteState)
+    {
+        OrbitNativeLibraryLoader.Register();
+        var root = OrbitConfigCrypto.DeriveConfigRootKeyV2("correct horse", "scope");
+        var id = Guid.NewGuid();
+        var credentialId = Guid.NewGuid();
+        var assets = new Assets { Values = [Asset(id, credentialId, "本机旧资产", "生产")] };
+        var credentials = new Credentials();
+        await credentials.SaveAsync(credentialId, new CredentialMaterial("secret", "", ""), CancellationToken.None);
+        var protocol = new Sync([
+            new EncryptedConfigRecord(2, id.ToString("D"), null, string.Empty, "{}", remoteState, 2, DateTimeOffset.UtcNow)
+        ], assets, credentials);
+        var service = new EncryptedConfigSynchronizationService(protocol, assets, new Snippets(), credentials, new States());
+
+        var result = await service.SynchronizeAsync(Session, "scope", "correct horse", root, CancellationToken.None);
+
+        Assert.Equal(EncryptedConfigSynchronizationStatus.Completed, result.Status);
+        Assert.Equal(1, result.DeletedAssets);
+        Assert.Empty(assets.Values);
+        Assert.Empty(credentials.Values);
+        Assert.Equal(1, protocol.Acknowledgements);
+    }
+
+    [Fact]
+    public async Task UnknownRemoteStateNeverDeletesOrAcknowledgesThePage()
+    {
+        OrbitNativeLibraryLoader.Register();
+        var root = OrbitConfigCrypto.DeriveConfigRootKeyV2("correct horse", "scope");
+        var id = Guid.NewGuid();
+        var credentialId = Guid.NewGuid();
+        var assets = new Assets { Values = [Asset(id, credentialId, "本机旧资产", "生产")] };
+        var credentials = new Credentials();
+        await credentials.SaveAsync(credentialId, new CredentialMaterial("secret", "", ""), CancellationToken.None);
+        var protocol = new Sync([
+            new EncryptedConfigRecord(2, id.ToString("D"), null, string.Empty, "{}", "archived", 2, DateTimeOffset.UtcNow)
+        ], assets, credentials);
+        var service = new EncryptedConfigSynchronizationService(protocol, assets, new Snippets(), credentials, new States());
+
+        var result = await service.SynchronizeAsync(Session, "scope", "correct horse", root, CancellationToken.None);
+
+        Assert.Equal(EncryptedConfigSynchronizationStatus.UnsupportedConfiguration, result.Status);
+        Assert.Single(assets.Values);
+        Assert.Single(credentials.Values);
+        Assert.Equal(0, protocol.Acknowledgements);
+    }
+
     [Fact]
     public async Task ExplicitReconciliationReplaysHistoryFromZeroCursor()
     {

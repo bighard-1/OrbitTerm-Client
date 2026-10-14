@@ -1,9 +1,42 @@
 package com.orbitterm.android.sync
 
+import com.orbitterm.android.domain.error.OrbitErrorCode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class RemoteTombstoneMergePolicyTest {
+    @Test
+    fun onlyDeclaredDeletedAndPurgedStatesCanRemoveLocalAssets() {
+        val assetId = "abcdef00-1234-5678-9abc-def012345678"
+        val active = record(1u, assetId, "active")
+        val deleted = record(2u, assetId, "deleted")
+        val purged = record(3u, assetId, "purged")
+
+        assertEquals(listOf(deleted, purged), RemoteTombstoneMergePolicy.inventoryTombstones(listOf(active, deleted, purged)))
+        assertEquals(listOf(deleted, purged), RemoteTombstoneMergePolicy.validatedTrashPage(listOf(deleted, purged)))
+    }
+
+    @Test
+    fun futureInventoryStateFailsClosedBeforeAnyDeletion() {
+        val future = record(4u, "abcdef00-1234-5678-9abc-def012345678", "archived")
+
+        val error = assertThrows(SyncFailure::class.java) {
+            RemoteTombstoneMergePolicy.inventoryTombstones(listOf(record(3u, future.asset_id!!, "deleted"), future))
+        }
+        assertEquals(OrbitErrorCode.RemoteProtocolViolation, error.error.code)
+    }
+
+    @Test
+    fun unexpectedTrashStateFailsClosed() {
+        val active = record(5u, "abcdef00-1234-5678-9abc-def012345678", "active")
+
+        val error = assertThrows(SyncFailure::class.java) {
+            RemoteTombstoneMergePolicy.validatedTrashPage(listOf(active))
+        }
+        assertEquals(OrbitErrorCode.RemoteProtocolViolation, error.error.code)
+    }
+
     @Test
     fun trashWinsWhenRecordIdsDifferForTheSameAsset() {
         val assetId = "ABCDEF00-1234-5678-9ABC-DEF012345678"

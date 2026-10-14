@@ -1,9 +1,30 @@
 package com.orbitterm.android.sync
 
+import com.orbitterm.android.domain.error.OrbitErrorCode
+import com.orbitterm.android.domain.error.syncError
 import java.util.UUID
 
 /** Keeps one authoritative tombstone per stable asset identity. */
 internal object RemoteTombstoneMergePolicy {
+    fun isKnownState(state: String?): Boolean =
+        state == null || state == "active" || state == "deleted" || state == "purged"
+
+    fun isTombstone(state: String?): Boolean = state == "deleted" || state == "purged"
+
+    fun inventoryTombstones(items: List<UploadConfigData>): List<UploadConfigData> {
+        if (items.any { !isKnownState(it.state) }) {
+            throw SyncFailure(syncError(OrbitErrorCode.RemoteProtocolViolation))
+        }
+        return items.filter { isTombstone(it.state) }
+    }
+
+    fun validatedTrashPage(items: List<UploadConfigData>): List<UploadConfigData> {
+        if (items.any { !isTombstone(it.state) }) {
+            throw SyncFailure(syncError(OrbitErrorCode.RemoteProtocolViolation))
+        }
+        return items
+    }
+
     fun merge(
         inventoryTombstones: List<UploadConfigData>,
         trashItems: List<UploadConfigData>,

@@ -558,8 +558,16 @@ public sealed class EncryptedConfigSynchronizationService(
 
         foreach (var item in items)
         {
-            if (!string.Equals(item.State, "active", StringComparison.OrdinalIgnoreCase) && item.State is not null)
+            if (item.State is not null &&
+                !string.Equals(item.State, "active", StringComparison.OrdinalIgnoreCase))
             {
+                // Future server states are not implicitly deletions. Fail the
+                // entire page before applying or acknowledging any record.
+                if (!string.Equals(item.State, "deleted", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(item.State, "purged", StringComparison.OrdinalIgnoreCase))
+                {
+                    return SyncPagePlan.UnsupportedPlan;
+                }
                 if (Guid.TryParse(item.AssetId, out var deletedAssetId))
                 {
                     deletions.Add(deletedAssetId);

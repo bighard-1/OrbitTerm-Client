@@ -8,6 +8,18 @@ final class SyncPullRecoveryPolicyTests: XCTestCase {
         let state: String
     }
 
+    func testOnlyDeclaredRemoteStatesCanBecomeTombstones() {
+        XCTAssertTrue(SyncPullRecoveryPolicy.isSupportedRemoteState(nil))
+        XCTAssertTrue(SyncPullRecoveryPolicy.isSupportedRemoteState("active"))
+        XCTAssertTrue(SyncPullRecoveryPolicy.isSupportedRemoteState("deleted"))
+        XCTAssertTrue(SyncPullRecoveryPolicy.isSupportedRemoteState("purged"))
+        XCTAssertFalse(SyncPullRecoveryPolicy.isSupportedRemoteState("archived"))
+        XCTAssertFalse(SyncPullRecoveryPolicy.isRemoteDeletion("archived"))
+        XCTAssertFalse(SyncPullRecoveryPolicy.isRemoteDeletion("active"))
+        XCTAssertTrue(SyncPullRecoveryPolicy.isRemoteDeletion("deleted"))
+        XCTAssertTrue(SyncPullRecoveryPolicy.isRemoteDeletion("purged"))
+    }
+
     func testWindowsSshKeyEnvelopeUsesSharedV1Contract() throws {
         let privateKey = "-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----\n"
         let fingerprint = "SHA256:" + Data(SHA256.hash(data: Data(privateKey.utf8))).base64EncodedString()

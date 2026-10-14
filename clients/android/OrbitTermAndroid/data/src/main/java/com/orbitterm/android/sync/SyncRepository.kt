@@ -912,13 +912,12 @@ class SyncRepository @Inject constructor(
         // inventory endpoint. Always reconcile the paginated trash feed as
         // well, keyed by asset identity so a tombstone with a newer config
         // record ID still overrides the active representation.
-        val inventoryTombstones = api.pullConfigs(token)
-            .filter { it.state != null && it.state != "active" }
+        val inventoryTombstones = RemoteTombstoneMergePolicy.inventoryTombstones(api.pullConfigs(token))
         val trashItems = mutableListOf<UploadConfigData>()
         var offset = 0
         while (true) {
             val page = api.pullTrash(token, limit = 500, offset = offset)
-            trashItems += page.items
+            trashItems += RemoteTombstoneMergePolicy.validatedTrashPage(page.items)
             offset += page.items.size
             if (page.items.isEmpty() || offset >= page.total) break
         }

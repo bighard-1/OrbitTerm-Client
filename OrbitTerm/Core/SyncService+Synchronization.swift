@@ -196,6 +196,10 @@ extension SyncService {
             do {
                 let activeItems = try await network.pullConfigs(token: token)
                 let trashItems = try await pullDeletedRemoteConfigs()
+                guard activeItems.allSatisfy({ SyncPullRecoveryPolicy.isSupportedRemoteState($0.state) }),
+                      trashItems.allSatisfy({ SyncPullRecoveryPolicy.isRemoteDeletion($0.state) }) else {
+                    throw NetworkService.NetworkError.server("同步数据包含不支持的资产状态，已停止处理")
+                }
                 remoteItems = SyncPullRecoveryPolicy.mergeRemoteInventory(
                     activeItems: activeItems,
                     trashItems: trashItems,
@@ -231,7 +235,7 @@ extension SyncService {
             // deleted server visible on this device indefinitely.  Apply those
             // tombstones before any active-record merge and keep their metadata
             // so an older local copy is never republished as a new asset.
-            let deletedRemoteItems = remoteItems.filter { ($0.state ?? "active") != "active" }
+            let deletedRemoteItems = remoteItems.filter { SyncPullRecoveryPolicy.isRemoteDeletion($0.state) }
             var fullPullDeletedCount = 0
             for item in deletedRemoteItems {
                 guard let canonicalID = SyncPullRecoveryPolicy.canonicalAssetID(item.asset_id),
@@ -424,6 +428,10 @@ extension SyncService {
                 continue
             }
 
+            guard page.items.allSatisfy({ SyncPullRecoveryPolicy.isSupportedRemoteState($0.state) }) else {
+                throw NetworkService.NetworkError.server("同步数据包含不支持的资产状态，已停止处理")
+            }
+
             receivedRemoteChanges = receivedRemoteChanges || !page.items.isEmpty
 
             // Incremental pages can contain the last active record and a newer
@@ -432,11 +440,11 @@ extension SyncService {
             // the deletion first and the active record second revives it.
             let reconciledPageItems = SyncPullRecoveryPolicy.mergeRemoteInventory(
                 activeItems: page.items.filter { ($0.state ?? "active") == "active" },
-                trashItems: page.items.filter { ($0.state ?? "active") != "active" },
+                trashItems: page.items.filter { SyncPullRecoveryPolicy.isRemoteDeletion($0.state) },
                 assetID: { $0.asset_id },
                 recordID: { String($0.id) }
             )
-            let remoteDeletes = reconciledPageItems.filter { ($0.state ?? "active") != "active" }
+            let remoteDeletes = reconciledPageItems.filter { SyncPullRecoveryPolicy.isRemoteDeletion($0.state) }
             for item in remoteDeletes {
                 guard let canonicalID = SyncPullRecoveryPolicy.canonicalAssetID(item.asset_id),
                       let assetID = UUID(uuidString: canonicalID) else { continue }
