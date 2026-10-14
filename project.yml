@@ -214,7 +214,7 @@ targets:
       - target: OrbitTerm_macOS
     settings:
       base:
-        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_ALLOWED: YES
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.orbitterm.macos.ui-tests
         PRODUCT_NAME: OrbitTermmacOSUITests

@@ -92,6 +92,7 @@ jobs:
       - name: Generate and run the signed macOS UI smoke lane
         env:
           ORBITTERM_RUN_SIGNED_MACOS_UI_SMOKE: '1'
+          ORBITTERM_SIGNED_UI_DEDICATED_RUNNER: '1'
         run: scripts/security/run_macos_signed_ui_smoke.sh
 
   android-release-gates:
