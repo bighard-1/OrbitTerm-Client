@@ -11,7 +11,6 @@ struct MobileSessionView: View {
     @StateObject private var networkAvailability = ApplicationNetworkAvailability.shared
     @State private var selectedModule: MobileSessionModule = .terminal
     @State private var terminalViewportCommand: TerminalViewportCommand?
-    @AppStorage("orbitterm.mobile.terminal-key-usage.v1") private var terminalKeyUsageData: String = ""
 
     private let terminalKeys: [MobileTerminalKey] = [
         .init(label: "Enter", bytes: [13]), .init(label: "Ctrl+C", bytes: [3]),
@@ -214,12 +213,12 @@ struct MobileSessionView: View {
                     .foregroundStyle(.secondary)
             }
             Section("快捷键 / 组合键（点击即触发）") {
-                ForEach(orderedTerminalKeys(terminalKeys)) { key in
+                ForEach(terminalKeys) { key in
                     quickActionRow(key.label, bytes: key.bytes, session: session)
                 }
             }
-            Section("常用符号（按使用频率排序）") {
-                ForEach(orderedTerminalKeys(terminalSymbols)) { key in
+            Section("常用符号") {
+                ForEach(terminalSymbols) { key in
                     quickActionRow(key.label, bytes: key.bytes, session: session)
                 }
             }
@@ -302,34 +301,10 @@ struct MobileSessionView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture {
-            recordTerminalKeyUse(title)
             Task {
                 await manager.sendTerminalBytes(session: session, bytes: bytes)
             }
         }
-    }
-
-    private var terminalKeyUsage: [String: Int] {
-        guard let data = terminalKeyUsageData.data(using: .utf8),
-              let values = try? JSONDecoder().decode([String: Int].self, from: data) else { return [:] }
-        return values
-    }
-
-    private func orderedTerminalKeys(_ keys: [MobileTerminalKey]) -> [MobileTerminalKey] {
-        let usage = terminalKeyUsage
-        return keys.enumerated().sorted {
-            let left = usage[$0.element.label, default: 0]
-            let right = usage[$1.element.label, default: 0]
-            return left == right ? $0.offset < $1.offset : left > right
-        }.map(\.element)
-    }
-
-    private func recordTerminalKeyUse(_ label: String) {
-        var usage = terminalKeyUsage
-        usage[label] = min(usage[label, default: 0] + 1, 1_000_000)
-        guard let encoded = try? JSONEncoder().encode(usage),
-              let text = String(data: encoded, encoding: .utf8) else { return }
-        terminalKeyUsageData = text
     }
 
 }

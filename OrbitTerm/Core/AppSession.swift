@@ -19,6 +19,9 @@ final class AppSession: ObservableObject {
     @Published private(set) var localStorageRecovery: LocalStorageRecoveryPresentation?
 
     private let keychain: KeychainManager
+    /// Fixture roots must never probe Keychain: UI-test scenarios are explicit
+    /// in-memory states and a host Keychain failure must not replace them.
+    private let isIsolatedUITestLaunch: Bool
 
     private let tokenService = "com.orbitterm.auth"
     private let tokenAccount = "jwt_token"
@@ -37,12 +40,14 @@ final class AppSession: ObservableObject {
     ) {
         self.keychain = keychain
         #if !ORBITTERM_PUBLIC_RELEASE
+        self.isIsolatedUITestLaunch = uiTestLaunchState != .standard
         guard uiTestLaunchState == .standard else {
             applyUITestLaunchState(uiTestLaunchState)
             return
         }
         #else
         _ = uiTestLaunchState
+        self.isIsolatedUITestLaunch = false
         #endif
         loadAuthState()
         bindLifecycleObservers()
@@ -194,6 +199,7 @@ final class AppSession: ObservableObject {
     }
 
     var hasMasterPassword: Bool {
+        if isIsolatedUITestLaunch { return false }
         guard let passwordVerifierAccount else { return false }
         do {
             let existing = try keychain.readString(service: passwordService, account: passwordVerifierAccount)

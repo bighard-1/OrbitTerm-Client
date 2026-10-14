@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "product": "OrbitTerm",
+  "release_scope": "internal-validation-only",
+  "external_distribution_enabled": false,
+  "required_clients": [
+    "macos",
+    "windows",
+    "linux",
+    "ios",
+    "android"
+  ],
+  "client_posture": {
+    "macos": {
+      "distribution": "internal-release-candidate",
+      "blockers": ["production-signing-and-notarization-evidence"]
+    },
+    "windows": {
+      "distribution": "internal-release-candidate",
+      "blockers": ["production-signing-and-https-update-endpoints", "windows-arm64-validation"]
+    },
+    "linux": {
+      "distribution": "internal-validation",
+      "blockers": ["distribution-signing-and-supported-distro-matrix"]
+    },
+    "ios": {
+      "distribution": "internal-validation",
+      "blockers": ["real-device-accessibility-and-lifecycle-evidence", "rdp-is-asset-preserving-only"]
+    },
+    "android": {
+      "distribution": "alpha",
+      "blockers": ["production-signing-and-real-device-evidence", "rdp-is-asset-preserving-only"]
+    }
+  },
+  "shared_p0_blockers": [
+    {
+      "id": "cross-platform-asset-tombstones",
+      "status": "in-progress",
+      "required_evidence": "Windows, macOS, iOS, and Android real-device deletion/recovery matrix."
+    },
+    {
+      "id": "large-transfer-interactive-concurrency",
+      "status": "in-progress",
+      "required_evidence": "Three consecutive 3-GiB SFTP / six-pane interactive runs on Windows 10, Windows 11, and macOS."
+    }
+  ],
+  "external_release_exit_criteria": [
+    "Resolve every shared P0 blocker with immutable evidence.",
+    "Complete each client posture blocker and its release evidence.",
+    "Keep unsupported mobile RDP connection paths disabled until a separately audited native runtime is shipped."
+  ]
+}

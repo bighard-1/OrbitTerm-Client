@@ -121,7 +121,6 @@ data class TerminalSessionsUiState(
     val terminalNotice: String? = null,
     val processRecoveryNotice: String? = null,
     val isNetworkUsable: Boolean = true,
-    val specialKeyUsage: Map<String, Int> = emptyMap(),
     val customTerminalKeys: List<TerminalCustomKey> = emptyList(),
 )
 
@@ -145,15 +144,7 @@ class TerminalSessionsViewModel @Inject constructor(
     private val operations: OperationScopeCoordinator,
     private val networkAvailability: SessionNetworkAvailability,
 ) : ViewModel() {
-    private data class TerminalKeyPreferences(
-        val usage: Map<String, Int>,
-        val customKeys: List<TerminalCustomKey>,
-    )
-
-    private val terminalKeyPreferences = combine(
-        terminalKeyUsageRepository.usageCounts,
-        terminalKeyUsageRepository.customKeys,
-    ) { usage, customKeys -> TerminalKeyPreferences(usage, customKeys) }
+    private val customTerminalKeys = terminalKeyUsageRepository.customKeys
     private val selectedSessionId = MutableStateFlow<String?>(null)
     private val selectedModule = MutableStateFlow(SessionWorkspaceModule.Terminal)
     private val shortcutError = MutableStateFlow<String?>(null)
@@ -185,7 +176,7 @@ class TerminalSessionsViewModel @Inject constructor(
         terminalSessionController.activeSessions,
         quickCommandRepository.customCommands,
         assetRepository.observeAssets(),
-        terminalKeyPreferences,
+        customTerminalKeys,
         combine(workspaceState, processRecoveryNotice) { workspace, recoveryNotice -> workspace to recoveryNotice },
     ) { sessions, customCommands, assets, keyPreferences, workspaceAndNotice ->
         val (workspace, recoveryNotice) = workspaceAndNotice
@@ -201,8 +192,7 @@ class TerminalSessionsViewModel @Inject constructor(
             terminalNotice = workspace.terminalNotice,
             processRecoveryNotice = recoveryNotice,
             isNetworkUsable = workspace.reconnectAvailability.isNetworkUsable,
-            specialKeyUsage = keyPreferences.usage,
-            customTerminalKeys = keyPreferences.customKeys,
+            customTerminalKeys = keyPreferences,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -230,10 +220,6 @@ class TerminalSessionsViewModel @Inject constructor(
 
     fun sendInput(sessionId: String, bytes: ByteArray) {
         terminalSessionController.sendInput(sessionId, bytes)
-    }
-
-    fun recordSpecialKeyUse(label: String) {
-        viewModelScope.launch { terminalKeyUsageRepository.recordUse(label) }
     }
 
     fun saveCustomTerminalKey(label: String, payload: String, section: TerminalCustomKeySection) {
@@ -611,11 +597,9 @@ fun TerminalSessionsRoute(
                 )
                 if (isImeVisible) {
                     TerminalKeyBar(
-                        usageCounts = uiState.specialKeyUsage,
                         customKeys = uiState.customTerminalKeys,
                         onSend = { key ->
                             viewModel.sendInput(session.id, key.bytes)
-                            viewModel.recordSpecialKeyUse(key.label)
                         },
                         onPaste = { viewModel.pasteFromClipboard(session.id) },
                         onManageCustomKeys = { section ->
@@ -723,14 +707,21 @@ internal data class TerminalSpecialKey(
     val id: String = "builtin:$label",
 )
 
-internal val terminalSpecialKeys = listOf(
-    TerminalSpecialKey("Tab", byteArrayOf(9)),
+internal val terminalCommonKeys = listOf(
+    TerminalSpecialKey("Enter", byteArrayOf(13)),
     TerminalSpecialKey("Ctrl+C", byteArrayOf(3)),
-    TerminalSpecialKey("Esc", byteArrayOf(27)),
     TerminalSpecialKey("Ctrl+D", byteArrayOf(4)),
     TerminalSpecialKey("Ctrl+L", byteArrayOf(12)),
     TerminalSpecialKey("Ctrl+U", byteArrayOf(21)),
-    TerminalSpecialKey("Enter", byteArrayOf(13)),
+    TerminalSpecialKey("Esc", byteArrayOf(27)),
+    TerminalSpecialKey("Tab", byteArrayOf(9)),
+    TerminalSpecialKey("↑", "\u001B[A".toByteArray()),
+    TerminalSpecialKey("↓", "\u001B[B".toByteArray()),
+    TerminalSpecialKey("←", "\u001B[D".toByteArray()),
+    TerminalSpecialKey("→", "\u001B[C".toByteArray()),
+)
+
+internal val terminalSymbolKeys = listOf(
     TerminalSpecialKey("←", "\u001B[D".toByteArray()),
     TerminalSpecialKey("↑", "\u001B[A".toByteArray()),
     TerminalSpecialKey("↓", "\u001B[B".toByteArray()),
@@ -751,19 +742,7 @@ internal val terminalSpecialKeys = listOf(
     TerminalSpecialKey("?", "?".toByteArray()),
 )
 
-private val terminalSymbolLabels = setOf("←", "↑", "↓", "→", "-", "+", "×", "/", "|", "\\", "~", "=", "_", "$", "#", ";", ":", "?")
-
-/** Highest explicit-use count first; the base order is retained for ties. */
-internal fun orderedTerminalSpecialKeys(
-    usageCounts: Map<String, Int>,
-    keys: List<TerminalSpecialKey> = terminalSpecialKeys,
-): List<TerminalSpecialKey> =
-    keys.withIndex()
-        .sortedWith(
-            compareByDescending<IndexedValue<TerminalSpecialKey>> { usageCounts[it.value.label] ?: 0 }
-                .thenBy { it.index },
-        )
-        .map { it.value }
+internal val terminalSpecialKeys = terminalCommonKeys + terminalSymbolKeys
 
 /** Parses the deliberately small, auditable escape grammar accepted by the custom-key editor. */
 internal fun parseTerminalCustomKeyPayload(payload: String): ByteArray? {
@@ -800,7 +779,6 @@ internal fun parseTerminalCustomKeyPayload(payload: String): ByteArray? {
 @Composable
 private fun TerminalKeyBar(
     modifier: Modifier = Modifier,
-    usageCounts: Map<String, Int>,
     customKeys: List<TerminalCustomKey>,
     onSend: (TerminalSpecialKey) -> Unit,
     onPaste: () -> Unit,
@@ -813,13 +791,12 @@ private fun TerminalKeyBar(
             TerminalSpecialKey(key.label, bytes, id = "custom:${key.id}")
         }
     }
-    val orderedCustomKeys = orderedTerminalSpecialKeys(usageCounts, customSpecialKeys)
-    val commonKeys = terminalSpecialKeys.filter { it.label !in terminalSymbolLabels } +
-        orderedCustomKeys.filter { key ->
+    val commonKeys = terminalCommonKeys +
+        customSpecialKeys.filter { key ->
             val custom = customKeys.firstOrNull { "custom:${it.id}" == key.id }
             custom?.section == TerminalCustomKeySection.Common
         }
-    val symbolKeys = terminalSpecialKeys.filter { it.label in terminalSymbolLabels } + orderedCustomKeys.filter { key ->
+    val symbolKeys = terminalSymbolKeys + customSpecialKeys.filter { key ->
         val custom = customKeys.firstOrNull { "custom:${it.id}" == key.id }
         custom?.section == TerminalCustomKeySection.Symbols
     }
@@ -1083,7 +1060,7 @@ private fun ShortcutControlsPanel(onSendRaw: (ByteArray) -> Unit) {
                 style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
             )
         }
-        items(terminalSpecialKeys.filter { it.label in terminalSymbolLabels }, key = TerminalSpecialKey::label) { action ->
+        items(terminalSymbolKeys, key = TerminalSpecialKey::label) { action ->
             QuickCommandRow(action.label, "插入到当前终端", onClick = { onSendRaw(action.bytes) })
         }
     }

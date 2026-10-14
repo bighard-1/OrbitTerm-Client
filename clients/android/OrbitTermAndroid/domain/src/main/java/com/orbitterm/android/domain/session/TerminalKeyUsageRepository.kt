@@ -12,12 +12,10 @@ data class TerminalCustomKey(
     val section: TerminalCustomKeySection,
 )
 
-/** Per-account usage counts for the terminal's explicitly tapped extension keys. */
+/** Per-account user-configured terminal accessory keys, kept in their chosen order. */
 interface TerminalKeyUsageRepository {
-    val usageCounts: Flow<Map<String, Int>>
     val customKeys: Flow<List<TerminalCustomKey>>
 
-    suspend fun recordUse(keyLabel: String)
     suspend fun saveCustomKey(key: TerminalCustomKey)
     suspend fun deleteCustomKey(id: String)
 }

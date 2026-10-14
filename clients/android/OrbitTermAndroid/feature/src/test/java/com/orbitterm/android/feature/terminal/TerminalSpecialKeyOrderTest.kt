@@ -1,44 +1,26 @@
 package com.orbitterm.android.feature.terminal
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TerminalSpecialKeyOrderTest {
     @Test
     fun mobileAccessoryContainsIosParityKeys() {
-        val labels = terminalSpecialKeys.map { it.label }
-        assertTrue(labels.containsAll(listOf("Tab", "Ctrl+C", "Esc", "↑", "↓", "←", "→")))
-        assertTrue(labels.containsAll(listOf("←", "↑", "↓", "→", "-", "+", "×", "/", "|", "\\", "~", "=", "_", "$", "#", ";", ":", "?")))
+        assertEquals(
+            listOf("Enter", "Ctrl+C", "Ctrl+D", "Ctrl+L", "Ctrl+U", "Esc", "Tab", "↑", "↓", "←", "→"),
+            terminalCommonKeys.map(TerminalSpecialKey::label),
+        )
+        assertEquals(
+            listOf("←", "↑", "↓", "→", "-", "+", "×", "/", "|", "\\", "~", "=", "_", "$", "#", ";", ":", "?"),
+            terminalSymbolKeys.map(TerminalSpecialKey::label),
+        )
     }
     @Test
-    fun `usage count moves a special key ahead of default order`() {
-        val ordered = orderedTerminalSpecialKeys(mapOf("#" to 5, "_" to 2))
-
-        assertEquals(listOf("#", "_"), ordered.take(2).map(TerminalSpecialKey::label))
-    }
-
-    @Test
-    fun `unused keys retain the curated default order`() {
-        val ordered = orderedTerminalSpecialKeys(emptyMap())
-
-        assertEquals(listOf("Tab", "Ctrl+C"), ordered.take(2).map(TerminalSpecialKey::label))
-        assertTrue(ordered.map(TerminalSpecialKey::label).containsAll(listOf("|", "\\", "~", "=", "_", "$", "#", ";", ":", "?")))
-    }
-
-    @Test
-    fun `symbol usage participates in stable ordering`() {
-        val ordered = orderedTerminalSpecialKeys(mapOf("#" to 9, "_" to 4))
-
-        assertEquals(listOf("#", "_"), ordered.take(2).map(TerminalSpecialKey::label))
-    }
-
-    @Test
-    fun `custom keys participate in the same usage ordering`() {
+    fun `curated order is stable and custom keys preserve user order`() {
         val custom = TerminalSpecialKey("管道", byteArrayOf('|'.code.toByte()), id = "custom:pipe")
-        val ordered = orderedTerminalSpecialKeys(mapOf("管道" to 7), terminalSpecialKeys + custom)
 
-        assertEquals("custom:pipe", ordered.first().id)
+        assertEquals(listOf("Enter", "Ctrl+C"), terminalCommonKeys.take(2).map(TerminalSpecialKey::label))
+        assertEquals("custom:pipe", (terminalCommonKeys + custom).last().id)
     }
 
     @Test

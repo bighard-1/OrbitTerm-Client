@@ -1,12 +1,12 @@
 # OrbitTerm Portable Sync Protocol v1
 
-本文档是 OrbitTerm 四端同步的冻结契约。macOS、iOS、Windows、Android 必须按本协议生成、加密、上传、拉取、解包和冲突合并资产数据。
+本文档是 OrbitTerm 五端同步的冻结契约。macOS、iOS、Windows、Android、Linux 必须按本协议生成、加密、上传、拉取、解包和冲突合并资产数据。
 
 ## 设计边界
 
 - 后端保持零知识：只存储 `encrypted_blob_base64`、`vector_clock`、更新时间和归属用户。
 - 客户端负责加密与解密：统一使用 Rust `orbit-core` 的 `orbit_encrypt_config` / `orbit_decrypt_config`。
-- 各端本地安全存储不同：Apple Keychain、Windows DPAPI/Credential Manager、Android Keystore。
+- 各端本地安全存储不同：Apple Keychain、Windows DPAPI/Credential Manager、Android Keystore、Linux Secret Service/KWallet。
 - 云端 Blob 必须完整：只要本地存在密码、私钥、私钥口令，就必须打入同一个加密 Blob。
 - 禁止上传平台私有路径：例如 macOS `~/.ssh/id_rsa`、Windows `C:\Users\...`、Android SAF URI 均不得进入云端模型。
 
@@ -16,7 +16,7 @@
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `id` | string(UUID) | 是 | 资产唯一 ID，四端保持一致 |
+| `id` | string(UUID) | 是 | 资产唯一 ID，五端保持一致 |
 | `credentialID` | string(UUID) | 是 | 本地凭据索引 ID，默认等于 `id` |
 | `name` | string | 是 | 资产名称 |
 | `group` | string | 是 | 分组，空字符串表示未分组 |
@@ -75,10 +75,11 @@ Rust 已暴露以下跨端辅助 FFI：
 | macOS/iOS | UserDefaults/SQLite shadow | Keychain |
 | Windows | JSON/SQLite/LiteDB | DPAPI 或 Credential Manager |
 | Android | Room/DataStore | Android Keystore 加密后的 SharedPreferences/Room |
+| Linux | XDG state/shadow 文件 | Secret Service 或 KWallet；文件权限必须为仅当前用户可读写 |
 
 ## 禁止事项
 
 - 禁止在本地普通配置文件中保存明文密码或私钥。
-- 禁止 Android/Windows 自己实现不同的 Blob 格式。
+- 禁止任一平台自行实现不同的 Blob 格式。
 - 禁止根据 `authMethod` 过滤凭据后再同步。
 - 禁止把某一端专属路径写进云端模型。
