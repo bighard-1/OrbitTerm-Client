@@ -72,6 +72,8 @@
 | --- | --- | --- | --- | --- | --- |
 | `ANDROID-VECTOR64-71` | 基于 `4fd335d` 的 Android 修复工作树：`SyncVectorClock` 从 32 位改为 64 位读取/递增，保留 Apple 毫秒级时钟分量；Mac/服务端本来使用 64 位。旧 K60 恢复失败与源码契约缺口吻合，但尚非真机因果证明。无服务端修改。新独立 arm64 QA APK SHA-256 `c203c6e75581c5f3bc746d6b140345fe8845870e6b1d47dfcd67adf678ad41dd`，非发布签名包。 | 新增 Apple 毫秒级时钟保留与 Android 递增单测，`SyncVectorClockTest` 定向 QA 单测成功；完整 Android Release 门禁 **417 个任务通过**，`assembleQa` **231 个任务成功**；核实 QA 包名/显示名/arm64 ABI 与 APK 签名。此本地结果不等于新提交远端 CI。 | 无新版隔离模拟器 GUI 复测；旧 Mac 恢复成功只是 `ANDROID-MAC-TOMBSTONE-70` 对照。 | K60 `adb install -r` 对同一独立 QA 包覆盖安装返回 `Success`；**旧 K60 恢复失败保留，新版恢复 GUI 尚待确认**，不写成修复通过。 | 五端同版未完成，不放行。优先在同一可恢复虚构资产上验证恢复、再次软删除及双端重复同步；Windows 对照从 Mac/Android 大时钟恢复、最终删除和冲突处理，iOS/Linux 同候选另验。真实 SSH Host Key 阻断与本项无关。 |
 
+`ANDROID-MAC-TOMBSTONE-70` 的远端 CI 后续回执（固定源码 `4fd335d`）：[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38577409923) 最终为 `success`，Rust Release、Apple checked-path、依赖/许可、桌面视觉、Android Release、Android 15 模拟器与迁移六项常规作业均成功；签名 macOS UI 冒烟及 OpenSSH 发布候选冒烟是条件 `skipped`，不能计通过。[Linux Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38577409931) 与 [Windows Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38577410004) 亦为 `success`。这些是**修复前**提交的源码/自动化结果，不能替代 `ANDROID-VECTOR64-71` 新提交 CI 或 K60 新包恢复 GUI 验收。
+
 ## 2026-10-13 CI 门禁与 Linux 审计顺序复核
 
 | 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
