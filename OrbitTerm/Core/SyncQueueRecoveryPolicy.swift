@@ -81,6 +81,44 @@ enum SyncQueueFailureEvidence {
     }
 }
 
+/// A fresh, authenticated pull can prove that an old rejected delete has
+/// already reached its intended state. Never infer this from local metadata
+/// alone: it may be stale while another device has restored the asset.
+struct ConfirmedRemoteTombstone: Sendable {
+    let assetID: UUID
+    let state: String
+    let vectorClock: String
+    let serverRevision: UInt64
+}
+
+enum SyncQueueTombstoneReconciliationPolicy {
+    static let blockedConflictCode = "blocked:sync.requestRejected|http=409"
+
+    static func mayAcknowledge(
+        queuedAssetID: UUID,
+        queuedVectorClock: String,
+        persistedError: String?,
+        remote: ConfirmedRemoteTombstone
+    ) -> Bool {
+        guard persistedError == blockedConflictCode,
+              remote.serverRevision > 0,
+              (remote.state == "deleted" || remote.state == "purged"),
+              queuedAssetID == remote.assetID else { return false }
+        return clock(remote.vectorClock, covers: queuedVectorClock)
+    }
+
+    private static func clock(_ remoteRaw: String, covers queuedRaw: String) -> Bool {
+        guard let remote = try? JSONDecoder().decode([String: Int64].self, from: Data(remoteRaw.utf8)),
+              let queued = try? JSONDecoder().decode([String: Int64].self, from: Data(queuedRaw.utf8)),
+              !remote.isEmpty, !queued.isEmpty,
+              remote.values.allSatisfy({ $0 >= 0 }),
+              queued.values.allSatisfy({ $0 >= 0 }) else { return false }
+        return queued.allSatisfy { entry in
+            (remote[entry.key] ?? -1) >= entry.value
+        }
+    }
+}
+
 enum SyncQueueAccountTransitionPolicy {
     static func invalidatesCurrentDelivery(previous: String?, next: String?) -> Bool {
         previous != next

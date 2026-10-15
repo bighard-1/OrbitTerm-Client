@@ -300,6 +300,11 @@ extension SyncService {
                 lastSyncMessage = pendingIDs.isEmpty
                     ? "拉取完成：云端未发现资产"
                     : "云端未发现资产；本地有 \(pendingIDs.count) 项资产尚未发布"
+                guard store.isActiveAccount(accountID) else { return false }
+                await SyncQueue.shared.acknowledgeBlockedDeletes(
+                    accountID: accountID,
+                    confirmedTombstones: confirmedRemoteTombstones(deletedRemoteItems)
+                )
                 return true
             }
             let appliedServerCount: Int
@@ -351,6 +356,12 @@ extension SyncService {
                 )
             )
 
+            guard store.isActiveAccount(accountID) else { return false }
+            await SyncQueue.shared.acknowledgeBlockedDeletes(
+                accountID: accountID,
+                confirmedTombstones: confirmedRemoteTombstones(deletedRemoteItems)
+            )
+
             let changedCount = preparation.credentialWriteCount + appliedServerCount + fullPullDeletedCount
             if changedCount == 0, pendingIDs.isEmpty {
                 lastSyncMessage = "后台同步完成: 云端无变化"
@@ -376,6 +387,23 @@ extension SyncService {
             items.append(contentsOf: page.items)
             offset += page.items.count
             if page.items.isEmpty || offset >= page.total { return items }
+        }
+    }
+
+    private func confirmedRemoteTombstones(_ items: [UploadConfigData]) -> [ConfirmedRemoteTombstone] {
+        items.compactMap { item in
+            guard SyncPullRecoveryPolicy.isRemoteDeletion(item.state),
+                  let state = item.state,
+                  let canonicalID = SyncPullRecoveryPolicy.canonicalAssetID(item.asset_id),
+                  let assetID = UUID(uuidString: canonicalID),
+                  let revision = item.server_revision,
+                  revision > 0 else { return nil }
+            return ConfirmedRemoteTombstone(
+                assetID: assetID,
+                state: state,
+                vectorClock: item.vector_clock,
+                serverRevision: revision
+            )
         }
     }
 
@@ -515,6 +543,13 @@ extension SyncService {
 
             metadata.saveCursor(page.next_cursor, accountID: accountID)
             cursor = page.next_cursor
+            guard store.isActiveAccount(accountID) else {
+                return IncrementalSyncPullResult(receivedRemoteChanges: receivedRemoteChanges)
+            }
+            await SyncQueue.shared.acknowledgeBlockedDeletes(
+                accountID: accountID,
+                confirmedTombstones: confirmedRemoteTombstones(remoteDeletes)
+            )
             try? await network.acknowledgeConfigSync(SyncAcknowledgementRequest(
                 device_id: metadata.deviceID.uuidString,
                 revision: cursor,

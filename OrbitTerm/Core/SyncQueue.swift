@@ -219,6 +219,53 @@ actor SyncQueueStore {
         return Int(sqlite3_column_int(stmt, 0))
     }
 
+    /// Only a fresh server tombstone can retire a previously blocked delete.
+    /// The blocked row cannot be in flight: firstItem excludes that prefix.
+    func acknowledgeBlockedDeletes(
+        accountIdentifier: String,
+        confirmedTombstones: [ConfirmedRemoteTombstone]
+    ) -> Int {
+        guard let db, !confirmedTombstones.isEmpty else { return 0 }
+        let evidenceByAsset = Dictionary(
+            confirmedTombstones.map { ($0.assetID, $0) },
+            uniquingKeysWith: { previous, next in
+                next.serverRevision >= previous.serverRevision ? next : previous
+            }
+        )
+        let sql = """
+        SELECT id, payload_json, last_error FROM sync_queue
+        WHERE account_identifier = ? AND last_error = ?;
+        """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return 0 }
+        bindText(accountIdentifier, stmt: stmt, index: 1)
+        bindText(SyncQueueTombstoneReconciliationPolicy.blockedConflictCode, stmt: stmt, index: 2)
+        var matchingIDs: [UUID] = []
+        var step = sqlite3_step(stmt)
+        while step == SQLITE_ROW {
+            if let rawID = sqlite3_column_text(stmt, 0).map({ String(cString: $0) }),
+               let id = UUID(uuidString: rawID),
+               let rawPayload = sqlite3_column_text(stmt, 1).map({ String(cString: $0) }),
+               let operation = Self.decodeOperation(Data(rawPayload.utf8)),
+               case let .delete(assetID, request) = operation,
+               let remote = evidenceByAsset[assetID],
+               SyncQueueTombstoneReconciliationPolicy.mayAcknowledge(
+                   queuedAssetID: assetID,
+                   queuedVectorClock: request.vector_clock,
+                   persistedError: SyncQueueTombstoneReconciliationPolicy.blockedConflictCode,
+                   remote: remote
+               ) {
+                matchingIDs.append(id)
+            }
+            step = sqlite3_step(stmt)
+        }
+        sqlite3_finalize(stmt)
+        guard step == SQLITE_DONE else { return 0 }
+        let before = blockedCount(accountIdentifier: accountIdentifier)
+        for id in matchingIDs { remove(id: id) }
+        return max(0, before - blockedCount(accountIdentifier: accountIdentifier))
+    }
+
     @discardableResult
     func retryBlocked(accountIdentifier: String, now: Date = Date()) -> Int {
         guard let db else { return 0 }
@@ -434,6 +481,22 @@ final class SyncQueue {
     func blockedCount(accountID: String) async -> Int {
         guard let scope = AccountScope(username: accountID) else { return 0 }
         return await store.blockedCount(accountIdentifier: scope.storageIdentifier)
+    }
+
+    @discardableResult
+    func acknowledgeBlockedDeletes(
+        accountID: String,
+        confirmedTombstones: [ConfirmedRemoteTombstone]
+    ) async -> Int {
+        guard let scope = AccountScope(username: accountID) else { return 0 }
+        let count = await store.acknowledgeBlockedDeletes(
+            accountIdentifier: scope.storageIdentifier,
+            confirmedTombstones: confirmedTombstones
+        )
+        if count > 0 {
+            logger.debug("[SYNCQ] reconciled blocked deletes count=\(count)")
+        }
+        return count
     }
 
     @discardableResult
