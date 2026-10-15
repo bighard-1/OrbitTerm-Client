@@ -20,6 +20,10 @@
 
 ## 后续对照清单
 
-1. K60 连接稳定后，先核对原独立 QA 包身份与签名，再覆盖安装本候选；用唯一虚构资产验证离线软删、进程重启、409/已删除墓碑收敛、两次同步不复活；记录活动/最近删除、队列状态，不碰真实 Debian/RDP。
-2. Windows 10 KVM 到位后，在 VM 内构建或安装同提交候选，运行原生测试；用账户隔离 QA 验证同 ID 覆盖墓碑清队列、未覆盖/无修订不清队列、重启后幂等键稳定，和 K60/Mac 交叉同步。RDP 连接信息仅用于临时连接，不写仓库。
-3. 在 CI 固定本提交的 Security Gates / Android / Windows / Linux 结果；首次失败和条件跳过分别记账。Apple/Linux/iOS 本候选未重跑，不能由 Windows/Android 单元结果外推。
+远端 CI 后续回执：固定提交 `3d10e8d` 的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38696613492)、[Linux Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38696613493)、[Windows Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38696613516) 均显示 `completed/success`。前一提交 `794b1e0` 的 Security Gates 因新推送被取消，不能记为通过或产品失败；同一旧提交的 Linux/Windows 工作流已成功。CI 不是 Android K60 或 Windows GUI 验收。
+
+2026-10-15 连接续验：K60 改用 USB-C 对 USB-C 直连后，连续五轮 ADB 设备与系统版本读取稳定；核对现装独立 QA 包签名与新包相同，`adb install -r` 返回 `Success`，重新拉取已安装 APK 与候选 SHA-256 `d46838a402d43940f77aeae023c33703194246c23dfde30145bb739bfdccc7f5` 完全一致，正式版未安装/未覆盖。随后尝试在真机运行迁移与 outbox 仪器测试，系统拒绝另装临时 Debug 测试包：`INSTALL_FAILED_USER_RESTRICTED`、实际运行 **0 项**；此前模拟器 5/5 + 6/6 不变。K60 此时锁屏，尚未核对 QA 启动后资产或真实账户队列；已请求用户在手机本机解锁，未继续尝试 PIN，失败保留。
+
+1. K60 解锁后，确认同签名新 QA 能打开、旧账户及虚构资产可见；再用唯一虚构资产验证离线软删、进程重启、409/已删除墓碑收敛、两次同步不复活；记录活动/最近删除、队列状态，不碰真实 Debian/RDP。真机仪器测试另需系统允许安装其隔离 Debug 包。
+2. 用户现提供 RustDesk 内名为“个人笔记本”的 Windows 10 电脑；连接成功后在该机内构建或安装同提交候选，运行原生测试；用账户隔离 QA 验证同 ID 覆盖墓碑清队列、未覆盖/无修订不清队列、重启后幂等键稳定，和 K60/Mac 交叉同步。连接凭据仅用于临时会话，不写仓库。此前讨论的 KVM 未作为本轮目标。
+3. 固定本提交的 Security Gates / Windows / Linux 成功结果；首次失败和条件跳过分别记账。Apple/Linux/iOS 本候选未重跑，不能由 Windows/Android 单元结果外推。
