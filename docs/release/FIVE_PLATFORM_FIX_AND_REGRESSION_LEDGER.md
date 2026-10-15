@@ -17,6 +17,8 @@
 
 `ANDROID-WINDOWS-DELETE-PROOF-80` 后续 CI 与设备通道回执：固定提交 `3d10e8d` 的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38696613492)、[Linux Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38696613493)、[Windows Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38696613516) 均成功；旧 `794b1e0` 的 Security Gates 因新推送被取消，不计成功。K60 USB-C 直连连续五轮 ADB 稳定，新 QA 同签名覆盖安装成功，已安装 APK 哈希与 `d46838a4…cc7f5` 一致；**仍锁屏，尚无新包账户 GUI 验收**。真机仪器测试的额外 Debug 包被系统 `INSTALL_FAILED_USER_RESTRICTED` 拒绝，0 项执行；原 Android 15 模拟器 5/5 迁移及 6/6 队列测试结果不变。RustDesk 进程与“个人笔记本”本地记录存在，但 Mac 桌面控制接口读取 RustDesk 窗口连续超时，不能据此宣称 Windows 在线或可控；已请求用户打开目标桌面。详见[专项日志](ANDROID_WINDOWS_DELETE_RECONCILIATION_20261015.md)。
 
+`ANDROID-WINDOWS-DELETE-PROOF-80` 远控续记：用户报告已在 RustDesk 打开“个人笔记本”的 Windows 桌面；本机只读确认 RustDesk 仍运行且有已建立连接，但桌面控制接口在重置会话后读取该窗口仍报 `timeoutReached`，**代理尚未看到或操作 Windows 桌面**，没有 Windows 原生测试、安装或 GUI 结果。用户本人也经 RustDesk 连接当前 Mac，故不能为排障退出或重启该应用；未执行此类操作。用户暂不在 K60 旁，真机安装授权与解锁留待其回到设备后再做；已安装 QA 的哈希核对仍成立，仪器测试仍为 0 项。两个通道的失败/未覆盖不由用户侧“已打开”或 CI 成功替代，五端验收继续阻断。详见[专项日志](ANDROID_WINDOWS_DELETE_RECONCILIATION_20261015.md#2026-10-15-远控通道续记)。
+
 ## 2026-10-14 Apple 旧删除冲突队列收敛
 
 | 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
