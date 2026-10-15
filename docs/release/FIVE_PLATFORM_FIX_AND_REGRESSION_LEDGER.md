@@ -9,6 +9,14 @@
 - Apple、Android、Windows 契约源码现已分别固化为 `c62b60f`、`e13b0be`、`7a2ca23`；这是**源码候选**，不是已签名分发包或五端验收。服务端隔离分支尚未部署，不能用线上旧服务替代新契约联调。
 - 每次跨端操作都记录：五端安装包的提交和签名身份、服务端版本、操作方向、是否离线、操作前后活动/最近删除数量、本机凭据状态、持久队列与重复同步结果。永久删除及每个新实例的法律条款接受仍按实际操作时的确认规则执行。
 
+## 2026-10-14 Mac 单条删除误触保护续记
+
+| 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
+| --- | --- | --- | --- | --- | --- |
+| `MAC-SINGLE-DELETE-CONFIRM-78` | 本行所在后继提交：Apple 共用资产管理视图为单条软删除增加目标名、云端/仅本机恢复范围及凭据清理说明；取消无副作用，账户/锁定/离页清除待确认目标，确认时重新校验当前资产与会话。Mac 独立 `OrbitTerm QA` `1.0.4 (20261014.2)` 可执行文件 SHA-256 `09c6d10a8730eb3c9bb655508a1f01f6d906e3c313c0f98ae3ab78acf7e70ddb`，Development 签名和精确 QA ID/名称通过；不覆盖正式版。详见 [Android×Mac 离线墓碑日志](ANDROID_MAC_OFFLINE_TOMBSTONE_20261014.md#单条软删除指名确认与隔离-mac-gui-复测)。 | Mac Release 与 iOS Simulator Release 无签名源码构建、完整 checked-FFI XCTest **340/340 通过、0 失败/跳过**、差异检查通过。首次 Mac 编译因 SwiftUI 表达式过大失败，抽出列表后参数顺序错误再次失败；首次签名 QA 因旧 profile 到期失败，刷新后通过；首次已签名包显示名称误为 `OrbitTerm`，重构建后为 `OrbitTerm QA`。失败均保留；既有 FreeRDP 废弃接口警告仍在。 | Mac 隔离 QA 正常联网、仅用虚构 `OT-K60-Cross-20261014`：恢复后右键删除出现指名确认，取消后仍活动；再次确认软删后本机立即移除，随后显示云端删除成功，再次同步未复活，最近删除可恢复。旧包直接删除的交互缺口保留为修复前基线。旧 QA 退出前一次显示安全存储暂不可用，原因未定；新包解锁成功。 | Mac 为真实硬件上独立 QA GUI；**本轮没有 iPhone/K60 新包或新 GUI 结果**，iOS 构建不算真机。设置还显示另有 1 项本地同步变更停止重试；只读队列查询证实较早的 `delete` 已尝试 4 次并以脱敏 `HTTP 409` 阻断，本地元数据为 `deleted` 且向量钟覆盖队列旧请求，但未从服务端复核同一 ID、资产名称归属未核实，未重试或丢弃。 | **五端同版验收未完成，发布不放行**。Android/Windows 后续对照单条/批量删除确认、取消无副作用、账户切换后旧目标不可误删、仅此设备恢复边界、离线队列与重复同步。K60 本轮未重启/复测该 UX，Windows/Linux/iOS 本候选、物理断网、冲突与最终删除仍开放；先只读归因既有受阻队列，再决定是否重试。 |
+
+`MAC-OFFLINE-REVERSE-77` 对应前一提交 `67c4fe9` 的远端后续： [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38686006826) 六项常规作业、[Linux Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38686006828) 与 [Windows Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38686006827) 共 **8/8 成功**；签名 Mac UI 和 OpenSSH 发布候选条件跳过。此结果不能充当 `MAC-SINGLE-DELETE-CONFIRM-78` 新源码的远端 CI。
+
 ## 2026-10-13 外置盘迁移后的本地验收环境
 
 | 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
