@@ -86,6 +86,7 @@ import com.orbitterm.android.domain.deeplink.ServerDeepLink
 import com.orbitterm.android.feature.batch.BatchCommandUiState
 import com.orbitterm.android.feature.batch.BatchCommandViewModel
 import com.orbitterm.android.ui.design.OrbitConfirmationDialog
+import com.orbitterm.android.ui.design.OrbitFeedbackBanner
 import com.orbitterm.android.ui.design.OrbitFormDialog
 import com.orbitterm.android.security.ClipboardContentKind
 import com.orbitterm.android.security.SensitiveClipboard
@@ -100,6 +101,8 @@ fun AssetsRoute(
     deepLink: ServerDeepLink? = null,
     onDeepLinkConsumed: () -> Unit = {},
     isSynchronizing: Boolean = false,
+    syncFeedbackMessage: String? = null,
+    syncFeedbackIsError: Boolean = false,
     onSyncRequested: () -> Unit = {},
     viewModel: AssetsViewModel = viewModel(),
     batchViewModel: BatchCommandViewModel = viewModel(),
@@ -148,6 +151,8 @@ fun AssetsRoute(
             onImportBulkAssets = viewModel::importBulkAssets,
             onDismissBulkImport = viewModel::dismissBulkImport,
             isSynchronizing = isSynchronizing,
+            syncFeedbackMessage = syncFeedbackMessage,
+            syncFeedbackIsError = syncFeedbackIsError,
             onSyncRequested = onSyncRequested,
         )
     } else {
@@ -208,6 +213,8 @@ private fun AssetList(
     onImportBulkAssets: () -> Unit,
     onDismissBulkImport: () -> Unit,
     isSynchronizing: Boolean,
+    syncFeedbackMessage: String?,
+    syncFeedbackIsError: Boolean,
     onSyncRequested: () -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
@@ -223,6 +230,12 @@ private fun AssetList(
     var groupRenameText by rememberSaveable { mutableStateOf("") }
     var groupMenu by rememberSaveable { mutableStateOf<String?>(null) }
     var groupPendingDeletion by rememberSaveable { mutableStateOf<String?>(null) }
+    var assetPendingDeletion by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(assetPendingDeletion, assets) {
+        if (assetPendingDeletion != null && assets.none { it.id == assetPendingDeletion }) {
+            assetPendingDeletion = null
+        }
+    }
     val filteredAssets = assets.filter { asset ->
         val normalizedQuery = query.trim()
         normalizedQuery.isBlank() || listOf(asset.name, asset.host, asset.username, asset.group, *asset.tags.toTypedArray())
@@ -235,52 +248,61 @@ private fun AssetList(
         modifier = modifier,
         containerColor = Color.Transparent,
         topBar = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Surface(
-                    modifier = Modifier.clickable {
-                        batchMode = !batchMode
-                        if (!batchMode) selectedIds = emptySet()
-                    },
-                    shape = androidx.compose.foundation.shape.CircleShape,
-                    color = MaterialTheme.colorScheme.surface,
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(
-                        Icons.Rounded.Checklist,
-                        contentDescription = if (batchMode) "退出批量命令与批量管理" else "批量命令与批量管理",
-                        modifier = Modifier.padding(12.dp),
-                    )
-                }
-                Text(
-                    "服务器",
-                    modifier = Modifier.weight(1f),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    style = MaterialTheme.typography.titleLarge,
-                )
-                IconButton(onClick = onShowBulkImport) {
-                    Icon(Icons.Rounded.FileUpload, contentDescription = "批量导入资产")
-                }
-                IconButton(onClick = onSyncRequested, enabled = !isSynchronizing) {
-                    if (isSynchronizing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            strokeWidth = 2.dp,
+                    Surface(
+                        modifier = Modifier.clickable {
+                            batchMode = !batchMode
+                            if (!batchMode) selectedIds = emptySet()
+                        },
+                        shape = androidx.compose.foundation.shape.CircleShape,
+                        color = MaterialTheme.colorScheme.surface,
+                    ) {
+                        Icon(
+                            Icons.Rounded.Checklist,
+                            contentDescription = if (batchMode) "退出批量命令与批量管理" else "批量命令与批量管理",
+                            modifier = Modifier.padding(12.dp),
                         )
-                    } else {
-                        Icon(Icons.Rounded.Sync, contentDescription = "立即双向同步")
+                    }
+                    Text(
+                        "服务器",
+                        modifier = Modifier.weight(1f),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                    IconButton(onClick = onShowBulkImport) {
+                        Icon(Icons.Rounded.FileUpload, contentDescription = "批量导入资产")
+                    }
+                    IconButton(onClick = onSyncRequested, enabled = !isSynchronizing) {
+                        if (isSynchronizing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Icon(Icons.Rounded.Sync, contentDescription = "立即双向同步")
+                        }
+                    }
+                    Surface(
+                        modifier = Modifier.clickable(onClick = onAdd),
+                        shape = androidx.compose.foundation.shape.CircleShape,
+                        color = MaterialTheme.colorScheme.surface,
+                    ) {
+                        Icon(Icons.Rounded.Add, contentDescription = "添加资产", modifier = Modifier.padding(12.dp))
                     }
                 }
-                Surface(
-                    modifier = Modifier.clickable(onClick = onAdd),
-                    shape = androidx.compose.foundation.shape.CircleShape,
-                    color = MaterialTheme.colorScheme.surface,
-                ) {
-                    Icon(Icons.Rounded.Add, contentDescription = "添加资产", modifier = Modifier.padding(12.dp))
+                syncFeedbackMessage?.let { message ->
+                    OrbitFeedbackBanner(
+                        message = message,
+                        isError = syncFeedbackIsError,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                    )
                 }
             }
         },
@@ -467,6 +489,7 @@ private fun AssetList(
                                     }
                                 },
                                 onEdit = { onAssetSelected(asset.id) },
+                                onDelete = { assetPendingDeletion = asset.id },
                             )
                         }
                     }
@@ -564,6 +587,19 @@ private fun AssetList(
                 deleteConfirmationVisible = false
             },
             onDismiss = { deleteConfirmationVisible = false },
+            destructive = true,
+        )
+    }
+    assets.firstOrNull { it.id == assetPendingDeletion }?.let { target ->
+        OrbitConfirmationDialog(
+            title = "删除资产？",
+            message = "仅将“${target.name}”这一条资产移入最近删除，并移除本机凭据。保留期内可在个人中心恢复。",
+            confirmLabel = "删除资产",
+            onConfirm = {
+                assetPendingDeletion = null
+                onDeleteAssets(setOf(target.id))
+            },
+            onDismiss = { assetPendingDeletion = null },
             destructive = true,
         )
     }
@@ -758,7 +794,9 @@ private fun AssetListItem(
     isSelected: Boolean,
     onClick: () -> Unit,
     onEdit: () -> Unit,
+    onDelete: () -> Unit,
 ) {
+    var assetMenuVisible by rememberSaveable(asset.id) { mutableStateOf(false) }
     val connectionSupported = AndroidTransportSupportPolicy.allowsCheckedConnection(asset.transport, telnetEnabled)
     Card(
         modifier = Modifier.fillMaxWidth().then(
@@ -844,6 +882,23 @@ private fun AssetListItem(
                 )
                 IconButton(onClick = onEdit) {
                     Icon(Icons.Rounded.Edit, contentDescription = "编辑资产")
+                }
+                Box {
+                    IconButton(onClick = { assetMenuVisible = true }) {
+                        Icon(Icons.Rounded.MoreVert, contentDescription = "资产操作 ${asset.name}")
+                    }
+                    DropdownMenu(
+                        expanded = assetMenuVisible,
+                        onDismissRequest = { assetMenuVisible = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("删除资产", color = MaterialTheme.colorScheme.error) },
+                            onClick = {
+                                assetMenuVisible = false
+                                onDelete()
+                            },
+                        )
+                    }
                 }
             }
         }

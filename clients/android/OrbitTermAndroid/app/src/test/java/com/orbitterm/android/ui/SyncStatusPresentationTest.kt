@@ -33,6 +33,21 @@ class SyncStatusPresentationTest {
     }
 
     @Test
+    fun `asset page directly reports offline and failed sync without claiming success`() {
+        val waiting = SyncStatus.AwaitingNetwork.assetPageFeedback()
+        assertEquals("等待网络：网络恢复后自动同步", waiting?.message)
+        assertFalse(waiting?.isError ?: true)
+
+        val failure = SyncStatus.Failed(syncError(OrbitErrorCode.NetworkUnavailable)).assetPageFeedback()
+        assertTrue(failure?.message?.startsWith("同步失败：") == true)
+        assertTrue(failure?.isError == true)
+
+        assertEquals(null, SyncStatus.Idle.assetPageFeedback())
+        assertEquals(null, SyncStatus.Syncing.assetPageFeedback())
+        assertEquals(null, SyncStatus.Succeeded(1, 0, AssetOutboxResult()).assetPageFeedback())
+    }
+
+    @Test
     fun `deferred work and conflicts cannot be presented as complete success`() {
         val deferred = SyncStatus.Succeeded(
             assetCount = 3,

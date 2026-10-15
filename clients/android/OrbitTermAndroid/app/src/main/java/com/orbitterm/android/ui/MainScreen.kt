@@ -177,6 +177,7 @@ fun MainScreen(
     onPurgeRecentlyDeleted: (String) -> Unit,
     onDismissRecentlyDeletedFeedback: () -> Unit,
 ) {
+    val assetPageSyncFeedback = syncStatus.assetPageFeedback()
     BackHandler(enabled = uiState.destination != AppDestination.Servers) {
         onDestinationSelected(AppDestination.Servers)
     }
@@ -230,6 +231,8 @@ fun MainScreen(
                 deepLink = deepLink,
                 onDeepLinkConsumed = onDeepLinkConsumed,
                 isSynchronizing = syncStatus == SyncStatus.Syncing,
+                syncFeedbackMessage = assetPageSyncFeedback?.message,
+                syncFeedbackIsError = assetPageSyncFeedback?.isError == true,
                 onSyncRequested = onRetrySync,
             )
             AppDestination.Sessions -> TerminalSessionsRoute(
