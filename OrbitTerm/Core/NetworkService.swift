@@ -689,6 +689,15 @@ final class NetworkService: NSObject {
         for attempt in 1 ... maxAttempts {
             let start = Date()
             do {
+#if ORBITTERM_MAC_OFFLINE_QA
+                // This fault is compiled only into a dedicated macOS QA build.
+                // It leaves the real URL, authentication, and sync mutation path
+                // intact while making this one app behave as if transport failed.
+                if Bundle.main.bundleIdentifier == "com.orbitterm.matrix.macos",
+                   ProcessInfo.processInfo.environment["ORBITTERM_MAC_QA_OFFLINE"] == "1" {
+                    throw URLError(.notConnectedToInternet)
+                }
+#endif
                 let (data, response) = try await session.data(for: request)
                 guard let httpResp = response as? HTTPURLResponse else {
                     throw NetworkError.unexpectedStatus(-1)

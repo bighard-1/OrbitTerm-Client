@@ -201,7 +201,7 @@ section "Release fixture exclusion"
 release_binary="$derived_data/Build/Products/Release/OrbitTerm.app/Contents/MacOS/OrbitTerm"
 [[ -x "$release_binary" ]] || fail "macOS Release executable not found for fixture exclusion audit"
 if strings "$release_binary" | rg -i \
-  '当前为模拟模式|模拟目录|进入模拟浏览|Mock 文件列表|ui-test@example[.]invalid|orbitTermUITestState|ORBITTERM_UI_TEST_STATE|fault-probe|FaultInjectionProbeBody|ScriptedURLProtocol|隐藏菜单：仅用于调试|后端地址设置'; then
+  '当前为模拟模式|模拟目录|进入模拟浏览|Mock 文件列表|ui-test@example[.]invalid|orbitTermUITestState|ORBITTERM_UI_TEST_STATE|ORBITTERM_MAC_QA_OFFLINE|fault-probe|FaultInjectionProbeBody|ScriptedURLProtocol|隐藏菜单：仅用于调试|后端地址设置'; then
   fail "Release executable contains a mock-directory or UI-test fixture marker"
 fi
 pass "Release executable excludes mock directories and UI-test fixtures"
