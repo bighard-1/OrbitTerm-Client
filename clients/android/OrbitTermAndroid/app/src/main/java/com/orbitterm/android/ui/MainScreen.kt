@@ -681,7 +681,18 @@ private fun MoreScreen(
         val recentlyDeletedPresentation = recentlyDeletedState.presentation()
         AlertDialog(
             onDismissRequest = { if (recentlyDeletedState.mutatingAssetId == null) recentlyDeletedVisible = false },
-            title = { Text("最近删除") },
+            title = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("最近删除")
+                    // Keep mutation feedback outside the scrolling asset list so
+                    // a restored row disappearing cannot hide its result.
+                    RecentlyDeletedFeedback(
+                        presentation = recentlyDeletedPresentation,
+                        successMessage = recentlyDeletedState.message,
+                        onDismissSuccess = onDismissRecentlyDeletedFeedback,
+                    )
+                }
+            },
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(androidx.compose.foundation.rememberScrollState()),
@@ -730,11 +741,6 @@ private fun MoreScreen(
                             }
                         }
                     }
-                    RecentlyDeletedFeedback(
-                        presentation = recentlyDeletedPresentation,
-                        successMessage = recentlyDeletedState.message,
-                        onDismissSuccess = onDismissRecentlyDeletedFeedback,
-                    )
                 }
             },
             confirmButton = {
