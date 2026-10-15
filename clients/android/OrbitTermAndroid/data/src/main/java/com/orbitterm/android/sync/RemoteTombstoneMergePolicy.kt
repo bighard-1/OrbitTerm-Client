@@ -2,10 +2,19 @@ package com.orbitterm.android.sync
 
 import com.orbitterm.android.domain.error.OrbitErrorCode
 import com.orbitterm.android.domain.error.syncError
+import com.orbitterm.android.data.local.AssetSyncOutboxEntity
+import com.orbitterm.android.data.local.AssetSyncOperation
 import java.util.UUID
 
 /** Keeps one authoritative tombstone per stable asset identity. */
 internal object RemoteTombstoneMergePolicy {
+    fun coversQueuedDelete(remote: UploadConfigData, pending: AssetSyncOutboxEntity): Boolean =
+        pending.operation == AssetSyncOperation.MOVE_TO_TRASH.name &&
+            isTombstone(remote.state) &&
+            remote.server_revision?.let { it > 0uL } == true &&
+            canonicalAssetId(remote.asset_id) == canonicalAssetId(pending.assetId) &&
+            SyncVectorClock.strictlyCovers(pending.requestVectorClock, remote.vector_clock)
+
     fun isKnownState(state: String?): Boolean =
         state == null || state == "active" || state == "deleted" || state == "purged"
 

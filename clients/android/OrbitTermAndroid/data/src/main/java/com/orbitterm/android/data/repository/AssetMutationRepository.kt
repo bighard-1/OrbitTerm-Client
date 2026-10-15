@@ -5,6 +5,7 @@ import com.orbitterm.android.domain.auth.ActiveAccountScopeProvider
 import com.orbitterm.android.data.local.AssetSyncOperation
 import com.orbitterm.android.data.local.AssetSyncOutboxDao
 import com.orbitterm.android.data.local.AssetSyncOutboxEntity
+import com.orbitterm.android.data.local.AssetSyncMetadataDao
 import com.orbitterm.android.data.local.OrbitTermDatabase
 import com.orbitterm.android.data.local.ServerAssetDao
 import com.orbitterm.android.data.local.toDomain
@@ -14,6 +15,7 @@ import com.orbitterm.android.domain.assets.AssetStorageScope
 import com.orbitterm.android.domain.assets.LOCAL_ASSET_PARTITION
 import com.orbitterm.android.domain.assets.ServerCredentials
 import com.orbitterm.android.domain.assets.CredentialVault
+import com.orbitterm.android.sync.SyncVectorClock
 import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
@@ -29,6 +31,7 @@ class AssetMutationRepository @Inject constructor(
     private val database: OrbitTermDatabase,
     private val assetDao: ServerAssetDao,
     private val outboxDao: AssetSyncOutboxDao,
+    private val metadataDao: AssetSyncMetadataDao,
     private val credentialStore: CredentialVault,
     private val accountScopeController: ActiveAccountScopeProvider,
 ) {
@@ -110,6 +113,11 @@ class AssetMutationRepository @Inject constructor(
     }
 
     private suspend fun queue(scope: String, assetId: String, operation: AssetSyncOperation) {
+        val requestClock = if (operation == AssetSyncOperation.MOVE_TO_TRASH) {
+            metadataDao.find(scope, assetId)?.vectorClock
+                ?.takeIf(SyncVectorClock::isValid)
+                ?.let { SyncVectorClock.bump(it, "android") }
+        } else null
         outboxDao.upsert(
             AssetSyncOutboxEntity(
                 accountScope = scope,
@@ -117,6 +125,7 @@ class AssetMutationRepository @Inject constructor(
                 operation = operation.name,
                 operationId = UUID.randomUUID().toString(),
                 enqueuedAtUnix = Instant.now().epochSecond,
+                requestVectorClock = requestClock,
             ),
         )
     }

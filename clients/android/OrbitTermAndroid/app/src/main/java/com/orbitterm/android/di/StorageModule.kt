@@ -43,6 +43,7 @@ object StorageModule {
             .addMigrations(OrbitTermMigrations.V9_TO_V10)
             .addMigrations(OrbitTermMigrations.V10_TO_V11)
             .addMigrations(OrbitTermMigrations.V11_TO_V12)
+            .addMigrations(OrbitTermMigrations.V12_TO_V13)
             .build()
 
     @Provides

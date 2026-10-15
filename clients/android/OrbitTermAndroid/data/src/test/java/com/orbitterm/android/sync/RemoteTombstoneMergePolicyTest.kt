@@ -1,6 +1,8 @@
 package com.orbitterm.android.sync
 
 import com.orbitterm.android.domain.error.OrbitErrorCode
+import com.orbitterm.android.data.local.AssetSyncOutboxEntity
+import com.orbitterm.android.data.local.AssetSyncOperation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -102,6 +104,30 @@ class RemoteTombstoneMergePolicyTest {
             setOf(assetId),
             RemoteTombstoneMergePolicy.blockedAssetIds(listOf(tombstone)),
         )
+    }
+
+    @Test
+    fun queuedDeleteNeedsExactIdentityRevisionAndCoveringRequestClock() {
+        val assetId = "abcdef00-1234-5678-9abc-def012345678"
+        val queued = AssetSyncOutboxEntity(
+            accountScope = "test-account",
+            assetId = assetId,
+            operation = AssetSyncOperation.MOVE_TO_TRASH.name,
+            operationId = "test-operation",
+            enqueuedAtUnix = 1,
+            requestVectorClock = "{\"android\":8,\"ios\":4}",
+        )
+        val remote = record(22u, assetId.uppercase(), "deleted").copy(
+            vector_clock = "{\"android\":8,\"ios\":4}",
+            server_revision = 12uL,
+        )
+
+        assertEquals(true, RemoteTombstoneMergePolicy.coversQueuedDelete(remote, queued))
+        assertEquals(false, RemoteTombstoneMergePolicy.coversQueuedDelete(remote.copy(server_revision = null), queued))
+        assertEquals(false, RemoteTombstoneMergePolicy.coversQueuedDelete(remote.copy(asset_id = "11111111-2222-3333-4444-555555555555"), queued))
+        assertEquals(false, RemoteTombstoneMergePolicy.coversQueuedDelete(remote.copy(vector_clock = "{\"android\":7,\"ios\":4}"), queued))
+        assertEquals(false, RemoteTombstoneMergePolicy.coversQueuedDelete(remote.copy(vector_clock = "{\"android\":8,\"ios\":\"4\"}"), queued))
+        assertEquals(false, RemoteTombstoneMergePolicy.coversQueuedDelete(remote, queued.copy(requestVectorClock = null)))
     }
 
     private fun record(id: UInt, assetId: String, state: String) = UploadConfigData(

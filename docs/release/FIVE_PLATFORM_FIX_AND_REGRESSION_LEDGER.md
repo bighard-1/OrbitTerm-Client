@@ -1,6 +1,6 @@
 # 五端整改与真机回归台账
 
-更新：2026-10-14。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
+更新：2026-10-15。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
 
 ## 记账规则
 
@@ -8,6 +8,12 @@
 - 真机记录仅使用测试夹具代号，不写账号、凭据、令牌、主机地址、设备 UDID 或未脱敏请求/响应体。保留失败的原始分类和首次结果；重跑通过另记，不覆盖失败。
 - Apple、Android、Windows 契约源码现已分别固化为 `c62b60f`、`e13b0be`、`7a2ca23`；这是**源码候选**，不是已签名分发包或五端验收。服务端隔离分支尚未部署，不能用线上旧服务替代新契约联调。
 - 每次跨端操作都记录：五端安装包的提交和签名身份、服务端版本、操作方向、是否离线、操作前后活动/最近删除数量、本机凭据状态、持久队列与重复同步结果。永久删除及每个新实例的法律条款接受仍按实际操作时的确认规则执行。
+
+## 2026-10-15 Android / Windows 排队删除证据收敛
+
+| 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
+| --- | --- | --- | --- | --- | --- |
+| `ANDROID-WINDOWS-DELETE-PROOF-80` | 本行所在后继提交：Windows 将删除操作 ID 与请求向量钟先持久化、重试复用；同 ID 墓碑仅在正数服务端修订且严格覆盖请求钟时清排队意图。Android Room **12→13** 为 outbox 增可空请求钟，新删除原子排队时捕获、旧删除投递前 CAS 捕获；拉取远端墓碑严格覆盖后按操作 ID 删除队列；活动清单与本机元数据同时缺席也不再静默清除账户同步删除。旧无证据队列可能保持阻断。独立 Android arm64 QA APK 已构建，SHA-256 `d46838a402d43940f77aeae023c33703194246c23dfde30145bb739bfdccc7f5`，**未安装 K60**。详见 [专项日志](ANDROID_WINDOWS_DELETE_RECONCILIATION_20261015.md)。 | Android data+app Debug 单测 **115 项、0 失败、1 跳过**；Android 15 隔离模拟器 Room 迁移 **5/5**、队列仪器测试 **6/6**；最终联合门禁 357 任务成功。首次 `--offline` 因测试依赖未缓存失败，联网重跑通过。Windows .NET 编译及两类定向测试 **34/34** 通过（macOS + 同架构 dylib）；常规 `dotnet test` 因缺 Windows `orbit_core.dll` 失败，已用直接运行 DLL 的方式补本机逻辑测试，**不等于 Windows 原生门禁**。 | Android 模拟器只运行隔离仪器测试，**无账户 GUI**；Mac/Linux/iOS 本候选无新 GUI。 | K60 扩展坞 ADB 短暂可见，但两次 Gradle 设备发现均报 `No connected devices`；未安装新 QA、未操作资产。Windows 10 KVM 尚未连接/安装，本轮无 Windows GUI 或实体设备结果。 | **五端同版未完成，发布不放行。** K60 稳定后优先核对 QA 包身份、Room 迁移、离线删除重启、409 后云端覆盖墓碑清队列/不足证据仍阻断、双端重复同步不复活。Windows KVM 可作虚拟 Windows 功能验收，须补原生 DLL/测试与同类 GUI 矩阵，不能写作物理机验收。Apple/Linux/iOS 本候选未重跑；线上服务未改。 |
 
 ## 2026-10-14 Apple 旧删除冲突队列收敛
 

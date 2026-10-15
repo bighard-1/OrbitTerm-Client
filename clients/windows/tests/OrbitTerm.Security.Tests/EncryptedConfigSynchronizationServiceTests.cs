@@ -373,6 +373,73 @@ public sealed class EncryptedConfigSynchronizationServiceTests
         Assert.Contains("删除与本机编辑", state.State.PendingOperations[id].ConflictingFields!);
     }
 
+    [Theory]
+    [InlineData("{\"other\":4,\"windows\":8}", 5UL, true)]
+    [InlineData("{\"other\":4,\"windows\":7}", 5UL, false)]
+    [InlineData("{\"other\":4,\"windows\":8}", 0UL, false)]
+    [InlineData("not-json", 5UL, false)]
+    public async Task QueuedDeleteIsAcknowledgedOnlyByCoveringTombstone(
+        string remoteClock, ulong serverRevision, bool shouldAcknowledge)
+    {
+        OrbitNativeLibraryLoader.Register();
+        var root = OrbitConfigCrypto.DeriveConfigRootKeyV2("correct horse", "scope");
+        var id = Guid.NewGuid();
+        var credentialId = Guid.NewGuid();
+        var assets = new Assets { Values = [Asset(id, credentialId, "本机旧资产", "测试")] };
+        var credentials = new Credentials();
+        await credentials.SaveAsync(credentialId, new CredentialMaterial("test-secret", "", ""), CancellationToken.None);
+        var pending = new PendingAssetSyncOperation(
+            PendingAssetSyncOperationKind.Tombstone,
+            "{\"other\":4,\"windows\":7}",
+            1,
+            OperationId: Guid.NewGuid(),
+            RequestVectorClock: "{\"other\":4,\"windows\":8}");
+        var state = new States
+        {
+            State = new EncryptedSyncState(
+                Guid.NewGuid(), 0,
+                new Dictionary<Guid, EncryptedAssetSyncMetadata> { [id] = new(1, pending.BaseVectorClock!, "active", 4) },
+                new Dictionary<Guid, PendingAssetSyncOperation> { [id] = pending }),
+        };
+        var deleted = new EncryptedConfigRecord(
+            2, id.ToString("D"), null, string.Empty, remoteClock, "deleted", serverRevision, DateTimeOffset.UtcNow);
+        var service = new EncryptedConfigSynchronizationService(
+            new Sync([deleted], assets, credentials), assets, new Snippets(), credentials, state);
+
+        await service.SynchronizeAsync(Session, "scope", "correct horse", root, CancellationToken.None);
+
+        Assert.Equal(shouldAcknowledge, !state.State!.PendingOperations!.ContainsKey(id));
+        Assert.Equal(shouldAcknowledge, !assets.Values.Any(asset => asset.Id == id));
+        Assert.Equal(shouldAcknowledge, !credentials.Values.ContainsKey(credentialId));
+    }
+
+    [Fact]
+    public async Task LegacyQueuedDeleteWithoutRequestClockIsNotSilentlyCleared()
+    {
+        OrbitNativeLibraryLoader.Register();
+        var root = OrbitConfigCrypto.DeriveConfigRootKeyV2("correct horse", "scope");
+        var id = Guid.NewGuid();
+        var state = new States
+        {
+            State = new EncryptedSyncState(
+                Guid.NewGuid(), 0,
+                new Dictionary<Guid, EncryptedAssetSyncMetadata> { [id] = new(1, "{}", "active", 1) },
+                new Dictionary<Guid, PendingAssetSyncOperation>
+                {
+                    [id] = new(PendingAssetSyncOperationKind.Tombstone, "{}", 1),
+                }),
+        };
+        var deleted = new EncryptedConfigRecord(
+            2, id.ToString("D"), null, string.Empty, "{\"other\":9}", "deleted", 2, DateTimeOffset.UtcNow);
+        var assets = new Assets();
+        var service = new EncryptedConfigSynchronizationService(
+            new Sync([deleted], assets, new Credentials()), assets, new Snippets(), new Credentials(), state);
+
+        await service.SynchronizeAsync(Session, "scope", "correct horse", root, CancellationToken.None);
+
+        Assert.Equal(PendingAssetSyncOperationKind.Tombstone, state.State!.PendingOperations![id].Kind);
+    }
+
     [Fact]
     public async Task TombstoneWinsWhenCompleteInventoryAlsoContainsOlderActiveRecord()
     {

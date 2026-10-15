@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using OrbitTerm.Application.Accounts;
 using OrbitTerm.Application.Security;
@@ -139,6 +140,34 @@ public sealed class EncryptedAssetPublisherTests
     }
 
     [Fact]
+    public async Task RetriedTombstoneKeepsItsDurableOperationIdAndVectorClock()
+    {
+        var asset = Asset();
+        var state = new States
+        {
+            State = new EncryptedSyncState(Guid.NewGuid(), 0, new Dictionary<Guid, EncryptedAssetSyncMetadata>
+            {
+                [asset.Id] = new(42, "{\"other\":4}", "active", 4),
+            }),
+        };
+        var protocol = new Protocol { RejectDeletionWithConflict = true };
+        var publisher = new EncryptedAssetPublisher(protocol, state);
+        await publisher.QueueTombstoneAsync("scope", asset.Id, CancellationToken.None);
+        var queued = state.State!.PendingOperations![asset.Id];
+
+        Assert.Equal(EncryptedAssetPublishStatus.Conflict,
+            (await publisher.TombstoneAsync(Session, "scope", asset.Id, new byte[32], CancellationToken.None)).Status);
+        Assert.Equal(EncryptedAssetPublishStatus.Conflict,
+            (await publisher.TombstoneAsync(Session, "scope", asset.Id, new byte[32], CancellationToken.None)).Status);
+        Assert.Equal(2, protocol.DeletionAttempts.Count);
+        Assert.Equal(protocol.DeletionAttempts[0].OperationId, protocol.DeletionAttempts[1].OperationId);
+        Assert.Equal(protocol.DeletionAttempts[0].VectorClock, protocol.DeletionAttempts[1].VectorClock);
+        Assert.Equal(queued.OperationId, protocol.DeletionAttempts[0].OperationId);
+        Assert.Equal(queued.RequestVectorClock, protocol.DeletionAttempts[0].VectorClock);
+        Assert.True(state.State.PendingOperations.ContainsKey(asset.Id));
+    }
+
+    [Fact]
     public async Task MissingCredentialNeverOverwritesAnExistingRemoteCredential()
     {
         var asset = Asset();
@@ -269,6 +298,8 @@ public sealed class EncryptedAssetPublisherTests
 
     private sealed class Protocol : IOrbitEncryptedSyncProtocol
     {
+        public bool RejectDeletionWithConflict { get; set; }
+        public List<AssetDeletionRequest> DeletionAttempts { get; } = [];
         public EncryptedConfigUpload? Upload { get; private set; }
         public Guid DeletedAssetId { get; private set; }
         public AssetDeletionRequest? Deletion { get; private set; }
@@ -283,6 +314,9 @@ public sealed class EncryptedAssetPublisherTests
         {
             DeletedAssetId = id;
             Deletion = deletion;
+            DeletionAttempts.Add(deletion);
+            if (RejectDeletionWithConflict)
+                throw new HttpRequestException("conflict", null, HttpStatusCode.Conflict);
             return ValueTask.FromResult(new AuthorizedProtocolResult<EncryptedConfigRecord>(new(99, id.ToString("D"), null, "", deletion.VectorClock, "deleted", 4, DateTimeOffset.UtcNow), s));
         }
     }

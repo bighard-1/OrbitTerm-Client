@@ -31,4 +31,14 @@ class SyncVectorClockTest {
             SyncVectorClock.bump(raw, "android"),
         )
     }
+
+    @Test
+    fun `strict coverage rejects malformed and incomplete remote clocks`() {
+        val request = "{\"android\":8,\"ios\":4}"
+        assertEquals(true, SyncVectorClock.strictlyCovers(request, "{\"android\":9,\"ios\":4}"))
+        assertEquals(false, SyncVectorClock.strictlyCovers(request, "{\"android\":8}"))
+        assertEquals(false, SyncVectorClock.strictlyCovers(request, "{\"android\":8,\"ios\":-1}"))
+        assertEquals(false, SyncVectorClock.strictlyCovers(request, "{\"android\":8,\"ios\":\"4\"}"))
+        assertEquals(false, SyncVectorClock.strictlyCovers(null, "{\"android\":9}"))
+    }
 }

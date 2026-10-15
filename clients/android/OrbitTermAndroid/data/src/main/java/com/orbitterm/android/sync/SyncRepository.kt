@@ -406,6 +406,7 @@ class SyncRepository @Inject constructor(
                     )
                     AssetSyncOperation.MOVE_TO_TRASH -> deliverDeletion(
                         operation.assetId, token, accountScope, remoteByAssetId, operation.operationId,
+                        operation.requestVectorClock,
                     )
                     AssetSyncOperation.RESTORE_FROM_TRASH -> restoreRecentlyDeleted(
                         operation.assetId, token, masterPassword, AccountScope(accountScope), operation.operationId,
@@ -598,12 +599,29 @@ class SyncRepository @Inject constructor(
         accountScope: String,
         remoteByAssetId: Map<String, RemoteAssetCandidate>,
         operationId: String,
+        queuedRequestClock: String?,
     ) {
         val metadata = metadataDao.find(accountScope, assetId)
         val remote = remoteByAssetId[assetId]
-        if (metadata == null && remote == null) return
+        if (metadata == null && remote == null) {
+            // The active inventory can omit undecryptable or already deleted
+            // records. Absence here cannot prove this account never published
+            // the asset, so retain the local delete until authoritative proof.
+            throw SyncFailure(syncError(OrbitErrorCode.RemoteRequestRejected))
+        }
+        val requestClock = queuedRequestClock ?: run {
+            val baseClock = metadata?.takeIf { it.remoteState == "active" }?.vectorClock
+                ?: remote?.config?.takeIf { it.state == null || it.state == "active" }?.vector_clock
+                ?: throw SyncFailure(syncError(OrbitErrorCode.RemoteRequestRejected))
+            if (!SyncVectorClock.isValid(baseClock)) throw SyncFailure(syncError(OrbitErrorCode.RemoteProtocolViolation))
+            val proposed = SyncVectorClock.bump(baseClock, "android")
+            outboxDao.rememberDeleteRequestClock(accountScope, assetId, operationId, proposed)
+            val current = outboxDao.find(accountScope, assetId)
+            if (current?.operationId != operationId) return
+            current.requestVectorClock ?: throw SyncFailure(syncError(OrbitErrorCode.RemoteRequestRejected))
+        }
         val response = moveToTrash(
-            assetId, token, metadata?.vectorClock ?: remote?.config?.vector_clock ?: "{}", operationId,
+            assetId, token, requestClock, operationId,
         )
         saveMetadata(
             accountScope = accountScope,
@@ -723,7 +741,7 @@ class SyncRepository @Inject constructor(
     private suspend fun moveToTrash(
         assetId: String,
         token: String,
-        vectorClock: String,
+        requestVectorClock: String,
         operationId: String = UUID.randomUUID().toString(),
     ): UploadConfigData {
         UUID.fromString(assetId)
@@ -733,7 +751,7 @@ class SyncRepository @Inject constructor(
             AssetMutationRequest(
                 device_id = deviceIdentity.value,
                 operation_id = operationId,
-                vector_clock = SyncVectorClock.bump(vectorClock, "android"),
+                vector_clock = requestVectorClock,
             ),
         )
     }
@@ -935,6 +953,11 @@ class SyncRepository @Inject constructor(
                 remoteState = "deleted",
                 safeShadow = metadata?.syncedSafeShadow.orEmpty(),
             )
+
+            if (pending?.operation == AssetSyncOperation.MOVE_TO_TRASH.name &&
+                RemoteTombstoneMergePolicy.coversQueuedDelete(remote, pending)) {
+                outboxDao.deleteCompleted(accountScope, pending.assetId, pending.operationId)
+            }
 
             if (pending?.operation == AssetSyncOperation.UPSERT.name) {
                 continue

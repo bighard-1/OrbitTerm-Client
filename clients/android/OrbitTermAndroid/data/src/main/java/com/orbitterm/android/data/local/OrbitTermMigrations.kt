@@ -107,4 +107,11 @@ object OrbitTermMigrations {
             )
         }
     }
+
+    /** Old queued deletes remain unproven until a request clock is safely captured. */
+    val V12_TO_V13 = object : Migration(12, 13) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE asset_sync_outbox ADD COLUMN requestVectorClock TEXT")
+        }
+    }
 }
