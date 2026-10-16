@@ -300,7 +300,6 @@ class OrbitSyncWorker(
                 token = session.accessToken,
                 masterPassword = masterPassword,
                 credentialNamespace = scope.storageId,
-                assetRepository = deps.assetRepository(),
             )
             ensureActiveScope(deps, scope, leaseId)
             val snippetCount = deps.syncRepository().syncSnippets(session.accessToken, masterPassword, scope)

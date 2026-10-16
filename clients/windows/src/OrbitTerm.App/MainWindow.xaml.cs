@@ -5487,17 +5487,21 @@ public sealed partial class MainWindow : Window
         isAssetDialogOpen = true;
         try
         {
+            var isSynchronizedAsset = ViewModel.IsAccountSignedIn &&
+                selected.StorageScope == AssetStorageScope.AccountSynced;
             var dialog = new ContentDialog
             {
                 XamlRoot = Root.XamlRoot,
-                Title = "确认删除本地服务器资产？",
+                Title = isSynchronizedAsset ? "确认删除同步资产？" : "确认删除本机资产？",
                 Content = new TextBlock
                 {
                     Text = string.Concat(
                         "服务器：", selected.Name,
                         "\n端点：", selected.Endpoint,
                         "\n分组：", selected.Group,
-                        "\n\n此操作将从当前 Windows 设备删除资产记录及其已安全保存的凭据；不会连接或修改远端服务器。"),
+                        isSynchronizedAsset
+                            ? "\n\n此操作先安全记录删除墓碑，再从本机移除资产及凭据。下次双向同步会将删除传播到其他设备；若墓碑无法记录，本机资产会保留。保留期内可从支持“最近删除”的客户端恢复。不会连接或修改资产所指向的服务器。"
+                            : "\n\n此操作仅从当前 Windows 设备移除资产及本机凭据，不会影响其他设备，也不会连接或修改资产所指向的服务器。"),
                     TextWrapping = TextWrapping.Wrap,
                 },
                 PrimaryButtonText = "删除",

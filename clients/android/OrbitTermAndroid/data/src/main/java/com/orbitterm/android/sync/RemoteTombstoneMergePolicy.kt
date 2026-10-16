@@ -15,6 +15,18 @@ internal object RemoteTombstoneMergePolicy {
             canonicalAssetId(remote.asset_id) == canonicalAssetId(pending.assetId) &&
             SyncVectorClock.strictlyCovers(pending.requestVectorClock, remote.vector_clock)
 
+    /** A stale import retry may be removed only after an in-memory exact-content check. */
+    fun coversUnchangedQueuedUpsert(
+        remote: UploadConfigData,
+        pending: AssetSyncOutboxEntity,
+        matchesLocalState: Boolean,
+    ): Boolean =
+        pending.operation == AssetSyncOperation.UPSERT.name &&
+            remote.state == "deleted" &&
+            canonicalAssetId(remote.asset_id) == canonicalAssetId(pending.assetId) &&
+            canonicalAssetId(remote.asset_id) != null &&
+            matchesLocalState
+
     fun isKnownState(state: String?): Boolean =
         state == null || state == "active" || state == "deleted" || state == "purged"
 

@@ -130,6 +130,31 @@ class RemoteTombstoneMergePolicyTest {
         assertEquals(false, RemoteTombstoneMergePolicy.coversQueuedDelete(remote, queued.copy(requestVectorClock = null)))
     }
 
+    @Test
+    fun unchangedLegacyImportCanYieldToExactDeletedTombstoneOnly() {
+        val assetId = "abcdef00-1234-5678-9abc-def012345678"
+        val queued = AssetSyncOutboxEntity(
+            accountScope = "test-account",
+            assetId = assetId,
+            operation = AssetSyncOperation.UPSERT.name,
+            operationId = "test-operation",
+            enqueuedAtUnix = 1,
+        )
+        val deleted = record(22u, assetId.uppercase(), "deleted")
+
+        assertEquals(true, RemoteTombstoneMergePolicy.coversUnchangedQueuedUpsert(deleted, queued, true))
+        assertEquals(false, RemoteTombstoneMergePolicy.coversUnchangedQueuedUpsert(deleted, queued, false))
+        assertEquals(false, RemoteTombstoneMergePolicy.coversUnchangedQueuedUpsert(deleted.copy(state = "purged"), queued, true))
+        assertEquals(false, RemoteTombstoneMergePolicy.coversUnchangedQueuedUpsert(deleted.copy(state = "active"), queued, true))
+        assertEquals(false, RemoteTombstoneMergePolicy.coversUnchangedQueuedUpsert(deleted.copy(asset_id = null), queued, true))
+        assertEquals(false, RemoteTombstoneMergePolicy.coversUnchangedQueuedUpsert(
+            deleted.copy(asset_id = "11111111-2222-3333-4444-555555555555"), queued, true,
+        ))
+        assertEquals(false, RemoteTombstoneMergePolicy.coversUnchangedQueuedUpsert(
+            deleted, queued.copy(operation = AssetSyncOperation.MOVE_TO_TRASH.name), true,
+        ))
+    }
+
     private fun record(id: UInt, assetId: String, state: String) = UploadConfigData(
         id = id,
         asset_id = assetId,
