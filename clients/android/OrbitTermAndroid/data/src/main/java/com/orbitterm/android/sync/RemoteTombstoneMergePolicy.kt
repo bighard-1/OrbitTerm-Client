@@ -23,6 +23,7 @@ internal object RemoteTombstoneMergePolicy {
     ): Boolean =
         pending.operation == AssetSyncOperation.UPSERT.name &&
             remote.state == "deleted" &&
+            remote.server_revision?.let { it > 0uL } == true &&
             canonicalAssetId(remote.asset_id) == canonicalAssetId(pending.assetId) &&
             canonicalAssetId(remote.asset_id) != null &&
             matchesLocalState

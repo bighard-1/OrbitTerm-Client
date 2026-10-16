@@ -140,10 +140,12 @@ class RemoteTombstoneMergePolicyTest {
             operationId = "test-operation",
             enqueuedAtUnix = 1,
         )
-        val deleted = record(22u, assetId.uppercase(), "deleted")
+        val deleted = record(22u, assetId.uppercase(), "deleted").copy(server_revision = 12uL)
 
         assertEquals(true, RemoteTombstoneMergePolicy.coversUnchangedQueuedUpsert(deleted, queued, true))
         assertEquals(false, RemoteTombstoneMergePolicy.coversUnchangedQueuedUpsert(deleted, queued, false))
+        assertEquals(false, RemoteTombstoneMergePolicy.coversUnchangedQueuedUpsert(deleted.copy(server_revision = null), queued, true))
+        assertEquals(false, RemoteTombstoneMergePolicy.coversUnchangedQueuedUpsert(deleted.copy(server_revision = 0uL), queued, true))
         assertEquals(false, RemoteTombstoneMergePolicy.coversUnchangedQueuedUpsert(deleted.copy(state = "purged"), queued, true))
         assertEquals(false, RemoteTombstoneMergePolicy.coversUnchangedQueuedUpsert(deleted.copy(state = "active"), queued, true))
         assertEquals(false, RemoteTombstoneMergePolicy.coversUnchangedQueuedUpsert(deleted.copy(asset_id = null), queued, true))
