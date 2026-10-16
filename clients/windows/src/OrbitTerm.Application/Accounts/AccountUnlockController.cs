@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using OrbitTerm.NativeBridge;
 
 namespace OrbitTerm.Application.Accounts;
@@ -58,6 +59,8 @@ public sealed class AccountUnlockController
     public bool CanSynchronize => State == AccountLockState.SignedInUnlocked && !MustChangePassword;
     public bool MustChangePassword => session?.MustChangePassword == true;
     public bool LastLogoutRevocationFailed { get; private set; }
+    // Fixed, non-sensitive codes only: never retain exception messages, URLs or response bodies.
+    public string LastUnlockDiagnosticCode { get; private set; } = string.Empty;
     public string Username => session?.Username ?? string.Empty;
     public string AccountScope => session is null ? string.Empty : StorageIdentifier(session.Username);
 
@@ -223,14 +226,17 @@ public sealed class AccountUnlockController
 
     public async ValueTask<AccountUnlockResult> UnlockAsync(string masterPassword, CancellationToken cancellationToken)
     {
+        LastUnlockDiagnosticCode = string.Empty;
         if (session is null || MustChangePassword) return AccountUnlockResult.ServiceFailure;
         ClearRootKey();
         var activeSession = session;
         var operationRevision = Interlocked.Read(ref authRevision);
+        var stage = "derive";
         try
         {
             var scope = StorageIdentifier(activeSession.Username);
             var candidate = keyDeriver.Derive(masterPassword, scope);
+            stage = "local_verifier_read";
             var localVerifier = await verifierStore.ReadAsync(scope, cancellationToken).ConfigureAwait(false);
             try
             {
@@ -243,6 +249,7 @@ public sealed class AccountUnlockController
                     // key rotation completed on another device. Fall back to the
                     // read-only remote verifier and repair the local DPAPI verifier only
                     // after ciphertext has proved the candidate key.
+                    stage = "remote_verify";
                     var verified = localMatch
                         ? true
                         : await verifier.VerifyAsync(activeSession, masterPassword, candidate, cancellationToken).ConfigureAwait(false);
@@ -255,7 +262,10 @@ public sealed class AccountUnlockController
                     }
                     rootKey = candidate;
                     if (!localMatch)
+                    {
+                        stage = "local_verifier_save";
                         await verifierStore.SaveAsync(scope, candidateVerifier, cancellationToken).ConfigureAwait(false);
+                    }
                     if (session != activeSession || operationRevision != Interlocked.Read(ref authRevision))
                     {
                         ClearRootKey();
@@ -278,18 +288,32 @@ public sealed class AccountUnlockController
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (AccountProtocolException exception) when (exception.Code == "PASSWORD_CHANGE_REQUIRED")
         {
+            LastUnlockDiagnosticCode = "password_change_required";
             if (session is { } active) await MarkPasswordChangeRequiredAsync(active, cancellationToken).ConfigureAwait(false);
             return AccountUnlockResult.ServiceFailure;
         }
-        catch (OperationCanceledException) { ClearRootKey(); State = AccountLockState.SignedInLocked; return AccountUnlockResult.NetworkUnavailable; }
+        catch (OperationCanceledException) { LastUnlockDiagnosticCode = $"{stage}_timeout"; ClearRootKey(); State = AccountLockState.SignedInLocked; return AccountUnlockResult.NetworkUnavailable; }
         catch (HttpRequestException exception) when (exception.StatusCode is null)
         {
+            LastUnlockDiagnosticCode = $"{stage}_network";
             ClearRootKey();
             State = AccountLockState.SignedInLocked;
             return AccountUnlockResult.NetworkUnavailable;
         }
-        catch
+        catch (Exception exception)
         {
+            var failureKind = exception switch
+            {
+                HttpRequestException http when http.StatusCode is { } status => $"http_{(int)status}",
+                JsonException => "protocol_json",
+                DllNotFoundException => "native_missing",
+                EntryPointNotFoundException => "native_entrypoint",
+                OrbitNativeException => "native_crypto",
+                CryptographicException => "cryptography",
+                UnauthorizedAccessException => "secure_store_access",
+                _ => "unexpected",
+            };
+            LastUnlockDiagnosticCode = string.Concat(stage, "_", failureKind);
             ClearRootKey();
             State = AccountLockState.SignedInLocked;
             return AccountUnlockResult.ServiceFailure;

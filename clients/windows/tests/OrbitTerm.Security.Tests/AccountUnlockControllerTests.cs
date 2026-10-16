@@ -1,6 +1,7 @@
 using OrbitTerm.Application.Accounts;
 using OrbitTerm.NativeBridge;
 using System.Security.Cryptography;
+using System.Net;
 using System.Text;
 using Xunit;
 
@@ -8,6 +9,21 @@ namespace OrbitTerm.Security.Tests;
 
 public sealed class AccountUnlockControllerTests
 {
+    [Fact]
+    public async Task UnlockFailureReportsOnlyFixedStageAndStatusCode()
+    {
+        var controller = new AccountUnlockController(
+            new Store(), new Protocol(),
+            new ThrowingVerifier(new HttpRequestException("secret response body", null, HttpStatusCode.BadGateway)),
+            keyDeriver: new Deriver());
+        await controller.LoginAsync(new AccountLoginRequest("user@example.com", "password"), CancellationToken.None);
+
+        Assert.Equal(AccountUnlockResult.ServiceFailure, await controller.UnlockAsync("master-password", CancellationToken.None));
+        Assert.Equal("remote_verify_http_502", controller.LastUnlockDiagnosticCode);
+        Assert.False(controller.CanSynchronize);
+        Assert.DoesNotContain("secret", controller.LastUnlockDiagnosticCode, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task LateLogoutFailureDoesNotWarnAReplacementSession()
     {
@@ -318,6 +334,7 @@ public sealed class AccountUnlockControllerTests
         }
     }
     private sealed class Verifier(bool? result) : IEncryptedConfigUnlockVerifier { public int Calls { get; private set; } public ValueTask<bool?> VerifyAsync(AccountSessionRecord s, string password, byte[] key, CancellationToken c) { Calls++; return ValueTask.FromResult(result); } }
+    private sealed class ThrowingVerifier(Exception error) : IEncryptedConfigUnlockVerifier { public ValueTask<bool?> VerifyAsync(AccountSessionRecord s, string password, byte[] key, CancellationToken c) => ValueTask.FromException<bool?>(error); }
     private sealed class VerifierStore : IAccountUnlockVerifierStore { public byte[]? Value; public ValueTask<byte[]?> ReadAsync(string s, CancellationToken c) => ValueTask.FromResult(Value?.ToArray()); public ValueTask SaveAsync(string s, byte[] v, CancellationToken c) { Value = v.ToArray(); return ValueTask.CompletedTask; } }
     private sealed class Deriver : IConfigRootKeyDeriver { public byte[] Derive(string p, string s) => Enumerable.Repeat((byte)7, 32).ToArray(); }
 }

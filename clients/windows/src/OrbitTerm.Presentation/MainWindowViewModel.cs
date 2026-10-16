@@ -2861,7 +2861,9 @@ public sealed class MainWindowViewModel : ObservableObject
             AccountUnlockResult.InvalidMasterPassword => "主密码不正确，数据仍保持锁定。",
             AccountUnlockResult.VerificationRequiresEncryptedConfig => "账户尚无可验证的加密配置，数据保持锁定。",
             AccountUnlockResult.NetworkUnavailable => "无法连接同步服务，请检查网络后重试。",
-            _ => "同步服务暂时无法完成验证，数据仍保持锁定。",
+            _ => string.IsNullOrEmpty(accountUnlockController.LastUnlockDiagnosticCode)
+                ? "同步服务暂时无法完成验证，数据仍保持锁定。"
+                : $"同步服务暂时无法完成验证，数据仍保持锁定。诊断码：{accountUnlockController.LastUnlockDiagnosticCode}",
         };
         NotifyAccountStateChanged();
         return result;
