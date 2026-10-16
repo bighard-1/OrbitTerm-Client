@@ -15,6 +15,10 @@
 | --- | --- | --- | --- | --- | --- |
 | `WINDOWS-REMOTE-CHANNEL-81` | 无产品源码修改或新包；待验证候选仍是 `3d10e8d` 的 Windows 排队删除修复。用户提供 Windows 测试机私网连接信息；账号凭据与完整地址不写仓库。详见 [专项日志](ANDROID_WINDOWS_DELETE_RECONCILIATION_20261015.md#2026-10-15-windows-远程入口诊断)。 | 本轮仅做 Mac 端网络探测：ICMP **3/3**、约 3–5 ms；TCP `3389` RDP、`22` SSH、`5900` VNC、`5985/5986` WinRM 均为**连接拒绝**，`445/139` SMB 与 `135` RPC 可达。匿名 SMB 认证被拒；未使用用户密码登录，也未修改防火墙/远程服务。既有 `3d10e8d` Windows CI 成功与 macOS 34/34 定向测试不变，**无新增 Windows 原生测试**。 | Mac RustDesk 窗口控制接口仍 `timeoutReached`；用户通过该应用连接当前 Mac，未退出/重启以免断线。没有可观察的 Windows GUI 验收。 | 目标 Windows 10 电脑在线可达，但本行**没有远控登录或 Windows 客户端运行结果**；Windows 版本和 RDP 开关状态待用户只读核实。Android K60 本行未操作。 | **五端完整验收未完成，不放行**。先判明 Windows 版本及远程桌面状态；若是支持 RDP 的版本，再在用户明确允许的范围内配置仅可信局域网访问并复测 3389，随后再选 Mac RDP 客户端。若为家庭版，不能把换装 Mac 客户端当成修复，需另选独立可控通道。恢复通道后再做 Windows 原生测试、隔离 QA 与 Android/Mac 墓碑交叉，不把端口探测记为功能通过。 |
 
+`WINDOWS-RDP-LISTENER-82`（同日后续、无客户端源码/构建）：用户只读确认是 Windows 10 专业版且远程桌面已开启。经既有管理员账户在 SMBv3/WMI 上完成受限**只读**远程诊断：Windows 10 x64 build 19045、`fDenyTSConnections=0`、RDP 端口 3389、`fEnableWinStation=1`、NLA 保持启用、RDP TCP 入站规则启用；`TermService`、`UmRdpService`、`SessionEnv` 均运行。**失败证据**：目标机 `Get-NetTCPConnection` 无 3389 监听、`qwinsta` 无 `rdp-tcp Listen`，TerminalServices-LocalSessionManager 多次事件 17 为 `0x80070005`（访问被拒绝），因此不能归因 Mac 缺少 RDP 客户端或仅防火墙阻断。RDP 自签名证书存在、私钥可见，MachineKeys 目录与该私钥文件的只读 ACL 检查未见缺失的读取权限；没有显式证书绑定，不能断言证书就是根因。Windows 仅有 .NET Runtime、尚无 SDK/Rust/Git 命令，**没有 Windows 客户端原生构建、QA GUI 或资产验收**。未改注册表、证书、服务、防火墙或密码；重启测试机的许可待用户回复。详情见[专项日志](ANDROID_WINDOWS_DELETE_RECONCILIATION_20261015.md#2026-10-15-rdp-监听器专项续查)。五端仍不放行，Android 对照点不变。
+
+`WINDOWS-RDP-LISTENER-82` 后续约束：用户说明 Windows 测试机正下载系统更新，要求**现在先不要重启**；因此没有执行重启、服务重启或 RDP 配置修复。等系统更新完成并由用户确认其正常重启后，只读复测监听器和跨机端口；若仍报事件 17，再在可回滚前提下单独决定修复。此等待不改变现有失败或五端阻断结论。
+
 ## 2026-10-15 Android / Windows 排队删除证据收敛
 
 | 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |

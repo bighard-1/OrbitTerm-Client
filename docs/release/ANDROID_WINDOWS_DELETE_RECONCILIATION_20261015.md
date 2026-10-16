@@ -40,3 +40,13 @@
 用户提供该 Windows 测试机的私网连接信息，允许测试远程入口；实际账号、密码及完整地址不记录。Mac 到该主机 ICMP 3/3 成功，往返约 3–5 ms；因此不是主机离线或 Mac 无路由。逐项只读检查：RDP `3389`、SSH `22`、VNC `5900`、WinRM `5985/5986` 均返回 TCP `Connection refused`，换用 macOS RDP 客户端本身无法绕过服务端未监听。SMB `445/139`、RPC `135` 可达，仅证明部分 Windows 网络服务在线；匿名 SMB 认证被拒，没有用用户提供的密码尝试登录，也没有访问共享文件。RustDesk 窗口仍无法由桌面控制接口读取，且用户本人正通过 RustDesk 连接当前 Mac，不能退出/重启该应用排障。
 
 本轮**未进入 Windows 桌面**，未安装或运行 Windows QA、未执行原生测试、未更改远程桌面开关/防火墙/账户权限，也未操作测试资产。RDP 拒绝原因尚不能判定为 Windows Home、不支持的版本、开关关闭、服务未监听或策略限制；请用户只读核实 Windows 版本和“设置→系统→远程桌面”开关是否存在及状态，再决定安全的接入路线。Mac 上无需先安装 RDP 客户端；若服务端条件满足，后续只在可信局域网内启用并验证，避免公网端口转发，保留网络级身份验证。旧 `3d10e8d` CI/本机定向自动化与本次远控诊断分开记账，五端验收仍阻断。
+
+## 2026-10-15 RDP 监听器专项续查
+
+用户随后只读确认 Windows 10 **专业版**且系统远程桌面开关已开启。使用其专门提供的测试机账户，通过 SMBv3 管理共享验证身份，并以 WMI 执行仅查询命令；账号、密码、完整私网地址、主机名及证书指纹均不写日志。确认本机 x64 build 19045，RDP 配置 `fDenyTSConnections=0`、`fEnableWinStation=1`、监听端口 3389、NLA 启用；RDP TCP 入站规则为允许。`TermService`、`UmRdpService`、`SessionEnv` 均运行，服务模块签名有效。**但** Windows 本机没有任何 3389 TCP 监听，`qwinsta` 仅见控制台/服务会话而无 `rdp-tcp Listen`；TerminalServices-LocalSessionManager/Operational 多次事件 ID 17 明确记录远程桌面服务启动失败，状态 `0x80070005`（访问被拒绝）。这与 Mac 的 `Connection refused` 相互印证，当前故障位于 Windows RDP 监听器初始化，不是 Mac 客户端缺失。
+
+RDP 自签名证书存在、未过期且有私钥；MachineKeys 目录和对应私钥文件的只读 ACL 检查可见读取权限；WMI 中没有显式的其他证书绑定。本轮**没有证明证书是根因**，也未删除或重建证书、改 ACL/注册表、防火墙或关闭 NLA。为避免隐式修改，RemoteRegistry 服务保持原有停止状态，未调用会自动启动它的注册表远控脚本。一次宽泛 System 事件查询因部分旧事件资源映射缺失输出错误，改用精确日志/事件 ID 读取到上述证据；失败原样保留。Windows 系统上仅检测到 .NET Runtime，未检测到 .NET SDK、Cargo/Rust 或 Git；系统盘有足够空间，但**尚不能本机构建或运行当前 Windows 候选**。所有远程管理会话在只读查询后已退出，未改账户资产或线上服务。
+
+等待用户确认测试机无未保存工作后，才考虑一次受控重启 Windows 测试机并复测 `qwinsta`/3389；该操作会中断 Windows 端 RustDesk 会话，不涉及当前 Mac 的 RustDesk。若仍无监听，继续只读归因事件 17 的具体访问被拒资源，再设计可回滚修复；不盲目放宽防火墙、禁用 NLA、删除证书或重置目录 ACL。Windows 原生测试与隔离 QA GUI、跨端墓碑矩阵仍未进行，五端不放行。
+
+用户随后说明 Windows 正在下载系统更新，要求暂缓重启；已停止重启方案，**没有执行系统或服务重启**。待正常更新并由用户确认重启完成后，先只读检查 `qwinsta`、Windows 本机 3389 监听和 Mac 端 TCP 可达性。更新本身不自动证明 RDP 修复，更不等于 OrbitTerm Windows 端验收。
