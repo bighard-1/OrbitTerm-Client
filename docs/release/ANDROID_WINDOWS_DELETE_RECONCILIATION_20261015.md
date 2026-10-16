@@ -50,3 +50,11 @@ RDP 自签名证书存在、未过期且有私钥；MachineKeys 目录和对应�
 等待用户确认测试机无未保存工作后，才考虑一次受控重启 Windows 测试机并复测 `qwinsta`/3389；该操作会中断 Windows 端 RustDesk 会话，不涉及当前 Mac 的 RustDesk。若仍无监听，继续只读归因事件 17 的具体访问被拒资源，再设计可回滚修复；不盲目放宽防火墙、禁用 NLA、删除证书或重置目录 ACL。Windows 原生测试与隔离 QA GUI、跨端墓碑矩阵仍未进行，五端不放行。
 
 用户随后说明 Windows 正在下载系统更新，要求暂缓重启；已停止重启方案，**没有执行系统或服务重启**。待正常更新并由用户确认重启完成后，先只读检查 `qwinsta`、Windows 本机 3389 监听和 Mac 端 TCP 可达性。更新本身不自动证明 RDP 修复，更不等于 OrbitTerm Windows 端验收。
+
+## 2026-10-15 更新后测试通道恢复
+
+用户确认 Windows 系统更新完成并已正常重启，且从另一台电脑使用 MSTSC 可进入该测试机。本轮开始前客户端分支 `codex/five-platform-integration` 与远端一致、工作区干净，最后提交为 `f4a6d97`；这仅是测试前代码／记录检查点。Mac 复测 Windows 测试机的 TCP 3389 已从此前 `Connection refused` 变为连接成功；通过既有账户对 Windows 作只读查询，`qwinsta` 已出现 `rdp-tcp Listen`。此前事件 17／`0x80070005` 的失败记录不删除；尚未证明具体是哪个 Windows 更新修复了哪个资源。
+
+依据微软官方文档从其官方 macOS 链接下载 Windows App，核验安装包的 Microsoft Developer ID 签名、Apple 公证和解包后的 App 签名；仅从外置盘运行，不影响 Mac 上正在供用户使用的 RustDesk。首次启动选择不共享可选诊断数据，麦克风与相机保持关闭，仅允许本地网络连接。目标 RDP 弹出的自签名证书，其 SHA-1 指纹与 Windows 本机 `Cert:\LocalMachine\Remote Desktop` 的独立只读查询完全一致；没有选择永久信任，随后**实际看到 Windows 10 桌面**。完整地址、账户密码、主机名及证书指纹均不记录，凭据未保存在 Windows App 的电脑条目中。
+
+Android K60 在 USB-C 直连下显示 ADB `device`，独立 `com.orbitterm.android.qa` 已安装并位于前台；本轮只读准备检查尚未运行资产 GUI、仪器测试或同步。**通道就绪不是 OrbitTerm 功能验收通过**：Windows 本机尚无已确认的当前候选构建或原生测试，Android 离线删除／旧队列收敛仍待做，Apple／Linux／iOS 同版也未重跑。下一步先按唯一虚构资产执行 Android 离线软删与重连不复活，再在 Windows 安装隔离 QA／补原生测试及跨端对照；不动真实 Debian、RDP 资产或线上服务。
