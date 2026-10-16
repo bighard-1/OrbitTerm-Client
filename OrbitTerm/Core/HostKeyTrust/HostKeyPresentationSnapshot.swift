@@ -3,11 +3,12 @@ import Foundation
 enum HostKeyPresentationSnapshot: Equatable {
     enum BlockReason: Equatable { case changed, revoked, unsupported }
     enum Failure: Equatable { case storeSave, authentication, network, timeout, operation }
-    case none, awaitingDecision, blocked(BlockReason), failed(Failure), cancelled
+    case none, awaitingDecision, awaitingSecondFactor, blocked(BlockReason), failed(Failure), cancelled
 
     static func from(state: HostKeyTrustState) -> Self {
         switch state {
         case .awaitingUserDecision: .awaitingDecision
+        case .awaitingSecondFactor: .awaitingSecondFactor
         case let .blocked(_, payload): .blocked(HostKeyBlockedPresentation(payload: payload).severity.snapshotReason)
         case let .failed(_, failure): from(failure: failure)
         case .cancelled: .cancelled
@@ -17,6 +18,7 @@ enum HostKeyPresentationSnapshot: Equatable {
     static func from(outcome: CheckedTerminalConnectionOutcome) -> Self {
         switch outcome {
         case .awaitingUserDecision: .awaitingDecision
+        case .awaitingSecondFactor: .awaitingSecondFactor
         case let .blocked(payload): .blocked(HostKeyBlockedPresentation(payload: payload).severity.snapshotReason)
         case let .failed(failure): from(failure: failure)
         case .terminalOpenFailed: .failed(.operation)

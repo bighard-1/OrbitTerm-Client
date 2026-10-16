@@ -108,7 +108,9 @@ public sealed class SessionOrchestrator
     public async ValueTask<ConnectResult> ConnectAsync(
         Guid workspaceId,
         ServerAsset asset,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string oneTimeCode = "",
+        string jumpOneTimeCode = "")
     {
         if (asset.Transport != ServerTransport.Ssh)
         {
@@ -126,7 +128,9 @@ public sealed class SessionOrchestrator
             workspaceId,
             asset,
             credential,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            oneTimeCode,
+            jumpOneTimeCode).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -138,7 +142,9 @@ public sealed class SessionOrchestrator
         Guid workspaceId,
         ServerAsset asset,
         CredentialMaterial credential,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string oneTimeCode = "",
+        string jumpOneTimeCode = "")
     {
         if (asset.Transport != ServerTransport.Ssh)
         {
@@ -176,7 +182,9 @@ public sealed class SessionOrchestrator
             credential.PrivateKeyPassphrase,
             asset.AllowPasswordFallback,
             knownHostsPathProvider.GetKnownHostsPath(),
-            jumpRequest);
+            jumpRequest,
+            oneTimeCode,
+            jumpOneTimeCode);
 
         var outcome = coreClient.Connect(request, requestId);
         var result = ConnectResult.FromNative(workspaceId, asset.Id, outcome);

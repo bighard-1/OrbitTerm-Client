@@ -11,6 +11,7 @@ public static class AccountProtocolContracts
     public const string RegisterPath = "/api/v1/auth/register";
     public const string RefreshPath = "/api/v1/auth/refresh";
     public const string ChangePasswordPath = "/api/v1/auth/password";
+    public const string LogoutPath = "/api/v1/auth/logout";
     public const string RotateMasterKeyPath = "/api/v1/config/master-key/rotate";
     public const string ConfigPullAllPath = "/api/v1/config/pull";
     public const string ConfigTrashPath = "/api/v1/config/trash";
@@ -52,7 +53,8 @@ public sealed record AccountLoginResponse(
     string? RefreshToken,
     string Type,
     int? ExpiresInSeconds,
-    int? RefreshExpiresInSeconds)
+    int? RefreshExpiresInSeconds,
+    bool MustChangePassword = false)
 {
     public string AccessTokenValue => AccessToken ?? Token ?? string.Empty;
 }
@@ -69,13 +71,17 @@ public sealed record AccountSessionRecord(
     string RefreshToken,
     DateTimeOffset CreatedAt,
     DateTimeOffset? AccessTokenExpiresAt,
-    DateTimeOffset? RefreshTokenExpiresAt);
+    DateTimeOffset? RefreshTokenExpiresAt,
+    bool MustChangePassword = false);
 
 public interface IAccountSessionStore
 {
     ValueTask<AccountSessionRecord?> ReadAsync(CancellationToken cancellationToken);
 
     ValueTask SaveAsync(AccountSessionRecord session, CancellationToken cancellationToken);
+
+    /// <summary>Atomically refuses late refresh/sync writes after logout or another rotation.</summary>
+    ValueTask<bool> TryReplaceAsync(AccountSessionRecord expected, AccountSessionRecord replacement, CancellationToken cancellationToken);
 
     ValueTask ClearAsync(CancellationToken cancellationToken);
 }
@@ -116,6 +122,11 @@ public interface IOrbitAccountSecurityProtocol
         AccountSessionRecord session,
         MasterKeyRotationRequest request,
         CancellationToken cancellationToken);
+}
+
+public interface IOrbitAccountLogoutProtocol
+{
+    ValueTask LogoutCurrentAsync(AccountSessionRecord session, CancellationToken cancellationToken);
 }
 
 /// <summary>

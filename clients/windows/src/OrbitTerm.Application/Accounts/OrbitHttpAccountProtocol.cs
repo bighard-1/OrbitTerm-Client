@@ -8,6 +8,12 @@ using System.Text.Json;
 
 namespace OrbitTerm.Application.Accounts;
 
+public sealed class AccountProtocolException(string code, HttpStatusCode statusCode)
+    : HttpRequestException("账户服务返回了受支持的安全状态：" + code, null, statusCode)
+{
+    public string Code { get; } = code;
+}
+
 public sealed class OrbitEndpointPolicy
 {
     public const string OfficialHost = "server.orbitterm.com";
@@ -102,18 +108,23 @@ public sealed class OrbitEndpointPolicy
     }
 }
 
-public sealed class OrbitHttpAccountProtocol : IOrbitAccountProtocol, IOrbitAccountRegistrationProtocol, IOrbitAccountSecurityProtocol, IOrbitEncryptedSyncProtocol
+public sealed class OrbitHttpAccountProtocol : IOrbitAccountProtocol, IOrbitAccountRegistrationProtocol, IOrbitAccountSecurityProtocol, IOrbitAccountLogoutProtocol, IOrbitEncryptedSyncProtocol
 {
     private readonly HttpClient client;
     private readonly OrbitEndpointPolicy endpointPolicy;
+    private readonly IAccountSessionStore? sessionStore;
+    private readonly SemaphoreSlim authorizedGate = new(1, 1);
+    private string? consumedRefreshToken;
+    private AccountSessionRecord? rotatedSession;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
     };
 
-    public OrbitHttpAccountProtocol(OrbitEndpointPolicy endpointPolicy, HttpMessageHandler? handler = null)
+    public OrbitHttpAccountProtocol(OrbitEndpointPolicy endpointPolicy, HttpMessageHandler? handler = null, IAccountSessionStore? sessionStore = null)
     {
         this.endpointPolicy = endpointPolicy ?? throw new ArgumentNullException(nameof(endpointPolicy));
+        this.sessionStore = sessionStore;
         client = handler is null ? CreatePinnedClient(endpointPolicy) : new HttpClient(handler, disposeHandler: true);
         client.Timeout = TimeSpan.FromSeconds(15);
     }
@@ -139,6 +150,14 @@ public sealed class OrbitHttpAccountProtocol : IOrbitAccountProtocol, IOrbitAcco
     {
         ArgumentNullException.ThrowIfNull(request);
         return await SendAsync<AccountRefreshRequest, AccountLoginResponse>(HttpMethod.Post, AccountProtocolContracts.RefreshPath, request, null, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask LogoutCurrentAsync(AccountSessionRecord session, CancellationToken cancellationToken)
+    {
+        var response = await TrySendAsync<object?, EmptyPayload>(
+            HttpMethod.Post, AccountProtocolContracts.LogoutPath, null, session.AccessToken, cancellationToken).ConfigureAwait(false);
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+            throw new HttpRequestException("当前设备会话撤销未确认。", null, HttpStatusCode.Unauthorized);
     }
 
     public ValueTask<AuthorizedProtocolResult<AccountLoginResponse>> ChangePasswordAsync(
@@ -232,16 +251,38 @@ public sealed class OrbitHttpAccountProtocol : IOrbitAccountProtocol, IOrbitAcco
 
     private async ValueTask<AuthorizedProtocolResult<TResponse>> SendAuthorizedAsync<TRequest, TResponse>(AccountSessionRecord session, HttpMethod method, string path, TRequest? body, CancellationToken cancellationToken)
     {
-        var response = await TrySendAsync<TRequest, TResponse>(method, path, body, session.AccessToken, cancellationToken).ConfigureAwait(false);
-        if (response.StatusCode != HttpStatusCode.Unauthorized)
+        // The server rotates refresh tokens once. Serialize authorized requests
+        // so overlapping sync/UI calls cannot replay a token already consumed.
+        await authorizedGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            return new AuthorizedProtocolResult<TResponse>(response.Value!, session);
-        }
+            if (rotatedSession is not null &&
+                string.Equals(session.Username, rotatedSession.Username, StringComparison.Ordinal) &&
+                string.Equals(session.RefreshToken, consumedRefreshToken, StringComparison.Ordinal))
+            {
+                session = rotatedSession;
+            }
 
-        var refreshed = await RefreshAsync(new AccountRefreshRequest(session.RefreshToken), cancellationToken).ConfigureAwait(false);
-        var next = CreateRotatedSession(session, refreshed);
-        var retried = await TrySendAsync<TRequest, TResponse>(method, path, body, next.AccessToken, cancellationToken).ConfigureAwait(false);
-        return new AuthorizedProtocolResult<TResponse>(retried.Value!, next);
+            var response = await TrySendAsync<TRequest, TResponse>(method, path, body, session.AccessToken, cancellationToken).ConfigureAwait(false);
+            if (response.StatusCode != HttpStatusCode.Unauthorized)
+            {
+                return new AuthorizedProtocolResult<TResponse>(response.Value!, session);
+            }
+
+            var refreshed = await RefreshAsync(new AccountRefreshRequest(session.RefreshToken), cancellationToken).ConfigureAwait(false);
+            var next = CreateRotatedSession(session, refreshed);
+            if (sessionStore is not null &&
+                !await sessionStore.TryReplaceAsync(session, next, cancellationToken).ConfigureAwait(false))
+                throw new InvalidOperationException("本地会话已变化；拒绝保存迟到的刷新结果。");
+            consumedRefreshToken = session.RefreshToken;
+            rotatedSession = next;
+            var retried = await TrySendAsync<TRequest, TResponse>(method, path, body, next.AccessToken, cancellationToken).ConfigureAwait(false);
+            return new AuthorizedProtocolResult<TResponse>(retried.Value!, next);
+        }
+        finally
+        {
+            authorizedGate.Release();
+        }
     }
 
     private async ValueTask<TResponse> SendAsync<TRequest, TResponse>(HttpMethod method, string path, TRequest body, string? bearer, CancellationToken cancellationToken)
@@ -279,6 +320,8 @@ public sealed class OrbitHttpAccountProtocol : IOrbitAccountProtocol, IOrbitAcco
 
             if (!response.IsSuccessStatusCode)
             {
+                var code = await ReadKnownErrorCodeAsync(response, cancellationToken).ConfigureAwait(false);
+                if (code is not null) throw new AccountProtocolException(code, response.StatusCode);
                 throw new HttpRequestException("账户服务暂时无法处理请求。", null, response.StatusCode);
             }
 
@@ -306,11 +349,47 @@ public sealed class OrbitHttpAccountProtocol : IOrbitAccountProtocol, IOrbitAcco
             HttpStatusCode.ServiceUnavailable or
             HttpStatusCode.GatewayTimeout;
 
+    private static async ValueTask<string?> ReadKnownErrorCodeAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        if (response.StatusCode == HttpStatusCode.RequestEntityTooLarge) return "REQUEST_TOO_LARGE";
+        if (response.StatusCode is not (HttpStatusCode.Forbidden or HttpStatusCode.Conflict)) return null;
+        if (response.Content.Headers.ContentLength is > 1024) return null;
+        try
+        {
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            var buffer = new byte[1025];
+            var length = 0;
+            while (length < buffer.Length)
+            {
+                var count = await stream.ReadAsync(buffer.AsMemory(length), cancellationToken).ConfigureAwait(false);
+                if (count == 0) break;
+                length += count;
+            }
+            if (length > 1024) return null;
+            using var document = JsonDocument.Parse(buffer.AsMemory(0, length));
+            if (!document.RootElement.TryGetProperty("code", out var value) || value.ValueKind != JsonValueKind.String) return null;
+            var code = value.GetString();
+            return (response.StatusCode, code) switch
+            {
+                (HttpStatusCode.Forbidden, "PASSWORD_CHANGE_REQUIRED") => code,
+                (HttpStatusCode.Conflict, "REFRESH_IN_PROGRESS" or "AUTH_STATE_CHANGED") => code,
+                _ => null,
+            };
+        }
+        catch (JsonException) { return null; }
+    }
+
     private static AccountSessionRecord CreateRotatedSession(AccountSessionRecord current, AccountLoginResponse refreshed)
     {
         var access = refreshed.AccessTokenValue;
-        if (string.IsNullOrWhiteSpace(access)) throw new InvalidOperationException("刷新响应缺少访问令牌。");
-        return current with { AccessToken = access, RefreshToken = string.IsNullOrWhiteSpace(refreshed.RefreshToken) ? current.RefreshToken : refreshed.RefreshToken };
+        if (string.IsNullOrWhiteSpace(access) || string.IsNullOrWhiteSpace(refreshed.RefreshToken))
+            throw new InvalidOperationException("刷新响应缺少完整的轮换会话令牌。");
+        return current with
+        {
+            AccessToken = access,
+            RefreshToken = refreshed.RefreshToken,
+            MustChangePassword = refreshed.MustChangePassword,
+        };
     }
 
     private static HttpClient CreatePinnedClient(OrbitEndpointPolicy policy)

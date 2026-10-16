@@ -56,6 +56,7 @@ class SecureCredentialStore @Inject constructor(
         check(preferences.edit().remove(credentialID).commit()) { "credential delete failed" }
     }
 
+    @Synchronized
     fun saveAuthSession(session: AuthSession) {
         require(session.username.isNotBlank() && session.accessToken.isNotBlank())
         val encrypted = encrypt(json.encodeToString(session).toByteArray(Charsets.UTF_8))
@@ -68,13 +69,24 @@ class SecureCredentialStore @Inject constructor(
      * error, otherwise a transient Keystore failure is indistinguishable from
      * logout and can lead the user to overwrite recoverable local state.
      */
+    @Synchronized
     fun readAuthSessionChecked(): AuthSession? = preferences.getString(AUTH_SESSION_KEY, null)?.let { encrypted ->
         json.decodeFromString<AuthSession>(decrypt(encrypted).toString(Charsets.UTF_8))
     }
 
     /** Best-effort reads remain available to non-UI background consumers. */
+    @Synchronized
     fun readAuthSession(): AuthSession? = runCatching(::readAuthSessionChecked).getOrNull()
 
+    /** Never let a late refresh restore credentials after logout or overwrite a newer rotation. */
+    @Synchronized
+    fun replaceAuthSessionIfCurrent(expected: AuthSession, replacement: AuthSession): Boolean {
+        if (readAuthSessionChecked() != expected) return false
+        saveAuthSession(replacement)
+        return true
+    }
+
+    @Synchronized
     fun deleteAuthSession() {
         check(preferences.edit().remove(AUTH_SESSION_KEY).commit()) { "auth session delete failed" }
     }

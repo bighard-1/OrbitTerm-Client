@@ -47,8 +47,47 @@ enum ClipboardContentKind: Sendable {
 /// policy tests. Keeping it free of UIKit/AppKit state makes regressions
 /// deterministic on the macOS test runner.
 enum SensitiveScreenVisibilityPolicy {
-    static func shouldCover(isSceneActive: Bool, isScreenCaptured: Bool) -> Bool {
-        !isSceneActive || isScreenCaptured
+    static func shouldCover(
+        isSceneActive: Bool,
+        isScreenCaptured: Bool,
+        allowsTemporaryCapture: Bool = false
+    ) -> Bool {
+        !isSceneActive || (isScreenCaptured && !allowsTemporaryCapture)
+    }
+}
+
+/// A capture exception is a short-lived, account-bound user decision. It
+/// never overrides the inactive-scene cover or the master-password gate.
+enum TemporaryCaptureAuthorizationPolicy {
+    static let lifetime: TimeInterval = 180
+
+    static func allows(
+        authorizedAccount: String?,
+        currentAccount: String,
+        expiresAt: Date?,
+        now: Date,
+        isAuthenticated: Bool,
+        isUnlocked: Bool,
+        mustChangePassword: Bool,
+        isSceneActive: Bool
+    ) -> Bool {
+        guard let authorizedAccount, !authorizedAccount.isEmpty,
+              let expiresAt, now < expiresAt else { return false }
+        return authorizedAccount == currentAccount &&
+            isAuthenticated && isUnlocked && !mustChangePassword && isSceneActive
+    }
+}
+
+/// Merge the supported iOS capture observations without mistaking an
+/// unreported iPhone Mirroring session for a protected one.
+enum SensitiveCaptureSignalPolicy {
+    static func isCaptured(
+        swiftUIScene: Bool,
+        uiKitScene: Bool,
+        screen: Bool,
+        qaBypass: Bool
+    ) -> Bool {
+        (swiftUIScene || uiKitScene || screen) && !qaBypass
     }
 }
 

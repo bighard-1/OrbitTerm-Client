@@ -120,14 +120,15 @@ final class CheckedMonitorServiceTests: XCTestCase {
         let loop = CheckedMonitorPollingLoop(
             binding: binding,
             fetcher: CheckedMonitorSnapshotService(client: client),
-            intervalNanoseconds: 1_000_000
+            intervalNanoseconds: 1_000_000,
+            retryDelayNanoseconds: 1_000_000
         )
         let events = EventRecorder()
 
         await loop.start { result in
             await events.append(result)
         }
-        try await Task.sleep(nanoseconds: 1_100_000_000)
+        try await waitForEventCount(2, in: events)
 
         let isRunning = await loop.isRunning()
         let monitorCallCount = await client.monitorRequestIDs.count
@@ -146,6 +147,19 @@ final class CheckedMonitorServiceTests: XCTestCase {
             return XCTFail("Expected polling to recover with a subsequent snapshot")
         }
         await loop.stop()
+    }
+
+    private func waitForEventCount(
+        _ expectedCount: Int,
+        in recorder: EventRecorder,
+        timeoutNanoseconds: UInt64 = 1_000_000_000
+    ) async throws {
+        let pollNanoseconds: UInt64 = 5_000_000
+        var elapsed: UInt64 = 0
+        while await recorder.values.count < expectedCount, elapsed < timeoutNanoseconds {
+            try await Task.sleep(nanoseconds: pollNanoseconds)
+            elapsed += pollNanoseconds
+        }
     }
 
     func testPollingStopsForClosedVerifiedSession() async throws {

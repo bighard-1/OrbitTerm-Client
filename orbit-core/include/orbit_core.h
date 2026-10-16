@@ -124,6 +124,18 @@ char *orbit_ssh_connect_checked_v2(
     const char *known_hosts_path,
     const char *request_id
 );
+/* One-time SSH keyboard-interactive codes are transient and scoped to their
+ * respective destination or ProxyJump host; pass empty strings when absent. */
+char *orbit_ssh_connect_checked_v3(
+    const char *host, int32_t port, const char *username,
+    const char *password, const char *private_key, const char *private_key_passphrase,
+    int32_t allow_password_fallback, int32_t jump_enabled,
+    const char *jump_host, int32_t jump_port, const char *jump_username,
+    const char *jump_password, const char *jump_private_key,
+    const char *jump_private_key_passphrase, int32_t jump_allow_password_fallback,
+    const char *known_hosts_path, const char *request_id,
+    const char *one_time_code, const char *jump_one_time_code
+);
 char *orbit_ssh_disconnect(uint64_t base_session_id);
 
 char *orbit_sftp_connect(
@@ -326,6 +338,13 @@ char *orbit_hostkey_challenge_accept_and_persist_v1(
     const char *challenge_id,
     const char *known_hosts_path,
     const char *comment
+);
+char *orbit_known_hosts_remove_trusted_v1(
+    const char *host,
+    uint16_t port,
+    const char *key_algorithm,
+    const char *expected_fingerprint_sha256,
+    const char *known_hosts_path
 );
 char *orbit_hostkey_challenge_reject_v1(const char *challenge_id);
 char *orbit_hostkey_challenge_status_v1(const char *challenge_id);

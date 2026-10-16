@@ -43,17 +43,15 @@ struct RemoteDesktopWorkspaceView: View {
             .padding(22)
             .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 12))
         case .failed, .disconnected:
-            if let message = controller.failureMessage {
-                VStack(spacing: 12) {
-                    Image(systemName: "desktopcomputer.trianglebadge.exclamationmark")
-                        .font(.title)
-                    Text(message).multilineTextAlignment(.center)
-                    Button("重新连接") { Task { await controller.reconnect() } }
-                }
-                .foregroundStyle(.white)
-                .padding(22)
-                .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 12))
+            VStack(spacing: 12) {
+                Image(systemName: "desktopcomputer.trianglebadge.exclamationmark")
+                    .font(.title)
+                Text(recoveryMessage).multilineTextAlignment(.center)
+                Button("重新连接") { Task { await controller.reconnect() } }
             }
+            .foregroundStyle(.white)
+            .padding(22)
+            .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 12))
         default:
             EmptyView()
         }
@@ -64,6 +62,7 @@ struct RemoteDesktopWorkspaceView: View {
             Button { Task { await controller.reconnect() } } label: {
                 Label("重新连接", systemImage: "arrow.clockwise")
             }
+            .disabled(connectionOperationIsActive)
             Button(action: controller.toggleFullScreen) {
                 Label("全屏", systemImage: "arrow.up.left.and.arrow.down.right")
             }
@@ -79,6 +78,23 @@ struct RemoteDesktopWorkspaceView: View {
         case .authenticating: "正在验证凭据并协商 NLA…"
         case .reconnecting: "正在重新连接并适配窗口尺寸…"
         default: "正在连接…"
+        }
+    }
+
+    private var recoveryMessage: String {
+        if let failureMessage = controller.failureMessage { return failureMessage }
+        return switch controller.phase {
+        case .disconnected: "远程桌面已断开。"
+        default: "远程桌面连接未完成，请检查网络和资产配置后重试。"
+        }
+    }
+
+    private var connectionOperationIsActive: Bool {
+        switch controller.phase {
+        case .starting, .authenticating, .awaitingUserDecision, .reconnecting:
+            true
+        default:
+            false
         }
     }
 

@@ -78,6 +78,15 @@ internal static partial class NativeMethods
         string known_hosts_path,
         string request_id);
 
+    [LibraryImport(LibraryName, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial OrbitCString orbit_ssh_connect_checked_v3(
+        string host, int port, string username, string password,
+        string private_key, string private_key_passphrase, int allow_password_fallback,
+        int jump_enabled, string jump_host, int jump_port, string jump_username,
+        string jump_password, string jump_private_key, string jump_private_key_passphrase,
+        int jump_allow_password_fallback, string known_hosts_path, string request_id,
+        string one_time_code, string jump_one_time_code);
+
     [LibraryImport(LibraryName)]
     internal static partial OrbitCString orbit_terminal_open_checked_v1(
         ulong base_session_id,

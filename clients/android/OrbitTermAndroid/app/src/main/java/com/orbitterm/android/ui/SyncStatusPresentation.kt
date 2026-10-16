@@ -12,6 +12,20 @@ internal data class SyncStatusPresentation(
     val isActionRequired: Boolean = false,
 )
 
+internal data class AssetPageSyncFeedback(val message: String, val isError: Boolean)
+
+internal fun SyncStatus.assetPageFeedback(): AssetPageSyncFeedback? {
+    val presentation = presentation()
+    return when (presentation.phase) {
+        SyncPresentationPhase.WAITING,
+        SyncPresentationPhase.FAILURE -> AssetPageSyncFeedback(
+            message = "${presentation.headline}：${presentation.detail}",
+            isError = presentation.phase == SyncPresentationPhase.FAILURE,
+        )
+        else -> null
+    }
+}
+
 internal fun SyncStatus.presentation(): SyncStatusPresentation = when (this) {
     SyncStatus.Idle -> SyncStatusPresentation(SyncPresentationPhase.IDLE, "等待同步", "尚未开始同步")
     SyncStatus.AwaitingNetwork -> SyncStatusPresentation(SyncPresentationPhase.WAITING, "等待网络", "网络恢复后自动同步")

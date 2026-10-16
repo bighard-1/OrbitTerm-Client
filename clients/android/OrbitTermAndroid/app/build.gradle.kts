@@ -103,6 +103,16 @@ android {
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += listOf("release", "debug")
         }
+
+        // Real-account device acceptance must never replace the production app
+        // or reuse the state-only smoke fixture package.
+        create("qa") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".qa"
+            versionNameSuffix = "-qa"
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release", "debug")
+        }
     }
 
     compileOptions {

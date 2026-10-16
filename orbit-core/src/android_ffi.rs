@@ -27,9 +27,7 @@ use crate::security::checked_sftp_ffi::{
     orbit_sftp_remove_checked_v1, orbit_sftp_rename_checked_v1, orbit_sftp_upload_checked_v1,
     orbit_sftp_write_text_checked_v1,
 };
-use crate::security::checked_ssh_connect_ffi::{
-    orbit_ssh_connect_checked_v1, orbit_ssh_connect_checked_v2,
-};
+use crate::security::checked_ssh_connect_ffi::orbit_ssh_connect_checked_v3;
 use crate::security::checked_terminal_ffi::orbit_terminal_open_checked_v1;
 use crate::security::host_key_ffi_api::{
     orbit_hostkey_challenge_accept_and_persist_v1, orbit_hostkey_challenge_reject_v1,
@@ -158,7 +156,9 @@ fn terminal_command_response(
                 OrbitCoreError::LegacyNetworkDisabled => ("legacy_network_disabled", false),
                 // Checked terminal operations only reach this branch after their
                 // verified-session gate. Do not expose transport text to Java.
-                OrbitCoreError::SshFailed(_) => ("session_closed", false),
+                OrbitCoreError::SshFailed(_) | OrbitCoreError::SshSecondFactorRequired => {
+                    ("session_closed", false)
+                }
                 OrbitCoreError::Internal(_) => ("ffi_internal_error", false),
                 OrbitCoreError::EncryptFailed | OrbitCoreError::DecryptFailed => {
                     ("ffi_internal_error", false)
@@ -527,6 +527,7 @@ pub extern "system" fn Java_com_orbitterm_android_core_OrbitCoreBridge_orbitChec
     allow_password_fallback: jboolean,
     known_hosts_path: JString,
     request_id: JString,
+    one_time_code: JString,
 ) -> jstring {
     let result = (|| -> Result<String, String> {
         let host = c_string(jstring_to_rust(&mut env, host).map_err(|e| format!("ERR:{e}"))?)?;
@@ -543,7 +544,10 @@ pub extern "system" fn Java_com_orbitterm_android_core_OrbitCoreBridge_orbitChec
             c_string(jstring_to_rust(&mut env, known_hosts_path).map_err(|e| format!("ERR:{e}"))?)?;
         let request_id =
             c_string(jstring_to_rust(&mut env, request_id).map_err(|e| format!("ERR:{e}"))?)?;
-        Ok(take_ffi_string(orbit_ssh_connect_checked_v1(
+        let one_time_code =
+            c_string(jstring_to_rust(&mut env, one_time_code).map_err(|e| format!("ERR:{e}"))?)?;
+        let empty = c_string(String::new())?;
+        Ok(take_ffi_string(orbit_ssh_connect_checked_v3(
             host.as_ptr(),
             port,
             username.as_ptr(),
@@ -551,8 +555,18 @@ pub extern "system" fn Java_com_orbitterm_android_core_OrbitCoreBridge_orbitChec
             private_key.as_ptr(),
             private_key_passphrase.as_ptr(),
             i32::from(allow_password_fallback != 0),
+            0,
+            empty.as_ptr(),
+            22,
+            empty.as_ptr(),
+            empty.as_ptr(),
+            empty.as_ptr(),
+            empty.as_ptr(),
+            0,
             known_hosts_path.as_ptr(),
             request_id.as_ptr(),
+            one_time_code.as_ptr(),
+            empty.as_ptr(),
         )))
     })();
     java_string(&mut env, result.unwrap_or_else(|error| error))
@@ -582,6 +596,8 @@ pub extern "system" fn Java_com_orbitterm_android_core_OrbitCoreBridge_orbitChec
     jump_allow_password_fallback: jboolean,
     known_hosts_path: JString,
     request_id: JString,
+    one_time_code: JString,
+    jump_one_time_code: JString,
 ) -> jstring {
     let result = (|| -> Result<String, String> {
         let host = c_string(jstring_to_rust(&mut env, host).map_err(|e| format!("ERR:{e}"))?)?;
@@ -610,7 +626,12 @@ pub extern "system" fn Java_com_orbitterm_android_core_OrbitCoreBridge_orbitChec
             c_string(jstring_to_rust(&mut env, known_hosts_path).map_err(|e| format!("ERR:{e}"))?)?;
         let request_id =
             c_string(jstring_to_rust(&mut env, request_id).map_err(|e| format!("ERR:{e}"))?)?;
-        Ok(take_ffi_string(orbit_ssh_connect_checked_v2(
+        let one_time_code =
+            c_string(jstring_to_rust(&mut env, one_time_code).map_err(|e| format!("ERR:{e}"))?)?;
+        let jump_one_time_code = c_string(
+            jstring_to_rust(&mut env, jump_one_time_code).map_err(|e| format!("ERR:{e}"))?,
+        )?;
+        Ok(take_ffi_string(orbit_ssh_connect_checked_v3(
             host.as_ptr(),
             port,
             username.as_ptr(),
@@ -628,6 +649,8 @@ pub extern "system" fn Java_com_orbitterm_android_core_OrbitCoreBridge_orbitChec
             i32::from(jump_allow_password_fallback != 0),
             known_hosts_path.as_ptr(),
             request_id.as_ptr(),
+            one_time_code.as_ptr(),
+            jump_one_time_code.as_ptr(),
         )))
     })();
     java_string(&mut env, result.unwrap_or_else(|error| error))

@@ -10,54 +10,59 @@ final class RemoteDesktopSessionController: ObservableObject {
     @Published private(set) var failureMessage: String?
 
     var onUpdate: ((RemoteDesktopSessionUpdate) -> Void)?
-    private let adapter: FreeRDPAdapter
+    private let adapter: any RemoteDesktopEngineAdapter
+    private var lastServer: ServerEntry?
+    private var reconnectInFlight = false
 
     init() {
         self.adapter = FreeRDPAdapter()
     }
 
-    init(adapter: FreeRDPAdapter) {
+    init(adapter: any RemoteDesktopEngineAdapter) {
         self.adapter = adapter
     }
 
     func connect(to server: ServerEntry) async throws {
-        await disconnect()
-        guard server.transport == .rdp,
-              let port = UInt16(exactly: server.port) else {
-            throw RemoteDesktopFailureKind.invalidTarget
-        }
-        let profile = try RemoteDesktopConnectionProfile(
-            assetID: server.id,
-            host: server.host,
-            port: port,
-            targetPlatform: .windows,
-            credentialID: server.credentialID,
-            username: server.username,
-            requireNLA: true
-        )
-        guard let engine = try await adapter.open(profile: profile) as? FreeRDPEngineSession else {
-            throw RemoteDesktopFailureKind.engineUnavailable
-        }
-        engine.onUpdate = { [weak self, weak engine] update in
-            guard let self else { return }
-            self.phase = update.phase
-            self.failureMessage = update.failure.map(Self.message(for:))
-            if update.requiresCertificateDecision {
-                self.certificateChallenge = engine?.certificateChallenge
-            }
-            self.onUpdate?(update)
-        }
-        engineSession = engine
-        phase = .starting
-        failureMessage = nil
+        lastServer = server
+        await closeEngine(publishDisconnected: false)
+        publish(.starting)
         do {
+            guard server.transport == .rdp,
+                  let port = UInt16(exactly: server.port) else {
+                throw RemoteDesktopFailureKind.invalidTarget
+            }
+            let profile = try RemoteDesktopConnectionProfile(
+                assetID: server.id,
+                host: server.host,
+                port: port,
+                targetPlatform: .windows,
+                credentialID: server.credentialID,
+                username: server.username,
+                requireNLA: true
+            )
+            guard let engine = try await adapter.open(profile: profile) as? FreeRDPEngineSession else {
+                throw RemoteDesktopFailureKind.engineUnavailable
+            }
+            engine.onUpdate = { [weak self, weak engine] update in
+                guard let self else { return }
+                self.phase = update.phase
+                self.failureMessage = update.failure.map(Self.message(for:))
+                if update.requiresCertificateDecision {
+                    self.certificateChallenge = engine?.certificateChallenge
+                }
+                self.onUpdate?(update)
+            }
+            engineSession = engine
             try engine.start()
         } catch {
-            await engine.close()
-            engineSession = nil
-            phase = .failed
-            failureMessage = "远程桌面工作线程启动失败。"
-            throw error
+            let failure = error as? RemoteDesktopFailureKind ?? .unknown
+            if let engine = engineSession {
+                engine.onUpdate = nil
+                await engine.close()
+                engineSession = nil
+            }
+            publish(.failed, failure: failure)
+            throw failure
         }
     }
 
@@ -72,18 +77,40 @@ final class RemoteDesktopSessionController: ObservableObject {
     }
 
     func reconnect() async {
-        do {
-            try await engineSession?.reconnect()
-        } catch {
-            failureMessage = "无法重新连接远程桌面，请检查网络和资产凭据。"
+        guard !reconnectInFlight else { return }
+        reconnectInFlight = true
+        defer { reconnectInFlight = false }
+
+        if let engineSession {
+            publish(.reconnecting)
+            do {
+                try await engineSession.reconnect()
+            } catch {
+                publish(.failed, failure: error as? RemoteDesktopFailureKind ?? .unknown)
+            }
+            return
         }
+
+        guard let lastServer else {
+            publish(.failed, failure: .invalidTarget)
+            return
+        }
+        do { try await connect(to: lastServer) }
+        catch { /* connect(to:) already published a stable, user-safe failure. */ }
     }
 
     func disconnect() async {
+        await closeEngine(publishDisconnected: true)
+    }
+
+    private func closeEngine(publishDisconnected: Bool) async {
         certificateChallenge = nil
-        await engineSession?.close()
+        if let engineSession {
+            engineSession.onUpdate = nil
+            await engineSession.close()
+        }
         engineSession = nil
-        phase = .disconnected
+        if publishDisconnected { publish(.disconnected) }
     }
 
     func toggleFullScreen() {
@@ -102,6 +129,15 @@ final class RemoteDesktopSessionController: ObservableObject {
         case .cancelled: "远程桌面连接已取消。"
         case .unknown: "远程桌面连接意外中断。"
         }
+    }
+
+    private func publish(
+        _ phase: RemoteDesktopSessionPhase,
+        failure: RemoteDesktopFailureKind? = nil
+    ) {
+        self.phase = phase
+        failureMessage = failure.map(Self.message(for:))
+        onUpdate?(RemoteDesktopSessionUpdate(phase: phase, failure: failure))
     }
 }
 #endif

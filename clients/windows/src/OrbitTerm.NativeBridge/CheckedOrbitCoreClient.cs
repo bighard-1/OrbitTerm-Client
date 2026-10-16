@@ -31,7 +31,7 @@ public sealed class CheckedOrbitCoreClient : ICheckedOrbitCoreClient
         ValidateConnectRequest(request);
 
         var jump = request.JumpHost;
-        using var result = NativeMethods.orbit_ssh_connect_checked_v2(
+        using var result = NativeMethods.orbit_ssh_connect_checked_v3(
             request.Host.Trim(),
             request.Port,
             request.Username.Trim(),
@@ -48,7 +48,9 @@ public sealed class CheckedOrbitCoreClient : ICheckedOrbitCoreClient
             jump?.PrivateKeyPassphrase ?? string.Empty,
             jump?.AllowPasswordFallback == true ? 1 : 0,
             request.KnownHostsPath,
-            requestId.Value);
+            requestId.Value,
+            request.OneTimeCode,
+            request.JumpOneTimeCode);
 
         return CheckedConnectOutcome.FromEnvelope(
             CheckedEnvelopeDecoder.Decode(result.ToOwnedString(), requestId));
@@ -439,6 +441,13 @@ public sealed class CheckedOrbitCoreClient : ICheckedOrbitCoreClient
         if (string.IsNullOrEmpty(request.Password) && string.IsNullOrEmpty(request.PrivateKey))
         {
             throw new ArgumentException("Checked connection requires either a password or a private key.", nameof(request));
+        }
+        foreach (var code in new[] { request.OneTimeCode, request.JumpOneTimeCode })
+        {
+            if (System.Text.Encoding.UTF8.GetByteCount(code) > 128 || code.Any(char.IsControl))
+            {
+                throw new ArgumentException("SSH verification code is invalid.", nameof(request));
+            }
         }
 
         if (request.JumpHost is { } jump &&

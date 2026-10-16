@@ -126,13 +126,23 @@ class SyncRepository @Inject constructor(
         masterPassword: String,
         accountScope: AccountScope,
     ): List<RecentlyDeletedAssetSummary> = withContext(Dispatchers.IO) {
-        api.pullTrash(token, limit = 500, offset = 0).items.mapNotNull { remote ->
+        val trashItems = mutableListOf<UploadConfigData>()
+        var offset = 0
+        while (true) {
+            val page = api.pullTrash(token, limit = 500, offset = offset)
+            trashItems += page.items
+            offset += page.items.size
+            if (page.items.isEmpty() || offset >= page.total) break
+        }
+        RemoteTombstoneMergePolicy.merge(emptyList(), trashItems).mapNotNull { remote ->
             val assetId = RemoteTombstoneMergePolicy.canonicalAssetId(remote.asset_id)
                 ?: return@mapNotNull null
             val portable = runCatching {
                 val plaintext = configCipherSession.decrypt(masterPassword, accountScope, remote.encrypted_blob_base64)
                 json.decodeFromString<PortableServerConfig>(plaintext).validate()
-            }.getOrNull()
+            }.getOrNull()?.takeIf {
+                RemoteTombstoneMergePolicy.matchesPortableAssetId(remote.asset_id, it.id)
+            }
             RecentlyDeletedAssetSummary(
                 assetId = assetId,
                 displayName = portable?.name ?: "无法解密的资产",
@@ -396,6 +406,7 @@ class SyncRepository @Inject constructor(
                     )
                     AssetSyncOperation.MOVE_TO_TRASH -> deliverDeletion(
                         operation.assetId, token, accountScope, remoteByAssetId, operation.operationId,
+                        operation.requestVectorClock,
                     )
                     AssetSyncOperation.RESTORE_FROM_TRASH -> restoreRecentlyDeleted(
                         operation.assetId, token, masterPassword, AccountScope(accountScope), operation.operationId,
@@ -588,12 +599,29 @@ class SyncRepository @Inject constructor(
         accountScope: String,
         remoteByAssetId: Map<String, RemoteAssetCandidate>,
         operationId: String,
+        queuedRequestClock: String?,
     ) {
         val metadata = metadataDao.find(accountScope, assetId)
         val remote = remoteByAssetId[assetId]
-        if (metadata == null && remote == null) return
+        if (metadata == null && remote == null) {
+            // The active inventory can omit undecryptable or already deleted
+            // records. Absence here cannot prove this account never published
+            // the asset, so retain the local delete until authoritative proof.
+            throw SyncFailure(syncError(OrbitErrorCode.RemoteRequestRejected))
+        }
+        val requestClock = queuedRequestClock ?: run {
+            val baseClock = metadata?.takeIf { it.remoteState == "active" }?.vectorClock
+                ?: remote?.config?.takeIf { it.state == null || it.state == "active" }?.vector_clock
+                ?: throw SyncFailure(syncError(OrbitErrorCode.RemoteRequestRejected))
+            if (!SyncVectorClock.isValid(baseClock)) throw SyncFailure(syncError(OrbitErrorCode.RemoteProtocolViolation))
+            val proposed = SyncVectorClock.bump(baseClock, "android")
+            outboxDao.rememberDeleteRequestClock(accountScope, assetId, operationId, proposed)
+            val current = outboxDao.find(accountScope, assetId)
+            if (current?.operationId != operationId) return
+            current.requestVectorClock ?: throw SyncFailure(syncError(OrbitErrorCode.RemoteRequestRejected))
+        }
         val response = moveToTrash(
-            assetId, token, metadata?.vectorClock ?: remote?.config?.vector_clock ?: "{}", operationId,
+            assetId, token, requestClock, operationId,
         )
         saveMetadata(
             accountScope = accountScope,
@@ -616,6 +644,9 @@ class SyncRepository @Inject constructor(
                     val plaintext = configCipherSession.decrypt(masterPassword, accountScope, item.encrypted_blob_base64)
                     if (isAuxiliaryEnvelope(plaintext)) return@mapNotNull null
                     val portable = json.decodeFromString<PortableServerConfig>(plaintext).validate()
+                    check(RemoteTombstoneMergePolicy.matchesPortableAssetId(item.asset_id, portable.id)) {
+                        "remote asset identity mismatch"
+                    }
                     portable.id to RemoteAssetCandidate(item, portable)
                 }.getOrNull()
             }.toMap()
@@ -710,7 +741,7 @@ class SyncRepository @Inject constructor(
     private suspend fun moveToTrash(
         assetId: String,
         token: String,
-        vectorClock: String,
+        requestVectorClock: String,
         operationId: String = UUID.randomUUID().toString(),
     ): UploadConfigData {
         UUID.fromString(assetId)
@@ -720,7 +751,7 @@ class SyncRepository @Inject constructor(
             AssetMutationRequest(
                 device_id = deviceIdentity.value,
                 operation_id = operationId,
-                vector_clock = SyncVectorClock.bump(vectorClock, "android"),
+                vector_clock = requestVectorClock,
             ),
         )
     }
@@ -768,12 +799,12 @@ class SyncRepository @Inject constructor(
         )
     }
 
-    suspend fun pullAssets(
+    private suspend fun pullAssets(
         token: String,
         masterPassword: String,
         credentialNamespace: String,
         excludedAssetIds: Set<String> = emptySet(),
-    ): List<ServerAsset> = withContext(Dispatchers.IO) {
+    ): List<RemoteAssetCandidate> = withContext(Dispatchers.IO) {
         val accountScope = AccountScope(credentialNamespace)
         val activeItems = api.pullConfigs(token).filter { it.state == null || it.state == "active" }
         if (activeItems.isNotEmpty() && activeItems.all { ConfigCipherSession.isV2(it.encrypted_blob_base64) }) {
@@ -785,43 +816,11 @@ class SyncRepository @Inject constructor(
                 val plaintext = configCipherSession.decrypt(masterPassword, accountScope, item.encrypted_blob_base64)
                 if (isAuxiliaryEnvelope(plaintext)) return@mapNotNull null
                 val portable = json.decodeFromString<PortableServerConfig>(plaintext).validate()
-                if (portable.id in excludedAssetIds) return@mapNotNull null
-                credentialStore.save(
-                    "$credentialNamespace:${portable.credentialID}",
-                    ServerCredentials(
-                        password = portable.password,
-                        privateKeyContent = portable.privateKeyContent,
-                        privateKeyPassphrase = portable.privateKeyPassphrase
-                    )
-                )
-                portable.jumpHost?.let { jump ->
-                    credentialStore.save(
-                        "$credentialNamespace:${jump.credentialID}",
-                        ServerCredentials(
-                            password = jump.password,
-                            privateKeyContent = jump.privateKeyContent,
-                            privateKeyPassphrase = jump.privateKeyPassphrase,
-                        ),
-                    )
+                check(RemoteTombstoneMergePolicy.matchesPortableAssetId(item.asset_id, portable.id)) {
+                    "remote asset identity mismatch"
                 }
-                ServerAsset(
-                    id = portable.id,
-                    credentialID = "$credentialNamespace:${portable.credentialID}",
-                    name = portable.name,
-                    group = portable.group,
-                    tags = portable.tags,
-                    host = portable.host,
-                    port = portable.port,
-                    username = portable.username,
-                    authMethod = portable.authMethod,
-                    transport = portable.transport,
-                    networkDeviceProfile = portable.networkDeviceProfile,
-                    allowPasswordFallback = portable.allowPasswordFallback,
-                    jumpHost = portable.jumpHost?.let { jump ->
-                        jump.toConfiguration().copy(credentialID = "$credentialNamespace:${jump.credentialID}")
-                    },
-                    createdAtUnix = portable.savedAtUnix
-                )
+                if (portable.id in excludedAssetIds) return@mapNotNull null
+                RemoteAssetCandidate(item, portable)
             }.getOrElse {
                 skipped += 1
                 null
@@ -848,25 +847,26 @@ class SyncRepository @Inject constructor(
         assets
     }
 
-    suspend fun pullAndApplyAssets(token: String, masterPassword: String, credentialNamespace: String, assetRepository: com.orbitterm.android.domain.assets.AssetRepository): Int {
+    suspend fun pullAndApplyAssets(token: String, masterPassword: String, credentialNamespace: String): Int {
         // Never overwrite a local mutation that is still waiting for delivery.
         val pendingOperations = outboxDao.list(credentialNamespace)
         val pendingAssetIds = pendingOperations.mapNotNullTo(linkedSetOf()) {
             RemoteTombstoneMergePolicy.canonicalAssetId(it.assetId)
         }
-        applyRemoteTombstones(token, credentialNamespace, pendingOperations.associateBy {
+        val remoteTombstoneAssetIds = applyRemoteTombstones(token, masterPassword, credentialNamespace, pendingOperations.associateBy {
             RemoteTombstoneMergePolicy.canonicalAssetId(it.assetId) ?: it.assetId
         })
-        val assets = pullAssets(token, masterPassword, credentialNamespace, pendingAssetIds)
+        val assets = pullAssets(
+            token,
+            masterPassword,
+            credentialNamespace,
+            pendingAssetIds + remoteTombstoneAssetIds,
+        )
         for (asset in assets) {
-            val previousJumpCredentialId = assetDao.findById(credentialNamespace, asset.id)
-                ?.toDomain()
-                ?.jumpHost
-                ?.credentialID
-            assetRepository.saveAssetInScope(asset, credentialNamespace)
-            previousJumpCredentialId
-                ?.takeIf { it != asset.jumpHost?.credentialID }
-                ?.let(credentialStore::delete)
+            // The same application path also persists the remote revision and
+            // safe shadow. A ciphertext-only import without that baseline can
+            // become a spurious UPSERT if another device deletes it first.
+            applyRemoteAsset(credentialNamespace, asset)
         }
         return assets.size
     }
@@ -877,32 +877,35 @@ class SyncRepository @Inject constructor(
      * a Windows or Apple deletion remains visible on Android forever because
      * `pullAssets` intentionally processes active ciphertext only.
      *
-     * A locally queued upsert is not discarded here: delete-versus-edit is a
-     * genuine conflict and remains in the outbox for the existing resolver.
+     * A genuinely changed local upsert is not discarded here: delete-versus-edit
+     * remains a conflict. An exact echo of the deleted remote plaintext and
+     * credentials is an old import with no local edit, and may be reconciled.
      * A queued local delete is already reflected locally, so only its metadata
      * is refreshed.
      */
     private suspend fun applyRemoteTombstones(
         token: String,
+        masterPassword: String,
         accountScope: String,
         pendingByAssetId: Map<String, com.orbitterm.android.data.local.AssetSyncOutboxEntity>,
-    ) {
+    ): Set<String> {
         // Deployments are allowed to return only active records from the
         // inventory endpoint. Always reconcile the paginated trash feed as
         // well, keyed by asset identity so a tombstone with a newer config
         // record ID still overrides the active representation.
-        val inventoryTombstones = api.pullConfigs(token)
-            .filter { it.state != null && it.state != "active" }
+        val inventoryTombstones = RemoteTombstoneMergePolicy.inventoryTombstones(api.pullConfigs(token))
         val trashItems = mutableListOf<UploadConfigData>()
         var offset = 0
         while (true) {
             val page = api.pullTrash(token, limit = 500, offset = offset)
-            trashItems += page.items
+            trashItems += RemoteTombstoneMergePolicy.validatedTrashPage(page.items)
             offset += page.items.size
             if (page.items.isEmpty() || offset >= page.total) break
         }
 
-        for (remote in RemoteTombstoneMergePolicy.merge(inventoryTombstones, trashItems)) {
+        val tombstones = RemoteTombstoneMergePolicy.merge(inventoryTombstones, trashItems)
+        val blockedAssetIds = RemoteTombstoneMergePolicy.blockedAssetIds(tombstones)
+        for (remote in tombstones) {
             val assetId = RemoteTombstoneMergePolicy.canonicalAssetId(remote.asset_id) ?: continue
             val pending = pendingByAssetId[assetId]
             val metadata = metadataDao.find(accountScope, assetId)
@@ -914,15 +917,45 @@ class SyncRepository @Inject constructor(
                 safeShadow = metadata?.syncedSafeShadow.orEmpty(),
             )
 
-            if (pending?.operation == AssetSyncOperation.UPSERT.name) {
-                continue
+            if (pending?.operation == AssetSyncOperation.MOVE_TO_TRASH.name &&
+                RemoteTombstoneMergePolicy.coversQueuedDelete(remote, pending)) {
+                outboxDao.deleteCompleted(accountScope, pending.assetId, pending.operationId)
             }
 
             val local = assetDao.findById(accountScope, assetId)?.toDomain() ?: continue
+            if (pending?.operation == AssetSyncOperation.UPSERT.name) {
+                // Repair old imports which had no remote baseline and were
+                // therefore queued as an UPSERT after another device deleted
+                // them. Only an exact plaintext/credential echo can be
+                // discarded; a genuine local edit remains a conflict.
+                val matches = unchangedQueuedUpsertMatchesTombstone(remote, local, masterPassword, accountScope)
+                if (!RemoteTombstoneMergePolicy.coversUnchangedQueuedUpsert(remote, pending, matches)) continue
+                if (outboxDao.deleteCompleted(accountScope, pending.assetId, pending.operationId) == 0) continue
+            }
             assetDao.delete(local.toEntity(accountScope))
             credentialStore.delete(local.credentialID)
             local.jumpHost?.let { credentialStore.delete(it.credentialID) }
         }
+        return blockedAssetIds
+    }
+
+    private suspend fun unchangedQueuedUpsertMatchesTombstone(
+        remote: UploadConfigData,
+        local: ServerAsset,
+        masterPassword: String,
+        accountScope: String,
+    ): Boolean {
+        if (remote.state != "deleted" || remote.encrypted_blob_base64.isBlank()) return false
+        val portable = runCatching {
+            val plaintext = configCipherSession.decrypt(masterPassword, AccountScope(accountScope), remote.encrypted_blob_base64)
+            json.decodeFromString<PortableServerConfig>(plaintext).validate()
+        }.getOrNull() ?: return false
+        if (!RemoteTombstoneMergePolicy.matchesPortableAssetId(remote.asset_id, portable.id) ||
+            RemoteTombstoneMergePolicy.canonicalAssetId(local.id) != RemoteTombstoneMergePolicy.canonicalAssetId(portable.id)
+        ) return false
+        val credentials = credentialStore.read(local.credentialID) ?: return false
+        val jumpCredentials = local.jumpHost?.let { credentialStore.read(it.credentialID) ?: return false }
+        return AssetSyncConflictPolicy.remoteRepresentsLocalState(local, credentials, jumpCredentials, portable)
     }
 
     /** Synchronizes the encrypted, cross-platform Snippet envelope shared with iOS. */

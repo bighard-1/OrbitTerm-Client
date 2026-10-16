@@ -30,6 +30,7 @@ struct AddServerView: View {
     @State private var transport: ServerTransportProtocol = .ssh
     @State private var networkDeviceProfile: NetworkDeviceProfile = .auto
     @State private var allowPasswordFallback = true
+    @State private var storageScope: ServerAssetStorageScope = .accountSynced
     @State private var password: String = ""
     @State private var privateKeyContent: String = ""
     @State private var privateKeyPassphrase: String = ""
@@ -139,6 +140,12 @@ struct AddServerView: View {
         .onChange(of: session.isAuthenticated) { _, authenticated in
             if !authenticated {
                 cancelUserOperation(.accountSignedOut)
+                if editingServer == nil { storageScope = .localOnly }
+            }
+        }
+        .onChange(of: storageScope) { _, scope in
+            if scope == .accountSynced, !session.isAuthenticated {
+                storageScope = .localOnly
             }
         }
         .onChange(of: session.isUnlocked) { _, unlocked in
@@ -255,10 +262,31 @@ struct AddServerView: View {
     private var formContent: some View {
         VStack(spacing: 14) {
             hostInformationSection
+            storageScopeSection
             jumpHostSection
             authenticationSection
             authenticationValidationMessage
             advancedSettingsSection
+        }
+    }
+
+    private var storageScopeSection: some View {
+        AddServerSectionCard(title: "保存范围") {
+            Picker("资产保存范围", selection: $storageScope) {
+                ForEach(ServerAssetStorageScope.allCases) { scope in
+                    Text(scope.displayName)
+                        .tag(scope)
+                        .disabled(scope == .accountSynced && !session.isAuthenticated)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Text(storageScope == .accountSynced
+                ? "使用主密码端到端加密后同步到当前账户；在其他设备登录并解锁后可用。"
+                : "只保存在当前设备，不上传、不创建云端删除记录；设备损坏时无法从云端恢复。")
+                .font(.caption)
+                .foregroundStyle(palette.textSecondary.color)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -404,6 +432,9 @@ struct AddServerView: View {
     private func initialLoad() async {
         applyPrefillIfNeeded()
         await loadEditingServerIfNeeded()
+        if editingServer == nil, !session.isAuthenticated {
+            storageScope = .localOnly
+        }
     }
 
     private func handleKeyFileImport(_ result: Result<[URL], Error>) {
@@ -479,6 +510,7 @@ struct AddServerView: View {
             transport: transport,
             networkDeviceProfile: networkDeviceProfile,
             allowPasswordFallback: allowPasswordFallback,
+            storageScope: storageScope,
             password: password,
             privateKeyContent: privateKeyContent,
             privateKeyPassphrase: privateKeyPassphrase,
@@ -694,7 +726,8 @@ struct AddServerView: View {
     }
 
     private func matchingDeletedAssetID(for draft: AddServerDraft) async -> UUID? {
-        guard session.isAuthenticated,
+        guard draft.server.storageScope == .accountSynced,
+              session.isAuthenticated,
               let masterPassword = session.readMasterPassword() else { return nil }
         do {
             let portable = draft.server.makePortableConfig(
@@ -795,6 +828,7 @@ struct AddServerView: View {
         transport = state.transport
         networkDeviceProfile = state.networkDeviceProfile
         allowPasswordFallback = state.allowPasswordFallback
+        storageScope = state.storageScope
         password = state.password
         privateKeyContent = state.privateKeyContent
         privateKeyPassphrase = state.privateKeyPassphrase
