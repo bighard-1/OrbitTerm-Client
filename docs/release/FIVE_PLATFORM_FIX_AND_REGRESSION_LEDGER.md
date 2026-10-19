@@ -1,6 +1,6 @@
 # 五端整改与真机回归台账
 
-更新：2026-10-18。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
+更新：2026-10-19。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
 
 ## 记账规则
 
@@ -35,6 +35,10 @@
 | 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
 | --- | --- | --- | --- | --- | --- |
 | `WINDOWS-SYNC-SESSION-RACE-90-CI-DEVICE` | 固定提交 `dfc71cc` 的 Windows CI 内部测试 MSIX，归档 SHA-256 `758b7f7e…05eff0a17`、MSIX SHA-256 `109bab39…0aa717`；测试证书仅按当次授权导入 Windows 测试机。先前 `cb052c4`、`3fef8b0`、`581eeeb` 三次失败仍按上文单列。详见[专项日志](ANDROID_WINDOWS_DELETE_RECONCILIATION_20261015.md#2026-10-18-dfc71cc-固定-ci-与-windows-原生-qa-更新)。 | 固定提交的 [Windows Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39185336312)、[Linux Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39185336269)、[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39185336528) 均 `completed/success`；Windows 工作流完成原生核心、Windows 测试、WinUI Release 与签名 MSIX。Mac 本地仍无 `dotnet`，不冒称本机 Windows 单测。 | Windows 10 专用测试机：新包复制后本机 SHA-256 与清单一致、签名 `Valid`；旧 QA 精确包设置备份且哈希核对后，因同版本号按既有受控路径卸载旧 QA、安装新 QA，`Get-AppxPackage` 显示版本 `0.3.0.33`、状态 `Ok`。新 QA 能启动，进入既有账户主密码页；**尚未解锁验证资产与长驻同步**。旧包数据备份尝试复制被占用的 Windows Helium 系统注册表文件时返回 `Resource temporarily unavailable`，设置文件已成功备份；失败保留，不称全量备份。 | 本轮只涉及 Windows 原生测试机；K60 继续使用原防录屏 QA，没有 Android 镜像或新资产操作。测试中 RDP 因该 Windows 机已有另一连接而断开，未抢占；故资产数量、删除文案、重复同步、旧会话异常是否消失均**未验**。新证书仍暂留 `TrustedPeople`，旧测试证书待恢复受控会话后精确移除。 | **五端完整验收未完成。** Windows 恢复受控会话后，先解锁核对既有 4 项与双次同步，再做长驻/并发令牌恢复、同步资产删除确认文案、离线队列重启与 409；Android 对照旧受阻队列和真实本地编辑冲突，Apple/Linux 同版另测。不能把 CI 或安装成功写成运行时故障已闭环。 |
+
+| `WINDOWS-QA-UNLOCK-SYNC-91` | 2026-10-19 固定 `dfc71cc` 的 Windows 内部测试 MSIX `0.3.0.33`，沿用上行已核验的包身份；本轮无产品源码修改、新构建或线上服务变更。详见[Windows 专项续验](ANDROID_WINDOWS_DELETE_RECONCILIATION_20261015.md#2026-10-19-dfc71cc-windows-原生-qa-解锁与有限同步续验)。 | 沿用 `dfc71cc` 的 Windows/Linux/Security CI 成功结论，**本轮未重跑自动化**；旧三次中间 CI 失败与旧 `InvalidOperationException` 不覆盖。 | 无隔离 GUI/模拟器新结果；Mac Windows App 仅作为受控 RDP 通道。首次远控输入及首次屏幕键盘输入均被判“主密码不正确”，其中第二次已确认误点末位斜杠；随后精确句点输入在同一安装包解锁成功，失败保留。 | **Windows 10 实体测试机**：QA 解锁后原有 SSH 1、RDP 1、仅本机笔记本 2，共 4 项；已删虚构项未复活。个人中心双向同步完成、更新 4 项、待冲突 0；两次手动同步及快速重复点击后仍为 4 项、队列已处理；脱敏 `sync.log` 最后写入仍早于本轮，无新增同类异常。精确移除过时旧 QA 测试签名证书，复查 `TrustedPeople` 仅留当前 QA 新证书；旧证书可从保留测试包重新导入。未操作资产删除、K60 或正式版。 | **五端同版完整验收未完成**。有限 GUI 同步不等于长驻/令牌过期竞态闭环；Windows 新删除确认文案、离线删除→重启→联网双同步、409/本地编辑冲突、回收站入口及 K60 同候选对照仍待验。Android 保留旧反向首次失败并对照活动/最近删除/队列；Apple/Linux 本轮未复测，不能外推。 |
+
+| `WINDOWS-QA-DELETE-COPY-92` | 2026-10-19 沿用固定 `dfc71cc` Windows 内部 QA，无源码/构建/线上服务变化。仅以全虚构、保留用途网段夹具 `ot-wincopy-qa` 验证新版同步删除确认文案；详见[专项日志](ANDROID_WINDOWS_DELETE_RECONCILIATION_20261015.md#2026-10-19-windows-同步资产删除确认文案真机核对)。 | 沿用既有 CI，本轮无自动化重跑；旧文案失败和旧同步异常保留。 | 无隔离 GUI；实测的是 Windows 10 实体测试机的原生 QA，非源码推断。 | 新建“随账户同步”虚构 SSH 后 Windows 活动项 4→5，手动同步个人中心显示上传 1 项；精确目标的普通删除确认框明确先安全记录墓碑、再移除本机数据、后续跨端传播及失败时本机保留，旧“仅本机”错误文案不再出现。普通软删后 5→4、手动同步显示删除墓碑 1 项、冲突 0，未永久删除或连接占位主机；原 SSH/RDP/笔记本不动。 | **五端完整验收未完成。** 此处只证实 Windows GUI 与本机发布计数，K60/Apple/Linux 尚未回拉该新墓碑、服务端响应未独立核验。Android/Windows 后续以夹具代号区分原 `ot-win-cross-20261015`，对照最近删除、双同步不复活、离线队列与本地编辑冲突；Windows 仍无最近删除 GUI。 |
 
 ## 2026-10-15 Windows 测试机远程通道诊断
 
