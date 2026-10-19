@@ -32,6 +32,10 @@
 
 `WINDOWS-SYNC-SESSION-RACE-90` 中间提交 `581eeeb` 自动化失败补记：[Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39184957618) 在测试源码编译/分析器阶段被 xUnit2031 拒绝，原因是新断言先 `Where` 再 `Assert.Single`；后继仅改用 `Assert.Single(collection, predicate)` 重载。此轮未完成单测、未产出 MSIX；失败保留。
 
+| 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
+| --- | --- | --- | --- | --- | --- |
+| `WINDOWS-SYNC-SESSION-RACE-90-CI-DEVICE` | 固定提交 `dfc71cc` 的 Windows CI 内部测试 MSIX，归档 SHA-256 `758b7f7e…05eff0a17`、MSIX SHA-256 `109bab39…0aa717`；测试证书仅按当次授权导入 Windows 测试机。先前 `cb052c4`、`3fef8b0`、`581eeeb` 三次失败仍按上文单列。详见[专项日志](ANDROID_WINDOWS_DELETE_RECONCILIATION_20261015.md#2026-10-18-dfc71cc-固定-ci-与-windows-原生-qa-更新)。 | 固定提交的 [Windows Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39185336312)、[Linux Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39185336269)、[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39185336528) 均 `completed/success`；Windows 工作流完成原生核心、Windows 测试、WinUI Release 与签名 MSIX。Mac 本地仍无 `dotnet`，不冒称本机 Windows 单测。 | Windows 10 专用测试机：新包复制后本机 SHA-256 与清单一致、签名 `Valid`；旧 QA 精确包设置备份且哈希核对后，因同版本号按既有受控路径卸载旧 QA、安装新 QA，`Get-AppxPackage` 显示版本 `0.3.0.33`、状态 `Ok`。新 QA 能启动，进入既有账户主密码页；**尚未解锁验证资产与长驻同步**。旧包数据备份尝试复制被占用的 Windows Helium 系统注册表文件时返回 `Resource temporarily unavailable`，设置文件已成功备份；失败保留，不称全量备份。 | 本轮只涉及 Windows 原生测试机；K60 继续使用原防录屏 QA，没有 Android 镜像或新资产操作。测试中 RDP 因该 Windows 机已有另一连接而断开，未抢占；故资产数量、删除文案、重复同步、旧会话异常是否消失均**未验**。新证书仍暂留 `TrustedPeople`，旧测试证书待恢复受控会话后精确移除。 | **五端完整验收未完成。** Windows 恢复受控会话后，先解锁核对既有 4 项与双次同步，再做长驻/并发令牌恢复、同步资产删除确认文案、离线队列重启与 409；Android 对照旧受阻队列和真实本地编辑冲突，Apple/Linux 同版另测。不能把 CI 或安装成功写成运行时故障已闭环。 |
+
 ## 2026-10-15 Windows 测试机远程通道诊断
 
 | 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |

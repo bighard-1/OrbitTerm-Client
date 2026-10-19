@@ -126,3 +126,13 @@ K60 真机“最近删除”首条确认唯一目标后，仅点一次“恢复�
 第二个中间提交 `3fef8b0` 的 [Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39184540450) 仍**失败保留**：安全单测 **323/324** 通过，新增会话回归已通过，旧异常类型断言已修正；唯一失败仍是 SFTP 暂停/取消夹具。显式门禁固定了下载进行中的窗口，也暴露旧断言 `ActiveSftpTransferTasks.Count == 1` 不符合实现：该集合同时包含运行项和待处理项，选中两个文件时数量本来可以为 2。后继测试改为等待并选取唯一 `Running` 项，再执行暂停、首次取消断言；**未改产品 SFTP 行为**。本次依然没有生成 MSIX，待下一固定提交 CI 证明。
 
 第三个中间提交 `581eeeb` 的 [Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39184957618) 又在**测试源码编译/分析器**阶段失败：xUnit2031 禁止 `Assert.Single(collection.Where(predicate))`，要求使用带过滤函数的 `Assert.Single(collection, predicate)` 重载。此前旧断言改动的业务含义不变，后继候选仅按 xUnit 分析器要求改写该行；本次未运行完单测、未构建 MSIX，失败继续单列。
+
+## 2026-10-18 `dfc71cc` 固定 CI 与 Windows 原生 QA 更新
+
+最终固定提交 `dfc71cc` 已推送 `codex/five-platform-integration`，工作区当时干净。该提交的 [Windows Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39185336312)、[Linux Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39185336269)、[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39185336528) 均查询到 `completed/success`。Windows 工作流完成原生核心构建、Windows 测试、WinUI Release 构建及内部签名 MSIX 归档。前三次中间 CI 失败记录继续保留，不能以最终成功覆盖。
+
+从固定 Windows 工作流下载的归档 SHA-256 `758b7f7ebddc30638321f1a1340f61b9fb20e47d97fd9b5a8a6f5ec05eff0a17` 与工作流归档摘要一致；ZIP 文件清单与解压完整性核对通过，内部 `OrbitTerm_0.3.0.33_x64_Test.msix` 的 SHA-256 `109bab39d6f8e3b887cbf0519bad94bd457246af7f3c7c6ad90a84cb8e0aa717` 与随包清单一致。仅将该 MSIX 和随包测试证书复制到 Windows 测试机的专用 Downloads 子目录，复制后的本机哈希仍一致；Windows `Get-AuthenticodeSignature` 返回 `Valid`。传输时临时开启的 Mac 局域网只读 HTTP 服务在 SMB 管理共享复制方式成功后即停止，实际未通过该 HTTP 地址下载文件。RDP 的字符输入曾把 URL 冒号和 MSIX 文件名中的下划线误录，产生一次 URI 格式错误及一次文件未找到；改用受控 SMB 复制和 PowerShell 文件名补全后成功，**这些是远控输入失败，不是包签名或客户端功能失败**。
+
+用户当次明确允许仅在 Windows 10 测试机导入本次 CI 的测试签名证书并更新 QA。导入前只读核对原 `TrustedPeople` 中有一张旧 OrbitTerm 测试证书；新证书的主体与 MSIX 发布者一致，Windows 本机 `certutil` 导入成功。为保留旧 QA 状态，先关闭旧 GUI，再按精确包身份备份其 `Settings` 下的 `settings.dat` 与 `roaming.lock` 到独立 Downloads 目录，原文件与备份 `settings.dat` SHA-256 完全一致。尝试连同该包目录的 `SystemAppData/Helium` 一起复制时，六个被 Windows 占用的注册表文件返回 `Resource temporarily unavailable`；**没有全量包数据备份**，该失败保留；包外独立 OrbitTerm 同步数据目录没有清理或覆盖。鉴于同版 MSIX 直接覆盖及保留数据卸载先前已分别实测失败，本轮按受控路径标准卸载仅旧 `OrbitTerm.Client` QA，再安装核验过的新 MSIX。卸载后 `Get-AppxPackage -Name OrbitTerm.Client` 无结果；安装后同命令显示版本 `0.3.0.33`、状态 `Ok`。新 QA 能从开始菜单启动，并进入既有账户的主密码解锁页；这只能证明包可运行及已有账户入口，**不等于本次已解锁、同步或验证资产完整性**。
+
+准备继续解锁时，Windows App 的 RDP 会话提示“已与远程电脑建立另一个连接”并报 `0x5`，因此本轮没有抢占另一远程会话，也未在主密码页继续输入。未完成：新 QA 解锁后 4 项测试资产核对、连续/长驻同步是否再次出现 `InvalidOperationException`、Windows 同步资产删除确认文案、离线/重启队列与 Android K60 对照；K60 本轮没有操作。新证书为继续 QA 暂留 Windows `TrustedPeople`，**旧测试证书尚未移除**，待 Windows 会话可控且新包运行检查完成后按精确指纹清理。不能把 CI 成功或包状态 `Ok` 判作长期会话故障闭环，更不能认定五端完整验收通过。
