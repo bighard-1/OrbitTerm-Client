@@ -3432,6 +3432,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 AccountSessionChangedException { DiagnosticCode: "controller_session_changed" } => "controller_session_changed",
                 AccountSessionChangedException { DiagnosticCode: "persist_store_changed" } => "persist_store_changed",
                 AccountSessionChangedException { DiagnosticCode: "refresh_store_changed" } => "refresh_store_changed",
+                AccountSessionChangedException { DiagnosticCode: "stored_session_replaced" } => "stored_session_replaced",
                 _ => "unspecified",
             };
             File.AppendAllText(

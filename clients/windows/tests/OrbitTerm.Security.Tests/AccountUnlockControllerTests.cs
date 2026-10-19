@@ -70,7 +70,8 @@ public sealed class AccountUnlockControllerTests
         await controller.SignOutAsync(CancellationToken.None);
         protocol.Complete();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => changing);
+        var rejected = await Assert.ThrowsAsync<AccountSessionChangedException>(() => changing);
+        Assert.Equal("controller_session_changed", rejected.DiagnosticCode);
         Assert.Null(store.Value);
         Assert.Equal(AccountLockState.SignedOut, controller.State);
     }
@@ -132,6 +133,41 @@ public sealed class AccountUnlockControllerTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => queued.WaitAsync(TimeSpan.FromSeconds(10)));
         Assert.Null(store.Value);
         Assert.Equal(1, synchronizer.CallCount);
+    }
+
+    [Fact]
+    public async Task SynchronizationAdoptsTheDurableRefreshPerformedByUnlockVerification()
+    {
+        var store = new Store();
+        var controller = new AccountUnlockController(store, new Protocol(), new StoreRotatingVerifier(store), keyDeriver: new Deriver());
+        await controller.LoginAsync(new AccountLoginRequest("user@example.com", "login-password"), CancellationToken.None);
+        Assert.Equal(AccountUnlockResult.Unlocked, await controller.UnlockAsync("master-password", CancellationToken.None));
+        Assert.Equal("verifier-refresh", store.Value?.RefreshToken);
+        var synchronizer = new DelayedRotatingSynchronizer();
+        synchronizer.ReleaseFirst();
+
+        await controller.SynchronizeAsync(synchronizer, "master-password", CancellationToken.None);
+
+        Assert.Equal(new[] { "verifier-refresh" }, synchronizer.ReceivedRefreshTokens);
+        Assert.Equal("refresh-1", store.Value?.RefreshToken);
+    }
+
+    [Fact]
+    public async Task SynchronizationRejectsAnUnrelatedStoredLogin()
+    {
+        var store = new Store();
+        var controller = new AccountUnlockController(store, new Protocol(), new Verifier(true), keyDeriver: new Deriver());
+        await controller.LoginAsync(new AccountLoginRequest("user@example.com", "login-password"), CancellationToken.None);
+        Assert.Equal(AccountUnlockResult.Unlocked, await controller.UnlockAsync("master-password", CancellationToken.None));
+        store.Value = store.Value! with { CreatedAt = store.Value!.CreatedAt.AddMinutes(1), RefreshToken = "unrelated-refresh" };
+
+        var rejected = await Assert.ThrowsAsync<AccountSessionChangedException>(async () =>
+        {
+            await controller.SynchronizeAsync(new DelayedRotatingSynchronizer(), "master-password", CancellationToken.None);
+        });
+
+        Assert.Equal("stored_session_replaced", rejected.DiagnosticCode);
+        Assert.Equal("unrelated-refresh", store.Value?.RefreshToken);
     }
 
     [Fact]
@@ -376,6 +412,14 @@ public sealed class AccountUnlockControllerTests
         }
     }
     private sealed class Verifier(bool? result) : IEncryptedConfigUnlockVerifier { public int Calls { get; private set; } public ValueTask<bool?> VerifyAsync(AccountSessionRecord s, string password, byte[] key, CancellationToken c) { Calls++; return ValueTask.FromResult(result); } }
+    private sealed class StoreRotatingVerifier(Store store) : IEncryptedConfigUnlockVerifier
+    {
+        public ValueTask<bool?> VerifyAsync(AccountSessionRecord session, string password, byte[] key, CancellationToken cancellationToken)
+        {
+            store.Value = session with { AccessToken = "verifier-access", RefreshToken = "verifier-refresh" };
+            return ValueTask.FromResult<bool?>(true);
+        }
+    }
     private sealed class DelayedRotatingSynchronizer : IEncryptedConfigSynchronizer
     {
         private readonly TaskCompletionSource<bool> firstStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);

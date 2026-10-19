@@ -38,6 +38,16 @@ public sealed class ReadOnlyEncryptedConfigUnlockVerifierTests
     }
 
     [Fact]
+    public async Task PaginatedVerificationCarriesTheRotatedSessionToTheNextPage()
+    {
+        var sync = new SessionRotatingPagedSync();
+        var verifier = new ReadOnlyEncryptedConfigUnlockVerifier(sync);
+
+        Assert.Null(await verifier.VerifyAsync(Session, "correct horse", new byte[32], CancellationToken.None));
+        Assert.Equal(new[] { "refresh", "refresh-1" }, sync.ReceivedRefreshTokens);
+    }
+
+    [Fact]
     public async Task NonAdvancingVerificationCursorFailsClosed()
     {
         var sync = new PagedSync(new EncryptedConfigChanges([Record(string.Empty, "purged")], 0, true, false));
@@ -109,5 +119,24 @@ public sealed class ReadOnlyEncryptedConfigUnlockVerifierTests
         }
         public ValueTask<AuthorizedProtocolResult<bool>> AcknowledgeAsync(AccountSessionRecord s, SyncAcknowledgement a, CancellationToken c) => throw new NotSupportedException();
         public ValueTask<AuthorizedProtocolResult<EncryptedConfigRecord>> DeleteAssetAsync(AccountSessionRecord s, Guid id, AssetDeletionRequest d, CancellationToken c) => throw new NotSupportedException();
+    }
+
+    private sealed class SessionRotatingPagedSync : IOrbitEncryptedSyncProtocol
+    {
+        public List<string> ReceivedRefreshTokens { get; } = [];
+        public ValueTask<AuthorizedProtocolResult<EncryptedConfigChanges>> PullChangesAsync(AccountSessionRecord session, ulong cursor, int limit, CancellationToken cancellationToken)
+        {
+            ReceivedRefreshTokens.Add(session.RefreshToken);
+            var first = ReceivedRefreshTokens.Count == 1;
+            var page = new EncryptedConfigChanges(
+                [Record(string.Empty, "purged")], first ? 1UL : 2UL, first, false);
+            var returnedSession = first
+                ? session with { AccessToken = "access-1", RefreshToken = "refresh-1" }
+                : session;
+            return ValueTask.FromResult(new AuthorizedProtocolResult<EncryptedConfigChanges>(page, returnedSession));
+        }
+        public ValueTask<AuthorizedProtocolResult<EncryptedConfigRecord>> UploadAsync(AccountSessionRecord session, EncryptedConfigUpload upload, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<AuthorizedProtocolResult<bool>> AcknowledgeAsync(AccountSessionRecord session, SyncAcknowledgement acknowledgement, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<AuthorizedProtocolResult<EncryptedConfigRecord>> DeleteAssetAsync(AccountSessionRecord session, Guid assetId, AssetDeletionRequest deletion, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 }

@@ -1450,7 +1450,8 @@ public sealed class MainWindowViewModelTests
     [Fact]
     public async Task PausedSftpTransferCancelsOnTheFirstRequest()
     {
-        var coreClient = new FakeCheckedCoreClient { SftpDownloadDelayMilliseconds = 750 };
+        using var downloadReleaseGate = new ManualResetEventSlim(false);
+        var coreClient = new FakeCheckedCoreClient { SftpDownloadReleaseGate = downloadReleaseGate };
         var viewModel = CreateViewModel(coreClient);
         viewModel.Password = "secret";
         viewModel.ConnectCommand.Execute(null);
@@ -1462,9 +1463,10 @@ public sealed class MainWindowViewModelTests
 
         var downloadDirectory = Path.Combine(Path.GetTempPath(), $"orbitterm-sftp-paused-cancel-{Guid.NewGuid():N}");
         Directory.CreateDirectory(downloadDirectory);
+        Task? operation = null;
         try
         {
-            var operation = viewModel.DownloadSelectedSftpEntriesAsync(downloadDirectory, CancellationToken.None);
+            operation = viewModel.DownloadSelectedSftpEntriesAsync(downloadDirectory, CancellationToken.None);
             await WaitUntilAsync(() => viewModel.ActiveSftpTransferTasks.Count == 1);
             var task = Assert.Single(viewModel.ActiveSftpTransferTasks);
 
@@ -1479,10 +1481,11 @@ public sealed class MainWindowViewModelTests
             Assert.Equal("正在取消：" + task.FileName, task.StatusText);
             Assert.Equal(1, coreClient.CancelSftpTransferCallCount);
 
-            await operation;
         }
         finally
         {
+            downloadReleaseGate.Set();
+            if (operation is not null) await operation;
             Directory.Delete(downloadDirectory, recursive: true);
         }
     }
@@ -3111,6 +3114,7 @@ public sealed class MainWindowViewModelTests
         public List<string> SftpDownloadLocalPaths { get; } = [];
         public int CancelSftpTransferCallCount { get; private set; }
         public int SftpDownloadDelayMilliseconds { get; init; }
+        public ManualResetEventSlim? SftpDownloadReleaseGate { get; init; }
         public int SftpUploadDelayMilliseconds { get; init; }
         public ManualResetEventSlim? SftpUploadReleaseGate { get; init; }
         private int sftpUploadInFlight;
@@ -3372,6 +3376,11 @@ public sealed class MainWindowViewModelTests
             if (SftpDownloadDelayMilliseconds > 0)
             {
                 Thread.Sleep(SftpDownloadDelayMilliseconds);
+            }
+            if (SftpDownloadReleaseGate is { } releaseGate &&
+                !releaseGate.Wait(TimeSpan.FromSeconds(20)))
+            {
+                throw new TimeoutException("Timed out waiting to release the deterministic SFTP download gate.");
             }
             return CreateEnvelope(
                 CheckedFfiKind.SftpDownloadCompleted,

@@ -11,9 +11,11 @@ public sealed class ReadOnlyEncryptedConfigUnlockVerifier(IOrbitEncryptedSyncPro
         const int maxPages = 100;
         ulong cursor = 0;
         var sawCiphertext = false;
+        var currentSession = session;
         for (var pageIndex = 0; pageIndex < maxPages; pageIndex++)
         {
-            var page = await sync.PullChangesAsync(session, cursor, pageSize, cancellationToken).ConfigureAwait(false);
+            var page = await sync.PullChangesAsync(currentSession, cursor, pageSize, cancellationToken).ConfigureAwait(false);
+            currentSession = page.Session;
             foreach (var item in page.Value.Items)
             {
                 // A purged tombstone intentionally has no ciphertext. It cannot
