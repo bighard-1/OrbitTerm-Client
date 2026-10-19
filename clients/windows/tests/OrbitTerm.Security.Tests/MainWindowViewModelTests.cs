@@ -1467,8 +1467,10 @@ public sealed class MainWindowViewModelTests
         try
         {
             operation = viewModel.DownloadSelectedSftpEntriesAsync(downloadDirectory, CancellationToken.None);
-            await WaitUntilAsync(() => viewModel.ActiveSftpTransferTasks.Count == 1);
-            var task = Assert.Single(viewModel.ActiveSftpTransferTasks);
+            await WaitUntilAsync(() => viewModel.ActiveSftpTransferTasks.Any(
+                task => task.State == SftpTransferTaskState.Running));
+            var task = Assert.Single(viewModel.ActiveSftpTransferTasks.Where(
+                task => task.State == SftpTransferTaskState.Running));
 
             viewModel.PauseSftpTransfer(task);
             Assert.Equal(SftpTransferTaskState.Paused, task.State);
