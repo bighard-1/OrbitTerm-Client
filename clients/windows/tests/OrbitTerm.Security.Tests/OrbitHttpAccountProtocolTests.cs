@@ -83,6 +83,57 @@ public sealed class OrbitHttpAccountProtocolTests
         Assert.Equal("rotated-refresh", store.Value?.RefreshToken);
     }
 
+    [Fact]
+    public async Task CanonicalDeleteNotFoundHasADeletionSpecificProofType()
+    {
+        var protocol = new OrbitHttpAccountProtocol(
+            new OrbitEndpointPolicy(), new AssetDeletionNotFoundHandler(false, true));
+        var session = new AccountSessionRecord(
+            AccountProtocolContracts.Version, "operator", "access", "refresh", DateTimeOffset.UtcNow, null, null);
+
+        await Assert.ThrowsAsync<AssetDeletionNotFoundException>(async () =>
+            await protocol.DeleteAssetAsync(session, Guid.NewGuid(),
+                new AssetDeletionRequest(Guid.NewGuid(), Guid.NewGuid(), "{}"), CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData(false, false)] // A proxy or obsolete route may return a generic 404.
+    [InlineData(true, true)] // A refresh failure is not proof about the target asset.
+    public async Task UnrelatedNotFoundNeverProvesAssetDeletion(bool failRefresh, bool canonicalBody)
+    {
+        var protocol = new OrbitHttpAccountProtocol(
+            new OrbitEndpointPolicy(), new AssetDeletionNotFoundHandler(failRefresh, canonicalBody));
+        var session = new AccountSessionRecord(
+            AccountProtocolContracts.Version, "operator", "access", "refresh", DateTimeOffset.UtcNow, null, null);
+
+        var failure = await Assert.ThrowsAsync<HttpRequestException>(async () =>
+            await protocol.DeleteAssetAsync(session, Guid.NewGuid(),
+                new AssetDeletionRequest(Guid.NewGuid(), Guid.NewGuid(), "{}"), CancellationToken.None));
+        Assert.Equal(HttpStatusCode.NotFound, failure.StatusCode);
+    }
+
+    private sealed class AssetDeletionNotFoundHandler(bool failRefresh, bool canonicalBody) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri?.AbsolutePath == AccountProtocolContracts.RefreshPath || !failRefresh)
+            {
+                var body = canonicalBody
+                    ? """{"success":false,"error":"资产不存在"}"""
+                    : """{"success":false,"error":"route not found"}""";
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+                {
+                    Content = new StringContent(body, Encoding.UTF8, "application/json"),
+                });
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)
+            {
+                Content = new StringContent("""{"success":false}""", Encoding.UTF8, "application/json"),
+            });
+        }
+    }
+
     private sealed class SessionStore(AccountSessionRecord initial) : IAccountSessionStore
     {
         public AccountSessionRecord? Value { get; private set; } = initial;

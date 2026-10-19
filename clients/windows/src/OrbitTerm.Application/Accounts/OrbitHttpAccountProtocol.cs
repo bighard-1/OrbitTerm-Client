@@ -14,6 +14,10 @@ public sealed class AccountProtocolException(string code, HttpStatusCode statusC
     public string Code { get; } = code;
 }
 
+/// <summary>Only the asset-delete endpoint's canonical 404 is negative existence proof.</summary>
+public sealed class AssetDeletionNotFoundException()
+    : HttpRequestException("账户下的目标资产不存在。", null, HttpStatusCode.NotFound);
+
 public sealed class OrbitEndpointPolicy
 {
     public const string OfficialHost = "server.orbitterm.com";
@@ -320,6 +324,14 @@ public sealed class OrbitHttpAccountProtocol : IOrbitAccountProtocol, IOrbitAcco
 
             if (!response.IsSuccessStatusCode)
             {
+                if (response.StatusCode == HttpStatusCode.NotFound &&
+                    method == HttpMethod.Post &&
+                    path.StartsWith("/api/v1/config/assets/", StringComparison.Ordinal) &&
+                    path.EndsWith("/delete", StringComparison.Ordinal) &&
+                    await IsCanonicalAssetNotFoundAsync(response, cancellationToken).ConfigureAwait(false))
+                {
+                    throw new AssetDeletionNotFoundException();
+                }
                 var code = await ReadKnownErrorCodeAsync(response, cancellationToken).ConfigureAwait(false);
                 if (code is not null) throw new AccountProtocolException(code, response.StatusCode);
                 throw new HttpRequestException("账户服务暂时无法处理请求。", null, response.StatusCode);
@@ -348,6 +360,33 @@ public sealed class OrbitHttpAccountProtocol : IOrbitAccountProtocol, IOrbitAcco
             HttpStatusCode.BadGateway or
             HttpStatusCode.ServiceUnavailable or
             HttpStatusCode.GatewayTimeout;
+
+    private static async ValueTask<bool> IsCanonicalAssetNotFoundAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        if (response.Content is null || response.Content.Headers.ContentLength is > 1024) return false;
+        try
+        {
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            var buffer = new byte[1025];
+            var length = 0;
+            while (length < buffer.Length)
+            {
+                var count = await stream.ReadAsync(buffer.AsMemory(length), cancellationToken).ConfigureAwait(false);
+                if (count == 0) break;
+                length += count;
+            }
+            if (length == 0 || length > 1024) return false;
+            using var document = JsonDocument.Parse(buffer.AsMemory(0, length));
+            var root = document.RootElement;
+            return root.ValueKind == JsonValueKind.Object &&
+                root.TryGetProperty("success", out var success) && success.ValueKind == JsonValueKind.False &&
+                root.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.String &&
+                string.Equals(error.GetString(), "资产不存在", StringComparison.Ordinal);
+        }
+        catch (JsonException) { return false; }
+    }
 
     private static async ValueTask<string?> ReadKnownErrorCodeAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {

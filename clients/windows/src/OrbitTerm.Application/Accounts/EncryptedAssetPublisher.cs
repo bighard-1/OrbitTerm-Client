@@ -194,14 +194,9 @@ public sealed class EncryptedAssetPublisher(
         var state = await ReadStateAsync(accountScope, cancellationToken).ConfigureAwait(false);
         var knownAssets = state.Assets;
         var queued = state.PendingOperations?.GetValueOrDefault(assetId);
-        if (knownAssets is null || !knownAssets.TryGetValue(assetId, out var metadata))
+        var metadata = knownAssets?.GetValueOrDefault(assetId);
+        if (metadata is null && queued is not { Kind: PendingAssetSyncOperationKind.Tombstone })
         {
-            if (queued is { Kind: PendingAssetSyncOperationKind.Tombstone })
-            {
-                // Missing local metadata does not prove a previously queued
-                // remote deletion completed. A later pull must provide proof.
-                return new EncryptedAssetPublishResult(EncryptedAssetPublishStatus.Conflict, session);
-            }
             var pending = state.PendingOperations?.ToDictionary(item => item.Key, item => item.Value) ?? [];
             pending.Remove(assetId);
             var snapshots = state.Snapshots?.ToDictionary(item => item.Key, item => item.Value) ?? [];
@@ -222,10 +217,12 @@ public sealed class EncryptedAssetPublisher(
             var pending = state.PendingOperations?.ToDictionary(item => item.Key, item => item.Value) ?? [];
             queued = new PendingAssetSyncOperation(
                 PendingAssetSyncOperationKind.Tombstone,
-                metadata.VectorClock,
+                metadata?.VectorClock ?? queued?.BaseVectorClock,
                 DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                OperationId: Guid.NewGuid(),
-                RequestVectorClock: BumpVectorClock(metadata.VectorClock, state.DeviceId));
+                OperationId: queued is { Kind: PendingAssetSyncOperationKind.Tombstone, OperationId: not null }
+                    ? queued.OperationId
+                    : Guid.NewGuid(),
+                RequestVectorClock: BumpVectorClock(metadata?.VectorClock ?? queued?.BaseVectorClock, state.DeviceId));
             pending[assetId] = queued;
             state = state with { PendingOperations = pending };
             await stateStore.SaveAsync(accountScope, state, cancellationToken).ConfigureAwait(false);
@@ -238,7 +235,7 @@ public sealed class EncryptedAssetPublisher(
                 assetId,
                 new AssetDeletionRequest(state.DeviceId, queued.OperationId!.Value, queued.RequestVectorClock!),
                 cancellationToken).ConfigureAwait(false);
-            var assets = knownAssets.ToDictionary(item => item.Key, item => item.Value);
+            var assets = knownAssets?.ToDictionary(item => item.Key, item => item.Value) ?? [];
             assets.Remove(assetId);
             var pending = state.PendingOperations?.ToDictionary(item => item.Key, item => item.Value) ?? [];
             pending.Remove(assetId);
@@ -255,6 +252,22 @@ public sealed class EncryptedAssetPublisher(
         catch (HttpRequestException exception) when (exception.StatusCode == HttpStatusCode.Conflict)
         {
             return new EncryptedAssetPublishResult(EncryptedAssetPublishStatus.Conflict, session, metadata);
+        }
+        catch (AssetDeletionNotFoundException) when (metadata is null)
+        {
+            // Only an authenticated, account-scoped 404 proves that a locally
+            // deleted asset with no confirmed remote metadata never reached
+            // this server. A timeout/409 cannot safely discard the intent.
+            var pending = state.PendingOperations?.ToDictionary(item => item.Key, item => item.Value) ?? [];
+            pending.Remove(assetId);
+            var snapshots = state.Snapshots?.ToDictionary(item => item.Key, item => item.Value) ?? [];
+            snapshots.Remove(assetId);
+            await stateStore.SaveAsync(accountScope, state with
+            {
+                PendingOperations = pending,
+                Snapshots = snapshots,
+            }, cancellationToken).ConfigureAwait(false);
+            return new EncryptedAssetPublishResult(EncryptedAssetPublishStatus.LocalOnlyDeleted, session);
         }
     }
 
@@ -282,7 +295,7 @@ public sealed class EncryptedAssetPublisher(
             baseVector,
             DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
             OperationId: Guid.NewGuid(),
-            RequestVectorClock: baseVector is null ? null : BumpVectorClock(baseVector, state.DeviceId));
+            RequestVectorClock: BumpVectorClock(baseVector, state.DeviceId));
         await stateStore.SaveAsync(accountScope, state with { PendingOperations = pending }, cancellationToken).ConfigureAwait(false);
     }
 
