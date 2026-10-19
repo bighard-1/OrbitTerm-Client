@@ -102,3 +102,13 @@ Android 候选 `2e6c137` 已推送，远端分支 SHA 与本地一致；其首�
 固定 `2e6c137` 的 Windows、Linux 和 Security Gates CI 本节记录时仍运行中；前一固定 `baefdde` 的三条 CI 已完成成功。Windows 原生 QA 目前仍是 `baefdde` 包，旧的同步删除确认文案尚未覆盖更新。为避免重复用 RDP 文本框新建资产导致字段串位，本轮计划复用唯一已软删的虚构 Windows→K60 测试项：先由 K60 恢复并双同步，再观察 Windows 活动列表，然后仅在 Windows 普通软删，最后在 K60 **不重启进程**连续同步两次，核对活动/最近删除与错误状态。准备动作或用户请求不算实际验证；`WINDOWS-K60-REVERSE-RECONCILE-87` 的首轮失败继续保留。真实 Debian/RDP 资产、正式客户端和线上服务均未改动。
 
 后续本机自动化补记：完整 `scripts/security/check_android_release_gates.sh` **成功**（417 任务，47 执行、370 up-to-date），包括 Android Debug 单测、Release/Smoke 构建、跨端源码矩阵及产物安全检查。定向单测通过与完整门禁成功均不表示新包已在 K60 安装；当前仍须在线不重启的双向 GUI 验收。
+
+## 2026-10-18 Windows→K60 在线反向墓碑：无 Android 进程重启复测
+
+测试范围仅为原有虚构夹具 `ot-win-cross-20261015`；其他云端记录、真实 SSH/RDP 资产和正式客户端均未操作。Windows 仍使用固定 `baefdde` 的原生 QA 包；K60 使用固定 `4af88b8` 的独立 QA 包。后者的受保护原包 SHA-256 为 `5dd3b43971706407b5c1aea0d3d0f626b8c64192c9b4dc63434c6a0e91d8766e`，基准源码在 `MainActivity` 无条件启用 `FLAG_SECURE`。为独立操作真机 GUI，经用户当次明确同意，仅在外置盘的临时 detached 检出中构建同包名、同测试签名的镜像可见 QA 包（SHA-256 `1c05946e1215a63cb0ebb7d4b65ceb224b5f1c119b92741e77a0ae074ed9bd7b`）；唯一临时源码差异只对该 QA 包不设置 `FLAG_SECURE`，未提交产品分支、未改正式版。通过原位安装保留 QA 数据，镜像用于观察测试页面，没有录制或打开真实资产。完成后 `adb install -r` 覆盖回原受保护 APK 返回 `Success`，手机已安装 `base.apk` 的 SHA-256 与上述原包完全一致；临时源码工作树已移除。未做恢复保护后的应用内登录/运行时画面复核，故保护恢复证据限于安装产物哈希与原源码，不写成运行时截图通过。
+
+K60 真机“最近删除”首条确认唯一目标后，仅点一次“恢复”，GUI 显示“资产已恢复”；同一进程手动同步完成，资产计数由 4 变为 5。Windows QA 一开始仍显示 4 项，手动同步提示“同步服务暂不可用/本机变更已保留”。只读本地脱敏 `sync.log` 连续三次记录 `stage=sync_failure`、`System.InvalidOperationException`、`hresult=0x80131509`、`remote_confirmed=False`；**失败保留**，不能把当时的 4 项称为 Android 恢复失败。锁定再解锁后该同步异常仍在；期间一次远程键盘输入主密码触发 `remote_verify_unexpected`，改用 Windows 屏幕键盘输入首个大写字符后成功解锁，表明该单次验证失败与 RDP 输入通道有关的可能性较高，但没有安全日志证明唯一原因。仅重启 Windows QA 进程并以屏幕键盘重新解锁后，GUI 显示“云端已同步”，未分组出现第 5 项；资产管理用 `cross` 过滤，精确确认名称及占位端点，未碰其余 4 项。**Windows 同步异常经进程重启可恢复，但根因仍未定位，属于后续诊断项。**
+
+随后在 Windows 仅对该虚构项右键普通“删除资产”：旧 QA 确认框仍误称“删除本地服务器资产/仅当前 Windows 设备”，与候选源码中的跨端墓碑语义不符，旧包文案缺陷继续保留；没有执行“永久删除”。Windows 活动列表由 5 变回 4，之后个人中心/底栏为云端同步完成；本轮没有直接截获“删除墓碑 1 项”的瞬时计数，不能声称该计数已验。K60 **未重启进程、未重装包**，第一次同步后从 5 项降到 4 项，显示“同步完成：已同步 4 项资产、0 条命令片段”；第二次同步仍为 4 项、无回弹。K60“最近删除”刷新后重新出现该精确夹具，证明云端墓碑已传播；首次打开对话框短暂显示旧列表，刷新完成后目标才出现在首条，此加载阶段不可误判为墓碑缺失。未对目标或其他条目点“永久删除”。
+
+固定 `4af88b8` 的 [Windows Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38889355696)、[Linux Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38889355579)、[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38889355711) 均为 `completed/success`；Android 完整本地 Release 门禁先前通过 417 项。上述自动化与本轮真机 GUI 分开记账；Windows 真机仍是旧 `baefdde` 包，不能外推其新文案或五端同版通过。下一轮优先定位 Windows 长时间运行后的 `InvalidOperationException` 同步阶段、安装新文案包，并补 Windows 离线删除/重启队列、真实本地编辑冲突及 409 负向；K60 的旧首次导入失败记录不得由本轮成功覆盖。
