@@ -273,7 +273,7 @@ public sealed class OrbitHttpAccountProtocol : IOrbitAccountProtocol, IOrbitAcco
             var next = CreateRotatedSession(session, refreshed);
             if (sessionStore is not null &&
                 !await sessionStore.TryReplaceAsync(session, next, cancellationToken).ConfigureAwait(false))
-                throw new InvalidOperationException("本地会话已变化；拒绝保存迟到的刷新结果。");
+                throw new AccountSessionChangedException("refresh_store_changed");
             consumedRefreshToken = session.RefreshToken;
             rotatedSession = next;
             var retried = await TrySendAsync<TRequest, TResponse>(method, path, body, next.AccessToken, cancellationToken).ConfigureAwait(false);

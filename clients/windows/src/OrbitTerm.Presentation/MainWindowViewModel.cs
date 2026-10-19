@@ -50,6 +50,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private readonly Func<string, int, CancellationToken, Task<TcpLatencyProbeResult>> tcpLatencyProbe;
     private readonly object terminalUiUpdateGate = new();
     private readonly SemaphoreSlim remoteInspectionGate = new(1, 1);
+    private readonly SemaphoreSlim encryptedConfigSyncGate = new(1, 1);
     private readonly Dictionary<ulong, TerminalOutputReceivedEventArgs> pendingTerminalUiUpdates = [];
     private readonly Dictionary<ulong, BatchContinuousSessionViewModel> batchContinuousSessionsByChannel = [];
     private readonly Dictionary<Guid, BatchContinuousRuntime> batchContinuousRuntimes = [];
@@ -2907,6 +2908,22 @@ public sealed class MainWindowViewModel : ObservableObject
         CancellationToken cancellationToken,
         bool forceCompleteReconciliation = false)
     {
+        // Keep download, local apply, and queued upload in one ordered transaction
+        // from the UI's perspective; otherwise another click can reread old state.
+        await encryptedConfigSyncGate.WaitAsync(cancellationToken).ConfigureAwait(true);
+        try
+        {
+            return await SynchronizeEncryptedConfigsCoreAsync(
+                masterPassword, cancellationToken, forceCompleteReconciliation).ConfigureAwait(true);
+        }
+        finally { encryptedConfigSyncGate.Release(); }
+    }
+
+    private async Task<EncryptedConfigSynchronizationResult?> SynchronizeEncryptedConfigsCoreAsync(
+        string masterPassword,
+        CancellationToken cancellationToken,
+        bool forceCompleteReconciliation)
+    {
         if (accountUnlockController is null || encryptedConfigSynchronizer is null || !IsAccountUnlocked)
         {
             AccountStatus = "请先登录并解锁账户，再同步加密配置。";
@@ -3410,11 +3427,18 @@ public sealed class MainWindowViewModel : ObservableObject
                     System.Globalization.CultureInfo.InvariantCulture,
                     $"{jsonException.Path ?? "unknown"}:{jsonException.LineNumber?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "?"}:{jsonException.BytePositionInLine?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "?"}")
                 : "none";
+            var reason = exception switch
+            {
+                AccountSessionChangedException { DiagnosticCode: "controller_session_changed" } => "controller_session_changed",
+                AccountSessionChangedException { DiagnosticCode: "persist_store_changed" } => "persist_store_changed",
+                AccountSessionChangedException { DiagnosticCode: "refresh_store_changed" } => "refresh_store_changed",
+                _ => "unspecified",
+            };
             File.AppendAllText(
                 Path.Combine(directory, "sync.log"),
                 string.Create(
                     System.Globalization.CultureInfo.InvariantCulture,
-                    $"{DateTimeOffset.UtcNow:O} stage={stage}; type={exception.GetType().FullName}; hresult=0x{exception.HResult:X8}; status={statusCode}; json_location={jsonLocation}; remote_confirmed={remoteChangesConfirmed}{Environment.NewLine}"));
+                    $"{DateTimeOffset.UtcNow:O} stage={stage}; reason={reason}; type={exception.GetType().FullName}; hresult=0x{exception.HResult:X8}; status={statusCode}; json_location={jsonLocation}; remote_confirmed={remoteChangesConfirmed}{Environment.NewLine}"));
         }
         catch (IOException)
         {

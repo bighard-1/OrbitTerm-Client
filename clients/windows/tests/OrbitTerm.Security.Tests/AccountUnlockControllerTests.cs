@@ -93,6 +93,48 @@ public sealed class AccountUnlockControllerTests
     }
 
     [Fact]
+    public async Task OverlappingSynchronizationsUseTheLatestPersistedSession()
+    {
+        var store = new Store();
+        var controller = new AccountUnlockController(store, new Protocol(), new Verifier(true), keyDeriver: new Deriver());
+        await controller.LoginAsync(new AccountLoginRequest("user@example.com", "login-password"), CancellationToken.None);
+        Assert.Equal(AccountUnlockResult.Unlocked, await controller.UnlockAsync("master-password", CancellationToken.None));
+        var synchronizer = new DelayedRotatingSynchronizer();
+
+        var first = controller.SynchronizeAsync(synchronizer, "master-password", CancellationToken.None).AsTask();
+        await synchronizer.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var second = controller.SynchronizeAsync(synchronizer, "master-password", CancellationToken.None).AsTask();
+        Assert.Equal(1, synchronizer.CallCount);
+        synchronizer.ReleaseFirst();
+        await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(new[] { "refresh", "refresh-1" }, synchronizer.ReceivedRefreshTokens);
+        Assert.Equal("refresh-2", store.Value?.RefreshToken);
+    }
+
+    [Fact]
+    public async Task QueuedSynchronizationAfterSignOutCannotRestoreTheOldSession()
+    {
+        var store = new Store();
+        var controller = new AccountUnlockController(store, new Protocol(), new Verifier(true), keyDeriver: new Deriver());
+        await controller.LoginAsync(new AccountLoginRequest("user@example.com", "login-password"), CancellationToken.None);
+        Assert.Equal(AccountUnlockResult.Unlocked, await controller.UnlockAsync("master-password", CancellationToken.None));
+        var synchronizer = new DelayedRotatingSynchronizer();
+
+        var first = controller.SynchronizeAsync(synchronizer, "master-password", CancellationToken.None).AsTask();
+        await synchronizer.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var queued = controller.SynchronizeAsync(synchronizer, "master-password", CancellationToken.None).AsTask();
+        await controller.SignOutAsync(CancellationToken.None);
+        synchronizer.ReleaseFirst();
+
+        var rejected = await Assert.ThrowsAsync<AccountSessionChangedException>(() => first.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal("controller_session_changed", rejected.DiagnosticCode);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => queued.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Null(store.Value);
+        Assert.Equal(1, synchronizer.CallCount);
+    }
+
+    [Fact]
     public async Task LoginStaysLockedUntilReadOnlyVerificationSucceeds()
     {
         OrbitNativeLibraryLoader.Register();
@@ -334,6 +376,36 @@ public sealed class AccountUnlockControllerTests
         }
     }
     private sealed class Verifier(bool? result) : IEncryptedConfigUnlockVerifier { public int Calls { get; private set; } public ValueTask<bool?> VerifyAsync(AccountSessionRecord s, string password, byte[] key, CancellationToken c) { Calls++; return ValueTask.FromResult(result); } }
+    private sealed class DelayedRotatingSynchronizer : IEncryptedConfigSynchronizer
+    {
+        private readonly TaskCompletionSource<bool> firstStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> releaseFirst = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> FirstStarted => firstStarted;
+        public List<string> ReceivedRefreshTokens { get; } = [];
+        public int CallCount => ReceivedRefreshTokens.Count;
+        public void ReleaseFirst() => releaseFirst.TrySetResult(true);
+
+        public async ValueTask<EncryptedConfigSynchronizationResult> SynchronizeAsync(
+            AccountSessionRecord session,
+            string accountScope,
+            string masterPassword,
+            byte[] rootKey,
+            CancellationToken cancellationToken,
+            bool forceCompleteReconciliation = false)
+        {
+            ReceivedRefreshTokens.Add(session.RefreshToken);
+            var call = ReceivedRefreshTokens.Count;
+            if (call == 1)
+            {
+                firstStarted.TrySetResult(true);
+                await releaseFirst.Task.WaitAsync(cancellationToken);
+            }
+            return new EncryptedConfigSynchronizationResult(
+                EncryptedConfigSynchronizationStatus.Completed,
+                session with { AccessToken = $"access-{call}", RefreshToken = $"refresh-{call}" },
+                0, 0, 0, 0, 0, 0);
+        }
+    }
     private sealed class ThrowingVerifier(Exception error) : IEncryptedConfigUnlockVerifier { public ValueTask<bool?> VerifyAsync(AccountSessionRecord s, string password, byte[] key, CancellationToken c) => ValueTask.FromException<bool?>(error); }
     private sealed class VerifierStore : IAccountUnlockVerifierStore { public byte[]? Value; public ValueTask<byte[]?> ReadAsync(string s, CancellationToken c) => ValueTask.FromResult(Value?.ToArray()); public ValueTask SaveAsync(string s, byte[] v, CancellationToken c) { Value = v.ToArray(); return ValueTask.CompletedTask; } }
     private sealed class Deriver : IConfigRootKeyDeriver { public byte[] Derive(string p, string s) => Enumerable.Repeat((byte)7, 32).ToArray(); }
