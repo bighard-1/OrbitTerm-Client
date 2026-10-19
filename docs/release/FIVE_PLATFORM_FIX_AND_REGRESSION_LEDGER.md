@@ -30,6 +30,8 @@
 
 `WINDOWS-SYNC-SESSION-RACE-90` 中间提交 `3fef8b0` 自动化失败补记：[Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39184540450) 安全单测 **323/324**，新增会话回归与旧异常类型断言通过，唯一失败是旧 SFTP 夹具仍假设活动队列恰好 1 项；固定下载窗口后实际可同时存在运行和排队的两项。后继仅把测试定位改为唯一 `Running` 项，未改 SFTP 产品代码；新固定提交 CI 和 QA 包均待验证。
 
+`WINDOWS-SYNC-SESSION-RACE-90` 中间提交 `581eeeb` 自动化失败补记：[Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39184957618) 在测试源码编译/分析器阶段被 xUnit2031 拒绝，原因是新断言先 `Where` 再 `Assert.Single`；后继仅改用 `Assert.Single(collection, predicate)` 重载。此轮未完成单测、未产出 MSIX；失败保留。
+
 ## 2026-10-15 Windows 测试机远程通道诊断
 
 | 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |

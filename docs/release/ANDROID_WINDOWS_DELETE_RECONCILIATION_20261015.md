@@ -124,3 +124,5 @@ K60 真机“最近删除”首条确认唯一目标后，仅点一次“恢复�
 首个中间提交 `cb052c4` 的 [Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39183912626) **失败保留**：Windows 静态检查与原生核心构建通过，安全单测 321 项中 319 通过、2 失败，故 WinUI 与测试 MSIX 未构建。一项是旧“登出后迟到响应”测试用 `Assert.ThrowsAsync<InvalidOperationException>` 做精确类型匹配，而源码已把同一拒绝细分为其子类 `AccountSessionChangedException`；修订断言验证固定原因码。另一项是“暂停 SFTP 后首次取消”测试在并行 Windows 运行器上等待短时传输任务出现超过 10 秒，且旧夹具仅用 `Thread.Sleep(750ms)` 保持窗口；已改用显式释放门禁，使测试不依赖线程调度速度。两项均需下一固定提交 CI 再验证，不能把此次失败抹除或误称新功能通过。
 
 第二个中间提交 `3fef8b0` 的 [Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39184540450) 仍**失败保留**：安全单测 **323/324** 通过，新增会话回归已通过，旧异常类型断言已修正；唯一失败仍是 SFTP 暂停/取消夹具。显式门禁固定了下载进行中的窗口，也暴露旧断言 `ActiveSftpTransferTasks.Count == 1` 不符合实现：该集合同时包含运行项和待处理项，选中两个文件时数量本来可以为 2。后继测试改为等待并选取唯一 `Running` 项，再执行暂停、首次取消断言；**未改产品 SFTP 行为**。本次依然没有生成 MSIX，待下一固定提交 CI 证明。
+
+第三个中间提交 `581eeeb` 的 [Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39184957618) 又在**测试源码编译/分析器**阶段失败：xUnit2031 禁止 `Assert.Single(collection.Where(predicate))`，要求使用带过滤函数的 `Assert.Single(collection, predicate)` 重载。此前旧断言改动的业务含义不变，后继候选仅按 xUnit 分析器要求改写该行；本次未运行完单测、未构建 MSIX，失败继续单列。
