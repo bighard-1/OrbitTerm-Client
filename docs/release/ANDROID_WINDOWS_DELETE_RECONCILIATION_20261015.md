@@ -188,3 +188,11 @@ Windows 删除上行后未主动重启、覆盖安装或退出 K60 QA，连续�
 同提交的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39236654366) 整体 `cancelled`，取消的是 Android 仪器/迁移子任务；Apple checked-path、Android release、Rust、依赖扫描和桌面视觉子任务均显示成功，两个独立候选冒烟任务按配置跳过。取消发生在该子任务运行约 50 分钟时，与工作流 50 分钟限额相近，但缺完整日志，不能确定唯一原因；**整体不能记为通过**。旧的成功与失败记录均保留。
 
 另补 K60 受保护版恢复后的运行时观察：在 Mac 的独立镜像窗口点击名称明确的 QA 图标后，只读 Android 前台状态为 `com.orbitterm.android.qa` 的主活动，窗口属性含 `SECURE`；镜像持续显示黑色内容区。这次同时具备“前台确为 QA”和“保护窗口标志”两项证据，可把**该安装包在 K60 上的防镜像行为**记为单项通过。之前点图标却仍在桌面或误入电话页的无效尝试依旧保留；未拨号、未连接资产、未打开真实凭据。此结果不等于原生系统录屏、权限/无障碍路径或 Android/Windows 墓碑回归完成。下一步仍以取得并核验 `a7118c1` Windows CI 包、原位更新独立 QA、观察遗留队列为优先；不因 Windows 原生 CI 成功跳过设备验收。
+
+## 2026-10-19 `a7118c1` Windows QA 归档下载与安装前保护
+
+用户在 Codex 右侧浏览器完成 GitHub 登录后，重新打开固定 [Windows Client CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39236654280)，确认该运行属于提交 `a7118c1` 且状态成功。浏览器的专用媒体下载接口和首次等待下载事件各超时一次；检查本机下载目录发现传输仍在后台进行，最终归档完整落盘，**这两次超时不是构建或归档损坏**。ZIP SHA-256 为 `57bb6b726c6d539cff446d11e8eebc44620b12fe3779e2f9623feab3261f14e4`，与 GitHub 网页摘要一致；`unzip -t` 五项均通过。随包 `SHA256.txt` 只有原始哈希而非 `sha256sum -c` 格式，首次直接使用 `shasum -c` 报“无正确格式的校验行”；改为独立计算 MSIX SHA-256 `b530f9ce6b90f1aaa4f65aaf2387f6e1084b0c93c608bcc4e79f6a36b10d14c5` 并逐字核对随包值一致，首次命令格式失败保留。
+
+仅把 MSIX 与公用测试证书复制到 Windows 测试机专用 Downloads 目录，Windows 共享上重新计算两文件 SHA-256，均与 Mac 源文件一致；临时绑定 Mac 局域网地址的只读 HTTP 服务因改用既有 SMB 通道而未传输任何文件，随即停止。MSIX 身份为 `OrbitTerm.Client`、`0.3.0.33`、x64、发布者 `CN=OrbitTerm Development`。Windows 原生只读检查显示旧 QA 同身份/版本且包状态 `Ok`，旧测试证书仍在 `TrustedPeople`；新 MSIX 签名者指纹与随包新证书一致，但在新证书尚未导入时 `Get-AuthenticodeSignature` 状态为 `UnknownError`，**不能把导入前结果记为签名有效**。
+
+安装前在旧 GUI 亲眼核对原 4 项活动资产及“待确认冲突 1 项”，随后正常退出 QA。Windows 账户同步状态位于包外的用户本地 `OrbitTerm/Account/sync-state` DPAPI 文件；已将该账户目录及包内 `Settings/settings.dat` 备份到加密外置盘，源/备份同步状态与设置哈希分别相同。备份是恢复保障，不代表队列内容已解密或问题已解决。本阶段**尚未导入新证书、卸载旧包或安装新 QA**，也未清理该 1 项冲突。后续需当次授权后安装，再检查原 4 项、遗留冲突与服务端权威 404 的真实收敛；不得用代码测试、CI 或备份代替设备结果。K60 真机本阶段未操作，五端完整验收仍未完成。

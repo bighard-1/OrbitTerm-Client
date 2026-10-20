@@ -44,6 +44,8 @@
 
 `WINDOWS-OFFLINE-UNPUBLISHED-94` 后续证据（2026-10-19）：源码和上述台账已固定为 `a7118c1` 并推送现有集成分支；该提交的 [Windows Client 原生 CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39236654280) 与 [Linux Client CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39236654430) 均 `completed/success`。Windows CI 生成一个内部测试归档，网页列出的 SHA-256 为 `57bb6b726c6d539cff446d11e8eebc44620b12fe3779e2f9623feab3261f14e4`；**当前 GitHub 连接未授权下载该归档，尚未取得文件或独立校验，更未更新 Windows 测试机**。同提交的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39236654366) 整体为 `cancelled`，其中 Android 仪器/迁移任务取消，其他完成的子任务成功；不得记为整门禁通过。K60 受保护原 QA 随后用明确图标启动，Android 只读窗口状态证实前台为独立 QA、窗口标志含 `SECURE`，镜像保持黑屏；这是**真实 K60 运行时防镜像单项补验**，不覆盖上一轮“前台仍在系统桌面”的无效观察，也不证明账户/资产内容、录屏或五端安全矩阵。详见[专项日志续记](ANDROID_WINDOWS_DELETE_RECONCILIATION_20261015.md#2026-10-19-固定候选-ci-与-k60-保护版运行态续记)。遗留 1 项 Windows 冲突及有效离线跨端矩阵仍待新版 QA。
 
+`WINDOWS-OFFLINE-UNPUBLISHED-94` 安装前补记（2026-10-19）：用户完成右侧 GitHub 登录后，已下载固定 `a7118c1` Windows 归档；外层 SHA-256 `57bb6b72…f14e4` 与网页摘要一致，ZIP 完整性通过，内层 MSIX `b530f9ce…d14c5` 与随包哈希一致。浏览器下载等待两次超时，但文件最终完整落盘；`shasum -c` 首次因随包文件仅含原始哈希而报格式错误，改为独立计算对照通过，失败均保留。**源码/自动化**：仍是已记录的 `a7118c1` Windows/Linux CI 成功与 Security Gates 取消，无新增代码修复或完整门禁。**隔离 GUI**：无新隔离结果。**Windows 实体设备**：仅将核验文件复制并重新核哈希；旧 QA 原生界面仍为原 4 项和待确认冲突 1 项；正常退出后，包外 DPAPI 账户目录及包内设置已在加密外置盘备份且关键文件哈希与源一致。Windows 原生签名检查证实新包签名者与随包证书指纹一致，但因新证书尚未导入，当前状态 `UnknownError`，不得写为签名有效。**尚未导入、卸载、安装或清理冲突**；需当次授权后更新 QA 并验证 1 项是否安全收敛，再用先上传且由 K60 回拉的新虚构夹具重测离线交叉。Android 本轮未操作；**五端完整验收未完成**。详见[下载与安装前保护](ANDROID_WINDOWS_DELETE_RECONCILIATION_20261015.md#2026-10-19-a7118c1-windows-qa-归档下载与安装前保护)。
+
 ## 2026-10-15 Windows 测试机远程通道诊断
 
 | 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
