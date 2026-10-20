@@ -1412,6 +1412,44 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task SftpDownloadKeepsCapturedSourceAcrossFolderPickerSelectionLoss()
+    {
+        var coreClient = new FakeCheckedCoreClient();
+        var viewModel = CreateViewModel(coreClient);
+        viewModel.Password = "secret";
+        viewModel.ConnectCommand.Execute(null);
+        await WaitUntilAsync(() => !viewModel.ConnectCommand.IsRunning && viewModel.IsSftpOpen);
+        viewModel.SftpPathText = "/batch";
+        viewModel.PrepareSftpBrowseCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.SftpEntries.Count == 3);
+        viewModel.SetSelectedSftpEntries([viewModel.SftpEntries.Single(entry => entry.Name == "one.txt")]);
+
+        var captured = viewModel.CaptureSftpDownloadSelection();
+        Assert.NotNull(captured);
+        viewModel.SetSelectedSftpEntries([]);
+        Assert.Equal(0, viewModel.SelectedSftpEntryCount);
+
+        var downloadDirectory = Path.Combine(Path.GetTempPath(), $"orbitterm-sftp-picker-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(downloadDirectory);
+        try
+        {
+            await viewModel.DownloadCapturedSftpEntriesAsync(captured, downloadDirectory, CancellationToken.None);
+            Assert.Equal(1, coreClient.DownloadSftpFileCallCount);
+            Assert.Contains(Path.Combine(downloadDirectory, "one.txt"), coreClient.SftpDownloadLocalPaths);
+            Assert.Contains("成功 1/1", viewModel.SftpTransferStatus, StringComparison.Ordinal);
+
+            viewModel.SftpEntries.Clear();
+            await viewModel.DownloadCapturedSftpEntriesAsync(captured, downloadDirectory, CancellationToken.None);
+            Assert.Equal(1, coreClient.DownloadSftpFileCallCount);
+            Assert.True(viewModel.IsSftpFeedbackError);
+        }
+        finally
+        {
+            Directory.Delete(downloadDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task SftpBatchDownloadCancellationStopsBeforeTheNextFile()
     {
         var coreClient = new FakeCheckedCoreClient { SftpDownloadDelayMilliseconds = 250 };

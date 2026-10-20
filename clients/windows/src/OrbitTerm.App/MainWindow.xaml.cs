@@ -4217,7 +4217,8 @@ public sealed partial class MainWindow : Window
 
     private async void DownloadSelectedSftpEntryClick(object sender, RoutedEventArgs e)
     {
-        if (!ViewModel.CanDownloadSelectedSftpEntries)
+        var selection = ViewModel.CaptureSftpDownloadSelection();
+        if (selection is null)
         {
             return;
         }
@@ -4251,7 +4252,7 @@ public sealed partial class MainWindow : Window
 
         if (!string.IsNullOrWhiteSpace(destinationPath))
         {
-            await ViewModel.DownloadSelectedSftpEntriesAsync(destinationPath, CancellationToken.None);
+            await ViewModel.DownloadCapturedSftpEntriesAsync(selection, destinationPath, CancellationToken.None);
         }
     }
 

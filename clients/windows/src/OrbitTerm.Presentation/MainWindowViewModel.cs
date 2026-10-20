@@ -6704,6 +6704,20 @@ public sealed class MainWindowViewModel : ObservableObject
         return SelectedSftpEntry is null ? [] : [SelectedSftpEntry];
     }
 
+    // FolderPicker can clear ListView selection while it owns focus. Capture the
+    // exact source session and entries before opening it, then validate both
+    // again when the user chooses a destination.
+    public SftpDownloadSelectionSnapshot? CaptureSftpDownloadSelection()
+    {
+        if (sftpLease is null || SelectedWorkspaceTab is null || IsSftpBatchRunning)
+            return null;
+
+        var entries = GetEffectiveSftpSelection().ToArray();
+        return entries.Length == 0
+            ? null
+            : new SftpDownloadSelectionSnapshot(SelectedWorkspaceTab.Id, sftpLease, entries);
+    }
+
     private SftpTransferQueueContext GetCurrentSftpTransferContext() =>
         GetOrCreateSftpTransferContext(SelectedWorkspaceTab ?? throw new InvalidOperationException("A workspace tab is required for SFTP transfers."));
 
@@ -6991,16 +7005,30 @@ public sealed class MainWindowViewModel : ObservableObject
         RefreshCommands();
     }
 
-    public async Task DownloadSelectedSftpEntriesAsync(string localDirectory, CancellationToken cancellationToken)
+    public Task DownloadSelectedSftpEntriesAsync(string localDirectory, CancellationToken cancellationToken) =>
+        DownloadCapturedSftpEntriesAsync(CaptureSftpDownloadSelection(), localDirectory, cancellationToken);
+
+    public async Task DownloadCapturedSftpEntriesAsync(
+        SftpDownloadSelectionSnapshot? selection,
+        string localDirectory,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var selectedEntries = GetEffectiveSftpSelection().ToList();
-        if (sftpLease is null || selectedEntries.Count == 0 || !Path.IsPathFullyQualified(localDirectory) || !Directory.Exists(localDirectory))
+        if (selection is null || sftpLease is null || !ReferenceEquals(sftpLease, selection.Lease) ||
+            SelectedWorkspaceTab?.Id != selection.WorkspaceId || IsSftpBatchRunning ||
+            selection.Entries.Count == 0 || selection.Entries.Any(entry => !SftpEntries.Contains(entry)))
         {
-            SftpOperationStatus = "请选择文件或文件夹，并指定有效的本地下载目录";
+            SftpOperationStatus = "所选远程文件或会话已变化，请重新选择下载目标";
             PublishSftpFeedback(SftpFeedbackKind.Error, "无法批量下载", SftpOperationStatus);
             return;
         }
+        if (!Path.IsPathFullyQualified(localDirectory) || !Directory.Exists(localDirectory))
+        {
+            SftpOperationStatus = "本地下载目录不可用，请重新选择";
+            PublishSftpFeedback(SftpFeedbackKind.Error, "无法批量下载", SftpOperationStatus);
+            return;
+        }
+        var selectedEntries = selection.Entries.ToList();
         var operationLease = sftpLease;
         var owner = SelectedWorkspaceTab!;
         var transferContext = GetOrCreateSftpTransferContext(owner);
@@ -10556,6 +10584,11 @@ public sealed class MainWindowViewModel : ObservableObject
         SftpDirectoryEntryViewModel Entry,
         string LocalPath,
         SftpTransferTaskViewModel Task);
+
+    public sealed record SftpDownloadSelectionSnapshot(
+        Guid WorkspaceId,
+        SftpSessionLease Lease,
+        IReadOnlyList<SftpDirectoryEntryViewModel> Entries);
 
     private sealed record SftpBatchDeleteItem(
         SftpDirectoryEntryViewModel Entry,
