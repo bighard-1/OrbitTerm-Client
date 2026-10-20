@@ -54,6 +54,8 @@
 
 `WINDOWS-K60-OFFLINE-DELETE-96` 网络归因更正（2026-10-19）：上行“不可达代理网段 / Wi-Fi 解析异常”不是已证实根因。用户说明同网采用 OpenClash 和隐私策略；`198.18.0.0/16` 是 OpenClash Fake-IP 默认地址池。Mac 只读复查仍返回该 Fake-IP，却可经其链路得到服务端 HTTP 404；同 Wi-Fi 的 Windows QA 也完成过同步。保留 K60 当时同步失败、Mac 当时探测超时这两条观察，但将原因标为**未定**；不以 Fake-IP 地址本身判故障，不修改用户代理/隐私配置。下次如复现，在同一时间对 K60 代理链路做脱敏诊断。详见[专项日志](ANDROID_WINDOWS_DELETE_RECONCILIATION_20261015.md#2026-10-19-windowsk60-已确认上传夹具的离线删除交叉验收)。
 
+`ANDROID-OPENCLASH-WIFI-97` 补验（2026-10-19）：**源码/候选**仍为 Android `4af88b8`、Windows `a7118c1`；本轮只在一次性 detached 检出构建同包同签名镜像可见 QA（APK SHA-256 `61299ee2…0462`），未改产品分支。**自动化**临时 arm64 `assembleQa` 离线构建成功，未运行新产品门禁；**隔离 GUI**无新增。**真实 K60** 同一 OpenClash Wi-Fi 下，系统 HTTPS 经 Fake-IP 完成 TLS 并收到根路径 404；应用内手动同步进入并退出“同步中”，“同步与诊断”显示已同步 4 项资产，“最近删除”联网加载出精确 `otwinofflineqa2`，活动列表仍只有原 4 项，没有复活。未点恢复/永久删除。验后原保护包覆盖安装且设备内哈希一致，启动时镜像黑屏、前台窗口有 `SECURE`；临时检出已回退移除。**失败保留**：上一轮 K60 同 Wi-Fi 同步失败与 Mac 超时是真实观察，当前间歇原因未定，本轮成功不证明长期稳定。**五端完整验收未完成**；Android/Windows 下一对照改为真实离线编辑 × 对端删除的 409 冲突负向与长驻令牌轮换，若 Wi-Fi 错误复现再现场抓脱敏代理规则。详见[Wi-Fi 与最近删除补验](ANDROID_WINDOWS_DELETE_RECONCILIATION_20261015.md#2026-10-19-k60-同一-openclash-wi-fi-复测与最近删除补验)。
+
 ## 2026-10-15 Windows 测试机远程通道诊断
 
 | 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
