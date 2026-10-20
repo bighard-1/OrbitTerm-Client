@@ -86,6 +86,23 @@ class SyncStatusPresentationTest {
     }
 
     @Test
+    fun `delete versus local edit requires an explicit restore choice`() {
+        val conflict = AssetSyncConflict(
+            assetId = "test-asset",
+            fields = emptySet(),
+            localSummary = "本机测试修改",
+            remoteSummary = "云端资产已删除",
+            remoteDeleted = true,
+        ).presentation()
+
+        assertEquals("云端已删除此资产", conflict.title)
+        assertEquals("恢复资产并保留本地修改", conflict.keepLocalLabel)
+        assertEquals("接受云端删除", conflict.keepCloudLabel)
+        assertTrue(conflict.detail.contains("只有你明确选择恢复"))
+        assertFalse(conflict.detail.contains("冲突字段"))
+    }
+
+    @Test
     fun `recently deleted failure retains visible records and exposes retry`() {
         val state = RecentlyDeletedUiState(
             items = listOf(

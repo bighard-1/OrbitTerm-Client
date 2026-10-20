@@ -57,6 +57,7 @@ data class AssetSyncConflict(
     val fields: Set<AssetSyncField>,
     val localSummary: String,
     val remoteSummary: String,
+    val remoteDeleted: Boolean = false,
 )
 data class AssetOutboxResult(
     val delivered: Int = 0,
@@ -305,6 +306,33 @@ class SyncRepository @Inject constructor(
     ) = withContext(Dispatchers.IO) {
         val remote = activeRemoteAssets(token, masterPassword, AccountScope(accountScope))[assetId]
             ?: throw SyncFailure(syncError(OrbitErrorCode.SyncConflict))
+        if (remote.config.state == "deleted") {
+            if (keepLocal) {
+                // A tombstone may be reversed only by this explicit conflict choice.
+                val local = assetDao.findById(accountScope, assetId)?.toDomain()
+                    ?: throw SyncFailure(syncError(OrbitErrorCode.SyncConflict))
+                val restored = restore(assetId, token, remote.config.vector_clock)
+                val uploaded = uploadAsset(
+                    token, masterPassword, local, restored.vector_clock, restored.id, AccountScope(accountScope),
+                )
+                saveMetadata(
+                    accountScope, assetId, uploaded, "active",
+                    AssetSyncConflictPolicy.encode(AssetSyncConflictPolicy.shadow(local)),
+                )
+            } else {
+                assetDao.findById(accountScope, assetId)?.toDomain()?.let { local ->
+                    assetDao.delete(local.toEntity(accountScope))
+                    credentialStore.delete(local.credentialID)
+                    local.jumpHost?.let { credentialStore.delete(it.credentialID) }
+                }
+                saveMetadata(
+                    accountScope, assetId, remote.config, "deleted",
+                    metadataDao.find(accountScope, assetId)?.syncedSafeShadow.orEmpty(),
+                )
+            }
+            outboxDao.delete(accountScope, assetId)
+            return@withContext
+        }
         if (keepLocal) {
             val local = assetDao.findById(accountScope, assetId)?.toDomain() ?: throw SyncFailure(syncError(OrbitErrorCode.SyncConflict))
             val uploaded = uploadAsset(
@@ -402,7 +430,7 @@ class SyncRepository @Inject constructor(
             val completed = try {
                 when (AssetSyncOperation.entries.firstOrNull { it.name == operation.operation }) {
                     AssetSyncOperation.UPSERT -> deliverUpsert(
-                        operation.assetId, token, masterPassword, accountScope, remoteByAssetId, operation.operationId,
+                        operation.assetId, token, masterPassword, accountScope, remoteByAssetId,
                     )
                     AssetSyncOperation.MOVE_TO_TRASH -> deliverDeletion(
                         operation.assetId, token, accountScope, remoteByAssetId, operation.operationId,
@@ -544,7 +572,6 @@ class SyncRepository @Inject constructor(
         masterPassword: String,
         accountScope: String,
         remoteByAssetId: Map<String, RemoteAssetCandidate>,
-        operationId: String,
     ) {
         val localAsset = assetDao.findById(accountScope, assetId)?.toDomain() ?: return
         val metadata = metadataDao.find(accountScope, assetId)
@@ -563,18 +590,40 @@ class SyncRepository @Inject constructor(
                 )
                 return
             }
+            when (AssetSyncConflictPolicy.tombstoneUpsertDecision(remote.config.state, matchesLocalState)) {
+                TombstoneUpsertDecision.AcceptDeletion -> {
+                    // An unchanged stale UPSERT is an echo, not an edit: accept the tombstone.
+                    saveMetadata(
+                        accountScope, assetId, remote.config, "deleted",
+                        metadata?.syncedSafeShadow.orEmpty(),
+                    )
+                    assetDao.delete(localAsset.toEntity(accountScope))
+                    credentialStore.delete(localAsset.credentialID)
+                    localAsset.jumpHost?.let { credentialStore.delete(it.credentialID) }
+                    return
+                }
+                TombstoneUpsertDecision.RequireUserChoice -> throw DetectedAssetConflict(
+                    AssetSyncConflict(
+                        assetId = assetId,
+                        fields = emptySet(),
+                        localSummary = "${localAsset.name} · ${localAsset.username}@${localAsset.host}:${localAsset.port}",
+                        remoteSummary = "云端资产已删除",
+                        remoteDeleted = true,
+                    ),
+                )
+                TombstoneUpsertDecision.NotTombstone -> Unit
+            }
+        }
+        if (metadata?.remoteState == "deleted" && remote == null) {
+            // No authoritative active record proves a restore is safe.
+            throw SyncFailure(syncError(OrbitErrorCode.RemoteRequestRejected))
         }
         if (shouldAdoptRemote(localAsset, metadata, remote)) {
             applyRemoteAsset(accountScope, requireNotNull(remote))
             return
         }
         val asset = mergeNonConflictingChanges(localAsset, metadata, remote)
-        val restored = if (metadata?.remoteState == "deleted") {
-            restore(assetId, token, metadata.vectorClock, operationId)
-        } else {
-            remote?.config
-        }
-        val base = restored ?: remote?.config
+        val base = remote?.config
         val response = uploadAsset(
             token = token,
             masterPassword = masterPassword,
