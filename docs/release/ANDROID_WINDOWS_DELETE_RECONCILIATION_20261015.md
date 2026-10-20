@@ -268,3 +268,15 @@ K60 `adb install -r` 返回 `Success`，设备内新 `base.apk` 哈希与新 APK
 推送 Android 修复和台账后，同提交 `2fb0b60` 的 [Windows Client #154](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39381432576) 失败：安全测试 332 项中 331 通过、1 失败，失败项 `PausedSftpTransferCancelsOnTheFirstRequest` 在 `MainWindowViewModelTests.cs:1485` 期望原生取消调用计数 1、实际为 0；Windows 包未因此构建。该失败独立于 Android 墓碑真机结果，不能因后者通过而忽略。此前同一 SFTP 测试在旧 CI 曾因短时下载窗口、待运行项计数而失败，记录仍保留在本文前节。
 
 源码时序复核：SFTP 任务先标记为 `Running`，然后才在 `Task.Run` 内进入受检核心下载并注册原生请求取消回调。旧测试只等 UI `Running` 就立即点击取消；若工作线程尚未进入核心，此时**没有原生请求需要取消**，故计数 0 可以是正确的预派发取消。测试现使用独立进入门禁，待假核心确实进入下载后才开始暂停/取消，使“首次取消已在途原生请求”成为明确前置；产品 SFTP 实现未改。Mac 本机没有 .NET SDK，不能将这次源码修正冒充本地 Windows 单测通过；须以补丁提交的 Windows CI 及后续设备回归为准。首次 331/332 失败保留，不能被后续重跑覆盖。
+
+2026-10-20 后续核对：补丁提交 `9d52ace` 的 [Windows Client #156](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39382151791)、[Linux Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39382151821) 均 `success`；同提交 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39382151804) 整体 `success`。门禁中 Rust、桌面视觉、Android Release、Android 15 仪器与迁移、Apple checked-path、依赖/许可证扫描均通过；macOS 签名 UI 和 OpenSSH 候选冒烟按配置 `skipped`，**不属于已执行通过**。这关闭了本次 CI 红灯，但不改变前次 Windows 331/332 失败事实，也不代替 Windows 实体机 SFTP 暂停/取消或五端真机墓碑验收。
+
+## 2026-10-20 “恢复并保留本地修改”反向冲突：镜像输入故障，未完成
+
+用户当次授权后，从 `9d52ace` 建立一次性 detached 检出，仅在 `.qa` 包临时跳过 `FLAG_SECURE`；产品分支未改该保护。离线 `assembleQa -x :app:buildOrbitAndroidCore` 成功，临时 arm64 APK SHA-256 为 `2df64758362f8fe76969966b1a9fcd1e171951b6c767c7edba2faeeba10ac94a`，签名证书 SHA-256 与原 QA 相同。安装 `Success` 后，K60 镜像能够显示独立 QA 资产列表的原 4 项，并进入“添加资产”表单；准备的虚构夹具使用文档保留网段，未连接主机。Windows 测试机也打开过新增表单，但远程文本输入发生字段拼接，**在保存前取消**，没有生成 Windows 资产。
+
+K60 表单中的名称、分组、保留网段地址及虚构用户名一度在画面上逐项可见；镜像点击不稳定，进入密码输入区域后镜像变成持续黑屏。只读窗口检查仍指向 QA 主活动，且当时该窗口属性未列 `SECURE`；没有看到崩溃日志，但这只能说明**镜像/页面输入链路未能继续观察**，不能推断是产品保护或业务保存故障。K60 虚构资产**未见保存成功证据**，Windows 端未见接收；本轮没有启动 QA 包断网、离线编辑、Windows 软删除、冲突选择或双端同步，因此“恢复并保留本地修改”真机分支仍为**未验**，不能写成通过。前一轮“接受云端删除”通过及其首次失败记录不变。
+
+立即覆盖安装原受保护修复版 QA，返回 `Success`；设备内 `base.apk` SHA-256 已与留存正常 APK 的 `a89bbc2b8a8330545d2435d95c7cbee9cb9e18c0426476cff0fa12d3ca9d4063` 完全一致。QA 包联网策略为 `allow`，专用阻断链为 `disabled`；一次性检出回退临时源码并移除。没有触碰正式包、真实 Debian/RDP 资产、线上服务或永久删除。**本次未在恢复后重新以 GUI 核对黑屏保护**；保护恢复的证据为精确安装包哈希与源码，需在可用镜像链路下补运行时复核。
+
+分层结论：**源码**没有新增产品提交；**自动化**仅临时 QA 编译成功，同提交远端 CI 结果如上；**隔离 GUI**无新增；**真实设备**只确认 K60 初始列表和未保存表单，反向冲突未完成，Windows 无新夹具；**五端完整验收未完成**。下轮优先修复或绕开 K60 镜像触控/黑屏与 Windows RDP 文本通道，再新建唯一虚构资产并逐项核对：两端已同步接收 → K60 仅 QA 断网编辑 → Windows 在线软删并确认墓碑 → K60 联网后明确选择“恢复资产并保留本地修改” → 两端双次同步、编辑内容保持、最近删除状态与进程重启不复活。Android/Windows 对照还需分别补该正向分支、Windows 原生 SFTP 在途取消及签名 macOS UI/五端矩阵；不得用这次未完成尝试替代结果。
