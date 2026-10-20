@@ -2632,7 +2632,7 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
-    public async Task RepeatedMonitorFailuresClearStaleConnectedAndMetricState()
+    public async Task RepeatedMonitorFailuresKeepReachableSftpSessionConnected()
     {
         var now = DateTimeOffset.Parse("2026-08-15T12:00:00Z", System.Globalization.CultureInfo.InvariantCulture);
         var coreClient = new FakeCheckedCoreClient { MonitorFailureCode = "remote_unavailable" };
@@ -2650,11 +2650,36 @@ public sealed class MainWindowViewModelTests
                 !viewModel.RefreshMonitorSnapshotCommand.IsRunning);
         }
 
+        Assert.True(viewModel.IsConnected);
+        Assert.True(viewModel.IsTerminalOpen);
+        Assert.Equal("监控刷新失败", viewModel.MonitorStatus);
+        Assert.Equal(0, viewModel.MonitorTrendPointCount);
+        Assert.DoesNotContain("失去响应", viewModel.Status, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RepeatedMonitorFailuresDisconnectWhenIndependentTcpProbeIsUnreachable()
+    {
+        var now = DateTimeOffset.Parse("2026-08-15T12:00:00Z", System.Globalization.CultureInfo.InvariantCulture);
+        var coreClient = new FakeCheckedCoreClient { MonitorFailureCode = "remote_unavailable" };
+        var viewModel = CreateViewModel(coreClient, utcNow: () => now, tcpReachable: false);
+        viewModel.Password = "secret";
+        viewModel.ConnectCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.IsConnected);
+        var initialMonitorCalls = coreClient.MonitorSnapshotCallCount;
+
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            now = now.AddSeconds(2);
+            viewModel.RefreshMonitorSnapshotCommand.Execute(null);
+            await WaitUntilAsync(() => coreClient.MonitorSnapshotCallCount >= initialMonitorCalls + attempt + 1 &&
+                !viewModel.RefreshMonitorSnapshotCommand.IsRunning);
+        }
+
         Assert.False(viewModel.IsConnected);
         Assert.False(viewModel.IsTerminalOpen);
         Assert.Equal("监控待命", viewModel.MonitorStatus);
         Assert.Equal("尚无监控快照", viewModel.MonitorSummary);
-        Assert.Equal(0, viewModel.MonitorTrendPointCount);
         Assert.Contains("失去响应", viewModel.Status, StringComparison.Ordinal);
     }
 
@@ -3096,7 +3121,8 @@ public sealed class MainWindowViewModelTests
         Func<DateTimeOffset>? utcNow = null,
         Action<Action>? dispatch = null,
         TimeSpan? terminalUiFrameInterval = null,
-        AccountUnlockController? accountUnlockController = null)
+        AccountUnlockController? accountUnlockController = null,
+        bool tcpReachable = true)
     {
         credentialVault ??= new MemoryCredentialVault();
         var orchestrator = new SessionOrchestrator(
@@ -3115,8 +3141,8 @@ public sealed class MainWindowViewModelTests
             accountUnlockController: accountUnlockController,
             utcNow: utcNow,
             terminalUiFrameInterval: terminalUiFrameInterval ?? TimeSpan.Zero,
-            tcpLatencyProbe: static (_, _, _) =>
-                Task.FromResult(new TcpLatencyProbeResult(true, 18.4)));
+            tcpLatencyProbe: (_, _, _) =>
+                Task.FromResult(new TcpLatencyProbeResult(tcpReachable, tcpReachable ? 18.4 : null)));
         if (seedDefaultAsset)
         {
             var asset = new AssetViewModel(

@@ -4834,6 +4834,7 @@ public sealed class MainWindowViewModel : ObservableObject
         var serverId = draftAssetId;
         var monitoredHost = Host.Trim();
         var monitoredPort = ParsedPort;
+        Task<TcpLatencyProbeResult>? latencyTask = null;
         try
         {
             // The checked native monitor call performs a remote SSH exec before
@@ -4841,7 +4842,7 @@ public sealed class MainWindowViewModel : ObservableObject
             // an overloaded host or a slow network would otherwise freeze
             // terminal input, rendering, and window activation while auto-
             // refresh is on.
-            var latencyTask = tcpLatencyProbe(
+            latencyTask = tcpLatencyProbe(
                 monitoredHost,
                 monitoredPort,
                 cancellationToken);
@@ -4893,7 +4894,10 @@ public sealed class MainWindowViewModel : ObservableObject
                     MonitorSummary = FormatMonitorFailure(failed.Code);
                     SessionActionSummary = "监控刷新失败";
                     SaveMonitorRuntimeStateToSelectedWorkspaceTab();
-                    if (consecutiveMonitorFailures >= 3)
+                    // An SSH exec policy may reject monitor commands while the
+                    // terminal and SFTP channels remain healthy. Only an
+                    // independently unreachable host can invalidate the session.
+                    if (consecutiveMonitorFailures >= 3 && !tcpLatency.Connected)
                     {
                         MarkCurrentConnectionLost("远端资产已失去响应，请重新连接");
                     }
@@ -4906,12 +4910,33 @@ public sealed class MainWindowViewModel : ObservableObject
         }
         catch (Exception)
         {
+            bool? tcpConnected = null;
+            if (latencyTask is not null)
+            {
+                try
+                {
+                    tcpConnected = (await latencyTask.ConfigureAwait(true)).Connected;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception)
+                {
+                    // An inconclusive probe must not tear down a live SSH or
+                    // SFTP session; its own transport callbacks detect closure.
+                }
+            }
+            if (!IsConnected || CurrentWorkspaceId != workspaceId || draftAssetId != serverId)
+            {
+                return;
+            }
             consecutiveMonitorFailures++;
             MonitorStatus = "监控刷新失败";
             MonitorSummary = "暂时无法读取远端监控，请检查连接后重试。";
             SessionActionSummary = "监控刷新失败";
             SaveMonitorRuntimeStateToSelectedWorkspaceTab();
-            if (consecutiveMonitorFailures >= 3)
+            if (consecutiveMonitorFailures >= 3 && tcpConnected is false)
             {
                 MarkCurrentConnectionLost("远端资产已失去响应，请重新连接");
             }
