@@ -7183,6 +7183,13 @@ public sealed class MainWindowViewModel : ObservableObject
                     processed++;
                     continue;
                 }
+                // The checked core reports a cancelled transfer as a failed
+                // envelope, not an OperationCanceledException. Keep the user-
+                // requested cancellation distinct from a transfer failure.
+                if (result is SftpDownloadResult.Failed && linkedCancellation.IsCancellationRequested)
+                {
+                    throw new OperationCanceledException(linkedCancellation.Token);
+                }
                 if (result is SftpDownloadResult.Downloaded)
                 {
                     completed++;

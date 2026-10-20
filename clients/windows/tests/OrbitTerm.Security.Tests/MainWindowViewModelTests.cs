@@ -1456,6 +1456,7 @@ public sealed class MainWindowViewModelTests
         {
             SftpDownloadEnteredGate = downloadEnteredGate,
             SftpDownloadReleaseGate = downloadReleaseGate,
+            ReturnCancelledDownloadErrorAfterCancel = true,
         };
         var viewModel = CreateViewModel(coreClient);
         viewModel.Password = "secret";
@@ -1499,6 +1500,11 @@ public sealed class MainWindowViewModelTests
             if (operation is not null) await operation;
             Directory.Delete(downloadDirectory, recursive: true);
         }
+
+        Assert.All(viewModel.ActiveSftpTransferTasks,
+            task => Assert.Equal(SftpTransferTaskState.Cancelled, task.State));
+        Assert.Contains("批量下载已取消", viewModel.SftpTransferStatus, StringComparison.Ordinal);
+        Assert.DoesNotContain("部分失败", viewModel.SftpTransferStatus, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -3127,6 +3133,7 @@ public sealed class MainWindowViewModelTests
         public int SftpDownloadDelayMilliseconds { get; init; }
         public ManualResetEventSlim? SftpDownloadEnteredGate { get; init; }
         public ManualResetEventSlim? SftpDownloadReleaseGate { get; init; }
+        public bool ReturnCancelledDownloadErrorAfterCancel { get; init; }
         public int SftpUploadDelayMilliseconds { get; init; }
         public ManualResetEventSlim? SftpUploadReleaseGate { get; init; }
         private int sftpUploadInFlight;
@@ -3394,6 +3401,15 @@ public sealed class MainWindowViewModelTests
                 !releaseGate.Wait(TimeSpan.FromSeconds(20)))
             {
                 throw new TimeoutException("Timed out waiting to release the deterministic SFTP download gate.");
+            }
+            if (ReturnCancelledDownloadErrorAfterCancel && CancelSftpTransferCallCount > 0)
+            {
+                return new CheckedEnvelope(
+                    1,
+                    "error",
+                    requestId.Value,
+                    null,
+                    new CheckedErrorPayload("sftp_transfer_cancelled", "error.sftp.transfer_cancelled", requestId.Value));
             }
             return CreateEnvelope(
                 CheckedFfiKind.SftpDownloadCompleted,

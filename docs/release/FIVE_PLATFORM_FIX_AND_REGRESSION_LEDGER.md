@@ -1,6 +1,6 @@
 # 五端整改与真机回归台账
 
-更新：2026-10-19。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
+更新：2026-10-20。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
 
 ## 记账规则
 
@@ -8,6 +8,12 @@
 - 真机记录仅使用测试夹具代号，不写账号、凭据、令牌、主机地址、设备 UDID 或未脱敏请求/响应体。保留失败的原始分类和首次结果；重跑通过另记，不覆盖失败。
 - Apple、Android、Windows 契约源码现已分别固化为 `c62b60f`、`e13b0be`、`7a2ca23`；这是**源码候选**，不是已签名分发包或五端验收。服务端隔离分支尚未部署，不能用线上旧服务替代新契约联调。
 - 每次跨端操作都记录：五端安装包的提交和签名身份、服务端版本、操作方向、是否离线、操作前后活动/最近删除数量、本机凭据状态、持久队列与重复同步结果。永久删除及每个新实例的法律条款接受仍按实际操作时的确认规则执行。
+
+## 2026-10-20 Windows SFTP 暂停→取消专项
+
+| 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
+| --- | --- | --- | --- | --- | --- |
+| `WINDOWS-SFTP-PAUSE-CANCEL-101` | 原包 Windows 独立 QA `a7118c1`；当前工作树候选修正批处理把原生取消错误包误计为“部分失败”的分类。临时只读 SFTP 夹具使用虚构慢速文件、匹配后才信任的临时主机密钥、仅本机资产；服务已停止。详见 [专项日志](WINDOWS_SFTP_PAUSE_CANCEL_20261020.md)。 | 新增“暂停→首次取消→原生返回取消错误包”确定性断言；本机无 `dotnet`，**尚未运行**，固定提交 CI 待补。 | 无新增隔离 GUI 结果。 | Windows 10 原生 QA：下载时“已暂停”可见，点取消后任务为“传输已取消”，但顶层错误提示“批量下载部分失败：成功 0/1，失败 1”，**原包未通过**。首次无空会话夹具取消结果和重新选目录两次失败也保留；修复候选尚未安装或真机复测。 | **五端完整验收未完成**。Windows 修复版重跑同一慢速下载→暂停→取消，要求任务和批处理同为取消、无完整残留文件、重试可用，并单列目录选择器异常；Android 对照任务分类、部分文件清理与重试。不能把源码候选或原包底层取消等同于放行。 |
 
 ## 2026-10-15 K60 真机离线删除与 Windows 原生首启
 
