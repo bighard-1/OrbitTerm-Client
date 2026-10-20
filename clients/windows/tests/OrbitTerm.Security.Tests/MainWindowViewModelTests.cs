@@ -1450,8 +1450,13 @@ public sealed class MainWindowViewModelTests
     [Fact]
     public async Task PausedSftpTransferCancelsOnTheFirstRequest()
     {
+        using var downloadEnteredGate = new ManualResetEventSlim(false);
         using var downloadReleaseGate = new ManualResetEventSlim(false);
-        var coreClient = new FakeCheckedCoreClient { SftpDownloadReleaseGate = downloadReleaseGate };
+        var coreClient = new FakeCheckedCoreClient
+        {
+            SftpDownloadEnteredGate = downloadEnteredGate,
+            SftpDownloadReleaseGate = downloadReleaseGate,
+        };
         var viewModel = CreateViewModel(coreClient);
         viewModel.Password = "secret";
         viewModel.ConnectCommand.Execute(null);
@@ -1469,6 +1474,9 @@ public sealed class MainWindowViewModelTests
             operation = viewModel.DownloadSelectedSftpEntriesAsync(downloadDirectory, CancellationToken.None);
             await WaitUntilAsync(() => viewModel.ActiveSftpTransferTasks.Any(
                 task => task.State == SftpTransferTaskState.Running));
+            // Running is published before Task.Run enters the checked core. A
+            // pre-dispatch cancellation has no native request to cancel.
+            await WaitUntilAsync(() => downloadEnteredGate.IsSet);
             var task = Assert.Single(
                 viewModel.ActiveSftpTransferTasks,
                 task => task.State == SftpTransferTaskState.Running);
@@ -3117,6 +3125,7 @@ public sealed class MainWindowViewModelTests
         public List<string> SftpDownloadLocalPaths { get; } = [];
         public int CancelSftpTransferCallCount { get; private set; }
         public int SftpDownloadDelayMilliseconds { get; init; }
+        public ManualResetEventSlim? SftpDownloadEnteredGate { get; init; }
         public ManualResetEventSlim? SftpDownloadReleaseGate { get; init; }
         public int SftpUploadDelayMilliseconds { get; init; }
         public ManualResetEventSlim? SftpUploadReleaseGate { get; init; }
@@ -3376,6 +3385,7 @@ public sealed class MainWindowViewModelTests
             DownloadSftpFileCallCount++;
             SftpDownloadSessionIds.Add(sftpSessionId);
             SftpDownloadLocalPaths.Add(localPath);
+            SftpDownloadEnteredGate?.Set();
             if (SftpDownloadDelayMilliseconds > 0)
             {
                 Thread.Sleep(SftpDownloadDelayMilliseconds);

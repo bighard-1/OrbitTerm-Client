@@ -374,6 +374,8 @@
 
 ## 后续追加记录
 
+- 2026-10-19｜`FIX-20261019-02`｜[Windows Client #154](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39381432576) 对 `2fb0b60` 的 332 项安全单测为 331 通过、1 失败；旧 `PausedSftpTransferCancelsOnTheFirstRequest` 在任务 UI 先置 `Running`、原生请求尚未开始的竞争窗口里，把“未调用原生取消”误判为失败。测试修正为先等假核心下载请求实际进入再暂停/取消，**产品 SFTP 代码未改**；详见 [Windows CI 失败记录](ANDROID_WINDOWS_DELETE_RECONCILIATION_20261015.md#windows-ci-暂停下载取消断言失败及定向处理)。｜**自动化**：失败首次结果保留；Mac 无 .NET SDK，本地 Windows 测试未运行；修正提交 CI 待验，不记通过。｜**隔离 GUI/真实设备**：本条未做新 GUI 或 Windows 实体机传输测试，既有 K60×Windows 墓碑结果不受该测试断言说明替代。｜**五端完整验收未完成**；后续检查 Windows 最新 CI 是否全绿，再对 Windows 真实 QA 补暂停→首次取消的可见状态及不产生多余传输，同时继续 Android 冲突另一选择与五端墓碑矩阵。
+
 - 2026-10-19｜`FIX-20261019-01`｜Android 待上传编辑遇对端删除时移除隐式 `restore`，要求用户明确选择；活跃回拉不含墓碑时从已认证最近删除分页核验权威墓碑，查不到则安全失败。源码提交 `dca87ac`、`664553a`；Windows QA 固定 `a7118c1`。详见 [Android/Windows 删除收敛日志](ANDROID_WINDOWS_DELETE_RECONCILIATION_20261015.md)。｜**自动化**：Android QA 单测及离线编译通过；临时镜像可见 QA 是一次性隔离构建，不是发布包；新正常受保护 QA 离线 `assembleQa` 通过，R8 非致命警告保留；未跑本提交五端 CI。｜**隔离 GUI**：无新增。｜**真实设备**：K60×Windows 用已双端接收的虚构同步资产验证“K60 离线编辑、Windows 在线软删”；旧版无明确冲突选择且 1 项受阻，首版 `dca87ac` 重试仍受阻，两次失败均保留。`664553a` 在 K60 真机弹出“云端已删除此资产”双选项；明确选“接受云端删除”后受阻归零、K60 活动列表回原 4 项、最近删除可见、两次同步不复活；Windows 两次同步仍原 4 项且无待确认冲突。原防镜像包先恢复并验哈希，随后更新同签名的正常受保护修复版 QA，安装 `base.apk` SHA-256 `a89bbc2b8a8330545d2435d95c7cbee9cb9e18c0426476cff0fa12d3ca9d4063` 与新包一致，QA 前台镜像黑屏；QA 联网 `allow`、阻断链关闭。新受保护包安装后未再穿透镜像复测冲突 GUI。**五端完整验收未完成**。｜下轮补 Android/Windows 显式“恢复并保留本地修改”正向、真实 409 与令牌轮换；iOS/macOS/Linux 对照新恢复墓碑的接收和不复活，另跑同提交全平台门禁。未永久删除、未连接虚构 SSH、未改真实 Debian/RDP 或线上服务，不能据本轮单路径宣布发布放行。
 
 在此节追加新的 `FIX-YYYYMMDD-NN` 或 `OBS-YYYYMMDD-NN`，**不删除旧异常**。每条按以下格式写：

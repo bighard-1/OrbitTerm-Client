@@ -262,3 +262,9 @@ K60 通过 USB 正常连接，包身份为独立 `com.orbitterm.android.qa`；�
 上述原包恢复与哈希核对完成后，独立执行下一步：从包含 `664553a` 修复的干净产品工作树重新构建正常启用 `FLAG_SECURE` 的 arm64 QA。离线 `assembleQa` 通过（230 项任务，22 项实际执行），R8 对第三方序列化 shrink-rule 给出非致命警告，未把它记作无警告构建。新 APK SHA-256 `a89bbc2b8a8330545d2435d95c7cbee9cb9e18c0426476cff0fa12d3ca9d4063`，签名证书 SHA-256 与既有 QA 相同，为 `487967efa5c0fdd16f5d37be2c9bc0b959807da8a6a458e2788c23d000df0751`；源码对所有包均无条件设置 `FLAG_SECURE`，没有沿用临时镜像例外。
 
 K60 `adb install -r` 返回 `Success`，设备内新 `base.apk` 哈希与新 APK 完全一致；QA 包联网为 `allow`，专用阻断链 `disabled`。从明确 QA 图标打开后只读前台窗口为 `com.orbitterm.android.qa` 主活动，镜像内容区黑屏，证明本次修复版安装后仍维持防镜像。此安装后因保护生效没有再透过镜像读取资产列表；先前冲突 GUI 正向证据来自同源码临时镜像可见 QA，**不可写成新受保护包已重复完成冲突 GUI**。正式版和线上服务未更新。
+
+### Windows CI 暂停下载取消断言失败及定向处理
+
+推送 Android 修复和台账后，同提交 `2fb0b60` 的 [Windows Client #154](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39381432576) 失败：安全测试 332 项中 331 通过、1 失败，失败项 `PausedSftpTransferCancelsOnTheFirstRequest` 在 `MainWindowViewModelTests.cs:1485` 期望原生取消调用计数 1、实际为 0；Windows 包未因此构建。该失败独立于 Android 墓碑真机结果，不能因后者通过而忽略。此前同一 SFTP 测试在旧 CI 曾因短时下载窗口、待运行项计数而失败，记录仍保留在本文前节。
+
+源码时序复核：SFTP 任务先标记为 `Running`，然后才在 `Task.Run` 内进入受检核心下载并注册原生请求取消回调。旧测试只等 UI `Running` 就立即点击取消；若工作线程尚未进入核心，此时**没有原生请求需要取消**，故计数 0 可以是正确的预派发取消。测试现使用独立进入门禁，待假核心确实进入下载后才开始暂停/取消，使“首次取消已在途原生请求”成为明确前置；产品 SFTP 实现未改。Mac 本机没有 .NET SDK，不能将这次源码修正冒充本地 Windows 单测通过；须以补丁提交的 Windows CI 及后续设备回归为准。首次 331/332 失败保留，不能被后续重跑覆盖。
