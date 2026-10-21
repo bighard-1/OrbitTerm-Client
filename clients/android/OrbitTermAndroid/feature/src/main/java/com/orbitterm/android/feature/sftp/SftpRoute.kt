@@ -28,6 +28,7 @@ import android.net.Uri
 import android.content.Context
 import android.content.ClipData
 import android.content.Intent
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.core.content.FileProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -139,6 +140,7 @@ private data class PendingSftpTransfer(
     val operation: (requestId: String, markNativeTransferStarted: () -> Boolean) -> CheckedSftpTransferResult,
     val onCompleted: (() -> Unit)? = null,
     val onDiscarded: (() -> Unit)? = null,
+    val onCancelledMessage: (() -> String)? = null,
 )
 
 /** File browser state is tied to the process-lifetime checked SSH session, never to credentials. */
@@ -480,11 +482,16 @@ class SftpViewModel @Inject constructor(
         }
     }
 
-    fun download(entry: SftpDirectoryEntry, destination: Uri) {
+    fun download(entry: SftpDirectoryEntry, destination: Uri, createdByPicker: Boolean = false) {
         if (entry.isDirectory) return
         val state = mutableUiState.value
         val sessionId = state.sftpSessionId ?: return
-        mutateTransfer("下载", "正在写入所选位置…") { requestId, markNativeTransferStarted ->
+        var emptyDestinationRemoved = false
+        mutateTransfer(
+            label = "下载",
+            detail = "正在写入所选位置…",
+            onCancelledMessage = { cancelledSftpTransferMessage("下载", emptyDestinationRemoved) },
+        ) { requestId, markNativeTransferStarted ->
             val staging = File(context.cacheDir, "sftp-download-${UUID.randomUUID()}")
             try {
                 if (!markNativeTransferStarted()) {
@@ -499,7 +506,14 @@ class SftpViewModel @Inject constructor(
                         }
                         result
                     }
-                    is CheckedSftpTransferResult.Failure -> result
+                    is CheckedSftpTransferResult.Failure -> {
+                        if (createdByPicker && orbitNativeError(result.code).code == OrbitErrorCode.OperationCancelled) {
+                            // CreateDocument has already created a new target, but no output
+                            // stream has been opened on this native-cancelled path.
+                            emptyDestinationRemoved = removeEmptyCreatedDownloadDocument(context, destination)
+                        }
+                        result
+                    }
                 }
             } finally { staging.delete() }
         }
@@ -571,6 +585,7 @@ class SftpViewModel @Inject constructor(
         detail: String,
         onCompleted: (() -> Unit)? = null,
         onDiscarded: (() -> Unit)? = null,
+        onCancelledMessage: (() -> String)? = null,
         operation: (requestId: String, markNativeTransferStarted: () -> Boolean) -> CheckedSftpTransferResult,
     ) {
         val state = mutableUiState.value
@@ -586,6 +601,7 @@ class SftpViewModel @Inject constructor(
             operation = operation,
             onCompleted = onCompleted,
             onDiscarded = onDiscarded,
+            onCancelledMessage = onCancelledMessage,
         )
         retryLastTransfer = null
         if (activeTransfer == null && !state.queuePaused) {
@@ -669,7 +685,8 @@ class SftpViewModel @Inject constructor(
                             activeTransferRequestId = null,
                             canCancelTransfer = false,
                             cancellationRequested = false,
-                            transferMessage = cancelledSftpTransferMessage(pending.label),
+                            transferMessage = pending.onCancelledMessage?.invoke()
+                                ?: cancelledSftpTransferMessage(pending.label),
                             transferMessageIsError = false,
                         )
                         if (pendingTransfers.isEmpty()) refresh() else startNextTransfer()
@@ -681,6 +698,7 @@ class SftpViewModel @Inject constructor(
                             detail = pending.detail,
                             onCompleted = pending.onCompleted,
                             onDiscarded = pending.onDiscarded,
+                            onCancelledMessage = pending.onCancelledMessage,
                             operation = pending.operation,
                         )
                     }
@@ -1089,7 +1107,7 @@ fun SftpRoute(
     var pendingArchiveDownload by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<List<SftpDirectoryEntry>>(emptyList()) }
     val uploadPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> uri?.let(viewModel::upload) }
     val downloadPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
-        pendingDownload?.let { entry -> uri?.let { viewModel.download(entry, it) } }
+        pendingDownload?.let { entry -> uri?.let { viewModel.download(entry, it, createdByPicker = true) } }
         pendingDownload = null
     }
     val archivePicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
@@ -1748,12 +1766,64 @@ private fun sftpErrorMessage(prefix: String, code: String, retryable: Boolean = 
     return "$prefix：${error.userMessage()} 诊断代码：${error.diagnosticCode}。"
 }
 
-internal fun cancelledSftpTransferMessage(label: String): String =
+internal fun cancelledSftpTransferMessage(label: String, emptyDestinationRemoved: Boolean = false): String =
     if (label == "下载") {
-        "下载已取消。系统创建的目标文件可能为空，请在保存位置检查。"
+        if (emptyDestinationRemoved) {
+            "下载已取消，已清理系统新建的空目标文件。"
+        } else {
+            "下载已取消。系统创建的目标文件可能为空，请在保存位置检查。"
+        }
     } else {
         "${label}已取消"
     }
+
+internal fun shouldRemoveEmptyCancelledDownloadTarget(
+    createdByPicker: Boolean,
+    isDocumentUri: Boolean,
+    sizeBytes: Long?,
+    flags: Int?,
+): Boolean = createdByPicker && isDocumentUri && sizeBytes == 0L &&
+    flags != null && flags and DocumentsContract.Document.FLAG_SUPPORTS_DELETE != 0
+
+private fun removeEmptyCreatedDownloadDocument(context: Context, destination: Uri): Boolean {
+    val resolver = context.contentResolver
+    val eligible = try {
+        if (!DocumentsContract.isDocumentUri(context, destination)) {
+            false
+        } else {
+            resolver.query(
+                destination,
+                arrayOf(DocumentsContract.Document.COLUMN_SIZE, DocumentsContract.Document.COLUMN_FLAGS),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                val sizeIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
+                val flagsIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_FLAGS)
+                if (!cursor.moveToFirst() || sizeIndex < 0 || flagsIndex < 0 ||
+                    cursor.isNull(sizeIndex) || cursor.isNull(flagsIndex)
+                ) {
+                    false
+                } else {
+                    shouldRemoveEmptyCancelledDownloadTarget(
+                        createdByPicker = true,
+                        isDocumentUri = true,
+                        sizeBytes = cursor.getLong(sizeIndex),
+                        flags = cursor.getInt(flagsIndex),
+                    )
+                }
+            } ?: false
+        }
+    } catch (_: Exception) {
+        false
+    }
+    if (!eligible) return false
+    return try {
+        DocumentsContract.deleteDocument(resolver, destination)
+    } catch (_: Exception) {
+        false
+    }
+}
 
 private fun formatBytes(bytes: Long): String {
     if (bytes < 1024) return "$bytes B"

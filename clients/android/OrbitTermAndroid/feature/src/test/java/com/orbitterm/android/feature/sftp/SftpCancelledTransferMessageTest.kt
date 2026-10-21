@@ -16,4 +16,12 @@ class SftpCancelledTransferMessageTest {
     fun `upload cancellation does not imply a local destination file`() {
         assertEquals("上传已取消", cancelledSftpTransferMessage("上传"))
     }
+
+    @Test
+    fun `download cancellation reports when a new empty target was removed`() {
+        assertEquals(
+            "下载已取消，已清理系统新建的空目标文件。",
+            cancelledSftpTransferMessage("下载", emptyDestinationRemoved = true),
+        )
+    }
 }
