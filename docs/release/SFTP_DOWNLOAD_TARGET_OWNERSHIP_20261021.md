@@ -26,3 +26,35 @@
 为使上传所有权条件可直接验证，将“远端排他创建成功后才允许失败清理”封装为共用 helper，产品上传流程继续使用随机临时名；测试在同一一次性 OpenSSH SFTP 会话中传入可控虚构临时名。先预置同名远端文件：排他创建失败，原内容字节保持不变；再选新临时名：确认上传操作入口确实执行，注入取消错误后新临时文件消失。此次脚本的可信会话、主机密钥变更/撤销及 Release 旧网络接口无连接场景全部通过；`orbit-core` 315 通过、2 默认忽略，Clippy、格式和补丁检查通过。退出后确认无本次夹具 `sshd` 进程。
 
 **证据层级**仍为本机隔离真实协议与自动化，不是五端 GUI/真机。注入测试直接覆盖排他创建/失败清理边界，没有证明大文件上传中途网络断开、上传发布与回滚、真实远端权限异常或恶意进程反复替换临时路径；后续 Windows/K60 QA 和其余端仍须分开验收。`06b9c10` 的 CI 在本次读取时 Linux 成功、Windows 与 Security Gates 运行中，且不含本测试提交；最新固定提交远端 CI 待核对。
+
+## 固定候选 CI 与 Windows 原生包安装前核验（`8c97c28`）
+
+本次候选分支头为 `8c97c28`。PR 合并测试提交 `4e44eee6bd28ce092c5a8d36d7cf00c8688b8ada` 与该分支头的 Git tree 同为 `fbc90f0d8d31fc5190b8939664e6141dacba2ed9`；两者提交身份不同、源码树相同。固定候选 [Windows Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39560644417) 与 [Linux Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39560644449) 均 `completed/success`。本节记录时 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39560644444) 仍运行中：Rust release、依赖扫描、桌面契约通过；Android instrumentation、Android release、Apple checked-path 仍运行；macOS 签名 UI smoke 与 OpenSSH release-candidate smoke 按工作流条件跳过。不能把尚未完成的总门禁记为通过，亦不能把跳过项记为通过。
+
+Windows 工作流归档 `OrbitTerm-Windows-x64-Test-4e44eee6bd28ce092c5a8d36d7cf00c8688b8ada` 下载到加密外置盘；归档 SHA-256 为 `3ca7001abb87d38a49118d439eaf874a201645dd3d21103eff0a65808c4a0a46`，与 GitHub 产物摘要一致，ZIP 完整性通过。内层 `OrbitTerm_0.3.0.33_x64_Test.msix` SHA-256 为 `0eaaf7aaebfdc60e7dbff1f6b0e2ef82869cc31911bfb6324916e8235c59b1d4`，与随包 `SHA256.txt` 一致；清单身份为 `OrbitTerm.Client`、x64、版本 `0.3.0.33`、测试发布者。内嵌签名者的公用证书与随包证书指纹一致。这些是**离线完整性及签名者匹配**，不是 Windows 信任链验证。
+
+Windows 10 专用测试机只读检查：旧独立 QA 同版本，包状态 `Ok`；当前 `TrustedPeople` 仅有一张旧 OrbitTerm 测试证书，指纹与新证书不同。先尝试经 Mac Windows App 的 PowerShell 远程键盘输入局域网下载 URL，两次分别因标点误录导致 PowerShell 解析失败和 curl `Bad hostname`；没有成功传输或执行下载文件，**失败保留为远控输入异常**。只暴露 QA 包和公用测试证书的临时只读 HTTP 服务随即关闭。随后通过已授权的局域网 SMB 管理共享，仅将这两个文件复制到 Windows 测试账户专用暂存目录；Windows 本机 `Get-FileHash` 对 MSIX 和证书的 SHA-256 均与 Mac 源文件相符，SMB 挂载随即卸载。导入前 Windows `Get-AuthenticodeSignature` 对新 MSIX 返回 `UnknownError`，签名者指纹与新证书相符；在新证书未受信任时**不得写作 `Valid`**。
+
+为防同版本 QA 更新影响测试状态，又对旧 QA 的包外账户 DPAPI 目录及包内 `Settings` 目录做只读备份至加密外置盘；源/备份逐目录比较没有差异，随后卸载 SMB 挂载。备份未解密、未提交仓库，不含 Windows `Helium` 系统注册表目录，**不宣称全量包数据可恢复**。旧 QA 目前仍在原样运行；待更新时仍需先正常退出并核对原资产和同步状态。
+
+**设备/范围**：本轮已经完成的是 Windows 实体测试机上的只读包身份和传输核验；没有导入新证书、安装/启动新 QA、操作资产或连接 SFTP，K60/iOS/macOS/Linux GUI 均未更新。下一步须在证书导入及 QA 更新获当次确认后，先复查 Windows 系统签名 `Valid`、包状态和原测试数据，再用隔离 SFTP 夹具对照已存在下载目标、普通取消与上传临时名碰撞。Android/Windows 真机结果仍不能代替其余三端；五端完整验收未完成。
+
+## Windows 专用测试机受控 QA 更新（同一候选）
+
+用户针对**本次新测试证书与独立 QA 更新**确认允许后，旧 Windows QA 先在原生 GUI 只读核对活动资产 6 项、待确认冲突 0 项，再正常关闭。关闭后对包外账户 DPAPI 目录及包内 `Settings` 目录重新备份到加密外置盘，源/备份逐目录一致；仍不含 `Helium`，不声称全量包状态可恢复。将 CI 原名安装脚本、公用测试证书及 MSIX 复制到测试账户专用目录；文件传输首次即时 `cmp` 非零，随后同文件 SHA-256 与源一致、重跑 `cmp` 为零，按一次暂时读/写时序异常保留，不用首次结果作校验成功依据。SMB 挂载随后卸载。
+
+运行归档自带安装脚本：它先把本次测试证书导入此测试机 `LocalMachine/TrustedPeople`、要求 MSIX 系统签名为 `Valid`，再针对同版本旧 QA 做受控替换并启动独立 QA。脚本明确回报安装完成；Windows 再独立执行 `Get-AuthenticodeSignature` 为 **`Valid`**（导入前 `UnknownError` 历史保留），`Get-AppxPackage` 为 `OrbitTerm.Client` / `0.3.0.33` / x64 / **`Status=Ok`**。新 GUI 到原账户主密码页，表明已启动，但尚不证明应用数据可解锁。首次使用 Windows App 远程键盘逐字符输入测试主密码仍被判“不正确，数据保持锁定”；已停止重试，请用户在当前窗口亲自输入。此失败不能单凭界面判定为产品主密码校验缺陷，也不能记为新版 QA 已通过资产/同步验收。
+
+新 QA 已运行至主密码页且新包 `Status=Ok`、签名 `Valid` 后，按此次授权的旧证书清理范围，用导入前已记录的**精确旧指纹**仅从该 Windows 测试机 `TrustedPeople` 删除上一张 OrbitTerm 测试证书；命令回报成功。再次只读枚举该库，仅有新 OrbitTerm 测试证书；新 MSIX 的系统签名仍为 `Valid`。旧公用测试证书留在既有归档中，可按需重新导入；没有删除其它证书或更改正式版。**清理不等于新 QA 数据解锁成功**，后者仍等待用户在本机输入主密码。
+
+本次未启动 SFTP 夹具、没有操作真实资产，K60 与其余三端未改。五端完整验收继续开放。
+
+## 固定提交门禁最终结果与 Windows SFTP 真机复测
+
+固定 `8c97c28afb1c74b982f329b1b64a6680e46bd6b6` 的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39560644444) 后续整体 `completed/success`：Android 15 模拟器仪器/迁移、Android Release、Apple checked-path、Rust Release、依赖扫描、桌面契约均成功；macOS 签名 UI smoke 与 OpenSSH release-candidate smoke 依工作流条件 **`skipped`**，不能按成功验收。该结果对应修复候选源码，不代替下列 Windows GUI 或五端同版真机。
+
+用户在 Windows App 中亲自解锁新 Windows QA 后，原活动资产按分组为 1+1+2+2，共 **6 项**，未见已删夹具复活；个人中心显示待确认冲突 **0**。手动同步两次后，底栏均为云端已同步/本机队列已处理，个人中心仍显示更新 5 项、待确认冲突 0。安装前为活动 6 项、冲突 0；这是**本机状态保持和有限双同步**，不是五端墓碑矩阵或长驻令牌竞态的完整证明。远程代输主密码一次被判错的失败仍保留，用户本人输入后成功，不反推产品密码算法故障。
+
+复用此前已核对 ED25519 指纹的 Mac 私有隔离 SFTP-only 夹具：仅允许本机和两台测试设备访问，虚构只读文件、禁用 shell/写入，15 分钟自动到期。Windows QA 的原有“仅此设备”夹具资产连接后终端显示限制说明，SFTP 列出两个虚构文件；默认资源监控未为本轮关闭。对慢速文件选择专用测试下载目录，任务实际从 0 增长；约 2 MiB 时暂停，状态变“已暂停”；恢复后进度继续增长，再取消，界面显示“批量下载已取消”及单项“已取消”。经 Windows 文件共享**只读**独立列举专用目录，取消后 0 个普通文件；SFTP 再刷新仍报告两个远端文件，会话显示已连接。夹具定向停止后核对端口无监听，SMB 挂载亦已卸载；真实资产、正式版、线上服务未操作。
+
+**未覆盖**：该 Windows GUI 只验证普通慢速下载的暂停/恢复/取消与本次目标清理；“规划目标后被另一个进程抢先创建”的竞态尚不能由 GUI 稳定注入，上传远端临时名排他碰撞仅本机隔离真实协议测试通过、没有 Windows GUI 注入。没有验证正常 128 MiB 全量下载字节哈希、非空目标、第三方文档提供方、断网或恶意高频路径替换。K60 本轮未重装；iOS/macOS/Linux 新候选 GUI 也未跑。五端完整验收仍未完成。
