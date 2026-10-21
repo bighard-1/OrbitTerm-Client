@@ -1,6 +1,6 @@
 # 五端整改与真机回归台账
 
-更新：2026-10-20。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
+更新：2026-10-21。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
 
 ## 记账规则
 
@@ -8,6 +8,12 @@
 - 真机记录仅使用测试夹具代号，不写账号、凭据、令牌、主机地址、设备 UDID 或未脱敏请求/响应体。保留失败的原始分类和首次结果；重跑通过另记，不覆盖失败。
 - Apple、Android、Windows 契约源码现已分别固化为 `c62b60f`、`e13b0be`、`7a2ca23`；这是**源码候选**，不是已签名分发包或五端验收。服务端隔离分支尚未部署，不能用线上旧服务替代新契约联调。
 - 每次跨端操作都记录：五端安装包的提交和签名身份、服务端版本、操作方向、是否离线、操作前后活动/最近删除数量、本机凭据状态、持久队列与重复同步结果。永久删除及每个新实例的法律条款接受仍按实际操作时的确认规则执行。
+
+## 2026-10-21 SFTP 下载目标所有权补强
+
+| 编号 | 源码/候选构建 | 自动化 | 隔离 GUI | 真实设备 | 五端完整验收与 Android/Windows 后续对照 |
+| --- | --- | --- | --- | --- | --- |
+| `SFTP-TARGET-OWNERSHIP-115` | 共用 Rust checked 下载路径源码提交 `7dfe8d7`：旧代码在 `create_new` 因目标已存在而失败后仍可能清理该路径，存在误删他进程文件风险；新代码只在本次成功创建目标后执行失败清理。此为源码推导风险，**未观察到真实文件丢失**。详见[所有权边界日志](SFTP_DOWNLOAD_TARGET_OWNERSHIP_20261021.md)。本轮未构建/安装新五端签名包。 | 现有目标拒绝覆盖且保留原字节、新目标部分写入后取消清理，两项回归通过；`orbit-core` 定向 6/6、全库 315 通过/2 忽略，Clippy 严格检查与格式检查通过。此前 `f189d56` 的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39557150655) 本次读取仍运行中，不含本修复；`7dfe8d7` 远端门禁待核对。 | 本轮无隔离 GUI；文件级自动化不等同 GUI。 | 本轮未重装/操作真机。Windows `b921c58` 旧候选在默认监控下两轮暂停取消后目录 0 文件；K60 `f0c9c71` 旧候选清理 SAF 新建空目标通过。Windows 原包“部分失败”及旧候选重试断线、Android 前版 0 字节残留失败均继续保留；两端旧结果不证明本修复真机通过。 | **五端未完成**。Windows 用新签名 QA 补“目标被并发创建不误删”与普通取消只清本次文件；Android 区分本地路径与 SAF，补真实第三方提供方拒绝删除、失败重试；iOS/macOS/Linux 对照各自下载目标。外部进程高频替换目标路径未测。 |
 
 ## 2026-10-20 Android K60 SFTP-only 对照与取消分类
 
