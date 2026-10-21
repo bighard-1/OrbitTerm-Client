@@ -33,6 +33,7 @@ import android.provider.OpenableColumns
 import androidx.core.content.FileProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import java.io.OutputStream
 import java.util.ArrayDeque
 import java.util.UUID
 import java.util.zip.ZipEntry
@@ -87,6 +88,7 @@ import com.orbitterm.android.ui.design.OrbitFormDialog
 import com.orbitterm.android.ui.design.OrbitStatusLine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -499,12 +501,9 @@ class SftpViewModel @Inject constructor(
                 }
                 when (val result = sftpClient.download(sessionId, childPath(state.path, entry.name), staging.absolutePath, requestId)) {
                     is CheckedSftpTransferResult.Completed -> {
-                        val output = context.contentResolver.openOutputStream(destination)
-                            ?: return@mutateTransfer CheckedSftpTransferResult.Failure("destination_unwritable")
-                        output.use { destinationStream ->
-                            staging.inputStream().use { sourceStream -> sourceStream.copyTo(destinationStream) }
+                        copyDownloadedStagingToDestination(staging, result) {
+                            context.contentResolver.openOutputStream(destination)
                         }
-                        result
                     }
                     is CheckedSftpTransferResult.Failure -> {
                         if (createdByPicker && orbitNativeError(result.code).code == OrbitErrorCode.OperationCancelled) {
@@ -1849,6 +1848,22 @@ internal fun removeEmptyCreatedDownloadDocument(context: Context, destination: U
             override fun delete(): Boolean = DocumentsContract.deleteDocument(resolver, destination)
         },
     )
+}
+
+/** A provider may refuse opening, writing, or closing a newly selected target. Keep it for inspection/retry. */
+internal fun copyDownloadedStagingToDestination(
+    staging: File,
+    downloaded: CheckedSftpTransferResult.Completed,
+    openDestination: () -> OutputStream?,
+): CheckedSftpTransferResult = try {
+    val destination = openDestination()
+        ?: return CheckedSftpTransferResult.Failure("destination_unwritable")
+    destination.use { output -> staging.inputStream().use { input -> input.copyTo(output) } }
+    downloaded
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (_: Exception) {
+    CheckedSftpTransferResult.Failure("destination_unwritable")
 }
 
 private fun formatBytes(bytes: Long): String {
