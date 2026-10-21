@@ -522,7 +522,7 @@ private fun MoreScreen(
                     Spacer(Modifier.width(8.dp))
                     Text(if (syncStatus is SyncStatus.Syncing) "同步中…" else "立即同步")
                 }
-                SettingLabel("最近删除", "联网查看云端删除记录；离线删除在同步后显示")
+                SettingLabel("最近删除", "仅显示账户同步资产的云端删除记录；“仅此设备”删除后不显示")
                 TextButton(onClick = {
                     recentlyDeletedVisible = true
                     onLoadRecentlyDeleted()
@@ -702,7 +702,7 @@ private fun MoreScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Text(
-                        "这里需联网读取云端删除记录。本机离线删除会先排队，联网同步完成后才显示。恢复会重新写入本机安全存储；永久删除不可撤销。",
+                        "这里需联网读取账户同步资产的云端删除记录；此类资产离线删除会先排队，同步完成后才显示。“仅此设备”资产删除后不会出现在这里，无法在应用内恢复。恢复云端资产会重新写入本机安全存储；永久删除不可撤销。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

@@ -89,6 +89,8 @@ data class AssetEditorUiState(
     val networkDeviceProfile: NetworkDeviceProfile = NetworkDeviceProfile.auto,
     val allowPasswordFallback: Boolean = false,
     val storageScope: AssetStorageScope = AssetStorageScope.LOCAL_ONLY,
+    /** The persisted scope must not change when the unsaved editor selection changes. */
+    val persistedStorageScope: AssetStorageScope = AssetStorageScope.LOCAL_ONLY,
     val isAccountSignedIn: Boolean = false,
     val password: String = "",
     val privateKeyContent: String = "",
@@ -644,18 +646,23 @@ class AssetsViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    assetMutations.delete(draft.toAsset())
+                    val persisted = requireNotNull(assetRepository.findAsset(draft.id)) {
+                        "asset is no longer present"
+                    }
+                    assetMutations.delete(persisted)
+                    persisted
                 }
-            }.onSuccess {
+            }.onSuccess { deleted ->
                 pendingEditorSecondFactors.remove(draft.id)
                 editor.value = null
-                operationNotice.value = DELETION_QUEUED_NOTICE
-                syncRequests.requestSync()
+                val scopes = listOf(deleted.storageScope)
+                operationNotice.value = assetDeletionNotice(scopes)
+                if (requiresCloudDeletionSync(scopes)) syncRequests.requestSync()
             }.onFailure {
                 editor.value = draft.copy(
                     isDeleting = false,
                     deleteConfirmationVisible = false,
-                    validationError = "删除失败，请稍后重试。",
+                    validationError = "删除未确认完成，请先核对资产列表与同步状态；“仅此设备”资产一旦移除无法在应用内恢复。",
                 )
             }
         }
@@ -673,10 +680,11 @@ class AssetsViewModel @Inject constructor(
                     }
                 }
             }.onSuccess {
-                operationNotice.value = deletionNotice(targets.size)
-                syncRequests.requestSync()
+                val scopes = targets.map { it.storageScope }
+                operationNotice.value = assetDeletionNotice(scopes)
+                if (requiresCloudDeletionSync(scopes)) syncRequests.requestSync()
             }
-                .onFailure { operationError.value = "批量删除失败，请稍后重试。" }
+                .onFailure { operationError.value = "批量删除未全部完成，请先核对资产列表与同步状态；已移除的“仅此设备”资产无法在应用内恢复。" }
         }
     }
 
@@ -708,10 +716,11 @@ class AssetsViewModel @Inject constructor(
                     }
                 }
             }.onSuccess {
-                operationNotice.value = deletionNotice(targets.size)
-                syncRequests.requestSync()
+                val scopes = targets.map { it.storageScope }
+                operationNotice.value = assetDeletionNotice(scopes)
+                if (requiresCloudDeletionSync(scopes)) syncRequests.requestSync()
             }
-                .onFailure { operationError.value = "删除分组失败，请稍后重试。" }
+                .onFailure { operationError.value = "删除分组未全部完成，请先核对资产列表与同步状态；已移除的“仅此设备”资产无法在应用内恢复。" }
         }
     }
 
@@ -743,13 +752,6 @@ class AssetsViewModel @Inject constructor(
     }
 }
 
-private const val DELETION_QUEUED_NOTICE = "已移入最近删除。本机凭据已移除；删除状态将在后台同步。"
-
-private fun deletionNotice(count: Int): String = when (count) {
-    1 -> DELETION_QUEUED_NOTICE
-    else -> "已将 $count 项资产移入最近删除。本机凭据已移除；删除状态将在后台同步。"
-}
-
 private data class AssetListPresentation(
     val activeAssetIds: Set<String>,
     val expandedGroups: Set<String>,
@@ -776,6 +778,7 @@ private fun ServerAsset.toEditorState(
     networkDeviceProfile = enumValueOrDefault(networkDeviceProfile, NetworkDeviceProfile.auto),
     allowPasswordFallback = allowPasswordFallback,
     storageScope = storageScope,
+    persistedStorageScope = storageScope,
     password = credentials.password,
     privateKeyContent = credentials.privateKeyContent,
     privateKeyPassphrase = credentials.privateKeyPassphrase,

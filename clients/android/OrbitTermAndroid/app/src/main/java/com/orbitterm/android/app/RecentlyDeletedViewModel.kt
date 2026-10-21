@@ -46,7 +46,7 @@ class RecentlyDeletedViewModel @Inject constructor(
             if (!operations.isCurrent(operation)) return@launch
             mutableState.value = result.fold(
                 onSuccess = { mutableState.value.copy(isLoading = false, items = it, error = null) },
-                onFailure = { mutableState.value.copy(isLoading = false, error = "无法读取云端最近删除，请检查网络或登录状态；本机离线删除需联网同步后才会显示。") },
+                onFailure = { mutableState.value.copy(isLoading = false, error = "无法读取云端最近删除，请检查网络或登录状态；账户同步资产的离线删除需联网同步后才会显示。") },
             )
         }
     }

@@ -578,7 +578,7 @@ private fun AssetList(
     if (deleteConfirmationVisible) {
         OrbitConfirmationDialog(
             title = "删除选中的资产？",
-            message = "将 ${selectedIds.size} 个资产移入最近删除，并移除本机凭据。保留期内可在个人中心恢复。",
+            message = assetDeletionConfirmation(assets.filter { it.id in selectedIds }.map { it.storageScope }),
             confirmLabel = "删除",
             onConfirm = {
                 onDeleteAssets(selectedIds)
@@ -593,7 +593,7 @@ private fun AssetList(
     assets.firstOrNull { it.id == assetPendingDeletion }?.let { target ->
         OrbitConfirmationDialog(
             title = "删除资产？",
-            message = "仅将“${target.name}”这一条资产移入最近删除，并移除本机凭据。保留期内可在个人中心恢复。",
+            message = "仅处理“${target.name}”：${assetDeletionConfirmation(listOf(target.storageScope))}",
             confirmLabel = "删除资产",
             onConfirm = {
                 assetPendingDeletion = null
@@ -621,10 +621,9 @@ private fun AssetList(
         }
     }
     groupPendingDeletion?.let { group ->
-        val count = assets.count { it.group == group }
         OrbitConfirmationDialog(
             title = "删除分组？",
-            message = "将“$group”下 $count 个资产移入最近删除，并移除本机凭据。保留期内可恢复。",
+            message = "“$group”下：${assetDeletionConfirmation(assets.filter { it.group == group }.map { it.storageScope })}",
             confirmLabel = "删除",
             onConfirm = { onDeleteGroup(group); groupPendingDeletion = null },
             onDismiss = { groupPendingDeletion = null },
@@ -1305,7 +1304,7 @@ private fun AssetEditor(
     if (state.deleteConfirmationVisible) {
         OrbitConfirmationDialog(
             title = "删除资产？",
-            message = "将该资产移入最近删除，并移除本机凭据。保留期内可在个人中心恢复。",
+            message = assetDeletionConfirmation(listOf(state.persistedStorageScope)),
             confirmLabel = "删除",
             onConfirm = onConfirmDelete,
             onDismiss = onDismissDeleteConfirmation,
