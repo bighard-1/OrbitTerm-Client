@@ -1821,7 +1821,7 @@ internal fun removeEmptyCreatedDownloadDocument(
     }
 }
 
-private fun removeEmptyCreatedDownloadDocument(context: Context, destination: Uri): Boolean {
+internal fun removeEmptyCreatedDownloadDocument(context: Context, destination: Uri): Boolean {
     val resolver = context.contentResolver
     return removeEmptyCreatedDownloadDocument(
         createdByPicker = true,
