@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.verticalScroll
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -178,6 +179,7 @@ fun MainScreen(
     onDismissRecentlyDeletedFeedback: () -> Unit,
 ) {
     val assetPageSyncFeedback = syncStatus.assetPageFeedback()
+    val assetEditorOpen = assetsViewModel.uiState.collectAsStateWithLifecycle().value.editor != null
     BackHandler(enabled = uiState.destination != AppDestination.Servers) {
         onDestinationSelected(AppDestination.Servers)
     }
@@ -200,7 +202,7 @@ fun MainScreen(
             }
         },
         bottomBar = {
-            if (!shouldShowBottomDock(uiState.destination, uiState.hasActiveTerminalSession)) return@Scaffold
+            if (!shouldShowBottomDock(uiState.destination, uiState.hasActiveTerminalSession, assetEditorOpen)) return@Scaffold
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                     AppDestination.entries.forEach { destination ->
                         NavigationBarItem(
@@ -839,8 +841,13 @@ private fun OrbitCompactPageBar(
 }
 
 /** Keeps navigation reachable when the session workbench has no live terminal. */
-internal fun shouldShowBottomDock(destination: AppDestination, hasActiveTerminalSession: Boolean): Boolean =
-    destination != AppDestination.Sessions || !hasActiveTerminalSession
+internal fun shouldShowBottomDock(
+    destination: AppDestination,
+    hasActiveTerminalSession: Boolean,
+    assetEditorOpen: Boolean = false,
+): Boolean =
+    !(destination == AppDestination.Sessions && hasActiveTerminalSession) &&
+        !(destination == AppDestination.Servers && assetEditorOpen)
 
 @Composable
 private fun LoginPasswordChangeDialog(

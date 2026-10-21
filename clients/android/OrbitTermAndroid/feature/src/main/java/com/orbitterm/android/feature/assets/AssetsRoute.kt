@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
@@ -72,6 +73,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.platform.testTag
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.orbitterm.android.domain.assets.ServerAsset
@@ -996,7 +998,7 @@ private fun ConnectionPhase.userMessage(): String = when (this) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AssetEditor(
+internal fun AssetEditor(
     state: AssetEditorUiState,
     telnetEnabled: Boolean,
     modifier: Modifier,
@@ -1041,7 +1043,7 @@ private fun AssetEditor(
             onUpdate { current -> current.copy(validationError = "无法导入跳板机私钥文件。") }
         }
     }
-    Column(modifier = modifier.fillMaxSize()) {
+    Column(modifier = modifier.fillMaxSize().imePadding()) {
         TopAppBar(
             title = { Text(if (state.isNew) "添加资产" else "编辑资产") },
             navigationIcon = {
@@ -1058,12 +1060,20 @@ private fun AssetEditor(
                         Icon(Icons.Rounded.Delete, contentDescription = "删除资产")
                     }
                 }
-                Button(onClick = onSave, enabled = !state.isSaving && !state.isDeleting) {
+                Button(
+                    onClick = onSave,
+                    enabled = !state.isSaving && !state.isDeleting,
+                    modifier = Modifier.testTag("asset_editor_save"),
+                ) {
                     Text(if (state.isSaving) "保存中" else "保存")
                 }
             },
         )
         LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .testTag("asset_editor_form"),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -1509,7 +1519,7 @@ private fun EditorTextField(
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().testTag("asset_editor_field_$label"),
         label = { Text(label) },
         minLines = minLines,
         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = keyboardType),
