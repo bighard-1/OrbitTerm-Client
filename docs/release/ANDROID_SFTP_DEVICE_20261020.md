@@ -13,7 +13,7 @@
 
 - 受检 Rust FFI 返回宽泛 `sftp_download_failed`，并以稳定 `detail_code=sftp_transfer_cancelled` 区分用户取消。Android 桥接以前只取 `code`，随后错误映射把它降为 `unknown`，SFTP ViewModel 仅按 `OperationCancelled` 分类，最终把主动取消当失败。
 - Android 桥接优先保留此取消明细码，其它下载/上传失败保留普通 SFTP 错误类别；下载取消或失败的文案提醒：系统文件选择器可能已在目标位置创建空文件。下载先写应用私有暂存、完成才拷贝到 SAF，但系统创建的目标 URI 属用户选择器管理，本候选**不擅自删除**目标文件。
-- 源码候选以本日志所在提交为准；Android `:core:testDebugUnitTest :domain:testDebugUnitTest :feature:testDebugUnitTest --offline --no-daemon` 通过，新增桥接取消分类、普通 SFTP 分类及取消提示单测。主工作树受保护 QA `:app:assembleQa -x :app:buildOrbitAndroidCore --offline --no-daemon` 通过；临时镜像可见修复候选同一构建命令也通过，APK SHA-256 `2486ce62ebba7989b069d17ed034aca76f7ccc40a0eaa6671cb150df142db86b`，与原 QA 包签名证书 SHA-256 `487967efa5c0fdd16f5d37be2c9bc0b959807da8a6a458e2788c23d000df0751` 相同。隔离 GUI 未做；K60 修复版真实设备取消复测待记录。**五端完整验收未完成**。
+- 源码修复提交 `8a61388`；Android `:core:testDebugUnitTest :domain:testDebugUnitTest :feature:testDebugUnitTest --offline --no-daemon` 通过，新增桥接取消分类、普通 SFTP 分类及取消提示单测。主工作树受保护 QA `:app:assembleQa -x :app:buildOrbitAndroidCore --offline --no-daemon` 通过；临时镜像可见修复候选同一构建命令也通过，APK SHA-256 `2486ce62ebba7989b069d17ed034aca76f7ccc40a0eaa6671cb150df142db86b`，与原 QA 包签名证书 SHA-256 `487967efa5c0fdd16f5d37be2c9bc0b959807da8a6a458e2788c23d000df0751` 相同。隔离 GUI 未做；K60 修复版真实设备取消复测见下文。**五端完整验收未完成**。
 
 ## 修复候选的 K60 真实设备复测与收尾
 
