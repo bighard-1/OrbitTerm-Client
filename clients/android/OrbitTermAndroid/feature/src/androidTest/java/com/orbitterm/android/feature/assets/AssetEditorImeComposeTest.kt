@@ -19,6 +19,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.core.view.WindowCompat
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -70,6 +71,17 @@ class AssetEditorImeComposeTest {
             val activity = compose.activity
             activity.getSystemService(InputMethodManager::class.java)
                 .showSoftInput(activity.currentFocus, InputMethodManager.SHOW_IMPLICIT)
+        }
+        // AOSP ATD images used by hosted CI can omit a usable soft keyboard.
+        // Keep input/scroll/save coverage there; only measure IME geometry on
+        // devices which can actually present an IME (local emulator and K60).
+        val noImeProfile = InstrumentationRegistry.getArguments()
+            .getString("visualBaselineProfile") == "aosp-atd-api35"
+        if (noImeProfile) {
+            compose.onNodeWithTag("asset_editor_field_密码").assertIsDisplayed()
+            compose.onNodeWithTag("asset_editor_save").assertIsDisplayed()
+            compose.runOnIdle { assertEquals("dummy-only", editor.password) }
+            return
         }
         compose.waitUntil(5_000) {
             compose.activity.window.decorView.rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true
