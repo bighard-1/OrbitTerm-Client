@@ -3,6 +3,10 @@ use std::fs;
 use std::os::raw::c_char;
 use std::path::{Path, PathBuf};
 use std::ptr;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::thread;
 use std::time::Duration;
 
@@ -21,6 +25,7 @@ use crate::c_ffi::{
     orbit_sftp_list_dir, orbit_ssh_connect, orbit_ssh_disconnect, orbit_terminal_close,
     orbit_test_ssh_connection,
 };
+use crate::{session_pool, OrbitCoreError, ORBIT_RUNTIME};
 
 const OPT_IN_VARIABLE: &str = "ORBITTERM_RUN_OPENSSH_SMOKE";
 
@@ -263,6 +268,42 @@ fn assert_download_target_ownership(config: &OpenSshFixtureConfig, sftp_id: u64)
     );
 }
 
+fn assert_upload_temporary_ownership(config: &OpenSshFixtureConfig, sftp_id: u64) {
+    let session = session_pool::get_sftp_session(sftp_id).expect("checked SFTP session");
+    let occupied_path = config
+        .remote_test_dir
+        .join(".orbitterm-upload-occupied.part");
+    fs::write(&occupied_path, b"preserve remote bytes").expect("write occupied remote path");
+    let occupied = ORBIT_RUNTIME.block_on(crate::sftp::with_exclusive_remote_temporary_file(
+        &session,
+        occupied_path
+            .to_str()
+            .expect("UTF-8 remote path")
+            .to_string(),
+        |_| async { Ok::<(), OrbitCoreError>(()) },
+    ));
+    assert!(occupied.is_err());
+    assert_eq!(
+        fs::read(&occupied_path).expect("occupied remote path must survive"),
+        b"preserve remote bytes"
+    );
+
+    let new_path = config.remote_test_dir.join(".orbitterm-upload-new.part");
+    let operation_started = Arc::new(AtomicBool::new(false));
+    let started = Arc::clone(&operation_started);
+    let cancelled = ORBIT_RUNTIME.block_on(crate::sftp::with_exclusive_remote_temporary_file(
+        &session,
+        new_path.to_str().expect("UTF-8 remote path").to_string(),
+        move |_| async move {
+            started.store(true, Ordering::SeqCst);
+            Err::<(), OrbitCoreError>(OrbitCoreError::SftpTransferCancelled)
+        },
+    ));
+    assert!(cancelled.is_err());
+    assert!(operation_started.load(Ordering::SeqCst));
+    assert!(!new_path.exists());
+}
+
 fn run_trusted_flow(config: &OpenSshFixtureConfig) {
     assert!(!config.known_hosts_path.exists());
     let before_unknown_auth = config.accepted_auth_count();
@@ -361,6 +402,7 @@ fn run_trusted_flow(config: &OpenSshFixtureConfig) {
             .starts_with("OK:")
     );
     assert_download_target_ownership(config, sftp_id);
+    assert_upload_temporary_ownership(config, sftp_id);
     assert!(take_owned_string(orbit_sftp_disconnect(sftp_id)).starts_with("OK:"));
 
     let exec_request = c_string("openssh-exec");

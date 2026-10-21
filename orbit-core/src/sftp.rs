@@ -273,77 +273,95 @@ pub(crate) async fn upload_file_create_new_cancellable(
     let total_bytes = metadata.len();
 
     let temporary_remote_path = transfer_temporary_path(&remote_path)?;
-    let mut temporary_remote_created = false;
-    let transfer: Result<u64, OrbitCoreError> = async {
-        let mut creator = session
-            .sftp
-            .open_with_flags(
-                temporary_remote_path.clone(),
-                OpenFlags::CREATE | OpenFlags::EXCLUDE | OpenFlags::WRITE,
+    let transfer = with_exclusive_remote_temporary_file(
+        session,
+        temporary_remote_path,
+        |temporary_remote_path| async move {
+            progress(0, Some(total_bytes));
+            let uploaded = upload_file_single_checked(
+                session,
+                &local_path,
+                &temporary_remote_path,
+                total_bytes,
+                cancelled,
+                progress,
             )
-            .await
-            .map_err(|e| {
-                OrbitCoreError::SftpFailed(format!("create temporary remote file failed: {e}"))
-            })?;
-        temporary_remote_created = true;
-        creator.shutdown().await.map_err(|e| {
-            OrbitCoreError::SftpFailed(format!("initialize temporary remote file failed: {e}"))
-        })?;
-        drop(creator);
+            .await?;
 
-        progress(0, Some(total_bytes));
-        let uploaded = upload_file_single_checked(
-            session,
-            &local_path,
-            &temporary_remote_path,
-            total_bytes,
-            cancelled,
-            progress,
-        )
-        .await?;
-
-        check_transfer_cancelled(cancelled)?;
-        let uploaded_metadata = session
-            .sftp
-            .metadata(temporary_remote_path.clone())
-            .await
-            .map_err(|e| {
-                OrbitCoreError::SftpFailed(format!("verify temporary remote file failed: {e}"))
-            })?;
-        if uploaded_metadata.size != Some(total_bytes) {
-            return Err(OrbitCoreError::SftpFailed(
-                "temporary remote file size mismatch".to_string(),
-            ));
-        }
-        if session
-            .sftp
-            .try_exists(remote_path.clone())
-            .await
-            .map_err(|e| {
-                OrbitCoreError::SftpFailed(format!("check remote destination failed: {e}"))
-            })?
-        {
-            return Err(OrbitCoreError::SftpFailed(
-                "remote destination already exists".to_string(),
-            ));
-        }
-        check_transfer_cancelled(cancelled)?;
-        session
-            .sftp
-            .rename(temporary_remote_path.clone(), remote_path)
-            .await
-            .map_err(|e| OrbitCoreError::SftpFailed(format!("publish remote file failed: {e}")))?;
-        Ok(uploaded)
-    }
+            check_transfer_cancelled(cancelled)?;
+            let uploaded_metadata = session
+                .sftp
+                .metadata(temporary_remote_path.clone())
+                .await
+                .map_err(|e| {
+                    OrbitCoreError::SftpFailed(format!("verify temporary remote file failed: {e}"))
+                })?;
+            if uploaded_metadata.size != Some(total_bytes) {
+                return Err(OrbitCoreError::SftpFailed(
+                    "temporary remote file size mismatch".to_string(),
+                ));
+            }
+            if session
+                .sftp
+                .try_exists(remote_path.clone())
+                .await
+                .map_err(|e| {
+                    OrbitCoreError::SftpFailed(format!("check remote destination failed: {e}"))
+                })?
+            {
+                return Err(OrbitCoreError::SftpFailed(
+                    "remote destination already exists".to_string(),
+                ));
+            }
+            check_transfer_cancelled(cancelled)?;
+            session
+                .sftp
+                .rename(temporary_remote_path, remote_path)
+                .await
+                .map_err(|e| {
+                    OrbitCoreError::SftpFailed(format!("publish remote file failed: {e}"))
+                })?;
+            Ok(uploaded)
+        },
+    )
     .await;
-
-    if transfer.is_err() && temporary_remote_created {
-        // A failed EXCLUDE create can leave another writer's file at this
-        // name. Only clean up after this transfer actually created it.
-        let _ = session.sftp.remove_file(temporary_remote_path).await;
-    }
     serde_json::to_string(&SftpTransferResult { bytes: transfer? })
         .map_err(|e| OrbitCoreError::Internal(e.to_string()))
+}
+
+pub(crate) async fn with_exclusive_remote_temporary_file<T, F, Fut>(
+    session: &Arc<OrbitSftpSession>,
+    temporary_remote_path: String,
+    operation: F,
+) -> Result<T, OrbitCoreError>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: Future<Output = Result<T, OrbitCoreError>>,
+{
+    // A failed EXCLUDE create can mean another writer already owns this path.
+    // Return before any cleanup in that case.
+    let mut creator = session
+        .sftp
+        .open_with_flags(
+            temporary_remote_path.clone(),
+            OpenFlags::CREATE | OpenFlags::EXCLUDE | OpenFlags::WRITE,
+        )
+        .await
+        .map_err(|e| {
+            OrbitCoreError::SftpFailed(format!("create temporary remote file failed: {e}"))
+        })?;
+    let initialized = creator.shutdown().await.map_err(|e| {
+        OrbitCoreError::SftpFailed(format!("initialize temporary remote file failed: {e}"))
+    });
+    drop(creator);
+    let result = match initialized {
+        Ok(()) => operation(temporary_remote_path.clone()).await,
+        Err(error) => Err(error),
+    };
+    if result.is_err() {
+        let _ = session.sftp.remove_file(temporary_remote_path).await;
+    }
+    result
 }
 
 async fn upload_file_single_checked(
