@@ -63,3 +63,7 @@
 - 测试提交 `6619217` 只在 Android `androidTest` 包声明一个内存态 `DocumentsProvider`，通过系统 `ContentResolver` 和 `DocumentsContract` 调用生产清理入口；正式/QA APK 中没有此测试提供方。提供方不暴露或持久化设备文件，模拟目标元数据及删除拒绝，测试运行在只读启动的 Android 35 ARM 隔离模拟器，验后已关闭。
 - 仪器测试 **4/4 通过**：非零目标和没有删除标志时，删除调用为 0、虚构文档仍存在；提供方抛出拒绝删除异常时，客户端返回清理失败、虚构文档仍存在；只有可删除的空目标被调用一次并消失。`DocumentsContract.isDocumentUri` 在该隔离提供方上也已由测试核对。测试 APK 编译、本地 feature 单测、app QA 单测与 QA 构建均通过；测试提供方只在 `androidTest` manifest，检查 QA APK 未包含文档提供方组件。Android 连接测试门禁已加入此测试类的覆盖存在性检查，避免未来测试被遗漏仍误报通过；新门禁的远端固定提交结果尚待确认。
 - 这是**隔离自动化的系统调用链验证**，不是 K60 上第三方云盘、真实文件管理器拒绝删除的验收；K60 现有受保护 QA 未覆盖安装，`111` 的实体正向结果仍独立保留。真实提供方竞态、普通失败重试、ZIP、网络异常以及 Windows/iOS/macOS/Linux 对照仍未覆盖。固定提交的远端 Security Gates 结果待最终确认。
+
+## 固定候选门禁回执
+
+- 提交 `0080778` 的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39552261639) 已完整结束且结论为 **success**：Android 仪器/迁移、Android 发布、Apple 检查、Rust 发布、依赖扫描、桌面视觉契约均成功。OpenSSH 发布候选冒烟和 macOS 专用签名 UI 冒烟是条件不满足而 **skipped**，不得并入已验证范围。该固定候选尚未包含后续隔离提供方测试 `6619217` 和门禁覆盖检查 `c847243`，两者仍待新提交的远端 CI 结论。
