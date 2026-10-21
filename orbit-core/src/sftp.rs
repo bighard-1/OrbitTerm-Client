@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -507,78 +508,88 @@ pub(crate) async fn download_file_create_new_cancellable(
     }
     check_transfer_cancelled(cancelled)?;
 
-    let transfer: Result<u64, OrbitCoreError> = async {
-        let mut remote = session
-            .sftp
-            .open(remote_path.clone())
-            .await
-            .map_err(|e| OrbitCoreError::SftpFailed(format!("open remote file failed: {e}")))?;
-        let total_bytes = remote
-            .metadata()
-            .await
-            .ok()
-            .and_then(|metadata| metadata.size);
+    let mut remote = session
+        .sftp
+        .open(remote_path.clone())
+        .await
+        .map_err(|e| OrbitCoreError::SftpFailed(format!("open remote file failed: {e}")))?;
+    let total_bytes = remote
+        .metadata()
+        .await
+        .ok()
+        .and_then(|metadata| metadata.size);
 
-        let mut local = tokio::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&local_path)
-            .await
-            .map_err(|e| OrbitCoreError::SftpFailed(format!("create local file failed: {e}")))?;
-
-        let mut buffer = vec![0u8; SFTP_DOWNLOAD_BUF_SIZE];
-        let mut downloaded = 0u64;
-        let mut progress_throttle = TransferProgressThrottle::started();
-        let mut observed_monitor_generation = session
-            .base
-            .monitor_sample_generation
-            .load(Ordering::SeqCst);
-        progress(downloaded, total_bytes);
-        loop {
-            check_transfer_cancelled(cancelled)?;
-            let count = remote
-                .read(&mut buffer)
-                .await
-                .map_err(|e| OrbitCoreError::SftpFailed(format!("read remote file failed: {e}")))?;
-            if count == 0 {
-                break;
-            }
-            local
-                .write_all(&buffer[..count])
-                .await
-                .map_err(|e| OrbitCoreError::SftpFailed(format!("write local file failed: {e}")))?;
-            downloaded += count as u64;
-            if progress_throttle.should_report(downloaded, false) {
-                progress(downloaded, total_bytes);
-            }
-            let requested_monitor_generation = session
+    let transfer =
+        with_new_download_target(&local_path, |mut local| async move {
+            let mut buffer = vec![0u8; SFTP_DOWNLOAD_BUF_SIZE];
+            let mut downloaded = 0u64;
+            let mut progress_throttle = TransferProgressThrottle::started();
+            let mut observed_monitor_generation = session
                 .base
                 .monitor_sample_generation
                 .load(Ordering::SeqCst);
-            if requested_monitor_generation != observed_monitor_generation {
-                observed_monitor_generation = requested_monitor_generation;
-                tokio::time::sleep(Duration::from_millis(1)).await;
-            }
-        }
-        check_transfer_cancelled(cancelled)?;
-        local
-            .flush()
-            .await
-            .map_err(|e| OrbitCoreError::SftpFailed(format!("flush local file failed: {e}")))?;
-        if progress_throttle.should_report(downloaded, true) {
             progress(downloaded, total_bytes);
-        }
-        Ok(downloaded)
-    }
-    .await;
-
-    if transfer.is_err() {
-        // Checked downloads create a previously absent staging path. Removing it
-        // on cancellation/failure ensures callers never consume a partial file.
-        let _ = tokio::fs::remove_file(&local_path).await;
-    }
-    serde_json::to_string(&SftpTransferResult { bytes: transfer? })
+            loop {
+                check_transfer_cancelled(cancelled)?;
+                let count = remote.read(&mut buffer).await.map_err(|e| {
+                    OrbitCoreError::SftpFailed(format!("read remote file failed: {e}"))
+                })?;
+                if count == 0 {
+                    break;
+                }
+                local.write_all(&buffer[..count]).await.map_err(|e| {
+                    OrbitCoreError::SftpFailed(format!("write local file failed: {e}"))
+                })?;
+                downloaded += count as u64;
+                if progress_throttle.should_report(downloaded, false) {
+                    progress(downloaded, total_bytes);
+                }
+                let requested_monitor_generation = session
+                    .base
+                    .monitor_sample_generation
+                    .load(Ordering::SeqCst);
+                if requested_monitor_generation != observed_monitor_generation {
+                    observed_monitor_generation = requested_monitor_generation;
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            }
+            check_transfer_cancelled(cancelled)?;
+            local
+                .flush()
+                .await
+                .map_err(|e| OrbitCoreError::SftpFailed(format!("flush local file failed: {e}")))?;
+            if progress_throttle.should_report(downloaded, true) {
+                progress(downloaded, total_bytes);
+            }
+            Ok(downloaded)
+        })
+        .await?;
+    serde_json::to_string(&SftpTransferResult { bytes: transfer })
         .map_err(|e| OrbitCoreError::Internal(e.to_string()))
+}
+
+async fn with_new_download_target<T, F, Fut>(
+    local_path: &str,
+    operation: F,
+) -> Result<T, OrbitCoreError>
+where
+    F: FnOnce(tokio::fs::File) -> Fut,
+    Fut: Future<Output = Result<T, OrbitCoreError>>,
+{
+    // If create_new rejects a path another process created after planning,
+    // return without touching that pre-existing file. Cleanup is reachable
+    // only after this transfer actually created the target.
+    let local = tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(local_path)
+        .await
+        .map_err(|e| OrbitCoreError::SftpFailed(format!("create local file failed: {e}")))?;
+    let result = operation(local).await;
+    if result.is_err() {
+        let _ = tokio::fs::remove_file(local_path).await;
+    }
+    result
 }
 
 fn check_transfer_cancelled(cancelled: &AtomicBool) -> Result<(), OrbitCoreError> {
@@ -1033,13 +1044,56 @@ fn shell_single_quote(input: &str) -> String {
 #[cfg(test)]
 mod transfer_progress_tests {
     use super::{
-        map_create_mutation_error, SftpMutationError, TransferProgressThrottle,
-        SFTP_PROGRESS_MIN_BYTES,
+        map_create_mutation_error, with_new_download_target, SftpMutationError,
+        TransferProgressThrottle, SFTP_PROGRESS_MIN_BYTES,
     };
+    use crate::OrbitCoreError;
     use russh_sftp::{
         client::error::Error as SftpClientError,
         protocol::{Status, StatusCode},
     };
+    use tokio::io::AsyncWriteExt;
+
+    #[tokio::test]
+    async fn existing_download_target_is_never_removed_when_create_new_fails() {
+        let directory = std::env::temp_dir().join(format!(
+            "orbitterm-sftp-existing-target-{}",
+            rand::random::<u64>()
+        ));
+        tokio::fs::create_dir(&directory).await.unwrap();
+        let path = directory.join("existing.bin");
+        tokio::fs::write(&path, b"keep this file").await.unwrap();
+
+        let result = with_new_download_target(path.to_str().unwrap(), |_file| async {
+            Ok::<(), OrbitCoreError>(())
+        })
+        .await;
+
+        assert!(result.is_err());
+        assert_eq!(tokio::fs::read(&path).await.unwrap(), b"keep this file");
+        tokio::fs::remove_file(&path).await.unwrap();
+        tokio::fs::remove_dir(&directory).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn failed_download_removes_only_its_new_partial_target() {
+        let directory = std::env::temp_dir().join(format!(
+            "orbitterm-sftp-partial-target-{}",
+            rand::random::<u64>()
+        ));
+        tokio::fs::create_dir(&directory).await.unwrap();
+        let path = directory.join("partial.bin");
+
+        let result = with_new_download_target(path.to_str().unwrap(), |mut file| async move {
+            file.write_all(b"partial data").await.unwrap();
+            Err::<(), OrbitCoreError>(OrbitCoreError::SftpTransferCancelled)
+        })
+        .await;
+
+        assert!(result.is_err());
+        assert!(!path.exists());
+        tokio::fs::remove_dir(&directory).await.unwrap();
+    }
 
     #[test]
     fn coalesces_small_immediate_progress_updates() {
