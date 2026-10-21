@@ -11,7 +11,7 @@ use serde_json::Value;
 use super::checked_docker_ffi::orbit_docker_list_checked_v1;
 use super::checked_exec_ffi::orbit_exec_checked_v1;
 use super::checked_monitor_ffi::orbit_monitor_snapshot_checked_v1;
-use super::checked_sftp_ffi::orbit_sftp_open_checked_v1;
+use super::checked_sftp_ffi::{orbit_sftp_download_checked_v1, orbit_sftp_open_checked_v1};
 use super::checked_ssh_connect_ffi::orbit_ssh_connect_checked_v1;
 use super::checked_terminal_ffi::orbit_terminal_open_checked_v1;
 use super::checked_test_connection_ffi::orbit_test_ssh_connection_checked_v1;
@@ -222,6 +222,47 @@ fn assert_blocked(config: &OpenSshFixtureConfig, reason: &str) {
     assert_eq!(config.accepted_auth_count(), before_auth);
 }
 
+fn assert_download_target_ownership(config: &OpenSshFixtureConfig, sftp_id: u64) {
+    let remote_source = config.remote_test_dir.join("download-source.bin");
+    fs::write(&remote_source, b"fixture download content").expect("write remote fixture");
+    let remote_source = c_string(remote_source.to_str().expect("UTF-8 remote fixture path"));
+
+    let existing_target = config.root.join("existing-download.bin");
+    fs::write(&existing_target, b"preserve original bytes").expect("write existing target");
+    let existing_target_c = c_string(existing_target.to_str().expect("UTF-8 target path"));
+    let existing_request = c_string("openssh-existing-download-target");
+    let rejected = take_json(orbit_sftp_download_checked_v1(
+        sftp_id,
+        remote_source.as_ptr(),
+        existing_target_c.as_ptr(),
+        existing_request.as_ptr(),
+    ));
+    assert_eq!(rejected["error"]["code"], "sftp_download_failed");
+    assert_eq!(
+        fs::read(&existing_target).expect("existing target must survive"),
+        b"preserve original bytes"
+    );
+
+    let fresh_target = config.root.join("new-download.bin");
+    let fresh_target_c = c_string(fresh_target.to_str().expect("UTF-8 target path"));
+    let fresh_request = c_string("openssh-new-download-target");
+    let downloaded = take_json(orbit_sftp_download_checked_v1(
+        sftp_id,
+        remote_source.as_ptr(),
+        fresh_target_c.as_ptr(),
+        fresh_request.as_ptr(),
+    ));
+    assert_envelope(
+        &downloaded,
+        "openssh-new-download-target",
+        "sftp_download_completed",
+    );
+    assert_eq!(
+        fs::read(&fresh_target).expect("new download target"),
+        b"fixture download content"
+    );
+}
+
 fn run_trusted_flow(config: &OpenSshFixtureConfig) {
     assert!(!config.known_hosts_path.exists());
     let before_unknown_auth = config.accepted_auth_count();
@@ -319,6 +360,7 @@ fn run_trusted_flow(config: &OpenSshFixtureConfig) {
         take_owned_string(orbit_sftp_list_dir(sftp_id, remote_test_dir.as_ptr()))
             .starts_with("OK:")
     );
+    assert_download_target_ownership(config, sftp_id);
     assert!(take_owned_string(orbit_sftp_disconnect(sftp_id)).starts_with("OK:"));
 
     let exec_request = c_string("openssh-exec");
