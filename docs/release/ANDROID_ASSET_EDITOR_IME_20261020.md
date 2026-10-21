@@ -20,3 +20,9 @@
 1. K60 的普通 SSH 表单已能完成虚构资产添加；仍需在不同输入法/字体大小下逐字段核对键盘边界、上划、保存，并补长私钥和跳板机多行输入。旧包阻断保留，不能用此次基本路径覆盖。
 2. 本机资产删除的确认文案与“最近删除”结果已由用户核对，详见 [K60 SFTP 专项](ANDROID_SFTP_DEVICE_20261020.md#受保护-qa-恢复尝试与本机删除语义纠偏)；完成提示原文与活动列表消失未单独回报，不扩大结论。
 3. iOS 对照移动端焦点与键盘回避，Windows 对照资产表单焦点/保存与本机资产删除文案。之后另建隔离只读 SFTP 夹具，补受保护 QA 的取消、失败与文件残留。
+
+## Android 15 托管模拟器门禁失败与分层修正
+
+- 固定候选 `2eb062f` 的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39529795959) **失败，原始结果保留**：Android instrumentation job 的 feature 套件运行 8 项时，本专项新增 `AssetEditorImeComposeTest.passwordFieldRemainsAboveKeyboardAndAcceptsInput` 在 Android 15 AOSP ATD 上等候 IME 可见超过 5 秒，抛出 `ComposeTimeoutException`；不能把 Linux/Windows CI 成功误写成总门禁成功。该失败仅定位到测试等待条件，未证明 K60 产品布局回归。
+- 测试修正提交 `8244b80`：ATD CI 配置只断言表单滚动、密码框可输入以及保存按钮可见；有实体软键盘的本地模拟器和 K60 路径仍要求 IME 可见并检查字段/保存按钮在键盘上方。**ATD 不再声称验证键盘边界**，这是明确的覆盖分层，不是删除真机验收要求。
+- 本机 `:feature:assembleDebugAndroidTest --offline` 编译通过。修正提交的远端 Android 15 instrumentation 尚待新一轮 CI，不能预先记为通过；K60 当前受保护 QA 二进制不因测试源码变更而更新。
