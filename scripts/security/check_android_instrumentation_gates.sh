@@ -92,6 +92,7 @@ results_contain "$results_root" 'SecurityOperationComposeTest' || fail "security
 feature_results_root="$ANDROID_PROJECT/feature/build/outputs/androidTest-results/connected"
 [[ -d "$feature_results_root" ]] || fail "feature connected Android test results are missing"
 results_contain "$feature_results_root" 'SftpStateAccessibilityComposeTest' || fail "SFTP state accessibility regression test did not run"
+results_contain "$feature_results_root" 'SftpCancelledDocumentProviderTest' || fail "SFTP cancelled-target provider regression test did not run"
 results_contain "$feature_results_root" 'TerminalReconnectAccessibilityComposeTest' || fail "terminal reconnect accessibility regression test did not run"
 results_contain "$results_root" 'statusBadgeExposesTextualStateBeyondItsColor' || fail "status badge accessibility regression test did not run"
 results_contain "$results_root" 'OrbitDesignScreenshotBaselineTest' || fail "design screenshot baseline test did not run"
