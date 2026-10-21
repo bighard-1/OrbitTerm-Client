@@ -4,7 +4,9 @@ import com.orbitterm.android.core.CheckedSftpTransferResult
 import kotlinx.coroutines.CancellationException
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayOutputStream
 import java.io.IOException
@@ -63,5 +65,15 @@ class SftpDownloadDestinationFailureTest {
                 throw CancellationException("test cancellation")
             }
         }
+    }
+
+    @Test fun partialDestinationMustNotBeRetriedAgainstSameUri() {
+        assertFalse(canRetrySftpTransferWithSelectedTarget("下载", "destination_unwritable"))
+        assertTrue(canRetrySftpTransferWithSelectedTarget("下载", "sftp_download_failed"))
+        assertTrue(canRetrySftpTransferWithSelectedTarget("上传", "destination_unwritable"))
+        assertEquals(
+            " 已选目标可能包含不完整内容，请检查并重新选择保存位置。",
+            downloadTargetFailureGuidance("destination_unwritable"),
+        )
     }
 }

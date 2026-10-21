@@ -691,26 +691,29 @@ class SftpViewModel @Inject constructor(
                         if (pendingTransfers.isEmpty()) refresh() else startNextTransfer()
                         return@launch
                     }
-                    retryLastTransfer = {
-                        mutateTransfer(
-                            label = pending.label,
-                            detail = pending.detail,
-                            onCompleted = pending.onCompleted,
-                            onDiscarded = pending.onDiscarded,
-                            onCancelledMessage = pending.onCancelledMessage,
-                            operation = pending.operation,
-                        )
-                    }
+                    val canRetrySelectedTarget = canRetrySftpTransferWithSelectedTarget(pending.label, result.code)
+                    retryLastTransfer = if (canRetrySelectedTarget) {
+                        {
+                            mutateTransfer(
+                                label = pending.label,
+                                detail = pending.detail,
+                                onCompleted = pending.onCompleted,
+                                onDiscarded = pending.onDiscarded,
+                                onCancelledMessage = pending.onCancelledMessage,
+                                operation = pending.operation,
+                            )
+                        }
+                    } else null
                     mutableUiState.value = mutableUiState.value.copy(
                         isLoading = false,
                         transfer = null,
                         activeTransferRequestId = null,
                         canCancelTransfer = false,
                         cancellationRequested = false,
-                        retryTransferLabel = pending.label,
+                        retryTransferLabel = if (canRetrySelectedTarget) pending.label else null,
                         queuePaused = pendingTransfers.isNotEmpty(),
                         error = sftpErrorMessage("文件传输失败", result.code) +
-                            if (pending.label == "下载") " 系统创建的目标文件可能为空，请在保存位置检查。" else "",
+                            if (pending.label == "下载") downloadTargetFailureGuidance(result.code) else "",
                         queuedTransfers = pendingTransfers.map { SftpQueuedTransferUiState(it.id, it.label) },
                     )
                 }
@@ -1774,6 +1777,16 @@ internal fun cancelledSftpTransferMessage(label: String, emptyDestinationRemoved
         }
     } else {
         "${label}已取消"
+    }
+
+internal fun canRetrySftpTransferWithSelectedTarget(label: String, code: String): Boolean =
+    label != "下载" || code != "destination_unwritable"
+
+internal fun downloadTargetFailureGuidance(code: String): String =
+    if (code == "destination_unwritable") {
+        " 已选目标可能包含不完整内容，请检查并重新选择保存位置。"
+    } else {
+        " 系统创建的目标文件可能为空，请在保存位置检查。"
     }
 
 internal fun shouldRemoveEmptyCancelledDownloadTarget(
