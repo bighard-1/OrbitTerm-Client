@@ -138,7 +138,8 @@ fun orbitNativeError(rawCode: String?, retryable: Boolean = false, detailCode: S
         "permission_denied", "sftp_permission_denied" -> OrbitErrorCode.PermissionDenied
         "destination_unwritable", "archive_workspace_unavailable", "archive_write_failed", "local_file_unreadable" -> OrbitErrorCode.StorageUnavailable
         "sftp_conflict", "sftp_mutation_conflict", "sftp_target_exists" -> OrbitErrorCode.SftpConflict
-        "sftp_mutation_failed", "sftp_operation_failed", "delete_depth_limit", "delete_entry_limit", "unsafe_remote_name" -> OrbitErrorCode.SftpOperationFailed
+        "sftp_mutation_failed", "sftp_operation_failed", "sftp_download_failed", "sftp_upload_failed",
+        "delete_depth_limit", "delete_entry_limit", "unsafe_remote_name" -> OrbitErrorCode.SftpOperationFailed
         "docker_operation_failed" -> OrbitErrorCode.DockerOperationFailed
         "monitor_operation_failed" -> OrbitErrorCode.MonitorOperationFailed
         "native_operation_failed" -> OrbitErrorCode.NativeOperationFailed

@@ -669,7 +669,7 @@ class SftpViewModel @Inject constructor(
                             activeTransferRequestId = null,
                             canCancelTransfer = false,
                             cancellationRequested = false,
-                            transferMessage = "${pending.label}已取消",
+                            transferMessage = cancelledSftpTransferMessage(pending.label),
                             transferMessageIsError = false,
                         )
                         if (pendingTransfers.isEmpty()) refresh() else startNextTransfer()
@@ -692,7 +692,8 @@ class SftpViewModel @Inject constructor(
                         cancellationRequested = false,
                         retryTransferLabel = pending.label,
                         queuePaused = pendingTransfers.isNotEmpty(),
-                        error = sftpErrorMessage("文件传输失败", result.code),
+                        error = sftpErrorMessage("文件传输失败", result.code) +
+                            if (pending.label == "下载") " 系统创建的目标文件可能为空，请在保存位置检查。" else "",
                         queuedTransfers = pendingTransfers.map { SftpQueuedTransferUiState(it.id, it.label) },
                     )
                 }
@@ -1746,6 +1747,13 @@ private fun sftpErrorMessage(prefix: String, code: String, retryable: Boolean = 
     val error = orbitNativeError(code, retryable)
     return "$prefix：${error.userMessage()} 诊断代码：${error.diagnosticCode}。"
 }
+
+internal fun cancelledSftpTransferMessage(label: String): String =
+    if (label == "下载") {
+        "下载已取消。系统创建的目标文件可能为空，请在保存位置检查。"
+    } else {
+        "${label}已取消"
+    }
 
 private fun formatBytes(bytes: Long): String {
     if (bytes < 1024) return "$bytes B"
