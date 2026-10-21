@@ -1785,13 +1785,50 @@ internal fun shouldRemoveEmptyCancelledDownloadTarget(
 ): Boolean = createdByPicker && isDocumentUri && sizeBytes == 0L &&
     flags != null && flags and DocumentsContract.Document.FLAG_SUPPORTS_DELETE != 0
 
-private fun removeEmptyCreatedDownloadDocument(context: Context, destination: Uri): Boolean {
-    val resolver = context.contentResolver
+internal data class CancelledDownloadDocumentMetadata(val sizeBytes: Long?, val flags: Int?)
+
+internal interface CancelledDownloadDocumentGateway {
+    fun isDocumentUri(): Boolean
+    fun metadata(): CancelledDownloadDocumentMetadata?
+    fun delete(): Boolean
+}
+
+internal fun removeEmptyCreatedDownloadDocument(
+    createdByPicker: Boolean,
+    gateway: CancelledDownloadDocumentGateway,
+): Boolean {
+    if (!createdByPicker) return false
     val eligible = try {
-        if (!DocumentsContract.isDocumentUri(context, destination)) {
+        if (!gateway.isDocumentUri()) {
             false
         } else {
-            resolver.query(
+            val metadata = gateway.metadata()
+            shouldRemoveEmptyCancelledDownloadTarget(
+                createdByPicker = true,
+                isDocumentUri = true,
+                sizeBytes = metadata?.sizeBytes,
+                flags = metadata?.flags,
+            )
+        }
+    } catch (_: Exception) {
+        false
+    }
+    if (!eligible) return false
+    return try {
+        gateway.delete()
+    } catch (_: Exception) {
+        false
+    }
+}
+
+private fun removeEmptyCreatedDownloadDocument(context: Context, destination: Uri): Boolean {
+    val resolver = context.contentResolver
+    return removeEmptyCreatedDownloadDocument(
+        createdByPicker = true,
+        gateway = object : CancelledDownloadDocumentGateway {
+            override fun isDocumentUri(): Boolean = DocumentsContract.isDocumentUri(context, destination)
+
+            override fun metadata(): CancelledDownloadDocumentMetadata? = resolver.query(
                 destination,
                 arrayOf(DocumentsContract.Document.COLUMN_SIZE, DocumentsContract.Document.COLUMN_FLAGS),
                 null,
@@ -1803,26 +1840,15 @@ private fun removeEmptyCreatedDownloadDocument(context: Context, destination: Ur
                 if (!cursor.moveToFirst() || sizeIndex < 0 || flagsIndex < 0 ||
                     cursor.isNull(sizeIndex) || cursor.isNull(flagsIndex)
                 ) {
-                    false
+                    null
                 } else {
-                    shouldRemoveEmptyCancelledDownloadTarget(
-                        createdByPicker = true,
-                        isDocumentUri = true,
-                        sizeBytes = cursor.getLong(sizeIndex),
-                        flags = cursor.getInt(flagsIndex),
-                    )
+                    CancelledDownloadDocumentMetadata(cursor.getLong(sizeIndex), cursor.getInt(flagsIndex))
                 }
-            } ?: false
-        }
-    } catch (_: Exception) {
-        false
-    }
-    if (!eligible) return false
-    return try {
-        DocumentsContract.deleteDocument(resolver, destination)
-    } catch (_: Exception) {
-        false
-    }
+            }
+
+            override fun delete(): Boolean = DocumentsContract.deleteDocument(resolver, destination)
+        },
+    )
 }
 
 private fun formatBytes(bytes: Long): String {
