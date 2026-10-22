@@ -124,3 +124,7 @@ K60 经 ADB 只读检查已连接，但屏幕处于锁定/休眠状态；设备�
 提交 `bd4ca69` 仅修测试时序：用已有模拟核心的进入/释放闸门，使核心下载保持在调用内，先核对退出提示与活动传输，再发起退出取消，观察核心取消请求后才释放模拟下载。仍断言退出后无活动任务、任务为取消且核心实际收到取消；没有改产品退出逻辑或删减测试覆盖。异常路径也释放闸门并等待任务，避免测试残留。Mac 本机没有 `dotnet`，只完成源码差异检查；待新 Windows CI 真正运行此测试后才能判定修订通过。Linux/Android/Apple 的独立门禁和 K60 真机结果不能代替 Windows CI。
 
 固定分支头 `104a8e8` 的 [Windows Client CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39701362638)后继完整工作流成功：安全测试 **334/334**（0 失败、0 跳过），包含上述退出保护断言；Windows x64 Rust 核心构建和内部测试 MSIX 构建/上传也完成。原 `17ae1c0` 的 333/334 失败仍保留，不能用这次成功抹去。此项只证明 CI 测试时序稳定一次，**没有把新 MSIX 安装到 Windows 10 真机**，也没有验证 Windows GUI 的远端卡读取消；后续需单列设备结果。
+
+## Windows 后继候选归档的安装前只读核验
+
+从上述成功的 Windows CI 取得内部测试归档（GitHub Actions artifact `12393481350`，名称带 CI 合并提交前缀 `3fc5fbd0`），仅保存到加密外置盘临时核验目录，**未传入或安装到 Windows 测试机**。外层 ZIP SHA-256 为 `208e29484137e4b5765bc1781ff0fec5de2029bb63cbc266df6a7cb3d6f15d7d`，与 GitHub artifact digest 一致；归档可正常展开。内层 `OrbitTerm_0.3.0.33_x64_Test.msix` SHA-256 为 `50ba90ccbe674980e2acd5edc1920c517db80aebee02fe8e71528bfcef369856`，与归档自带 `SHA256.txt` 一致。清单声明 `OrbitTerm.Client`、`CN=OrbitTerm Development`、`0.3.0.33`、x64、Windows Desktop 最低 `10.0.19041.0`；包内有 `AppxSignature.p7x`。随包公用测试证书 SHA-256 为 `5cfe4cb42869d8edcd38abc61150bbb09ae79580a3547c8c0acc5de41adc43c0`，证书主题/颁发者同为 `CN=OrbitTerm Development`。检查安装脚本：它会导入此证书到 Windows `LocalMachine/TrustedPeople`，校验系统签名，再停止当前 QA 进程、移除同版本当前用户包注册并安装新版。因此**本机静态核验不等于 Windows 系统签名 `Valid`、安装/数据保持或真机卡读取消通过**；证书导入和受控替换需要本次明确确认、Windows 本机再次核验及安装前状态备份。旧 CI 失败与 K60 服务端中止未自动报错问题均保持开放。
