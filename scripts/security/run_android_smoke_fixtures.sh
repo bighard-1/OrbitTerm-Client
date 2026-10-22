@@ -65,21 +65,21 @@ install_smoke_fixture() {
       return 0
     fi
     case "$output" in
-      *"Can't find service: package"*)
-        # ADB may stay online while the software-emulated system_server is
-        # restarting. Do not classify that as a product test failure, and do
-        # not retry install until PackageManager actually answers again.
+      *"Can't find service: package"*|*"Cannot access system provider: 'settings' before system providers are installed!"*)
+        # ADB and PackageManager can answer before Android has installed its
+        # system providers. An APK install still fails at that stage.
         if (( attempt < 3 )); then
-          warn "Android package service disappeared during fixture install; waiting for recovery ($attempt/3)"
+          warn "Android install services are not ready; waiting for recovery ($attempt/3)"
           local ready=false probe
           for probe in $(seq 1 45); do
-            if bounded_adb 20 shell cmd package list packages >/dev/null 2>&1; then
+            if bounded_adb 20 shell cmd package list packages >/dev/null 2>&1 && \
+               bounded_adb 20 shell settings get global device_provisioned >/dev/null 2>&1; then
               ready=true
               break
             fi
             sleep 2
           done
-          [[ "$ready" == true ]] || fail "Android emulator package service did not recover after fixture install failure"
+          [[ "$ready" == true ]] || fail "Android emulator install services did not recover after fixture install failure"
           continue
         fi
         ;;

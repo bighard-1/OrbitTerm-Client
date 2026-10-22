@@ -18,7 +18,8 @@ wait_for_android_runtime() {
   "$ADB_BIN" wait-for-device
   for attempt in $(seq 1 90); do
     if [[ "$("$ADB_BIN" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]] && \
-       "$ADB_BIN" shell cmd package list packages >/dev/null 2>&1; then
+       "$ADB_BIN" shell cmd package list packages >/dev/null 2>&1 && \
+       "$ADB_BIN" shell settings get global device_provisioned >/dev/null 2>&1; then
       return 0
     fi
     sleep 2
