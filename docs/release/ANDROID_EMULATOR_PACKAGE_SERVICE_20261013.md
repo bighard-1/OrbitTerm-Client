@@ -28,3 +28,9 @@
 - 固定提交 `4cf96ef` 的 [Android 15 作业](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38522715924/job/115715871946)完成隔离 Smoke 的 16 个状态，最终 `[PASS] Android isolated smoke fixtures`；随后 core、feature、app 三模块连接测试均构建/执行成功，覆盖检查输出 `[PASS] Android instrumentation gates`。这包含迁移与回归用例的 CI 门禁，**不是 Android 实体设备验收**。
 - 该轮日志没有 `dismissing isolated AOSP ATD Fake System App ANR overlay`，所以精确系统 ANR 处理分支**没有被实际触发**；不能把本轮通过归因于自动关闭弹窗。旧轮次包服务消失及 Fake System App ANR 两项失败均保留，后续若再次发生须保留当轮日志和结果。
 - 同一固定源码的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38522715924) 六项常规作业、[Linux Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38522715920) 与 [Windows Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38522715808) 均已完成并成功，合计 **8/8**。OpenSSH 发布候选冒烟、签名 Mac UI 冒烟为条件跳过；本次无五端实体设备矩阵。
+
+## 2026-10-21 后继失败：系统提供方尚未初始化
+
+- `e25bc86` 的 [Android 15 CI 作业](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39603372497/job/119233801562)在预构建成功后，隔离 Smoke APK 安装先遭遇 ADB `Broken pipe`，随后报告包服务不可用；第三次安装明确抛出 `Cannot access system provider: 'settings' before system providers are installed!`，最后为 `[FAIL] isolated smoke fixture APK installation failed`。该作业失败、没有连接仪表化报告；不得把同轮其它门禁通过外推为 Android 仪表化通过。此日志证明模拟器安装服务的就绪检查不足，**不证明客户端 APK 自身有缺陷**。首次 `e25bc86` 失败结果保留，不以未来重跑覆盖。
+- CI-only 提交 `74acf0a` 在进入隔离 Smoke 和连接测试前，除 `sys.boot_completed`、PackageManager 外再核对系统 `settings` 提供方可响应；Smoke 安装若精确命中上述初始化错误，最多沿原三次安装预算等待包服务和提供方均恢复后再试。其它安装失败照常报错，未放宽断言或静默跳过测试。Shell 语法、错误分类匹配与差异检查在本机通过；**后继远端 CI 尚未完成前，不记作修复已在模拟器验收**。
+- 此处没有新增产品包、隔离账户 GUI 或真实设备操作。Android K60 受保护 QA 的 SFTP 结果单列于总台账；Windows 对照 CI 包身份与原生 GUI，不把 Android 模拟器基础设施失败误记为 Windows 产品故障。五端完整验收仍未完成。
