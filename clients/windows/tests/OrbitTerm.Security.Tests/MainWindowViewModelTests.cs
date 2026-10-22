@@ -1663,7 +1663,14 @@ public sealed class MainWindowViewModelTests
     [Fact]
     public async Task ActiveSftpTransferBlocksUnsafeExitAndStopsCleanlyWhenConfirmed()
     {
-        var coreClient = new FakeCheckedCoreClient { SftpDownloadDelayMilliseconds = 250 };
+        using var downloadEnteredGate = new ManualResetEventSlim(false);
+        using var downloadReleaseGate = new ManualResetEventSlim(false);
+        var coreClient = new FakeCheckedCoreClient
+        {
+            SftpDownloadEnteredGate = downloadEnteredGate,
+            SftpDownloadReleaseGate = downloadReleaseGate,
+            ReturnCancelledDownloadErrorAfterCancel = true,
+        };
         var viewModel = CreateViewModel(coreClient);
         viewModel.Password = "secret";
         viewModel.ConnectCommand.Execute(null);
@@ -1675,16 +1682,22 @@ public sealed class MainWindowViewModelTests
 
         var downloadDirectory = Path.Combine(Path.GetTempPath(), $"orbitterm-sftp-exit-{Guid.NewGuid():N}");
         Directory.CreateDirectory(downloadDirectory);
+        Task? operation = null;
         try
         {
-            var operation = viewModel.DownloadSelectedSftpEntriesAsync(downloadDirectory, CancellationToken.None);
+            operation = viewModel.DownloadSelectedSftpEntriesAsync(downloadDirectory, CancellationToken.None);
             await WaitUntilAsync(() => viewModel.HasActiveSftpTransfers);
-            await WaitUntilAsync(() => coreClient.DownloadSftpFileCallCount > 0);
+            // Hold the checked-core call until exit cancellation is observed.
+            // A fixed delay lets a busy CI runner complete the transfer first.
+            await WaitUntilAsync(() => downloadEnteredGate.IsSet);
 
             Assert.True(viewModel.ActiveSftpTransferCount > 0);
             Assert.Contains("退出", viewModel.SftpExitProtectionMessage, StringComparison.Ordinal);
 
-            await viewModel.StopSftpTransfersForApplicationExitAsync(CancellationToken.None);
+            var stopOperation = viewModel.StopSftpTransfersForApplicationExitAsync(CancellationToken.None);
+            await WaitUntilAsync(() => coreClient.CancelSftpTransferCallCount > 0);
+            downloadReleaseGate.Set();
+            await stopOperation;
             await operation;
 
             Assert.False(viewModel.HasActiveSftpTransfers);
@@ -1693,6 +1706,8 @@ public sealed class MainWindowViewModelTests
         }
         finally
         {
+            downloadReleaseGate.Set();
+            if (operation is not null) await operation;
             Directory.Delete(downloadDirectory, recursive: true);
         }
     }
