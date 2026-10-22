@@ -34,3 +34,8 @@
 - `e25bc86` 的 [Android 15 CI 作业](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39603372497/job/119233801562)在预构建成功后，隔离 Smoke APK 安装先遭遇 ADB `Broken pipe`，随后报告包服务不可用；第三次安装明确抛出 `Cannot access system provider: 'settings' before system providers are installed!`，最后为 `[FAIL] isolated smoke fixture APK installation failed`。该作业失败、没有连接仪表化报告；不得把同轮其它门禁通过外推为 Android 仪表化通过。此日志证明模拟器安装服务的就绪检查不足，**不证明客户端 APK 自身有缺陷**。首次 `e25bc86` 失败结果保留，不以未来重跑覆盖。
 - CI-only 提交 `74acf0a` 在进入隔离 Smoke 和连接测试前，除 `sys.boot_completed`、PackageManager 外再核对系统 `settings` 提供方可响应；Smoke 安装若精确命中上述初始化错误，最多沿原三次安装预算等待包服务和提供方均恢复后再试。其它安装失败照常报错，未放宽断言或静默跳过测试。Shell 语法、错误分类匹配与差异检查在本机通过；**后继远端 CI 尚未完成前，不记作修复已在模拟器验收**。
 - 此处没有新增产品包、隔离账户 GUI 或真实设备操作。Android K60 受保护 QA 的 SFTP 结果单列于总台账；Windows 对照 CI 包身份与原生 GUI，不把 Android 模拟器基础设施失败误记为 Windows 产品故障。五端完整验收仍未完成。
+
+## 2026-10-21 固定候选后继 CI 通过
+
+- 分支头 `104a8e8` 的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39701362653)中，Android 仪器/迁移作业最终成功。完整日志有 `[PASS] Android isolated smoke fixtures`，随后 core 1 项、feature 13 项、app 33 项连接测试均完成；最后为 `[PASS] Android instrumentation gates`。这证明该固定候选在当轮 Android 15 AOSP ATD 模拟器上已越过此前的 `settings` 提供方安装失败，且后续断言运行完毕。`e25bc86` 原始失败仍如上保留；单次通过不保证托管模拟器永不波动。
+- 同一固定候选的 Android Release、Apple checked-path、Rust Release、依赖扫描和桌面视觉契约也成功；签名 macOS UI 与 OpenSSH 发行候选冒烟按条件跳过，不能计为成功。独立 [Windows Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39701362638)和 [Linux Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39701362512)工作流成功。此为 CI/自动化，不替代 Android K60 或其余四端同版真机验收。

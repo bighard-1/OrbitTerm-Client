@@ -122,3 +122,5 @@ K60 经 ADB 只读检查已连接，但屏幕处于锁定/休眠状态；设备�
 固定候选 `17ae1c0` 的 [Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39700685759/job/119568878984)在 334 项安全测试中 333 项通过、1 项失败：`ActiveSftpTransferBlocksUnsafeExitAndStopsCleanlyWhenConfirmed` 的 `ActiveSftpTransferCount > 0` 断言为 false。原测试只让模拟下载固定睡眠 250 ms；它虽先观察到批任务启动和模拟核心调用，但 CI 调度延迟足以令下载在断言前完成。此轮失败保留，不能记 Windows 门禁通过；日志未显示 Windows 产品运行时故障。
 
 提交 `bd4ca69` 仅修测试时序：用已有模拟核心的进入/释放闸门，使核心下载保持在调用内，先核对退出提示与活动传输，再发起退出取消，观察核心取消请求后才释放模拟下载。仍断言退出后无活动任务、任务为取消且核心实际收到取消；没有改产品退出逻辑或删减测试覆盖。异常路径也释放闸门并等待任务，避免测试残留。Mac 本机没有 `dotnet`，只完成源码差异检查；待新 Windows CI 真正运行此测试后才能判定修订通过。Linux/Android/Apple 的独立门禁和 K60 真机结果不能代替 Windows CI。
+
+固定分支头 `104a8e8` 的 [Windows Client CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39701362638)后继完整工作流成功：安全测试 **334/334**（0 失败、0 跳过），包含上述退出保护断言；Windows x64 Rust 核心构建和内部测试 MSIX 构建/上传也完成。原 `17ae1c0` 的 333/334 失败仍保留，不能用这次成功抹去。此项只证明 CI 测试时序稳定一次，**没有把新 MSIX 安装到 Windows 10 真机**，也没有验证 Windows GUI 的远端卡读取消；后续需单列设备结果。
