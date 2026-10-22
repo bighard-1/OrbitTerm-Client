@@ -539,51 +539,49 @@ pub(crate) async fn download_file_create_new_cancellable(
         .ok()
         .and_then(|metadata| metadata.size);
 
-    let transfer =
-        with_new_download_target(&local_path, |mut local| async move {
-            let mut buffer = vec![0u8; SFTP_DOWNLOAD_BUF_SIZE];
-            let mut downloaded = 0u64;
-            let mut progress_throttle = TransferProgressThrottle::started();
-            let mut observed_monitor_generation = session
+    let transfer = with_new_download_target(&local_path, |mut local| async move {
+        let mut buffer = vec![0u8; SFTP_DOWNLOAD_BUF_SIZE];
+        let mut downloaded = 0u64;
+        let mut progress_throttle = TransferProgressThrottle::started();
+        let mut observed_monitor_generation = session
+            .base
+            .monitor_sample_generation
+            .load(Ordering::SeqCst);
+        progress(downloaded, total_bytes);
+        loop {
+            check_transfer_cancelled(cancelled)?;
+            let count = await_download_read_or_cancel(remote.read(&mut buffer), cancelled).await?;
+            if count == 0 {
+                break;
+            }
+            local
+                .write_all(&buffer[..count])
+                .await
+                .map_err(|e| OrbitCoreError::SftpFailed(format!("write local file failed: {e}")))?;
+            downloaded += count as u64;
+            if progress_throttle.should_report(downloaded, false) {
+                progress(downloaded, total_bytes);
+            }
+            let requested_monitor_generation = session
                 .base
                 .monitor_sample_generation
                 .load(Ordering::SeqCst);
+            if requested_monitor_generation != observed_monitor_generation {
+                observed_monitor_generation = requested_monitor_generation;
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        }
+        check_transfer_cancelled(cancelled)?;
+        local
+            .flush()
+            .await
+            .map_err(|e| OrbitCoreError::SftpFailed(format!("flush local file failed: {e}")))?;
+        if progress_throttle.should_report(downloaded, true) {
             progress(downloaded, total_bytes);
-            loop {
-                check_transfer_cancelled(cancelled)?;
-                let count = remote.read(&mut buffer).await.map_err(|e| {
-                    OrbitCoreError::SftpFailed(format!("read remote file failed: {e}"))
-                })?;
-                if count == 0 {
-                    break;
-                }
-                local.write_all(&buffer[..count]).await.map_err(|e| {
-                    OrbitCoreError::SftpFailed(format!("write local file failed: {e}"))
-                })?;
-                downloaded += count as u64;
-                if progress_throttle.should_report(downloaded, false) {
-                    progress(downloaded, total_bytes);
-                }
-                let requested_monitor_generation = session
-                    .base
-                    .monitor_sample_generation
-                    .load(Ordering::SeqCst);
-                if requested_monitor_generation != observed_monitor_generation {
-                    observed_monitor_generation = requested_monitor_generation;
-                    tokio::time::sleep(Duration::from_millis(1)).await;
-                }
-            }
-            check_transfer_cancelled(cancelled)?;
-            local
-                .flush()
-                .await
-                .map_err(|e| OrbitCoreError::SftpFailed(format!("flush local file failed: {e}")))?;
-            if progress_throttle.should_report(downloaded, true) {
-                progress(downloaded, total_bytes);
-            }
-            Ok(downloaded)
-        })
-        .await?;
+        }
+        Ok(downloaded)
+    })
+    .await?;
     serde_json::to_string(&SftpTransferResult { bytes: transfer })
         .map_err(|e| OrbitCoreError::Internal(e.to_string()))
 }
@@ -617,6 +615,26 @@ fn check_transfer_cancelled(cancelled: &AtomicBool) -> Result<(), OrbitCoreError
         Err(OrbitCoreError::SftpTransferCancelled)
     } else {
         Ok(())
+    }
+}
+
+async fn await_download_read_or_cancel<F>(
+    read: F,
+    cancelled: &AtomicBool,
+) -> Result<usize, OrbitCoreError>
+where
+    F: Future<Output = std::io::Result<usize>>,
+{
+    tokio::pin!(read);
+    loop {
+        check_transfer_cancelled(cancelled)?;
+        tokio::select! {
+            result = &mut read => {
+                check_transfer_cancelled(cancelled)?;
+                return result.map_err(|error| OrbitCoreError::SftpFailed(format!("read remote file failed: {error}")));
+            }
+            _ = tokio::time::sleep(Duration::from_millis(200)) => {}
+        }
     }
 }
 
@@ -1064,15 +1082,37 @@ fn shell_single_quote(input: &str) -> String {
 #[cfg(test)]
 mod transfer_progress_tests {
     use super::{
-        map_create_mutation_error, with_new_download_target, SftpMutationError,
-        TransferProgressThrottle, SFTP_PROGRESS_MIN_BYTES,
+        await_download_read_or_cancel, map_create_mutation_error, with_new_download_target,
+        SftpMutationError, TransferProgressThrottle, SFTP_PROGRESS_MIN_BYTES,
     };
     use crate::OrbitCoreError;
     use russh_sftp::{
         client::error::Error as SftpClientError,
         protocol::{Status, StatusCode},
     };
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
     use tokio::io::AsyncWriteExt;
+
+    #[tokio::test]
+    async fn stalled_download_read_observes_cancel_without_server_response() {
+        let cancelled = AtomicBool::new(false);
+        let read = std::future::pending::<std::io::Result<usize>>();
+        let operation = async {
+            tokio::join!(
+                async { await_download_read_or_cancel(read, &cancelled).await },
+                async {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                    cancelled.store(true, Ordering::Release);
+                },
+            )
+            .0
+        };
+        let result = tokio::time::timeout(Duration::from_secs(1), operation)
+            .await
+            .expect("cancellation must bound a stalled read");
+        assert!(matches!(result, Err(OrbitCoreError::SftpTransferCancelled)));
+    }
 
     #[tokio::test]
     async fn existing_download_target_is_never_removed_when_create_new_fails() {
