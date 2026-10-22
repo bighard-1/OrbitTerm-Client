@@ -130,3 +130,13 @@ K60 经 ADB 只读检查已连接，但屏幕处于锁定/休眠状态；设备�
 从上述成功的 Windows CI 取得内部测试归档（GitHub Actions artifact `12393481350`，名称带 CI 合并提交前缀 `3fc5fbd0`），仅保存到加密外置盘临时核验目录，**未传入或安装到 Windows 测试机**。外层 ZIP SHA-256 为 `208e29484137e4b5765bc1781ff0fec5de2029bb63cbc266df6a7cb3d6f15d7d`，与 GitHub artifact digest 一致；归档可正常展开。内层 `OrbitTerm_0.3.0.33_x64_Test.msix` SHA-256 为 `50ba90ccbe674980e2acd5edc1920c517db80aebee02fe8e71528bfcef369856`，与归档自带 `SHA256.txt` 一致。清单声明 `OrbitTerm.Client`、`CN=OrbitTerm Development`、`0.3.0.33`、x64、Windows Desktop 最低 `10.0.19041.0`；包内有 `AppxSignature.p7x`。随包公用测试证书 SHA-256 为 `5cfe4cb42869d8edcd38abc61150bbb09ae79580a3547c8c0acc5de41adc43c0`，证书主题/颁发者同为 `CN=OrbitTerm Development`。检查安装脚本：它会导入此证书到 Windows `LocalMachine/TrustedPeople`，校验系统签名，再停止当前 QA 进程、移除同版本当前用户包注册并安装新版。
 
 Windows App 中仅执行只读命令：当前已注册旧 QA 为 `OrbitTerm.Client` / `0.3.0.33` / x64 / `Status=Ok`；`TrustedPeople` 只列出一张旧 OrbitTerm 测试证书，指纹与本次随包证书不同。远程粘贴 PowerShell 命令时只输入了字符 `v` 并报未识别命令，改用逐字符输入后只读命令成功；此远控输入失败按测试环境异常保留，未把它误记为产品故障。当前 Windows 没有导入新证书或安装新包。**本机静态核验不等于 Windows 系统签名 `Valid`、安装/数据保持或真机卡读取消通过**；证书导入和受控替换需要本次明确确认、Windows 本机再次核验及安装前状态备份。旧 CI 失败与 K60 服务端中止未自动报错问题均保持开放。
+
+## Windows 后继候选的受控更新（2026-10-22）
+
+用户对**本次**新测试证书导入、同身份独立 QA 更新和旧测试证书清理作出明确允许。Windows 原 QA 的资产管理窗口显示活动资产 **6 项**、个人中心显示待确认冲突 **0 项**、双向同步已完成；正常关闭后，确认原 QA 进程不再运行。通过已授权的测试机 SMB 管理共享，把包外账户状态与该 QA 包容器状态复制到加密外置盘独立备份目录，两个源目录与备份逐目录比较均无差异。此备份未解密、未提交仓库，且不含 Windows 系统 `Helium` 注册表，**不宣称全量可恢复**。正式版、真实资产、K60 和线上服务均未操作。
+
+仅将已核对的 MSIX、公用测试证书与原名安装脚本传入 Windows 测试账户专用暂存目录；Mac 再读共享副本的 MSIX/证书/脚本摘要与源相符。Windows 本机 `Get-FileHash` 对 MSIX 返回 `50ba90ccbe674980e2acd5edc1920c517db80aebee02fe8e71528bfcef369856`、证书返回 `5cfe4cb42869d8edcd38abc61150bbb09ae79580a3547c8c0acc5de41adc43c0`，分别与 CI 归档一致。导入前 `Get-AuthenticodeSignature` 为 `UnknownError`，签名者指纹与随包公用证书匹配；不能将导入前状态写作 `Valid`。
+
+运行归档自带安装脚本，日志回报 `SUCCESS`，包身份 `OrbitTerm.Client_0.3.0.33_x64`。Windows 再独立读取：同一 MSIX 的系统签名变为 **`Valid`**；`Get-AppxPackage` 为 `OrbitTerm.Client` / `0.3.0.33` / x64 / **`Status=Ok`**。新 QA 启动到原账户主密码页，说明应用进程已启动，**尚不证明原数据已解锁或 SFTP GUI 已通过**。`TrustedPeople` 只读列举发现本次新旧两张 OrbitTerm 测试证书并存，旧证书的精确指纹与更新前记录一致；其清理及清理后签名复核**尚未完成**。一次远控清理命令输入调用超时，未送出执行确认；不能把旧证书误记为已删。用于传输/备份的 SMB 挂载已卸载。
+
+Windows App 远控逐字符输入主密码一次仍被判“主密码不正确，数据保持锁定”，随即停止重试；用户本人解锁与原 6 项/冲突 0 的安装后核对待回执。远控输入异常的旧记录和本次失败均保留，不以旧版曾成功解锁推断此版数据必然无损，也不能单凭失败认定产品密码算法缺陷。下一步在用户解锁后只读核对资产与同步，再以隔离只读 SFTP-only 夹具测试卡住读取的主动取消和本次目标清理；服务端中止后的自动失败分类、其它四端新候选 GUI 与五端完整矩阵仍开放。
