@@ -28,8 +28,6 @@ internal static class NativeWindowCornerService
     private const uint WmNcCalcSize = 0x0083;
     private const uint WmNcDestroy = 0x0082;
     private const uint WmNcLeftButtonDown = 0x00A1;
-    private const uint WmSystemCommand = 0x0112;
-    private const int ScSize = 0xF000;
     private const int HtNowhere = 0;
     private const int HtClient = 1;
     private const int HtCaption = 2;
@@ -42,14 +40,6 @@ internal static class NativeWindowCornerService
     private const int HtBottomLeft = 16;
     private const int HtBottomRight = 17;
     private const int HtBorder = 18;
-    private const int WmszLeft = 1;
-    private const int WmszRight = 2;
-    private const int WmszTop = 3;
-    private const int WmszTopLeft = 4;
-    private const int WmszTopRight = 5;
-    private const int WmszBottom = 6;
-    private const int WmszBottomLeft = 7;
-    private const int WmszBottomRight = 8;
     private static readonly UIntPtr ResizeSubclassId = new(0x4F544652);
     private static readonly WindowSubclassProc ResizeSubclassProc = Windows10ResizeSubclass;
 
@@ -148,22 +138,14 @@ internal static class NativeWindowCornerService
             !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000) &&
             !IsZoomed(windowHandle))
         {
-            var resizeDirection = wParam.ToInt32() switch
+            var hit = wParam.ToInt32();
+            if (hit is HtLeft or HtRight or HtTop or HtTopLeft or HtTopRight or
+                HtBottom or HtBottomLeft or HtBottomRight)
             {
-                HtLeft => WmszLeft,
-                HtRight => WmszRight,
-                HtTop => WmszTop,
-                HtTopLeft => WmszTopLeft,
-                HtTopRight => WmszTopRight,
-                HtBottom => WmszBottom,
-                HtBottomLeft => WmszBottomLeft,
-                HtBottomRight => WmszBottomRight,
-                _ => 0,
-            };
-            if (resizeDirection != 0)
-            {
-                // Preserve the native SC_SIZE sizing loop even if an older
-                // running window instance had removed WS_THICKFRAME.
+                // Give DefWindowProc the original non-client mouse message,
+                // including its screen coordinates. Synthesizing SC_SIZE with
+                // lParam=0 enters a sizing mode but can ignore the held mouse
+                // drag even though WM_NCHITTEST reports a sizing edge.
                 var style = GetWindowLongPtr(windowHandle, GwlStyle).ToInt64();
                 var restoredThickFrame = (style & WsThickFrame) == 0;
                 if (restoredThickFrame)
@@ -173,12 +155,7 @@ internal static class NativeWindowCornerService
 
                 try
                 {
-                    _ = ReleaseCapture();
-                    _ = SendMessage(
-                        windowHandle,
-                        WmSystemCommand,
-                        new nint(ScSize + resizeDirection),
-                        nint.Zero);
+                    return DefWindowProc(windowHandle, message, wParam, lParam);
                 }
                 finally
                 {
@@ -192,7 +169,6 @@ internal static class NativeWindowCornerService
                         ApplyWindows10Region(windowHandle);
                     }
                 }
-                return nint.Zero;
             }
         }
         if (message == WmNcCalcSize &&
@@ -305,6 +281,9 @@ internal static class NativeWindowCornerService
         out NativeRect attributeValue,
         int attributeSize);
 
+    [DllImport("user32.dll", EntryPoint = "DefWindowProcW")]
+    private static extern nint DefWindowProc(nint windowHandle, uint message, nint wParam, nint lParam);
+
     [DllImport("gdi32.dll")]
     private static extern nint CreateRoundRectRgn(int left, int top, int right, int bottom, int width, int height);
 
@@ -346,17 +325,6 @@ internal static class NativeWindowCornerService
         int width,
         int height,
         uint flags);
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool ReleaseCapture();
-
-    [DllImport("user32.dll")]
-    private static extern nint SendMessage(
-        nint windowHandle,
-        uint message,
-        nint wParam,
-        nint lParam);
 
     private delegate nint WindowSubclassProc(
         nint windowHandle,

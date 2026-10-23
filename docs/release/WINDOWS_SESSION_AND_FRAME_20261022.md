@@ -41,3 +41,13 @@
 GitHub artifact `12497913632` 的外层 ZIP SHA-256 `b5d535f38704ae2e20576a56c5ac3b23e7183d4a0d24ae073d9c9c46cf0bdfb2` 与平台摘要一致；归档测试通过。内层 MSIX SHA-256 `f814af8e57e3b30dee677d5fb4bf4e93ba197df625f3dde7e793e29dce0b9494` 与包内 `SHA256.txt`、Windows 本机 `Get-FileHash` 一致；清单仍为 `OrbitTerm.Client`、x64、`0.3.0.33`。随包新测试证书 SHA-256 `66472ba064920f535102bee2c361510add90fc452ef6ac2962ac18742abde30e` 与 Windows 本机一致；签名者 SHA-1 为 `742D34E37337981D2F6DE93F1B7FFF1B369017AF`。在**未导入新证书前** Windows 的签名状态为 `UnknownError`，符合尚未建立本机信任的当前状态，不能写作 `Valid`；当前 `TrustedPeople` 只含上一版 OrbitTerm 测试证书。Windows 远控输入曾把含盘符/斜杠的 `cd` 路径损坏，报不存在；改用逐层进入专用目录后取到正确本机摘要，失败命令保留、不计核验通过。
 
 旧独立 QA 已正常退出；包外账户目录、包内 Settings/LocalState 均复制到加密外置盘，逐目录比较无差异。此备份不包含 Windows 系统 Helium，不能声称全量可恢复。新包和证书已传至 Windows 测试机，尚未导入证书或安装。由于新签名证书与前一轮不同，已在实际操作点另行请求确认。**隔离 GUI/真实设备新候选尚无结果，五端完整验收未完成**。获得确认后，先验证签名及包状态，再核对原资产、八方向边框缩放及终端自然 EOF/SFTP 硬断线；Android/K60 应对照被动断开和任务终态。
+
+## 可见边界候选的 Windows 10 实机缩放复测与新修订（2026-10-23）
+
+用户在实际操作点确认了新测试证书导入、独立 QA 更新及旧证书精确清理。固定 `5d02429` 的 `0.3.0.33` 包安装脚本记录完成，Windows `Get-AppxPackage` 报 x64、`Status=Ok`，MSIX 的签名者为随包新证书且状态从导入前 `UnknownError` 变成 `Valid`。用户亲自解锁 QA；原有 6 项资产仍在 4 个分组，状态显示云端已同步、本机队列已处理。只按上一张测试证书完整 SHA-1 指纹从 `TrustedPeople` 移除旧证书，复查仅剩本次证书且 MSIX 仍为 `Valid`；不涉及正式版、其他证书或线上服务。一次远程输入焦点被新启动的 QA 主密码弹窗抢走，错误地触发了主密码失败提示，随即停止在该框输入；此失败保留，不计账户/凭据错误，后续由用户本人解锁。
+
+**鼠标缩放仍未通过**：Mac Windows App 的 RDP 实操在 QA 左、右、下边及右下角均未观察到尺寸变化，扩大到最外侧像素后右边仍无变化。只读 Win32 探针确认该 QA 进程 `WS_THICKFRAME` 为真，`GetWindowRect` 与 `DWMWA_EXTENDED_FRAME_BOUNDS` 在此设备上都是同一矩形；四边/四角的 `WM_NCHITTEST` 分别返回预期的 `HTLEFT`/`HTRIGHT`/`HTTOP`/`HTBOTTOM` 和四个角值，中心为 `HTCLIENT`。探针首版 PowerShell 数组表达式错误导致执行中止，修正后才得到这些值，首轮失败未计为通过。通过系统菜单“大小”及方向键，QA 宽度真实增加约 33 像素；同一 RDP 通道拖动普通 PowerShell 窗口的精确右外缘也能真实增加宽度。因此既不能说远控完全不支持拖拽，也不能说 QA 鼠标缩放通过。可见边界矩形偏移的上一轮原因假设在这台设备上未成立。
+
+源码复核指向 Windows 10 的 `WM_NCLBUTTONDOWN` 分支：它截获已命中的缩放边缘，释放捕获后自行发送 `SC_SIZE + 方向` 且 `lParam=0`；这可能启动系统大小模式但丢失原始鼠标按下位置/拖动语义。新源码候选改为把原始 `WM_NCLBUTTONDOWN`、命中值和屏幕坐标交给 `DefWindowProcW`，仍保留 `WS_THICKFRAME` 与仅在必要时恢复样式的保护。此修订**尚未编译、未生成新签名包、未在 GUI/真机验证**，不能关闭缺陷。下一轮须在新包上重跑鼠标四边四角拖拽、系统菜单大小、最大化/还原、深浅主题和最小尺寸，再补终端自然 EOF 与 SFTP 在途断线；Android/K60 对照被动断开与队列终态。
+
+门禁按提交分开记录：`5d02429` 的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39945855106) 因后继提交触发而 `cancelled`，不能写成功；不改产品代码的记录提交 `8660fc8` 的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39948562148)、[Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39948562128)、[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39948562130) 均 `completed/success`，但这些自动化不抵消上述鼠标真机失败。新修订需独立跑门禁及更新 QA。
