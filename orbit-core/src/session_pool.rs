@@ -961,7 +961,7 @@ fn try_acquire_session_reference(session: &OrbitBaseSession) -> bool {
     }
 }
 
-fn emit_connection_event(base_id: u64, message: &str) {
+pub(crate) fn emit_connection_event(session_id: u64, message: &str) {
     let cb_opt = CONNECTION_EVENT_CALLBACK
         .lock()
         .ok()
@@ -969,7 +969,7 @@ fn emit_connection_event(base_id: u64, message: &str) {
 
     if let Some(cb) = cb_opt {
         if let Ok(payload) = CString::new(message) {
-            cb(base_id, payload.as_ptr());
+            cb(session_id, payload.as_ptr());
         }
     }
 }

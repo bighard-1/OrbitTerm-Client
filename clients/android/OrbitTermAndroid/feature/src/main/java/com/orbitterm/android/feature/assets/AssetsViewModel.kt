@@ -145,7 +145,7 @@ class AssetsViewModel @Inject constructor(
         }
     }
     private val activeAssetIds = terminalSessionController.activeSessions
-        .map { sessions -> sessions.mapTo(linkedSetOf()) { it.assetId } }
+        .map { sessions -> connectedAssetIds(sessions.map { it.assetId to it.connectionState }) }
         .distinctUntilChanged()
     private val listPresentation = combine(activeAssetIds, expandedGroups, bulkImport, operationNotice) {
             activeIds,

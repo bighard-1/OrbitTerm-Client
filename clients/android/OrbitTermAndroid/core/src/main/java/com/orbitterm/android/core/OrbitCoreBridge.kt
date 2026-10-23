@@ -6,6 +6,7 @@ object OrbitCoreBridge {
     private val nativeLoadResult = runCatching { System.loadLibrary("orbit_core") }
     val isNativeLibraryAvailable: Boolean get() = nativeLoadResult.isSuccess
     @Volatile private var terminalOutputCallbackInstalled = false
+    @Volatile private var connectionEventCallbackInstalled = false
     @Volatile private var sftpProgressCallbackInstalled = false
     val isTerminalOutputCallbackInstalled: Boolean get() = terminalOutputCallbackInstalled
 
@@ -97,12 +98,19 @@ object OrbitCoreBridge {
     external fun orbitStartCheckedLocalTunnel(baseSessionId: Long, bindHost: String, bindPort: Int, destinationHost: String, destinationPort: Int, requestId: String): String
     external fun orbitStopCheckedLocalTunnel(tunnelId: Long, requestId: String): String
     external fun orbitInstallTerminalOutputCallback(receiver: Any): Boolean
+    external fun orbitInstallConnectionEventCallback(receiver: Any): Boolean
     external fun orbitInstallSftpProgressCallback(receiver: Any): Boolean
 
     fun installTerminalOutputCallback(receiver: Any): Boolean {
         terminalOutputCallbackInstalled =
             isNativeLibraryAvailable && orbitInstallTerminalOutputCallback(receiver)
         return terminalOutputCallbackInstalled
+    }
+
+    fun installConnectionEventCallback(receiver: Any): Boolean {
+        connectionEventCallbackInstalled =
+            isNativeLibraryAvailable && orbitInstallConnectionEventCallback(receiver)
+        return connectionEventCallbackInstalled
     }
 
     fun installSftpProgressCallback(receiver: Any): Boolean {

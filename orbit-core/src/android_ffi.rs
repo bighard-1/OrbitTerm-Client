@@ -39,6 +39,8 @@ use crate::{
 
 static TERMINAL_OUTPUT_RECEIVER: Lazy<Mutex<Option<(Arc<JavaVM>, GlobalRef)>>> =
     Lazy::new(|| Mutex::new(None));
+static CONNECTION_EVENT_RECEIVER: Lazy<Mutex<Option<(Arc<JavaVM>, GlobalRef)>>> =
+    Lazy::new(|| Mutex::new(None));
 static SFTP_PROGRESS_RECEIVER: Lazy<Mutex<Option<(Arc<JavaVM>, GlobalRef)>>> =
     Lazy::new(|| Mutex::new(None));
 
@@ -101,6 +103,44 @@ extern "C" fn emit_terminal_output_to_android(channel_id: u64, data: *const u8, 
         &[
             JValue::Long(channel_id as jlong),
             JValue::Object(&byte_array_object),
+        ],
+    );
+    if env.exception_check().unwrap_or(false) {
+        let _ = env.exception_clear();
+    }
+}
+
+extern "C" fn emit_connection_event_to_android(session_or_channel_id: u64, event: *const c_char) {
+    if session_or_channel_id == 0 || event.is_null() {
+        return;
+    }
+    let Ok(code) = (unsafe { CStr::from_ptr(event) }).to_str() else {
+        return;
+    };
+    if code != "ERR_CONNECTION_LOST" && code != "ERR_TERMINAL_CLOSED" {
+        return;
+    }
+    let Some((vm, receiver)) = CONNECTION_EVENT_RECEIVER
+        .lock()
+        .ok()
+        .and_then(|guard| guard.as_ref().cloned())
+    else {
+        return;
+    };
+    let Ok(mut env) = vm.attach_current_thread_as_daemon() else {
+        return;
+    };
+    let Ok(code) = env.new_string(code) else {
+        return;
+    };
+    let code = JObject::from(code);
+    let _ = env.call_method(
+        receiver.as_obj(),
+        "onConnectionEvent",
+        "(JLjava/lang/String;)V",
+        &[
+            JValue::Long(session_or_channel_id as jlong),
+            JValue::Object(&code),
         ],
     );
     if env.exception_check().unwrap_or(false) {
@@ -508,6 +548,23 @@ pub extern "system" fn Java_com_orbitterm_android_core_OrbitCoreBridge_orbitInst
         let mut slot = TERMINAL_OUTPUT_RECEIVER.lock().map_err(|_| ())?;
         *slot = Some((Arc::new(vm), receiver));
         crate::c_ffi::orbit_terminal_set_callback(Some(emit_terminal_output_to_android));
+        Ok::<(), ()>(())
+    })();
+    jboolean::from(result.is_ok())
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_orbitterm_android_core_OrbitCoreBridge_orbitInstallConnectionEventCallback(
+    env: JNIEnv,
+    _this: JObject,
+    receiver: JObject,
+) -> jboolean {
+    let result = (|| {
+        let vm = env.get_java_vm().map_err(|_| ())?;
+        let receiver = env.new_global_ref(receiver).map_err(|_| ())?;
+        let mut slot = CONNECTION_EVENT_RECEIVER.lock().map_err(|_| ())?;
+        *slot = Some((Arc::new(vm), receiver));
+        crate::c_ffi::orbit_connection_set_callback(Some(emit_connection_event_to_android));
         Ok::<(), ()>(())
     })();
     jboolean::from(result.is_ok())

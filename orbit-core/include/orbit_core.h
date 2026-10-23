@@ -352,7 +352,9 @@ char *orbit_hostkey_challenge_cleanup_expired_v1(void);
 char *orbit_hostkey_protocol_version_v1(void);
 
 typedef void (*orbit_terminal_data_callback_t)(uint64_t terminal_channel_id, const uint8_t *data, size_t len);
-typedef void (*orbit_connection_event_callback_t)(uint64_t base_session_id, const char *message);
+/* ERR_CONNECTION_LOST carries a base session ID; ERR_TERMINAL_CLOSED carries a
+ * terminal channel ID. Consumers must dispatch by message before using the ID. */
+typedef void (*orbit_connection_event_callback_t)(uint64_t session_or_channel_id, const char *message);
 typedef void (*orbit_sftp_progress_callback_t)(const char *request_id, uint64_t transferred, uint64_t total, bool has_total);
 void orbit_terminal_set_callback(orbit_terminal_data_callback_t callback);
 void orbit_connection_set_callback(orbit_connection_event_callback_t callback);
