@@ -1700,7 +1700,13 @@ public sealed class MainWindowViewModelTests
     [Fact]
     public async Task SftpBatchKeepsItsOriginalLeaseWhenVisibleWorkspaceChanges()
     {
-        var coreClient = new FakeCheckedCoreClient { SftpDownloadDelayMilliseconds = 250 };
+        using var downloadEnteredGate = new ManualResetEventSlim(false);
+        using var downloadReleaseGate = new ManualResetEventSlim(false);
+        var coreClient = new FakeCheckedCoreClient
+        {
+            SftpDownloadEnteredGate = downloadEnteredGate,
+            SftpDownloadReleaseGate = downloadReleaseGate,
+        };
         var viewModel = CreateViewModel(coreClient);
         viewModel.Password = "secret";
         viewModel.ConnectCommand.Execute(null);
@@ -1715,7 +1721,8 @@ public sealed class MainWindowViewModelTests
         try
         {
             var operation = viewModel.DownloadSelectedSftpEntriesAsync(downloadDirectory, CancellationToken.None);
-            await WaitUntilAsync(() => coreClient.DownloadSftpFileCallCount == 1);
+            await WaitUntilAsync(() => downloadEnteredGate.IsSet);
+            Assert.Equal(1, coreClient.DownloadSftpFileCallCount);
             var field = typeof(MainWindowViewModel).GetField(
                 "sftpLease",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
@@ -1730,6 +1737,7 @@ public sealed class MainWindowViewModelTests
                 "ssh-ed25519",
                 "SHA256:other"));
 
+            downloadReleaseGate.Set();
             await operation;
 
             Assert.Equal(2, coreClient.DownloadSftpFileCallCount);
@@ -1737,6 +1745,7 @@ public sealed class MainWindowViewModelTests
         }
         finally
         {
+            downloadReleaseGate.Set();
             Directory.Delete(downloadDirectory, recursive: true);
         }
     }
