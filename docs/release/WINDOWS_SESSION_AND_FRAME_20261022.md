@@ -28,6 +28,8 @@
 
 用户在实际导入时确认新测试证书、独立 QA 更新及旧证书清理。固定源码 `870f97f`，MSIX `0.3.0.33` 的 Mac、Windows 本机和包内 SHA-256 一致，更新前包外账户、包内 Settings/LocalState 已备份至加密外置盘且逐目录一致（不含系统 Helium）。在 Windows 10 专业版测试机导入随包新证书后，安装脚本记录 `SUCCESS`，`Get-AppxPackage OrbitTerm.Client` 显示 x64、`0.3.0.33`、`Status=Ok`，系统 MSIX 签名从导入前 `UnknownError` 变为 `Valid`。按精确 SHA-1 指纹仅移除旧 OrbitTerm 测试证书后，`TrustedPeople` 只剩新证书，再验 MSIX 仍为 `Valid`。用户亲自解锁 QA；窗口显示原有 6 项资产，状态栏为云端已同步、本机队列已处理。此处没有声称凭据跨机恢复或完整同步/墓碑矩阵通过。
 
+固定 `870f97f` 的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39940434765) 随后最终为 `completed/success`：Rust Release、Apple checked-path、Android instrumentation/migration、Android Release、桌面视觉契约、依赖/许可检查成功；条件式 OpenSSH RC 与 macOS 签名 UI 冒烟为 skipped，不记通过。此结果与 Windows CI 337/337 成功同属旧候选，不覆盖下述真机缩放失败，也不包含后继 `1886bdd` 修订。
+
 **窗口专项实际结果**：新包窗口化左、右、下的旧版宽浅色色带未再明显外露；标题栏可拖动，最大化/还原及按钮可用，最大化布局未见截断。但通过 Mac 的 Windows App RDP 输入对左、右、下边框和右下角多次拖动，均未观察到窗口尺寸改变；顶部边缘拖动移动了整个窗口，而非改变高度。由于远控输入链路也可能影响边缘拖拽，归类为**缩放未通过/未排除产品缺陷**，不能把视觉改善写成“保留八方向缩放”。旧版色带失败与本次缩放疑点均保留。
 
 源码复查显示窗口化 `WM_NCHITTEST` 把鼠标坐标与 `GetWindowRect` 比较；Windows 10 的该矩形可能含不可见 DWM 缩放边距，绘制边缘上的命中区因而偏移。后续候选改用 `DWMWA_EXTENDED_FRAME_BOUNDS` 的可见矩形，失败时回退 `GetWindowRect`；这是**待编译/待真机复测的原因假设和源码修订**，不能在本行记为修复完成。仍须在新签名包上逐一确认四边/四角扩大与缩小、最小尺寸限制、标题栏/贴靠、最大化/还原、深浅主题，才能关闭窗口项。终端自然 EOF、SFTP 在途硬断线/队列终态尚未在此新包重跑；Android/K60 对照仍以既有结果为限。
