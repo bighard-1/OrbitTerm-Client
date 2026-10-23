@@ -15,6 +15,7 @@ internal static class NativeWindowCornerService
     private const int DwmwcpRound = 2;
     private const int DwmwaUseImmersiveDarkModeBefore20H1 = 19;
     private const int DwmwaUseImmersiveDarkMode = 20;
+    private const int DwmwaExtendedFrameBounds = 9;
     private const int Windows10CornerRadius = 12;
     private const int GwlStyle = -16;
     private const long WsThickFrame = 0x00040000L;
@@ -216,7 +217,7 @@ internal static class NativeWindowCornerService
         // native caption buttons keep their original hit-test result.
         if ((fallbackHit != HtNowhere && fallbackHit != HtClient && fallbackHit != HtCaption &&
              fallbackHit != HtBorder) ||
-            !GetWindowRect(windowHandle, out var bounds))
+            !GetVisibleWindowBounds(windowHandle, out var bounds))
         {
             return fallback;
         }
@@ -276,11 +277,32 @@ internal static class NativeWindowCornerService
         }
     }
 
+    private static bool GetVisibleWindowBounds(nint windowHandle, out NativeRect bounds)
+    {
+        // GetWindowRect includes the invisible DWM resize margin on Windows 10.
+        // Hit-testing against it misses the painted edge after WM_NCCALCSIZE
+        // extends the client area over the native frame. Use the visible frame
+        // in screen coordinates, falling back when DWM has no bounds yet.
+        return DwmGetWindowAttribute(
+                   windowHandle,
+                   DwmwaExtendedFrameBounds,
+                   out bounds,
+                   Marshal.SizeOf<NativeRect>()) == 0 ||
+               GetWindowRect(windowHandle, out bounds);
+    }
+
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(
         nint windowHandle,
         int attribute,
         ref int attributeValue,
+        int attributeSize);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(
+        nint windowHandle,
+        int attribute,
+        out NativeRect attributeValue,
         int attributeSize);
 
     [DllImport("gdi32.dll")]

@@ -23,3 +23,11 @@
 第三轮固定 `870f97f` 的 [Windows Client CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39940434590) 为 `completed/success`：安全测试 337/337（失败 0、跳过 0）、WinUI x64 Release 构建与内部测试签名 MSIX 上传成功；[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39940434732) 亦成功。旧两轮编译/超时失败保持可追溯。GitHub artifact `12496235663` 属于该提交；加密外置盘接收的外层 ZIP SHA-256 `efb21ea83c4ec43850b5421b151ff528c80426f77b58ca21d577cdaf4c7270d7` 与 GitHub digest 相符，ZIP 和内层 MSIX 完整性检查成功；MSIX SHA-256 `3fd0ce3740b629b1597ddec6a644bc7a281c1d95ea4ef50af8a142d40668dcb5` 与包内 `SHA256.txt` 相符，清单为 `OrbitTerm.Client`/`0.3.0.33`/x64。随包测试证书的 SHA-1 指纹为 `76D8D3A2232C9EF5891E528789B7D143ECD01931`。Windows 10 测试机上仅传入 MSIX、证书和原名安装脚本，Mac 经共享回读及 Windows 本机 `Get-FileHash` 均与原件一致；导入前 Windows 签名者指纹与随包证书一致但状态为 `UnknownError`，**未写作 Valid**。远控第一次哈希命令的路径分隔符被输入通道丢失，命令未匹配文件；改为逐层切换到专用目录后取得 Windows 本机有效摘要，前次输入异常不计成功。旧 QA 正常关闭后，包外账户状态、包内 Settings 和 LocalState 已备份到加密外置盘且逐目录比较一致；不含系统 Helium，不能保证全量跨机可恢复。传输 SMB 挂载已卸载。新证书尚未导入、MSIX 尚未安装；本次安全敏感操作正在等待用户当次确认。`870f97f` 的 Security Gates 本行记录时仍运行，不能记为整体通过。
 
 下一阶段：在 Windows CI 完整通过后取固定提交的内部测试 MSIX，核对归档、包签名和新证书；如需在测试机导入新的测试证书，须在实际更新动作前另行确认。更新独立 QA 后复测 shell 自然退出、SFTP 保持、多分屏、在途硬断线/任务状态，并在窗口化与最大化、浅色与深色下检查四边视觉和八方向缩放、标题栏按钮、拖动及贴靠。Android/K60 对照已有被动断开和硬断线记录；iOS/macOS/Linux 新候选 GUI 与五端完整验收仍开放。
+
+## Windows 10 真机更新与边框失败保留（2026-10-23）
+
+用户在实际导入时确认新测试证书、独立 QA 更新及旧证书清理。固定源码 `870f97f`，MSIX `0.3.0.33` 的 Mac、Windows 本机和包内 SHA-256 一致，更新前包外账户、包内 Settings/LocalState 已备份至加密外置盘且逐目录一致（不含系统 Helium）。在 Windows 10 专业版测试机导入随包新证书后，安装脚本记录 `SUCCESS`，`Get-AppxPackage OrbitTerm.Client` 显示 x64、`0.3.0.33`、`Status=Ok`，系统 MSIX 签名从导入前 `UnknownError` 变为 `Valid`。按精确 SHA-1 指纹仅移除旧 OrbitTerm 测试证书后，`TrustedPeople` 只剩新证书，再验 MSIX 仍为 `Valid`。用户亲自解锁 QA；窗口显示原有 6 项资产，状态栏为云端已同步、本机队列已处理。此处没有声称凭据跨机恢复或完整同步/墓碑矩阵通过。
+
+**窗口专项实际结果**：新包窗口化左、右、下的旧版宽浅色色带未再明显外露；标题栏可拖动，最大化/还原及按钮可用，最大化布局未见截断。但通过 Mac 的 Windows App RDP 输入对左、右、下边框和右下角多次拖动，均未观察到窗口尺寸改变；顶部边缘拖动移动了整个窗口，而非改变高度。由于远控输入链路也可能影响边缘拖拽，归类为**缩放未通过/未排除产品缺陷**，不能把视觉改善写成“保留八方向缩放”。旧版色带失败与本次缩放疑点均保留。
+
+源码复查显示窗口化 `WM_NCHITTEST` 把鼠标坐标与 `GetWindowRect` 比较；Windows 10 的该矩形可能含不可见 DWM 缩放边距，绘制边缘上的命中区因而偏移。后续候选改用 `DWMWA_EXTENDED_FRAME_BOUNDS` 的可见矩形，失败时回退 `GetWindowRect`；这是**待编译/待真机复测的原因假设和源码修订**，不能在本行记为修复完成。仍须在新签名包上逐一确认四边/四角扩大与缩小、最小尺寸限制、标题栏/贴靠、最大化/还原、深浅主题，才能关闭窗口项。终端自然 EOF、SFTP 在途硬断线/队列终态尚未在此新包重跑；Android/K60 对照仍以既有结果为限。
