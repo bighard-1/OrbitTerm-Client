@@ -646,6 +646,11 @@ public sealed class SessionOrchestratorTests
     {
         public event EventHandler<TerminalDataReceivedEventArgs>? TerminalDataReceived;
 
+        public event EventHandler<ConnectionEventReceivedEventArgs>? ConnectionEventReceived;
+
+        public void EmitConnectionEvent(ulong id, OrbitConnectionEventKind kind) =>
+            ConnectionEventReceived?.Invoke(this, new ConnectionEventReceivedEventArgs(id, kind));
+
         public event EventHandler<SftpTransferProgressEventArgs>? SftpTransferProgress;
 
         public int OpenTerminalCalls { get; private set; }

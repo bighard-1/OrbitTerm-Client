@@ -32,9 +32,15 @@ public sealed class SessionOrchestrator
         this.sessionRegistry = sessionRegistry ?? new VerifiedSessionRegistry();
         this.terminalRegistry = terminalRegistry ?? new TerminalSessionRegistry();
         this.coreClient.TerminalDataReceived += OnTerminalDataReceived;
+        this.coreClient.ConnectionEventReceived += OnConnectionEventReceived;
     }
 
     public event EventHandler<TerminalOutputReceivedEventArgs>? TerminalOutputReceived;
+
+    public event EventHandler<SessionConnectionEventArgs>? SessionConnectionEventReceived;
+
+    public ulong GetVerifiedBaseSessionId(Guid workspaceId, Guid serverId) =>
+        sessionRegistry.TryGet(workspaceId, serverId, out var lease) ? lease.BaseSessionId : 0;
 
     public async ValueTask<TerminalOpenResult> ConnectTelnetAsync(
         Guid workspaceId,
@@ -907,6 +913,39 @@ public sealed class SessionOrchestrator
         }
 
         PublishTerminalData(lease, e.Data);
+    }
+
+    private void OnConnectionEventReceived(object? sender, ConnectionEventReceivedEventArgs e)
+    {
+        if (e.Kind == OrbitConnectionEventKind.ConnectionLost)
+        {
+            if (!sessionRegistry.TryGetByBaseSessionId(e.SessionOrChannelId, out var session))
+            {
+                return;
+            }
+
+            AbandonSession(session.WorkspaceId, session.ServerId);
+            SessionConnectionEventReceived?.Invoke(this, new SessionConnectionEventArgs(
+                session.WorkspaceId, session.ServerId, e.SessionOrChannelId,
+                SessionConnectionEventKind.ConnectionLost));
+            return;
+        }
+
+        if (e.Kind != OrbitConnectionEventKind.TerminalClosed ||
+            !terminalRegistry.TryGetByChannelId(e.SessionOrChannelId, out var terminal) ||
+            !terminalRegistry.Remove(terminal))
+        {
+            return;
+        }
+
+        lock (terminalBacklogGate)
+        {
+            terminalBacklogs.Remove(terminal.TerminalChannelId);
+            terminalScreens.Remove(terminal.TerminalChannelId);
+        }
+        SessionConnectionEventReceived?.Invoke(this, new SessionConnectionEventArgs(
+            terminal.WorkspaceId, terminal.ServerId, e.SessionOrChannelId,
+            SessionConnectionEventKind.TerminalClosed));
     }
 
     private void PublishTerminalData(TerminalSessionLease lease, ReadOnlySpan<byte> data)

@@ -1623,14 +1623,14 @@
                                 </Grid.ColumnDefinitions>
                                 <ToggleButton x:Name="ActiveSftpTransfersTab"
                                               Grid.Column="0"
-                                              Content="进行中"
+                                              Content="未完成"
                                               IsChecked="True"
                                               Click="ActiveSftpTransfersTabClick"
                                               HorizontalAlignment="Stretch"
                                               HorizontalContentAlignment="Center"
                                               MinWidth="0" Padding="3,4"
                                               ToolTipService.ToolTip="{Binding ActiveSftpTransferSummary}"
-                                              AutomationProperties.Name="显示进行中的传输" />
+                                              AutomationProperties.Name="显示未完成的传输" />
                                 <ToggleButton x:Name="CompletedSftpTransfersTab"
                                               Grid.Column="1"
                                               Content="完成"
@@ -1655,7 +1655,7 @@
                                           ScrollViewer.VerticalScrollBarVisibility="Hidden"
                                           ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                           SelectionMode="None" MaxHeight="145"
-                                          AutomationProperties.Name="SFTP 进行中任务">
+                                          AutomationProperties.Name="SFTP 未完成任务">
                                     <ListView.ItemContainerStyle>
                                         <Style TargetType="ListViewItem">
                                             <Setter Property="Padding" Value="5,3" />

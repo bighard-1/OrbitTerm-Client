@@ -5,8 +5,9 @@ using WinRT.Interop;
 namespace OrbitTerm.App.Controls;
 
 /// <summary>
-/// Requests the Windows 11 native rounded-window treatment without clipping
-/// the app surface. Windows 10 safely keeps its native square window frame.
+/// Requests the Windows 11 native rounded-window treatment. Windows 10 keeps
+/// WS_THICKFRAME for dependable native resizing while extending client paint
+/// over the otherwise mismatched side/bottom frame.
 /// </summary>
 internal static class NativeWindowCornerService
 {
@@ -56,6 +57,9 @@ internal static class NativeWindowCornerService
         var windowHandle = WindowNative.GetWindowHandle(window);
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
         {
+            // Keep the real sizing style, but let the WinUI surface cover its
+            // visible frame. The subclass supplies edge/corner hit tests.
+            _ = SetWindowSubclass(windowHandle, ResizeSubclassProc, ResizeSubclassId, nint.Zero);
             ApplyWindows10Region(windowHandle);
             window.AppWindow.Changed += (_, args) =>
             {
@@ -92,13 +96,9 @@ internal static class NativeWindowCornerService
             return;
         }
 
-        // Keep the real Win10 sizing frame. Returning custom HTLEFT/HTRIGHT
-        // values after removing WS_THICKFRAME works on some builds but LTSC
-        // 2021 can ignore the horizontal/corner sizing loop. The native frame
-        // is the dependable implementation across supported Win10 builds.
-        // Use Win10's dark non-client attribute so the frame does not remain
-        // bright when the application switches to a dark palette.
-        _ = RemoveWindowSubclass(windowHandle, ResizeSubclassProc, ResizeSubclassId);
+        // LTSC 2021 can ignore horizontal/corner sizing without WS_THICKFRAME.
+        // Preserve it; WM_NCCALCSIZE only removes its visible color strip.
+        // Match the remaining non-client controls to the selected palette.
         var darkMode = dark ? 1 : 0;
         if (DwmSetWindowAttribute(
                 windowHandle,
@@ -116,15 +116,17 @@ internal static class NativeWindowCornerService
         if ((style & WsThickFrame) == 0)
         {
             _ = SetWindowLongPtr(windowHandle, GwlStyle, new nint(style | WsThickFrame));
-            _ = SetWindowPos(
-                windowHandle,
-                nint.Zero,
-                0,
-                0,
-                0,
-                0,
-                SwpNoSize | SwpNoMove | SwpNoZOrder | SwpNoActivate | SwpFrameChanged);
         }
+        // Installing the subclass changes WM_NCCALCSIZE behavior; recalculate
+        // the non-client area even when WS_THICKFRAME was already present.
+        _ = SetWindowPos(
+            windowHandle,
+            nint.Zero,
+            0,
+            0,
+            0,
+            0,
+            SwpNoSize | SwpNoMove | SwpNoZOrder | SwpNoActivate | SwpFrameChanged);
         ApplyWindows10Region(windowHandle);
     }
 
@@ -159,11 +161,8 @@ internal static class NativeWindowCornerService
             };
             if (resizeDirection != 0)
             {
-                // Win10 can report the correct HTLEFT/HTRIGHT value but still
-                // decline to start sizing after its visible WS_THICKFRAME was
-                // removed. Temporarily expose that capability only while the
-                // native SC_SIZE loop is active. No frame recalculation is
-                // requested, so the light Win10 system border stays hidden.
+                // Preserve the native SC_SIZE sizing loop even if an older
+                // running window instance had removed WS_THICKFRAME.
                 var style = GetWindowLongPtr(windowHandle, GwlStyle).ToInt64();
                 var restoredThickFrame = (style & WsThickFrame) == 0;
                 if (restoredThickFrame)
@@ -197,13 +196,12 @@ internal static class NativeWindowCornerService
         }
         if (message == WmNcCalcSize &&
             !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000) &&
+            !IsZoomed(windowHandle) &&
             wParam != nint.Zero)
         {
-            // Keep WS_CAPTION so Windows App SDK retains caption buttons,
-            // drag-to-move and snap integration, but make the WinUI client
-            // cover the system-owned side and bottom caption frame. Returning
-            // zero is the documented borderless-client calculation for a
-            // custom frame; our hit-test branch restores resizing.
+            // Keep WS_CAPTION and WS_THICKFRAME for caption/snap/resize, but
+            // paint the client over the system-owned side and bottom strips.
+            // Edge hit-testing below retains the sizing affordance.
             return nint.Zero;
         }
         if (message != WmNcHitTest || IsZoomed(windowHandle))
@@ -213,11 +211,9 @@ internal static class NativeWindowCornerService
 
         var fallback = DefSubclassProc(windowHandle, message, wParam, lParam);
         var fallbackHit = fallback.ToInt32();
-        // Once WS_THICKFRAME is removed Windows 10 commonly reports
-        // HTNOWHERE on the left/right edge while it still reports HTCLIENT or
-        // HTCAPTION near the top/bottom. Treat all three as areas where our
-        // custom resize frame may take ownership. Caption buttons and other
-        // non-client controls keep their original hit-test result.
+        // With client paint covering the sizing frame Windows 10 may report
+        // HTNOWHERE/HTCLIENT/HTCAPTION at edges. Only those cases are ours;
+        // native caption buttons keep their original hit-test result.
         if ((fallbackHit != HtNowhere && fallbackHit != HtClient && fallbackHit != HtCaption &&
              fallbackHit != HtBorder) ||
             !GetWindowRect(windowHandle, out var bounds))

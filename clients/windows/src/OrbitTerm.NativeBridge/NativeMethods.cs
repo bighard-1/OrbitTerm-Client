@@ -126,6 +126,9 @@ internal static partial class NativeMethods
     [DllImport(LibraryName)]
     internal static extern void orbit_terminal_set_callback(OrbitTerminalDataCallback? callback);
 
+    [DllImport(LibraryName)]
+    internal static extern void orbit_connection_set_callback(OrbitConnectionEventCallback? callback);
+
     [LibraryImport(LibraryName)]
     internal static partial OrbitCString orbit_sftp_open_checked_v1(
         ulong base_session_id,
@@ -273,6 +276,9 @@ internal static partial class NativeMethods
         ulong terminal_channel_id,
         IntPtr data_ptr,
         nuint data_len);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    internal delegate void OrbitConnectionEventCallback(ulong session_or_channel_id, IntPtr code);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     internal delegate void OrbitSftpProgressCallback(

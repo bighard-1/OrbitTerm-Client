@@ -227,6 +227,7 @@ public sealed class MainWindowViewModel : ObservableObject
         // own frame timer made interactive typing visibly trail the keyboard.
         this.terminalUiFrameInterval = terminalUiFrameInterval ?? TimeSpan.FromMilliseconds(8);
         this.orchestrator.TerminalOutputReceived += OnTerminalOutputReceived;
+        this.orchestrator.SessionConnectionEventReceived += OnSessionConnectionEventReceived;
 
         LoadAssetsCommand = new AsyncRelayCommand(LoadAssetsAsync);
         LoadAccountSessionCommand = new AsyncRelayCommand(LoadAccountSessionAsync);
@@ -590,7 +591,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public string ActiveSftpTransferSummary => string.Create(
         System.Globalization.CultureInfo.InvariantCulture,
-        $"进行中（{ActiveSftpTransferTasks.Count}）");
+        $"未完成（{ActiveSftpTransferTasks.Count}）");
 
     public int ActiveSftpTransferCount => SftpTransferTasks.Count(static task => task.State is SftpTransferTaskState.Running or SftpTransferTaskState.Paused);
 
@@ -4774,6 +4775,10 @@ public sealed class MainWindowViewModel : ObservableObject
                 {
                     SetSftpTransferStatus(transferContext, "连接已恢复，可点击“重试”继续未完成的传输任务");
                 }
+                else if (transferContext.Tasks.Any(static task => task.State == SftpTransferTaskState.Cancelled))
+                {
+                    SetSftpTransferStatus(transferContext, "连接已恢复；上次传输已中断，请重新选择文件下载");
+                }
                 NotifySftpStateChanged();
                 OnPropertyChanged(nameof(CanRetryLastSftpTransfer));
                 SaveRuntimeStateToSelectedWorkspaceTab();
@@ -8759,6 +8764,115 @@ public sealed class MainWindowViewModel : ObservableObject
         }
     }
 
+    private void OnSessionConnectionEventReceived(object? sender, SessionConnectionEventArgs e)
+    {
+        // Native callbacks arrive off the dispatcher. Never mutate WinUI-bound
+        // workspace or transfer state on the core callback thread.
+        dispatch(() => ApplySessionConnectionEvent(e));
+    }
+
+    private void ApplySessionConnectionEvent(SessionConnectionEventArgs e)
+    {
+        var owner = WorkspaceTabs.FirstOrDefault(tab =>
+            tab.WorkspaceId == e.WorkspaceId && tab.AssetId == e.ServerId);
+        if (owner is null)
+        {
+            return;
+        }
+
+        if (e.Kind == SessionConnectionEventKind.ConnectionLost)
+        {
+            var visibleBaseId = owner.TerminalLease?.BaseSessionId ??
+                owner.SftpLease?.BaseSessionId ??
+                orchestrator.GetVerifiedBaseSessionId(e.WorkspaceId, e.ServerId);
+            if (!owner.IsConnected || (visibleBaseId != 0 && visibleBaseId != e.SessionOrChannelId))
+            {
+                return;
+            }
+
+            if (ReferenceEquals(owner, SelectedWorkspaceTab))
+            {
+                MarkCurrentConnectionLost("远端连接已断开，请重新连接");
+            }
+            else
+            {
+                owner.IsConnected = false;
+                owner.TerminalLease = null;
+                owner.SftpLease = null;
+                owner.TerminalSplitPanes.Clear();
+                owner.Status = "远端连接已断开，请重新连接";
+                owner.SessionActionSummary = "连接已断开";
+                if (sftpTransferContexts.TryGetValue(owner.Id, out var context))
+                {
+                    context.BatchCancellation?.Cancel();
+                    foreach (var task in context.Tasks.Where(static task =>
+                        task.State is SftpTransferTaskState.Running or SftpTransferTaskState.Paused))
+                    {
+                        task.MarkCancelled("连接已断开，请重新选择文件");
+                    }
+                    context.TransferStatus = "连接已断开；重新连接后请核对未完成任务";
+                    NotifySftpTransferQueueChanged(context);
+                }
+                RefreshBatchAssetTargets();
+            }
+            return;
+        }
+
+        if (e.Kind != SessionConnectionEventKind.TerminalClosed)
+        {
+            return;
+        }
+
+        var primaryClosed = owner.TerminalLease?.TerminalChannelId == e.SessionOrChannelId;
+        if (primaryClosed)
+        {
+            if (owner.TerminalSplitPanes.FirstOrDefault() is { } replacement)
+            {
+                owner.TerminalSplitPanes.Remove(replacement);
+                owner.TerminalLease = replacement.Lease;
+                owner.TerminalLines.Clear();
+                owner.TerminalLines.AddRange(replacement.Lines);
+                RenumberTerminalSplitPanes(owner);
+            }
+            else
+            {
+                owner.TerminalLease = null;
+            }
+        }
+        else if (owner.TerminalSplitPanes.FirstOrDefault(pane =>
+            pane.Lease.TerminalChannelId == e.SessionOrChannelId) is { } closedPane)
+        {
+            owner.TerminalSplitPanes.Remove(closedPane);
+            RenumberTerminalSplitPanes(owner);
+        }
+        else
+        {
+            return; // Stale callback from a tab or channel already closed locally.
+        }
+
+        owner.Status = "远端终端已关闭；已验证连接和 SFTP 仍可用";
+        owner.SessionActionSummary = "终端已关闭";
+        if (ReferenceEquals(owner, SelectedWorkspaceTab))
+        {
+            terminalLease = owner.TerminalLease;
+            if (primaryClosed)
+            {
+                TerminalLines.Clear();
+                foreach (var line in owner.TerminalLines)
+                {
+                    TerminalLines.Add(line);
+                }
+            }
+            SetActiveTerminalPane(null);
+            Status = owner.Status;
+            SessionActionSummary = owner.SessionActionSummary;
+            NotifyTerminalSplitStateChanged();
+            NotifyTerminalStateChanged();
+            SaveRuntimeStateToSelectedWorkspaceTab();
+            RefreshCommands();
+        }
+    }
+
     private void OnTerminalOutputReceived(object? sender, TerminalOutputReceivedEventArgs e)
     {
         var shouldSchedule = false;
@@ -9537,11 +9651,17 @@ public sealed class MainWindowViewModel : ObservableObject
         }
         else
         {
+            var interrupted = false;
             foreach (var task in transferContext.Tasks.Where(static task => task.State is SftpTransferTaskState.Running or SftpTransferTaskState.Paused))
             {
-                task.MarkCancelled("连接已断开，可重新连接后重试");
+                task.MarkCancelled("连接已断开，请重新连接后核对目标");
+                interrupted = true;
             }
-            SetSftpTransferStatus(transferContext, "连接已断开；重新连接原资产后可重试未完成的传输任务");
+            SetSftpTransferStatus(transferContext, "连接已断开；重新连接原资产后请核对未完成的传输任务");
+            if (interrupted || IsSftpFeedbackInProgress)
+            {
+                PublishSftpFeedback(SftpFeedbackKind.Warning, "传输已中断", "连接已断开；请先核对保存目标，再决定是否重试");
+            }
         }
         SetSftpTransferRetries(transferContext, transferContext.LastTransferRetry, transferContext.LastBatchRetry);
         SynchronizeVisibleSftpTransferContext(transferContext);

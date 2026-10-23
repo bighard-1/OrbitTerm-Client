@@ -246,6 +246,79 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task PassiveTerminalCloseKeepsVerifiedSftpAndAllowsNewTerminal()
+    {
+        var coreClient = new FakeCheckedCoreClient();
+        var viewModel = CreateViewModel(coreClient);
+        viewModel.Password = "secret";
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        Assert.True(viewModel.IsTerminalOpen);
+        Assert.True(viewModel.IsSftpOpen);
+        var closedChannelId = coreClient.LastOpenedTerminalChannelId;
+
+        coreClient.EmitConnectionEvent(closedChannelId + 1000, OrbitConnectionEventKind.TerminalClosed);
+        Assert.True(viewModel.IsTerminalOpen);
+
+        coreClient.EmitConnectionEvent(closedChannelId, OrbitConnectionEventKind.TerminalClosed);
+
+        Assert.True(viewModel.IsConnected);
+        Assert.True(viewModel.IsSftpOpen);
+        Assert.False(viewModel.IsTerminalOpen);
+        Assert.Contains("终端已关闭", viewModel.Status, StringComparison.Ordinal);
+        Assert.True(viewModel.OpenTerminalCommand.CanExecute(null));
+        Assert.False(await viewModel.WriteTerminalInputAsync([0x0D], CancellationToken.None));
+
+        await viewModel.OpenTerminalCommand.ExecuteAsync(null);
+        Assert.True(viewModel.IsTerminalOpen);
+        Assert.NotEqual(closedChannelId, coreClient.LastOpenedTerminalChannelId);
+    }
+
+    [Fact]
+    public async Task PassivePrimaryClosePromotesLiveSplitWithoutDroppingBaseSession()
+    {
+        var coreClient = new FakeCheckedCoreClient();
+        var viewModel = CreateViewModel(coreClient);
+        viewModel.Password = "secret";
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        var primaryChannelId = coreClient.LastOpenedTerminalChannelId;
+        await viewModel.AddTerminalSplitCommand.ExecuteAsync(null);
+        var split = Assert.Single(viewModel.TerminalSplitPanes);
+        coreClient.EmitTerminalData(split.Lease.TerminalChannelId, "live split\n");
+        await WaitUntilAsync(() => split.Lines.Any(line => line.Text.Contains("live split", StringComparison.Ordinal)));
+
+        coreClient.EmitConnectionEvent(primaryChannelId, OrbitConnectionEventKind.TerminalClosed);
+
+        Assert.True(viewModel.IsConnected);
+        Assert.True(viewModel.IsTerminalOpen);
+        Assert.True(viewModel.IsSftpOpen);
+        Assert.Empty(viewModel.TerminalSplitPanes);
+        Assert.Equal(1, viewModel.TerminalPaneCount);
+        Assert.Contains(viewModel.TerminalLines, line => line.Text.Contains("live split", StringComparison.Ordinal));
+        Assert.True(await viewModel.WriteTerminalInputAsync([0x0D], CancellationToken.None));
+        Assert.Equal(split.Lease.TerminalChannelId, coreClient.LastWrittenTerminalChannelId);
+    }
+
+    [Fact]
+    public async Task PassiveBaseLossRevokesConnectedStateWithoutWaitingForInput()
+    {
+        var coreClient = new FakeCheckedCoreClient();
+        var viewModel = CreateViewModel(coreClient);
+        viewModel.Password = "secret";
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        Assert.True(viewModel.IsConnected);
+
+        coreClient.EmitConnectionEvent(1009UL, OrbitConnectionEventKind.ConnectionLost);
+        Assert.True(viewModel.IsConnected);
+
+        coreClient.EmitConnectionEvent(9UL, OrbitConnectionEventKind.ConnectionLost);
+
+        Assert.False(viewModel.IsConnected);
+        Assert.False(viewModel.IsTerminalOpen);
+        Assert.False(viewModel.IsSftpOpen);
+        Assert.Contains("远端连接已断开", viewModel.Status, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task VerifiedSessionSupportsIndependentBoundedTerminalSplits()
     {
         var coreClient = new FakeCheckedCoreClient();
@@ -1738,6 +1811,9 @@ public sealed class MainWindowViewModelTests
             Assert.NotEmpty(viewModel.SftpTransferTasks);
             Assert.Contains("重新连接原资产", viewModel.SftpTransferStatus, StringComparison.Ordinal);
             Assert.False(viewModel.CanRetryLastSftpTransfer);
+            Assert.False(viewModel.IsSftpFeedbackInProgress);
+            Assert.All(viewModel.SftpTransferTasks, task =>
+                Assert.DoesNotContain("/s", task.TransferDetailText, StringComparison.Ordinal));
 
             viewModel.ConnectCommand.Execute(null);
             await WaitUntilAsync(() => !viewModel.ConnectCommand.IsRunning && viewModel.IsSftpOpen);
@@ -3192,6 +3268,11 @@ public sealed class MainWindowViewModelTests
     private sealed class FakeCheckedCoreClient : ICheckedOrbitCoreClient
     {
         public event EventHandler<TerminalDataReceivedEventArgs>? TerminalDataReceived;
+
+        public event EventHandler<ConnectionEventReceivedEventArgs>? ConnectionEventReceived;
+
+        public void EmitConnectionEvent(ulong id, OrbitConnectionEventKind kind) =>
+            ConnectionEventReceived?.Invoke(this, new ConnectionEventReceivedEventArgs(id, kind));
 
         public event EventHandler<SftpTransferProgressEventArgs>? SftpTransferProgress
         {

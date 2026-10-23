@@ -16,6 +16,16 @@ public sealed class CheckedOrbitCoreClient : ICheckedOrbitCoreClient
         remove => TerminalOutputRouter.DataReceived -= value;
     }
 
+    public event EventHandler<ConnectionEventReceivedEventArgs>? ConnectionEventReceived
+    {
+        add
+        {
+            ConnectionEventRouter.EnsureRegistered();
+            ConnectionEventRouter.EventReceived += value;
+        }
+        remove => ConnectionEventRouter.EventReceived -= value;
+    }
+
     public event EventHandler<SftpTransferProgressEventArgs>? SftpTransferProgress
     {
         add
