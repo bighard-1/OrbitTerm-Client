@@ -18,4 +18,6 @@
 
 2026-10-23 首轮远端门禁保留：源码提交 `e8f4802` 的 [Windows Client CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39910244413) 在原生 Rust 和 Windows 产品层编译成功后，于测试项目两处 `ReadOnlyMemory<byte>` 的集合表达式触发 `CS9174`，因此测试与 MSIX 签名包**未生成**。已将两处调用改为显式 `byte[]`，后继提交及门禁结果待记录。同一提交的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39910244418) 中 Rust、Apple、Android Release、桌面契约和依赖检查成功，但 Android 15 模拟器启动历时约 6 分钟后，安装隔离夹具时 Android 系统 `PackageManagerInternal` 尚为空而报 `NullPointerException`；仪器测试**未执行**。这是模拟器安装服务故障的日志表象，不推定产品代码通过，也不以重跑结果覆盖此失败。
 
+第二轮源码 `d96f12d` 的 [Windows Client CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39939552482) 修复了 `CS9174`，Windows 产品层与测试层均编译成功，337 项测试中 336 通过、1 项原有批量下载取消测试在等待“恰好开始第一个下载”的 250 ms 时间窗时超时；MSIX 仍未生成。将该测试改用 fake-core 的下载入口和放行门闩，取消动作明确发生在第一个下载仍在途时，不变更生产取消行为。`d96f12d` 的 [Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39939552467) 成功；其 Security Gates 在本行记录时仍运行，不能记整体通过。后继提交/复测待填，Windows 真机仍是旧包。
+
 下一阶段：在 Windows CI 完整通过后取固定提交的内部测试 MSIX，核对归档、包签名和新证书；如需在测试机导入新的测试证书，须在实际更新动作前另行确认。更新独立 QA 后复测 shell 自然退出、SFTP 保持、多分屏、在途硬断线/任务状态，并在窗口化与最大化、浅色与深色下检查四边视觉和八方向缩放、标题栏按钮、拖动及贴靠。Android/K60 对照已有被动断开和硬断线记录；iOS/macOS/Linux 新候选 GUI 与五端完整验收仍开放。

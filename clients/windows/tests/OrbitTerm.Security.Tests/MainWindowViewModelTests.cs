@@ -1525,7 +1525,13 @@ public sealed class MainWindowViewModelTests
     [Fact]
     public async Task SftpBatchDownloadCancellationStopsBeforeTheNextFile()
     {
-        var coreClient = new FakeCheckedCoreClient { SftpDownloadDelayMilliseconds = 250 };
+        using var downloadEnteredGate = new ManualResetEventSlim(false);
+        using var downloadReleaseGate = new ManualResetEventSlim(false);
+        var coreClient = new FakeCheckedCoreClient
+        {
+            SftpDownloadEnteredGate = downloadEnteredGate,
+            SftpDownloadReleaseGate = downloadReleaseGate,
+        };
         var viewModel = CreateViewModel(coreClient);
         viewModel.Password = "secret";
         viewModel.ConnectCommand.Execute(null);
@@ -1540,8 +1546,9 @@ public sealed class MainWindowViewModelTests
         try
         {
             var operation = viewModel.DownloadSelectedSftpEntriesAsync(downloadDirectory, CancellationToken.None);
-            await WaitUntilAsync(() => coreClient.DownloadSftpFileCallCount == 1 && viewModel.IsSftpBatchRunning);
+            await WaitUntilAsync(() => downloadEnteredGate.IsSet && viewModel.IsSftpBatchRunning);
             viewModel.CancelSftpBatchCommand.Execute(null);
+            downloadReleaseGate.Set();
             await operation;
 
             Assert.Equal(1, coreClient.DownloadSftpFileCallCount);
@@ -1554,6 +1561,7 @@ public sealed class MainWindowViewModelTests
         }
         finally
         {
+            downloadReleaseGate.Set();
             Directory.Delete(downloadDirectory, recursive: true);
         }
     }
