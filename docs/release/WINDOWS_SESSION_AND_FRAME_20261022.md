@@ -33,3 +33,11 @@
 **窗口专项实际结果**：新包窗口化左、右、下的旧版宽浅色色带未再明显外露；标题栏可拖动，最大化/还原及按钮可用，最大化布局未见截断。但通过 Mac 的 Windows App RDP 输入对左、右、下边框和右下角多次拖动，均未观察到窗口尺寸改变；顶部边缘拖动移动了整个窗口，而非改变高度。由于远控输入链路也可能影响边缘拖拽，归类为**缩放未通过/未排除产品缺陷**，不能把视觉改善写成“保留八方向缩放”。旧版色带失败与本次缩放疑点均保留。
 
 源码复查显示窗口化 `WM_NCHITTEST` 把鼠标坐标与 `GetWindowRect` 比较；Windows 10 的该矩形可能含不可见 DWM 缩放边距，绘制边缘上的命中区因而偏移。后续候选改用 `DWMWA_EXTENDED_FRAME_BOUNDS` 的可见矩形，失败时回退 `GetWindowRect`；这是**待编译/待真机复测的原因假设和源码修订**，不能在本行记为修复完成。仍须在新签名包上逐一确认四边/四角扩大与缩小、最小尺寸限制、标题栏/贴靠、最大化/还原、深浅主题，才能关闭窗口项。终端自然 EOF、SFTP 在途硬断线/队列终态尚未在此新包重跑；Android/K60 对照仍以既有结果为限。
+
+## 可见边界命中修订候选的安装前核验（2026-10-23）
+
+后继固定提交 `5d02429`（含源码修订 `1886bdd`）的 [Windows Client CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39945854581) 已 `completed/success` 并产出独立测试包；[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39945855049) 同提交 `completed/success`。[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39945855106) 在本行记录时仍运行，**不记整体通过**。前一候选的真机边缘拖拽失败不会被此次 CI 覆盖。
+
+GitHub artifact `12497913632` 的外层 ZIP SHA-256 `b5d535f38704ae2e20576a56c5ac3b23e7183d4a0d24ae073d9c9c46cf0bdfb2` 与平台摘要一致；归档测试通过。内层 MSIX SHA-256 `f814af8e57e3b30dee677d5fb4bf4e93ba197df625f3dde7e793e29dce0b9494` 与包内 `SHA256.txt`、Windows 本机 `Get-FileHash` 一致；清单仍为 `OrbitTerm.Client`、x64、`0.3.0.33`。随包新测试证书 SHA-256 `66472ba064920f535102bee2c361510add90fc452ef6ac2962ac18742abde30e` 与 Windows 本机一致；签名者 SHA-1 为 `742D34E37337981D2F6DE93F1B7FFF1B369017AF`。在**未导入新证书前** Windows 的签名状态为 `UnknownError`，符合尚未建立本机信任的当前状态，不能写作 `Valid`；当前 `TrustedPeople` 只含上一版 OrbitTerm 测试证书。Windows 远控输入曾把含盘符/斜杠的 `cd` 路径损坏，报不存在；改用逐层进入专用目录后取到正确本机摘要，失败命令保留、不计核验通过。
+
+旧独立 QA 已正常退出；包外账户目录、包内 Settings/LocalState 均复制到加密外置盘，逐目录比较无差异。此备份不包含 Windows 系统 Helium，不能声称全量可恢复。新包和证书已传至 Windows 测试机，尚未导入证书或安装。由于新签名证书与前一轮不同，已在实际操作点另行请求确认。**隔离 GUI/真实设备新候选尚无结果，五端完整验收未完成**。获得确认后，先验证签名及包状态，再核对原资产、八方向边框缩放及终端自然 EOF/SFTP 硬断线；Android/K60 应对照被动断开和任务终态。
