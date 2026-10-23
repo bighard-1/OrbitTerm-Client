@@ -16,4 +16,6 @@
 
 新增 fake-core 单测覆盖未知终端/基会话 ID 忽略、被动终端关闭时 SFTP 保持及重开终端、主终端结束后分屏提升、被动基连接丢失立即撤销在线，以及断线后不再保留传输“进行中”反馈/速率。当前 Mac 无 .NET SDK，XAML XML 解析与 `git diff --check` 成功，**Windows 编译、单测和 CI 尚待远端运行**。本节没有安装新版 MSIX；上一节 Windows 10 的失败/通过仍属于旧候选，不能改写为新版真机结果。
 
+2026-10-23 首轮远端门禁保留：源码提交 `e8f4802` 的 [Windows Client CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39910244413) 在原生 Rust 和 Windows 产品层编译成功后，于测试项目两处 `ReadOnlyMemory<byte>` 的集合表达式触发 `CS9174`，因此测试与 MSIX 签名包**未生成**。已将两处调用改为显式 `byte[]`，后继提交及门禁结果待记录。同一提交的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39910244418) 中 Rust、Apple、Android Release、桌面契约和依赖检查成功，但 Android 15 模拟器启动历时约 6 分钟后，安装隔离夹具时 Android 系统 `PackageManagerInternal` 尚为空而报 `NullPointerException`；仪器测试**未执行**。这是模拟器安装服务故障的日志表象，不推定产品代码通过，也不以重跑结果覆盖此失败。
+
 下一阶段：在 Windows CI 完整通过后取固定提交的内部测试 MSIX，核对归档、包签名和新证书；如需在测试机导入新的测试证书，须在实际更新动作前另行确认。更新独立 QA 后复测 shell 自然退出、SFTP 保持、多分屏、在途硬断线/任务状态，并在窗口化与最大化、浅色与深色下检查四边视觉和八方向缩放、标题栏按钮、拖动及贴靠。Android/K60 对照已有被动断开和硬断线记录；iOS/macOS/Linux 新候选 GUI 与五端完整验收仍开放。

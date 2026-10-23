@@ -266,7 +266,7 @@ public sealed class MainWindowViewModelTests
         Assert.False(viewModel.IsTerminalOpen);
         Assert.Contains("终端已关闭", viewModel.Status, StringComparison.Ordinal);
         Assert.True(viewModel.OpenTerminalCommand.CanExecute(null));
-        Assert.False(await viewModel.WriteTerminalInputAsync([0x0D], CancellationToken.None));
+        Assert.False(await viewModel.WriteTerminalInputAsync(new byte[] { 0x0D }, CancellationToken.None));
 
         await viewModel.OpenTerminalCommand.ExecuteAsync(null);
         Assert.True(viewModel.IsTerminalOpen);
@@ -294,7 +294,7 @@ public sealed class MainWindowViewModelTests
         Assert.Empty(viewModel.TerminalSplitPanes);
         Assert.Equal(1, viewModel.TerminalPaneCount);
         Assert.Contains(viewModel.TerminalLines, line => line.Text.Contains("live split", StringComparison.Ordinal));
-        Assert.True(await viewModel.WriteTerminalInputAsync([0x0D], CancellationToken.None));
+        Assert.True(await viewModel.WriteTerminalInputAsync(new byte[] { 0x0D }, CancellationToken.None));
         Assert.Equal(split.Lease.TerminalChannelId, coreClient.LastWrittenTerminalChannelId);
     }
 
