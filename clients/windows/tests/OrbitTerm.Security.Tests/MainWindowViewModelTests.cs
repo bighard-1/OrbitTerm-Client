@@ -1845,6 +1845,46 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task ManualReconnectKeepsTransferHistoryWithoutRetrySnapshot()
+    {
+        var coreClient = new FakeCheckedCoreClient();
+        var viewModel = CreateViewModel(coreClient);
+        viewModel.Password = "secret";
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        Assert.True(viewModel.IsSftpOpen);
+
+        var localDirectory = Path.Combine(Path.GetTempPath(), $"orbitterm-sftp-reconnect-history-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(localDirectory);
+        var localPath = Path.Combine(localDirectory, "history.txt");
+        File.WriteAllText(localPath, "test-only");
+        try
+        {
+            await viewModel.UploadSftpFilesAsync(
+                [new SftpUploadSource(localPath, "history.txt", 9)],
+                SftpUploadConflictPolicy.Skip,
+                CancellationToken.None);
+
+            var completed = Assert.Single(viewModel.SftpTransferTasks);
+            Assert.Equal(SftpTransferTaskState.Completed, completed.State);
+            Assert.False(viewModel.CanRetryLastSftpTransfer);
+
+            // Double-clicking the same asset invokes ConnectCommand, not the
+            // explicit ReconnectSelectedWorkspaceAsync helper.
+            await viewModel.ConnectCommand.ExecuteAsync(null);
+
+            Assert.True(viewModel.IsConnected);
+            Assert.True(viewModel.IsSftpOpen);
+            Assert.Same(completed, Assert.Single(viewModel.SftpTransferTasks));
+            Assert.Same(completed, Assert.Single(viewModel.CompletedSftpTransferTasks));
+            Assert.Contains("传输记录已保留", viewModel.SftpTransferStatus, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(localDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task SftpBatchUploadAppliesSkipKeepBothAndSafeReplacePolicies()
     {
         var coreClient = new FakeCheckedCoreClient();

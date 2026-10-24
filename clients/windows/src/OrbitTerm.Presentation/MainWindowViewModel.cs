@@ -4779,6 +4779,10 @@ public sealed class MainWindowViewModel : ObservableObject
                 {
                     SetSftpTransferStatus(transferContext, "连接已恢复；上次传输已中断，请重新选择文件下载");
                 }
+                else if (transferContext.Tasks.Count > 0)
+                {
+                    SetSftpTransferStatus(transferContext, "连接已恢复；先前传输记录已保留");
+                }
                 NotifySftpStateChanged();
                 OnPropertyChanged(nameof(CanRetryLastSftpTransfer));
                 SaveRuntimeStateToSelectedWorkspaceTab();
@@ -8375,6 +8379,7 @@ public sealed class MainWindowViewModel : ObservableObject
         CancelAutomaticReconnect();
         var transferContext = GetCurrentSftpTransferContext();
         var preserveSftpRecovery = HasActiveSftpTransfersForCurrentContext ||
+            transferContext.Tasks.Count > 0 ||
             transferContext.LastTransferRetry is not null ||
             transferContext.LastBatchRetry is not null;
         if (HasActiveSftpTransfersForCurrentContext)
