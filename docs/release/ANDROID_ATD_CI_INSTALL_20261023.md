@@ -5,3 +5,7 @@
 源码候选仅修改 `scripts/security/run_android_smoke_fixtures.sh` 的隔离 APK 安装重试：原有传输/服务未就绪重试保留，针对 `aosp-atd-api35` 环境和上述精确系统服务启动签名，最多允许五次、有界间隔地重试；其他安装错误仍立即失败，最终同一错误仍原样输出并使门禁失败。未更改应用代码、测试断言或生产端安装路径。`bash -n` 用于本地语法核对；是否解决这次 CI 竞态，必须由新提交的完整 Android 仪器门禁及报告证明，不能由脚本语法或 Windows/Linux 构建替代。
 
 Windows 10 独立 QA 更新与鼠标缩放验收另见 [Windows 专项日志](WINDOWS_SESSION_AND_FRAME_20261022.md)。五端完整验收仍未完成；Android/K60 真机、Windows QA、Apple/Linux GUI 与跨端墓碑对照继续作为开放项。
+
+## 固定候选的门禁复核（2026-10-23）
+
+修订已随固定提交 `4c15188` 推送。该提交的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40051112073) 最终为 `completed/success`；其中 `Android instrumentation and migration gates` 的 Android 15 模拟器 connected tests 与报告保存步骤均成功，生成 `android-instrumentation-results` artifact。Rust、Apple checked-path、Android Release、桌面视觉契约及依赖/许可作业也成功；条件式 OpenSSH RC 与 macOS 签名 UI 冒烟为 skipped，不记通过。原 `ab00edb` 安装失败仍保留，不能被这次成功改写。此项是自动化证据，**没有新增 K60 真实设备 GUI 结果**，也不是五端完整验收。

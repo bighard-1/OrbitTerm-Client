@@ -87,3 +87,11 @@ GitHub artifact `12497913632` 的外层 ZIP SHA-256 `b5d535f38704ae2e20576a56c5a
 在原 4 分组/6 资产及新 MSIX `Valid` 核对后，按用户当次授权，仅从 Windows 10 测试机的“受信任的人”按完整指纹移除上一张 OrbitTerm 测试证书 `BD23…041F`；脚本前后输出由 `old=True/new=True/signature=Valid` 变为 `old=False/new=True/signature=Valid`。移除的是旧公钥证书，可从先前测试包重新导入；未清除账户、资产或 QA 数据。
 
 后继**源码候选，尚未构建或验证**：Windows 10 不再以 `WM_NCCALCSIZE` 把 WinUI 客户区画满原生三侧边框，也不再给 WinUI 子 HWND 安装边缘命中子类；恢复系统拥有的 `WS_THICKFRAME` 尺寸框，保留 DWM 深浅主题设置和窗口圆角区域。Windows 11 的独立命中路径不变。这优先恢复真实自由缩放，可能使 Win10 三侧原生细框重新可见，外观需要真机评估；不能称为同时解决美观与缩放。下一固定提交须过 Windows CI、签名及 Windows 10 四边四角实际鼠标、最小尺寸、标题栏、最大化/还原、主题/贴靠核验；若原生边框仍太突兀，需在不遮挡非客户区的前提下单独迭代。Windows 终端 EOF/SFTP 硬断线、Android/K60、Apple/Linux GUI 与五端墓碑矩阵仍开放。
+
+## 原生边框回退候选的安装前核验（2026-10-23）
+
+上述源码已固定并推送为 `4c15188`。同提交的 [Windows Client CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40051112095)、[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40051112151)、[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40051112073) 均最终 `completed/success`。Security Gates 的六项常规作业成功，条件式 OpenSSH RC 与 macOS 签名 UI 冒烟 skipped。前一候选 `ab00edb` 的 Android ATD 安装失败和 Windows 真机缩放失败保持有效；CI 成功不能覆盖真机失败。
+
+Windows artifact `12542789222` 的外层 ZIP SHA-256 `dcd49bf3a123f6816ba6a577740c439f67272a9cbdf36e495d9f73ebe9f62f02` 与 GitHub digest 一致，归档自检通过。包内 MSIX SHA-256 `699c2afd4d679231eb10ffba9c555187bf80ed9e928caa7f13beba09e6f3e074` 与 `SHA256.txt`、Windows 本机 `Get-FileHash` 一致；测试证书 SHA-256 `a19da1e23e9e9bf52bb008d5cdd14c59e3ceba6cf6e4f89b2c6b7a1d65306673` 也与 Windows 本机一致，SHA-1 指纹为 `48EE85AB401A09550656C26F3F9CE8F5FB4742B7`。清单保持独立 `OrbitTerm.Client`、x64、`0.3.0.33`。Windows 远控一次带反斜线的 `cd` 被输入通道吞掉路径分隔符、报不存在；改为逐层进入专用目录后取得有效 Windows 本机哈希，前次错误不计核验通过。
+
+旧独立 QA 已正常退出；包外账户状态、包内 Settings 和 LocalState 复制到加密外置盘，逐目录比对一致。不含系统 Helium，不能声称全量可恢复。新包与证书已传至 Windows 测试机；导入前只读 `Get-AuthenticodeSignature` 显示预期新签名者 `48EE…42B7`、状态 `UnknownError`，因为该新测试证书当时尚未受信任，**不能记作 `Valid`**。用户在实际操作点确认新证书导入、独立 QA 覆盖更新及验后旧证书清理；经审查的安装脚本记录 `SUCCESS`，注册为 `OrbitTerm.Client_0.3.0.33_x64__xt8nwf3jj28g8`，新版已启动并停在主密码页。**新包安装后尚未完成独立系统签名复核、原资产核对和鼠标缩放实测；旧证书尚未清理**，等待用户亲自解锁。当前不能宣称原生边框已恢复鼠标缩放或外观达标。五端完整验收仍开放。
