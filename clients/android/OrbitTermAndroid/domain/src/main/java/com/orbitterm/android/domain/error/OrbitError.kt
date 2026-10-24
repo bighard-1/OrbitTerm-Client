@@ -21,6 +21,10 @@ enum class OrbitErrorCode(val diagnosticCode: String) {
     NetworkTimeout("network_timeout"),
     AuthenticationFailed("authentication_failed"),
     AuthenticationExpired("authentication_expired"),
+    PasswordChangeRequired("password_change_required"),
+    RefreshInProgress("refresh_in_progress"),
+    AuthStateChanged("auth_state_changed"),
+    RequestTooLarge("request_too_large"),
     HostKeyBlocked("host_key_blocked"),
     PermissionDenied("permission_denied"),
     StorageUnavailable("storage_unavailable"),
@@ -72,6 +76,10 @@ data class OrbitError(
         OrbitErrorCode.NetworkTimeout -> "连接超时，请检查网络、地址和防火墙。"
         OrbitErrorCode.AuthenticationFailed -> "认证失败，请检查账号、密码或私钥。"
         OrbitErrorCode.AuthenticationExpired -> "登录已过期，请重新登录后重试。"
+        OrbitErrorCode.PasswordChangeRequired -> "请先更新登录密码，再继续使用资产和同步功能。"
+        OrbitErrorCode.RefreshInProgress -> "登录状态正在更新，请稍后重试。"
+        OrbitErrorCode.AuthStateChanged -> "账户安全状态已变化，请重新登录。"
+        OrbitErrorCode.RequestTooLarge -> "资产或同步批次超出服务端大小限制，请缩小后重试。"
         OrbitErrorCode.HostKeyBlocked -> "主机密钥校验未通过，连接已被安全阻断。"
         OrbitErrorCode.PermissionDenied -> "权限不足，请检查远端账户或文件权限。"
         OrbitErrorCode.StorageUnavailable -> "本机安全存储不可用，请解锁设备后重试。"
@@ -125,12 +133,13 @@ fun orbitNativeError(rawCode: String?, retryable: Boolean = false, detailCode: S
         "sftp_transfer_session_changed", "entry_changed" -> OrbitErrorCode.StaleOperation
         "ssh_timeout" -> if (detailCode == "authentication_timeout") OrbitErrorCode.AuthenticationFailed else OrbitErrorCode.NetworkTimeout
         "ssh_connect_failed" -> OrbitErrorCode.NetworkUnavailable
-        "ssh_auth_failed", "jump_credentials_unavailable" -> OrbitErrorCode.AuthenticationFailed
+        "ssh_auth_failed", "ssh_second_factor_required", "jump_credentials_unavailable" -> OrbitErrorCode.AuthenticationFailed
         "host_key_blocked", "host_key_changed", "host_key_revoked" -> OrbitErrorCode.HostKeyBlocked
         "permission_denied", "sftp_permission_denied" -> OrbitErrorCode.PermissionDenied
         "destination_unwritable", "archive_workspace_unavailable", "archive_write_failed", "local_file_unreadable" -> OrbitErrorCode.StorageUnavailable
         "sftp_conflict", "sftp_mutation_conflict", "sftp_target_exists" -> OrbitErrorCode.SftpConflict
-        "sftp_mutation_failed", "sftp_operation_failed", "delete_depth_limit", "delete_entry_limit", "unsafe_remote_name" -> OrbitErrorCode.SftpOperationFailed
+        "sftp_mutation_failed", "sftp_operation_failed", "sftp_download_failed", "sftp_upload_failed",
+        "delete_depth_limit", "delete_entry_limit", "unsafe_remote_name" -> OrbitErrorCode.SftpOperationFailed
         "docker_operation_failed" -> OrbitErrorCode.DockerOperationFailed
         "monitor_operation_failed" -> OrbitErrorCode.MonitorOperationFailed
         "native_operation_failed" -> OrbitErrorCode.NativeOperationFailed
@@ -140,6 +149,10 @@ fun orbitNativeError(rawCode: String?, retryable: Boolean = false, detailCode: S
         OrbitErrorCode.NetworkUnavailable, OrbitErrorCode.NetworkTimeout -> OrbitRecoveryAction.CheckNetwork
         OrbitErrorCode.AuthenticationFailed -> OrbitRecoveryAction.CheckCredentials
         OrbitErrorCode.AuthenticationExpired -> OrbitRecoveryAction.SignInAgain
+        OrbitErrorCode.PasswordChangeRequired -> OrbitRecoveryAction.CheckCredentials
+        OrbitErrorCode.AuthStateChanged -> OrbitRecoveryAction.SignInAgain
+        OrbitErrorCode.RefreshInProgress -> OrbitRecoveryAction.Retry
+        OrbitErrorCode.RequestTooLarge -> OrbitRecoveryAction.ContactSupport
         OrbitErrorCode.HostKeyBlocked -> OrbitRecoveryAction.ReviewHostKey
         OrbitErrorCode.PermissionDenied -> OrbitRecoveryAction.CheckPermission
         OrbitErrorCode.StorageUnavailable -> OrbitRecoveryAction.Unlock
@@ -165,6 +178,10 @@ fun syncError(code: OrbitErrorCode, retryAfterSeconds: Long? = null): OrbitError
     ),
     recovery = when (code) {
         OrbitErrorCode.AuthenticationExpired -> OrbitRecoveryAction.SignInAgain
+        OrbitErrorCode.PasswordChangeRequired -> OrbitRecoveryAction.CheckCredentials
+        OrbitErrorCode.AuthStateChanged -> OrbitRecoveryAction.SignInAgain
+        OrbitErrorCode.RefreshInProgress -> OrbitRecoveryAction.Retry
+        OrbitErrorCode.RequestTooLarge -> OrbitRecoveryAction.ContactSupport
         OrbitErrorCode.SyncDecryptionFailed -> OrbitRecoveryAction.Unlock
         OrbitErrorCode.SyncConflict -> OrbitRecoveryAction.ResolveConflict
         OrbitErrorCode.NetworkUnavailable, OrbitErrorCode.NetworkTimeout -> OrbitRecoveryAction.CheckNetwork

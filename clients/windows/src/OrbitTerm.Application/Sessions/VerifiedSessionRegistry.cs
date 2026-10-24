@@ -20,6 +20,21 @@ public sealed class VerifiedSessionRegistry
         return leases.TryGetValue(new SessionKey(workspaceId, serverId), out lease!);
     }
 
+    public bool TryGetByBaseSessionId(ulong baseSessionId, out VerifiedSessionLease lease)
+    {
+        foreach (var candidate in leases.Values)
+        {
+            if (candidate.BaseSessionId == baseSessionId)
+            {
+                lease = candidate;
+                return true;
+            }
+        }
+
+        lease = null!;
+        return false;
+    }
+
     public bool Remove(VerifiedSessionLease lease)
     {
         Validate(lease);

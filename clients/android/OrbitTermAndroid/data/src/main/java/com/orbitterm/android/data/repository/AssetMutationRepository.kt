@@ -5,13 +5,17 @@ import com.orbitterm.android.domain.auth.ActiveAccountScopeProvider
 import com.orbitterm.android.data.local.AssetSyncOperation
 import com.orbitterm.android.data.local.AssetSyncOutboxDao
 import com.orbitterm.android.data.local.AssetSyncOutboxEntity
+import com.orbitterm.android.data.local.AssetSyncMetadataDao
 import com.orbitterm.android.data.local.OrbitTermDatabase
 import com.orbitterm.android.data.local.ServerAssetDao
 import com.orbitterm.android.data.local.toDomain
 import com.orbitterm.android.data.local.toEntity
 import com.orbitterm.android.domain.assets.ServerAsset
+import com.orbitterm.android.domain.assets.AssetStorageScope
+import com.orbitterm.android.domain.assets.LOCAL_ASSET_PARTITION
 import com.orbitterm.android.domain.assets.ServerCredentials
 import com.orbitterm.android.domain.assets.CredentialVault
+import com.orbitterm.android.sync.SyncVectorClock
 import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
@@ -27,6 +31,7 @@ class AssetMutationRepository @Inject constructor(
     private val database: OrbitTermDatabase,
     private val assetDao: ServerAssetDao,
     private val outboxDao: AssetSyncOutboxDao,
+    private val metadataDao: AssetSyncMetadataDao,
     private val credentialStore: CredentialVault,
     private val accountScopeController: ActiveAccountScopeProvider,
 ) {
@@ -41,7 +46,10 @@ class AssetMutationRepository @Inject constructor(
             jump.validate()
             requireNotNull(jumpHostCredentials) { "jump host credentials are required" }
         }
-        val previous = assetDao.findById(requireScope(), asset.id)?.toDomain()
+        val accountScope = accountScopeController.scope.value?.storageId
+        val previous = accountScope?.let {
+            assetDao.findVisibleById(it, LOCAL_ASSET_PARTITION, asset.id)?.toDomain()
+        } ?: assetDao.findById(LOCAL_ASSET_PARTITION, asset.id)?.toDomain()
         credentialStore.save(asset.credentialID, credentials)
         asset.jumpHost?.let { jump ->
             credentialStore.save(jump.credentialID, requireNotNull(jumpHostCredentials))
@@ -53,18 +61,50 @@ class AssetMutationRepository @Inject constructor(
     }
 
     suspend fun saveMetadataAndQueue(asset: ServerAsset) {
-        val scope = requireScope()
+        val accountScope = accountScopeController.scope.value?.storageId
+        val targetScope = when (asset.storageScope) {
+            AssetStorageScope.LOCAL_ONLY -> LOCAL_ASSET_PARTITION
+            AssetStorageScope.ACCOUNT_SYNCED -> requireNotNull(accountScope) {
+                "an account is required for synchronized assets"
+            }
+        }
         database.withTransaction {
-            assetDao.upsert(asset.toEntity(scope))
-            queue(scope, asset.id, AssetSyncOperation.UPSERT)
+            val previousAccountAsset = accountScope?.let { assetDao.findById(it, asset.id) }
+            val previousLocalAsset = assetDao.findById(LOCAL_ASSET_PARTITION, asset.id)
+
+            if (targetScope == LOCAL_ASSET_PARTITION) {
+                assetDao.upsert(asset.toEntity(LOCAL_ASSET_PARTITION))
+                accountScope?.let { scope ->
+                    if (previousAccountAsset != null) {
+                        assetDao.deleteById(scope, asset.id)
+                        queue(scope, asset.id, AssetSyncOperation.MOVE_TO_TRASH)
+                    }
+                }
+            } else {
+                assetDao.upsert(asset.toEntity(targetScope))
+                if (previousLocalAsset != null) {
+                    assetDao.deleteById(LOCAL_ASSET_PARTITION, asset.id)
+                }
+                queue(targetScope, asset.id, AssetSyncOperation.UPSERT)
+            }
         }
     }
 
     suspend fun delete(asset: ServerAsset) {
-        val scope = requireScope()
+        val accountScope = accountScopeController.scope.value?.storageId
+        val partition = when (asset.storageScope) {
+            AssetStorageScope.LOCAL_ONLY -> LOCAL_ASSET_PARTITION
+            AssetStorageScope.ACCOUNT_SYNCED -> requireNotNull(accountScope) {
+                "an account is required for synchronized assets"
+            }
+        }
         database.withTransaction {
-            assetDao.delete(asset.toEntity(scope))
-            queue(scope, asset.id, AssetSyncOperation.MOVE_TO_TRASH)
+            assetDao.deleteById(partition, asset.id)
+            if (asset.storageScope == AssetStorageScope.ACCOUNT_SYNCED) {
+                queue(partition, asset.id, AssetSyncOperation.MOVE_TO_TRASH)
+            } else {
+                outboxDao.delete(partition, asset.id)
+            }
         }
         // A failed secure-store cleanup leaves only an inaccessible orphan,
         // never a visible asset without credentials.
@@ -73,6 +113,11 @@ class AssetMutationRepository @Inject constructor(
     }
 
     private suspend fun queue(scope: String, assetId: String, operation: AssetSyncOperation) {
+        val requestClock = if (operation == AssetSyncOperation.MOVE_TO_TRASH) {
+            metadataDao.find(scope, assetId)?.vectorClock
+                ?.takeIf(SyncVectorClock::isValid)
+                ?.let { SyncVectorClock.bump(it, "android") }
+        } else null
         outboxDao.upsert(
             AssetSyncOutboxEntity(
                 accountScope = scope,
@@ -80,6 +125,7 @@ class AssetMutationRepository @Inject constructor(
                 operation = operation.name,
                 operationId = UUID.randomUUID().toString(),
                 enqueuedAtUnix = Instant.now().epochSecond,
+                requestVectorClock = requestClock,
             ),
         )
     }

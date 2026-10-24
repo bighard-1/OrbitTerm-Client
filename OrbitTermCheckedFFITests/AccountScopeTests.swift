@@ -29,6 +29,26 @@ final class AccountScopeTests: XCTestCase {
         XCTAssertNil(AccountScope(username: "  \n "))
     }
 
+    func testFreshActivationAndSignedOutPresentationMustNotFlushDeviceLocalCache() throws {
+        XCTAssertFalse(AccountScopeSnapshotPolicy.shouldFlushBeforeScopeChange(previousScope: nil))
+        let previous = try XCTUnwrap(AccountScope(username: "previous@example.test"))
+        XCTAssertTrue(AccountScopeSnapshotPolicy.shouldFlushBeforeScopeChange(previousScope: previous))
+    }
+
+    func testMacQARuntimeIsolationRequiresExactBundleAndExplicitBuildFlag() {
+        XCTAssertTrue(MacQARuntimeIsolation.isAllowed(
+            bundleIdentifier: "com.orbitterm.matrix.macos", isolationRequested: true
+        ))
+        XCTAssertFalse(MacQARuntimeIsolation.isAllowed(
+            bundleIdentifier: "com.orbitterm.app", isolationRequested: true
+        ))
+        XCTAssertFalse(MacQARuntimeIsolation.isAllowed(
+            bundleIdentifier: "com.orbitterm.matrix.macos", isolationRequested: false
+        ))
+        XCTAssertFalse(MacQARuntimeIsolation.isEnabled)
+        XCTAssertEqual(MacQARuntimeIsolation.applicationDirectoryName, "OrbitTerm")
+    }
+
     func testLegacyMigrationReservationCanOnlyResumeForItsOpaqueOwner() throws {
         let first = try XCTUnwrap(AccountScope(username: "first@example.invalid"))
         let second = try XCTUnwrap(AccountScope(username: "second@example.invalid"))

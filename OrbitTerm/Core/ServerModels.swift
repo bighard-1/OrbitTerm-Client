@@ -68,6 +68,50 @@ enum ServerTransportProtocol: String, Codable, CaseIterable, Identifiable, Senda
     }
 }
 
+/// RDP records remain portable across every client, but executing a remote
+/// desktop session is intentionally a desktop-only capability. Keep this
+/// policy separate from the sync model so a mobile client never mutates or
+/// drops an RDP asset merely because it cannot open it.
+enum MobileTransportSupportPolicy {
+    static func allowsConnection(
+        _ transport: ServerTransportProtocol,
+        platformSupportsRemoteDesktop: Bool
+    ) -> Bool {
+        transport != .rdp || platformSupportsRemoteDesktop
+    }
+
+    static var currentPlatformSupportsRemoteDesktop: Bool {
+        #if os(macOS)
+        true
+        #else
+        false
+        #endif
+    }
+
+    static func allowsConnection(_ transport: ServerTransportProtocol) -> Bool {
+        allowsConnection(transport, platformSupportsRemoteDesktop: currentPlatformSupportsRemoteDesktop)
+    }
+
+    static let remoteDesktopOnlyLabel = "RDP · 仅桌面端可连接"
+    static let remoteDesktopOnlyHint = "此 RDP 资产可查看和编辑；请在桌面端发起连接"
+}
+
+/// User intent for one asset. This is local policy metadata and is never
+/// embedded in the encrypted portable server payload.
+enum ServerAssetStorageScope: String, Codable, CaseIterable, Identifiable, Sendable {
+    case accountSynced
+    case localOnly
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .accountSynced: return "随账户同步"
+        case .localOnly: return "仅此设备"
+        }
+    }
+}
+
 enum NetworkDeviceProfile: String, Codable, CaseIterable, Identifiable, Sendable {
     case auto
     case huaweiVRP
@@ -120,6 +164,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
     var transport: ServerTransportProtocol
     var networkDeviceProfile: NetworkDeviceProfile
     var allowPasswordFallback: Bool
+    var storageScope: ServerAssetStorageScope
     var credentialID: UUID
     /// Optional single SSH jump host. Its secret is stored independently in
     /// `CredentialVault` under `jumpHost.credentialID`.
@@ -138,6 +183,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         transport: ServerTransportProtocol = .ssh,
         networkDeviceProfile: NetworkDeviceProfile = .auto,
         allowPasswordFallback: Bool = true,
+        storageScope: ServerAssetStorageScope = .accountSynced,
         credentialID: UUID? = nil,
         jumpHost: JumpHostConfiguration? = nil,
         createdAt: Date = Date()
@@ -153,6 +199,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         self.transport = transport
         self.networkDeviceProfile = networkDeviceProfile
         self.allowPasswordFallback = allowPasswordFallback
+        self.storageScope = storageScope
         self.credentialID = credentialID ?? id
         self.jumpHost = jumpHost
         self.createdAt = createdAt
@@ -170,6 +217,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         case transport
         case networkDeviceProfile
         case allowPasswordFallback
+        case storageScope
         case credentialID
         case jumpHost
         case createdAt
@@ -195,6 +243,9 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         transport = try container.decodeIfPresent(ServerTransportProtocol.self, forKey: .transport) ?? .ssh
         networkDeviceProfile = try container.decodeIfPresent(NetworkDeviceProfile.self, forKey: .networkDeviceProfile) ?? .auto
         allowPasswordFallback = try container.decodeIfPresent(Bool.self, forKey: .allowPasswordFallback) ?? true
+        // Apple historically synchronized every asset. Preserve that intent
+        // when decoding legacy rows instead of silently making them local.
+        storageScope = try container.decodeIfPresent(ServerAssetStorageScope.self, forKey: .storageScope) ?? .accountSynced
         credentialID = try container.decodeIfPresent(UUID.self, forKey: .credentialID) ?? id
         jumpHost = try container.decodeIfPresent(JumpHostConfiguration.self, forKey: .jumpHost)
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
@@ -215,6 +266,7 @@ struct ServerEntry: Identifiable, Codable, Hashable {
         try container.encode(transport, forKey: .transport)
         try container.encode(networkDeviceProfile, forKey: .networkDeviceProfile)
         try container.encode(allowPasswordFallback, forKey: .allowPasswordFallback)
+        try container.encode(storageScope, forKey: .storageScope)
         try container.encode(credentialID, forKey: .credentialID)
         try container.encodeIfPresent(jumpHost, forKey: .jumpHost)
         try container.encode(createdAt, forKey: .createdAt)
@@ -409,8 +461,20 @@ final class DeletedServerRegistry {
 
     func activate(scope: AccountScope) {
         lock.lock()
+        defer { lock.unlock() }
         accountScope = scope
-        lock.unlock()
+
+        // v2 persisted Apple UUID strings directly, whose textual form is
+        // uppercase.  Migrate as soon as an account scope becomes active so
+        // every consumer (including `isDeleted`) observes the same portable
+        // lowercase identity as Windows and Android.  Normalizing only in a
+        // snapshot leaves a window where an incoming lowercase record can
+        // bypass a legacy marker and resurrect a deleted asset.
+        let existing = readMapUnlocked()
+        let normalized = normalizedMap(pruned(existing, now: Date().timeIntervalSince1970))
+        if normalized != existing {
+            persistUnlocked(normalized)
+        }
     }
 
     func deactivate() {
@@ -431,7 +495,7 @@ final class DeletedServerRegistry {
         var map = readMapUnlocked()
         let now = Date().timeIntervalSince1970
         for id in ids {
-            map[id.uuidString] = now
+            map[canonicalAssetID(id)] = now
         }
         persistUnlocked(pruned(map, now: now))
     }
@@ -441,14 +505,15 @@ final class DeletedServerRegistry {
         defer { lock.unlock() }
 
         var map = readMapUnlocked()
-        map.removeValue(forKey: id.uuidString)
+        map.removeValue(forKey: canonicalAssetID(id))
         persistUnlocked(map)
     }
 
     func isDeleted(idString: String) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return readMapUnlocked()[idString] != nil
+        guard let canonicalID = canonicalAssetID(idString) else { return false }
+        return readMapUnlocked()[canonicalID] != nil
     }
 
     func snapshot() -> [String: TimeInterval] {
@@ -456,9 +521,12 @@ final class DeletedServerRegistry {
         defer { lock.unlock() }
 
         let now = Date().timeIntervalSince1970
-        let map = pruned(readMapUnlocked(), now: now)
-        persistUnlocked(map)
-        return map
+        let normalized = normalizedMap(pruned(readMapUnlocked(), now: now))
+        // Persist the canonical form as well as returning it. Otherwise a
+        // legacy uppercase marker remains on disk and later callers that do
+        // not happen to request a snapshot can miss the tombstone.
+        persistUnlocked(normalized)
+        return normalized
     }
 
     private func readMapUnlocked() -> [String: TimeInterval] {
@@ -478,5 +546,25 @@ final class DeletedServerRegistry {
 
     private func pruned(_ map: [String: TimeInterval], now: TimeInterval) -> [String: TimeInterval] {
         map.filter { now - $0.value <= retention }
+    }
+
+    private func normalizedMap(_ map: [String: TimeInterval]) -> [String: TimeInterval] {
+        var normalized: [String: TimeInterval] = [:]
+        for (rawID, deletedAt) in map {
+            guard let canonicalID = canonicalAssetID(rawID) else { continue }
+            normalized[canonicalID] = max(normalized[canonicalID] ?? 0, deletedAt)
+        }
+        return normalized
+    }
+
+    private func canonicalAssetID(_ id: UUID) -> String {
+        id.uuidString.lowercased()
+    }
+
+    private func canonicalAssetID(_ rawID: String) -> String? {
+        guard let id = UUID(uuidString: rawID.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return nil
+        }
+        return canonicalAssetID(id)
     }
 }

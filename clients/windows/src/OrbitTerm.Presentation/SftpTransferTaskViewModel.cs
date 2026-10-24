@@ -159,6 +159,7 @@ public sealed class SftpTransferTaskViewModel : ObservableObject
                 OnPropertyChanged(nameof(CanPause));
                 OnPropertyChanged(nameof(CanResume));
                 OnPropertyChanged(nameof(CanCancel));
+                OnPropertyChanged(nameof(TransferDetailText));
             }
         }
     }
@@ -288,6 +289,7 @@ public sealed class SftpTransferTaskViewModel : ObservableObject
         transferControl.Resume();
         StatusText = text;
         State = SftpTransferTaskState.Failed;
+        BytesPerSecond = 0;
     }
 
     public void MarkCancelled(string text)
@@ -295,6 +297,7 @@ public sealed class SftpTransferTaskViewModel : ObservableObject
         transferControl.Resume();
         StatusText = text;
         State = SftpTransferTaskState.Cancelled;
+        BytesPerSecond = 0;
     }
 
     public void MarkSkipped(string text)

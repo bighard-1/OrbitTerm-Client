@@ -80,7 +80,7 @@ struct WorkstationSheetsAndAlerts: ViewModifier {
                     onDeleteServer(server)
                 }
             } message: {
-                Text("将删除“\(pendingDeleteServer?.name ?? "该资产")”的本地记录，并尝试同步云端删除。此操作不可撤销。")
+                Text("将移除“\(pendingDeleteServer?.name ?? "该资产")”的本机记录与凭据。随账户同步的资产会移入最近删除，保留期内可恢复；仅此设备的资产无法从云端恢复。可重试的云端删除失败会后台补投，需处理的冲突会保留并提示。")
             }
     }
 }

@@ -39,4 +39,11 @@ class OrbitErrorTest {
         assertEquals(1, metrics[OrbitErrorCode.SyncDecryptionFailed])
         assertTrue(metrics.keys.all { it.diagnosticCode.matches(Regex("[a-z_]+")) })
     }
+
+    @Test
+    fun checkedSftpTransferFailuresHaveStableCategories() {
+        assertEquals(OrbitErrorCode.OperationCancelled, orbitNativeError("sftp_transfer_cancelled").code)
+        assertEquals(OrbitErrorCode.SftpOperationFailed, orbitNativeError("sftp_download_failed").code)
+        assertEquals(OrbitErrorCode.SftpOperationFailed, orbitNativeError("sftp_upload_failed").code)
+    }
 }

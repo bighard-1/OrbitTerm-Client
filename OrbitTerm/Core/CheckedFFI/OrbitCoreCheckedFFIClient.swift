@@ -9,6 +9,8 @@ struct OrbitCoreCheckedConnectCall: Sendable, CustomStringConvertible,
     let knownHostsPath: String
     let requestID: String
     let jumpHost: OrbitCoreCheckedJumpHostCall?
+    let oneTimeCode: String?
+    let jumpOneTimeCode: String?
 
     var description: String {
         "OrbitCoreCheckedConnectCall(host: [REDACTED], port: \(port), credentials: [REDACTED], jump: \(jumpHost == nil ? "none" : "configured"))"
@@ -146,18 +148,14 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
         guard !host.isEmpty, !username.isEmpty, input.port > 0 else {
             throw CheckedFFIClientError.invalidInput
         }
+        for code in [input.oneTimeCode, input.jumpOneTimeCode].compactMap({ $0 }) {
+            guard !code.isEmpty, code.utf8.count <= 128,
+                  !code.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
+                throw CheckedFFIClientError.invalidInput
+            }
+        }
 
-        let credentials: CheckedCredentials
-        do {
-            credentials = try await credentialProvider.credentials(for: input.credentialReference)
-        } catch let error as CheckedFFIClientError {
-            throw error
-        } catch {
-            throw CheckedFFIClientError.invalidInput
-        }
-        guard !credentials.password.isEmpty || !credentials.privateKey.isEmpty else {
-            throw CheckedFFIClientError.invalidInput
-        }
+        let credentials = try await loadCredentials(for: input.credentialReference)
         let jumpHost: OrbitCoreCheckedJumpHostCall?
         if let configuredJumpHost = input.jumpHost {
             let hopHost = configuredJumpHost.host.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -165,12 +163,7 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             guard !hopHost.isEmpty, !hopUsername.isEmpty, configuredJumpHost.port > 0 else {
                 throw CheckedFFIClientError.invalidInput
             }
-            let hopCredentials = try await credentialProvider.credentials(
-                for: configuredJumpHost.credentialReference
-            )
-            guard !hopCredentials.password.isEmpty || !hopCredentials.privateKey.isEmpty else {
-                throw CheckedFFIClientError.invalidInput
-            }
+            let hopCredentials = try await loadCredentials(for: configuredJumpHost.credentialReference)
             jumpHost = OrbitCoreCheckedJumpHostCall(
                 host: hopHost,
                 port: Int32(configuredJumpHost.port),
@@ -188,11 +181,30 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             credentials: credentials,
             knownHostsPath: try loadKnownHostsPath(),
             requestID: requestID.rawValue,
-            jumpHost: jumpHost
+            jumpHost: jumpHost,
+            oneTimeCode: input.oneTimeCode,
+            jumpOneTimeCode: input.jumpOneTimeCode
         )
         let json = try resultReader.take(functions.connect(call))
         let response = try decodeConnect(json, expectedRequestID: requestID)
         return CheckedClientResponse(requestID: requestID, value: response)
+    }
+
+    private func loadCredentials(
+        for reference: CredentialAccessReference
+    ) async throws -> CheckedCredentials {
+        let credentials: CheckedCredentials
+        do {
+            credentials = try await credentialProvider.credentials(for: reference)
+        } catch let error as CheckedFFIClientError {
+            throw error
+        } catch {
+            throw CheckedFFIClientError.credentialStorageFailed
+        }
+        guard !credentials.password.isEmpty || !credentials.privateKey.isEmpty else {
+            throw CheckedFFIClientError.credentialUnavailable
+        }
+        return credentials
     }
 
     func acceptAndPersistHostKey(
@@ -253,7 +265,7 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             baseSessionID: baseSessionID.ffiValue,
             requestID: requestID.rawValue
         )
-        let json = try resultReader.take(functions.openSFTP(call))
+        let json = try await callSessionOperation(call, using: functions.openSFTP)
         let payload: SFTPChannelOpenedPayload = try decodePayload(
             json,
             expectedRequestID: requestID,
@@ -273,7 +285,7 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             baseSessionID: baseSessionID.ffiValue,
             requestID: requestID.rawValue
         )
-        let json = try resultReader.take(functions.monitorSnapshot(call))
+        let json = try await callSessionOperation(call, using: functions.monitorSnapshot)
         let payload: MonitorSnapshotPayload = try decodePayload(
             json,
             expectedRequestID: requestID,
@@ -293,7 +305,7 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             baseSessionID: baseSessionID.ffiValue,
             requestID: requestID.rawValue
         )
-        let json = try resultReader.take(functions.dockerList(call))
+        let json = try await callSessionOperation(call, using: functions.dockerList)
         let payload: DockerContainersPayload = try decodePayload(
             json,
             expectedRequestID: requestID,
@@ -311,7 +323,7 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             baseSessionID: baseSessionID.ffiValue,
             requestID: requestID.rawValue
         )
-        let json = try resultReader.take(functions.dockerStats(call))
+        let json = try await callSessionOperation(call, using: functions.dockerStats)
         let payload: DockerStatsPayload = try decodePayload(
             json,
             expectedRequestID: requestID,
@@ -336,7 +348,7 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             tail: tail,
             requestID: requestID.rawValue
         )
-        let json = try resultReader.take(functions.dockerLogs(call))
+        let json = try await callSessionOperation(call, using: functions.dockerLogs)
         let payload: DockerLogsPayload = try decodePayload(
             json,
             expectedRequestID: requestID,
@@ -364,7 +376,7 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             action: action,
             requestID: requestID.rawValue
         )
-        let json = try resultReader.take(functions.dockerAction(call))
+        let json = try await callSessionOperation(call, using: functions.dockerAction)
         let payload: DockerActionResultPayload = try decodePayload(
             json,
             expectedRequestID: requestID,
@@ -394,7 +406,7 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             maxStderrBytes: options.maxStderrBytes,
             requestID: requestID.rawValue
         )
-        let json = try resultReader.take(functions.execChecked(call))
+        let json = try await callSessionOperation(call, using: functions.execChecked)
         let payload: ExecResultPayload = try decodePayload(
             json,
             expectedRequestID: requestID,
@@ -404,6 +416,20 @@ actor OrbitCoreCheckedFFIClient: CheckedFFIClient {
             throw CheckedFFIClientError.protocolViolation
         }
         return CheckedClientResponse(requestID: requestID, value: payload)
+    }
+
+    /// A checked session's companion operations may wait on a remote service
+    /// or command. Native FFI is synchronous, so running it on this actor would
+    /// also queue unrelated SSH connects until their outer timeout expires.
+    /// Decode and identity correlation still happen after the call completes.
+    private func callSessionOperation<Call: Sendable>(
+        _ call: Call,
+        using function: @escaping @Sendable (Call) -> UnsafeMutablePointer<CChar>?
+    ) async throws -> String {
+        let reader = resultReader
+        return try await Task.detached(priority: .userInitiated) {
+            try reader.take(function(call))
+        }.value
     }
 
     private static func validateDockerBase(

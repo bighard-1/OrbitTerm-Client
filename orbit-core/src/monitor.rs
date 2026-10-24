@@ -410,17 +410,6 @@ fn bytes_over_interval_to_kbps(bytes: u64, elapsed_seconds: u64) -> f64 {
     bytes as f64 * 8.0 / elapsed_seconds.max(1) as f64 / 1000.0
 }
 
-#[cfg(test)]
-mod network_rate_tests {
-    use super::bytes_over_interval_to_kbps;
-
-    #[test]
-    fn converts_byte_deltas_to_real_decimal_kilobits_per_second() {
-        assert_eq!(bytes_over_interval_to_kbps(125_000, 1), 1_000.0);
-        assert_eq!(bytes_over_interval_to_kbps(250_000, 2), 1_000.0);
-    }
-}
-
 pub(crate) async fn measure_ping_ms(host: &str) -> Option<f64> {
     let target = host_without_port(host).to_string();
     if target.is_empty() {
@@ -473,4 +462,15 @@ fn host_without_port(host: &str) -> &str {
         return trimmed.split(':').next().unwrap_or(trimmed);
     }
     trimmed
+}
+
+#[cfg(test)]
+mod network_rate_tests {
+    use super::bytes_over_interval_to_kbps;
+
+    #[test]
+    fn converts_byte_deltas_to_real_decimal_kilobits_per_second() {
+        assert_eq!(bytes_over_interval_to_kbps(125_000, 1), 1_000.0);
+        assert_eq!(bytes_over_interval_to_kbps(250_000, 2), 1_000.0);
+    }
 }

@@ -35,6 +35,7 @@ pub enum HostKeyFfiErrorCode {
     FfiInternalError,
     SshConnectFailed,
     SshAuthFailed,
+    SshSecondFactorRequired,
     SshTimeout,
     SessionPoolFailed,
     SessionNotFound,
@@ -100,6 +101,7 @@ impl HostKeyFfiErrorCode {
         Self::FfiInternalError,
         Self::SshConnectFailed,
         Self::SshAuthFailed,
+        Self::SshSecondFactorRequired,
         Self::SshTimeout,
         Self::SessionPoolFailed,
         Self::SessionNotFound,
@@ -165,6 +167,7 @@ impl HostKeyFfiErrorCode {
             Self::FfiInternalError => "error.ffi.internal",
             Self::SshConnectFailed => "error.ssh.connect_failed",
             Self::SshAuthFailed => "error.ssh.auth_failed",
+            Self::SshSecondFactorRequired => "error.ssh.second_factor_required",
             Self::SshTimeout => "error.ssh.timeout",
             Self::SessionPoolFailed => "error.session_pool.failed",
             Self::SessionNotFound => "error.session.not_found",
@@ -452,7 +455,9 @@ impl HostKeyFfiErrorPayload {
             | KnownHostsStoreError::PermissionFailed { .. } => {
                 (HostKeyFfiErrorCode::KnownHostsSaveFailed, "save_failed")
             }
-            KnownHostsStoreError::InvalidPublicKey | KnownHostsStoreError::InvalidAlgorithm => {
+            KnownHostsStoreError::InvalidPublicKey
+            | KnownHostsStoreError::InvalidFingerprint
+            | KnownHostsStoreError::InvalidAlgorithm => {
                 (HostKeyFfiErrorCode::HostKeyInvalid, "invalid_store_input")
             }
             KnownHostsStoreError::InvalidComment => {
@@ -469,6 +474,7 @@ impl HostKeyFfiErrorPayload {
                 "unsupported_marker",
             ),
             KnownHostsStoreError::TrustedRecordNotFound
+            | KnownHostsStoreError::FingerprintMismatch
             | KnownHostsStoreError::AmbiguousHostPattern => (
                 HostKeyFfiErrorCode::ChallengeMismatch,
                 "store_record_mismatch",

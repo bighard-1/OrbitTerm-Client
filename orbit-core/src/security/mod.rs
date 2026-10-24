@@ -134,6 +134,7 @@ pub use host_key_ffi_error::{
 pub use host_key_ffi_lifecycle::{
     HostKeyChallengeAcceptanceStatus, HostKeyChallengeAcceptedPayload, HostKeyChallengeStatus,
     HostKeyChallengeStatusPayload, HostKeyCleanupCompletedPayload, HostKeyProtocolVersionPayload,
+    HostKeyTrustRemovedPayload,
 };
 pub use host_key_ffi_protocol::{
     DockerActionResultPayload, DockerContainerPayload, DockerContainersPayload, DockerLogsPayload,

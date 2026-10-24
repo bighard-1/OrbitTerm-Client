@@ -19,6 +19,49 @@ final class OperationRecoveryPresentationTests: XCTestCase {
         XCTAssertEqual(LoginCooldownPolicy.seconds(failureCount: 7), 120)
         XCTAssertEqual(LoginCooldownPolicy.seconds(failureCount: 99), 300)
     }
+
+    func testLoginUnauthorizedUsesCredentialGuidanceInsteadOfExpiredTokenCopy() {
+        let message = LoginFailurePresentation.message(
+            for: NetworkService.NetworkError.unauthorized(nil)
+        )
+
+        XCTAssertEqual(message, "邮箱账号或登录密码不正确，请检查后重试。")
+        XCTAssertFalse(message.localizedCaseInsensitiveContains("token"))
+        XCTAssertFalse(message.contains("令牌"))
+    }
+
+    func testAuthenticationFormValidationReportsActionableInputErrors() {
+        XCTAssertEqual(
+            AuthInputValidation.message(
+                isLoginMode: true,
+                username: "person@example.com",
+                password: "secret",
+                inviteCode: "",
+                acceptedTerms: false
+            ),
+            "请先勾选同意使用条款、免责声明与隐私说明。"
+        )
+        XCTAssertEqual(
+            AuthInputValidation.message(
+                isLoginMode: true,
+                username: "invalid",
+                password: "secret",
+                inviteCode: "",
+                acceptedTerms: true
+            ),
+            "请输入有效的邮箱账号，例如 name@example.com。"
+        )
+        XCTAssertNil(
+            AuthInputValidation.message(
+                isLoginMode: false,
+                username: "person@example.com",
+                password: "StrongPass1!",
+                inviteCode: "INVITE",
+                acceptedTerms: true
+            )
+        )
+    }
+
     func testSyncUnauthorizedOffersReauthenticationWithoutRawMessage() {
         let value = OperationRecoveryMapper.sync(.authenticationExpired)
 
@@ -28,6 +71,17 @@ final class OperationRecoveryPresentationTests: XCTestCase {
         XCTAssertEqual(value.diagnosticCode, "sync.authenticationExpired")
         XCTAssertFalse(value.message.contains("token"))
         XCTAssertFalse(value.message.contains("@"))
+    }
+
+    func testForcedPasswordChangeDoesNotBecomeExpiredLogin() {
+        let value = OperationRecoveryMapper.sync(.passwordChangeRequired)
+        XCTAssertEqual(value.code, .passwordChangeRequired)
+        XCTAssertEqual(value.diagnosticCode, "sync.passwordChangeRequired")
+        XCTAssertFalse(value.actions.contains(.reauthenticate))
+        XCTAssertEqual(
+            SyncQueueRecoveryPolicy.disposition(for: value.diagnosticCode),
+            .waitForAuthentication
+        )
     }
 
     func testPermanentHTTPRejectionDoesNotOfferBlindRetry() {
@@ -72,6 +126,30 @@ final class OperationRecoveryPresentationTests: XCTestCase {
         XCTAssertTrue(value.actions.contains(.unlock))
         XCTAssertTrue(value.actions.contains(.retry))
         XCTAssertEqual(value.diagnosticCode, "sync.masterPasswordMismatch")
+    }
+
+    func testSSHFailurePresentationExposesOnlyStableSafeCategory() {
+        let timeout = OperationRecoveryMapper.connection(.timeout(nil))
+        let invalid = OperationRecoveryMapper.connection(.protocolViolation)
+
+        XCTAssertEqual(timeout.domain, .connection)
+        XCTAssertEqual(invalid.domain, .connection)
+        XCTAssertNotEqual(timeout.diagnosticCode, invalid.diagnosticCode)
+        XCTAssertFalse(timeout.diagnosticCode.contains("@"))
+        XCTAssertFalse(invalid.diagnosticCode.contains("@"))
+    }
+
+    func testSSHLocalCredentialFailuresAreActionableAndDoNotClaimProtocolCorruption() {
+        let missing = OperationRecoveryMapper.connection(.client(.credentialUnavailable))
+        let storage = OperationRecoveryMapper.connection(.client(.credentialStorageFailed))
+
+        XCTAssertEqual(missing.code, .credentialUnavailable)
+        XCTAssertEqual(missing.actions, [.reviewCredentials, .dismiss])
+        XCTAssertEqual(storage.code, .credentialStorageFailed)
+        XCTAssertEqual(storage.actions, [.retry, .dismiss])
+        XCTAssertNotEqual(missing.diagnosticCode, storage.diagnosticCode)
+        XCTAssertFalse(missing.message.contains("fixture-password"))
+        XCTAssertFalse(storage.message.contains("fixture-password"))
     }
 
     private func makeBlockedPayload() -> HostKeyBlockedPayload {

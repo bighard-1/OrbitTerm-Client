@@ -2,6 +2,7 @@ use std::time::SystemTime;
 
 use russh::client;
 use russh::keys::ssh_key::PublicKey;
+use russh::keys::PublicKeyOrCertificate;
 
 use super::connect_pre_auth_error::ConnectPreAuthError;
 use super::host_key_verification_context::HostKeyVerificationContext;
@@ -86,8 +87,16 @@ impl client::Handler for CheckedHostKeyHandler {
 
     async fn check_server_key(
         &mut self,
-        server_public_key: &PublicKey,
+        server_public_key: &PublicKeyOrCertificate,
     ) -> Result<bool, Self::Error> {
-        self.verify_presented_host_key(server_public_key, SystemTime::now())
+        match server_public_key {
+            PublicKeyOrCertificate::PublicKey { key, .. } => {
+                self.verify_presented_host_key(key, SystemTime::now())
+            }
+            // Host certificates require an explicit CA, principal and validity
+            // policy. Treating the embedded key as a raw host key would silently
+            // bypass that policy, so reject certificate negotiation for now.
+            PublicKeyOrCertificate::Certificate(_) => Ok(false),
+        }
     }
 }

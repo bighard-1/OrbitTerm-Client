@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.verticalScroll
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -80,6 +81,7 @@ import androidx.core.net.toUri
 import com.orbitterm.android.app.AppDestination
 import com.orbitterm.android.app.OrbitTermAppUiState
 import com.orbitterm.android.feature.assets.AssetsRoute
+import com.orbitterm.android.feature.assets.AssetsViewModel
 import com.orbitterm.android.feature.sftp.SftpRoute
 import com.orbitterm.android.feature.docker.DockerRoute
 import com.orbitterm.android.feature.terminal.TerminalSessionsRoute
@@ -151,6 +153,7 @@ fun MainScreen(
     onTelnetEnabledChanged: (Boolean) -> Unit,
     accountName: String,
     administratorEmail: String,
+    assetsViewModel: AssetsViewModel,
     onLogout: () -> Unit,
     onLock: () -> Unit,
     biometricEnabled: Boolean,
@@ -175,6 +178,8 @@ fun MainScreen(
     onPurgeRecentlyDeleted: (String) -> Unit,
     onDismissRecentlyDeletedFeedback: () -> Unit,
 ) {
+    val assetPageSyncFeedback = syncStatus.assetPageFeedback()
+    val assetEditorOpen = assetsViewModel.uiState.collectAsStateWithLifecycle().value.editor != null
     BackHandler(enabled = uiState.destination != AppDestination.Servers) {
         onDestinationSelected(AppDestination.Servers)
     }
@@ -197,7 +202,7 @@ fun MainScreen(
             }
         },
         bottomBar = {
-            if (!shouldShowBottomDock(uiState.destination, uiState.hasActiveTerminalSession)) return@Scaffold
+            if (!shouldShowBottomDock(uiState.destination, uiState.hasActiveTerminalSession, assetEditorOpen)) return@Scaffold
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                     AppDestination.entries.forEach { destination ->
                         NavigationBarItem(
@@ -222,11 +227,14 @@ fun MainScreen(
         when (uiState.destination) {
             AppDestination.Servers -> AssetsRoute(
                 modifier = Modifier.padding(paddingValues),
+                viewModel = assetsViewModel,
                 telnetEnabled = uiState.telnetEnabled,
                 onTerminalOpened = { onDestinationSelected(AppDestination.Sessions) },
                 deepLink = deepLink,
                 onDeepLinkConsumed = onDeepLinkConsumed,
                 isSynchronizing = syncStatus == SyncStatus.Syncing,
+                syncFeedbackMessage = assetPageSyncFeedback?.message,
+                syncFeedbackIsError = assetPageSyncFeedback?.isError == true,
                 onSyncRequested = onRetrySync,
             )
             AppDestination.Sessions -> TerminalSessionsRoute(
@@ -516,7 +524,7 @@ private fun MoreScreen(
                     Spacer(Modifier.width(8.dp))
                     Text(if (syncStatus is SyncStatus.Syncing) "同步中…" else "立即同步")
                 }
-                SettingLabel("最近删除", "查看、恢复或永久清理云端删除记录")
+                SettingLabel("最近删除", "仅显示账户同步资产的云端删除记录；“仅此设备”删除后不显示")
                 TextButton(onClick = {
                     recentlyDeletedVisible = true
                     onLoadRecentlyDeleted()
@@ -678,14 +686,25 @@ private fun MoreScreen(
         val recentlyDeletedPresentation = recentlyDeletedState.presentation()
         AlertDialog(
             onDismissRequest = { if (recentlyDeletedState.mutatingAssetId == null) recentlyDeletedVisible = false },
-            title = { Text("最近删除") },
+            title = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("最近删除")
+                    // Keep mutation feedback outside the scrolling asset list so
+                    // a restored row disappearing cannot hide its result.
+                    RecentlyDeletedFeedback(
+                        presentation = recentlyDeletedPresentation,
+                        successMessage = recentlyDeletedState.message,
+                        onDismissSuccess = onDismissRecentlyDeletedFeedback,
+                    )
+                }
+            },
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(androidx.compose.foundation.rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Text(
-                        "删除记录由服务器按保留期限清理。恢复会重新写入本机安全存储；永久删除不可撤销。",
+                        "这里需联网读取账户同步资产的云端删除记录；此类资产离线删除会先排队，同步完成后才显示。“仅此设备”资产删除后不会出现在这里，无法在应用内恢复。恢复云端资产会重新写入本机安全存储；永久删除不可撤销。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -727,11 +746,6 @@ private fun MoreScreen(
                             }
                         }
                     }
-                    RecentlyDeletedFeedback(
-                        presentation = recentlyDeletedPresentation,
-                        successMessage = recentlyDeletedState.message,
-                        onDismissSuccess = onDismissRecentlyDeletedFeedback,
-                    )
                 }
             },
             confirmButton = {
@@ -827,8 +841,13 @@ private fun OrbitCompactPageBar(
 }
 
 /** Keeps navigation reachable when the session workbench has no live terminal. */
-internal fun shouldShowBottomDock(destination: AppDestination, hasActiveTerminalSession: Boolean): Boolean =
-    destination != AppDestination.Sessions || !hasActiveTerminalSession
+internal fun shouldShowBottomDock(
+    destination: AppDestination,
+    hasActiveTerminalSession: Boolean,
+    assetEditorOpen: Boolean = false,
+): Boolean =
+    !(destination == AppDestination.Sessions && hasActiveTerminalSession) &&
+        !(destination == AppDestination.Servers && assetEditorOpen)
 
 @Composable
 private fun LoginPasswordChangeDialog(

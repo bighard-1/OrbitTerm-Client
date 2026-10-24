@@ -169,6 +169,30 @@ struct HostKeyBlockedPayload: Hashable, Sendable, Codable, CustomDebugStringConv
     }
 }
 
+struct HostKeyTrustRemovedPayload: Hashable, Sendable, Codable, CustomDebugStringConvertible {
+    let host: String
+    let normalizedHost: String
+    let port: UInt16
+    let lookupToken: String
+    let keyAlgorithm: String
+    let previousFingerprintSHA256: String
+    let removedCount: UInt64
+
+    private enum CodingKeys: String, CodingKey {
+        case host
+        case normalizedHost = "normalized_host"
+        case port
+        case lookupToken = "lookup_token"
+        case keyAlgorithm = "key_algorithm"
+        case previousFingerprintSHA256 = "previous_fingerprint_sha256"
+        case removedCount = "removed_count"
+    }
+
+    var debugDescription: String {
+        "HostKeyTrustRemoved(host: \(normalizedHost), port: \(port), count: \(removedCount))"
+    }
+}
+
 struct TrustPersistedPayload: Hashable, Sendable, Codable, CustomDebugStringConvertible {
     let challengeID: String
     let host: String

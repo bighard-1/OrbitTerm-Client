@@ -48,7 +48,7 @@ enum SFTPBrowserPathHelper {
 #if os(macOS)
         return (FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory)
-            .appendingPathComponent("OrbitTerm", isDirectory: true)
+            .appendingPathComponent(MacQARuntimeIsolation.applicationDirectoryName, isDirectory: true)
 #else
         return FileManager.default.temporaryDirectory
             .appendingPathComponent("OrbitTerm-Exports", isDirectory: true)

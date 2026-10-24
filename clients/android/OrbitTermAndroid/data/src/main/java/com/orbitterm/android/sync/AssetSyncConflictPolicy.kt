@@ -45,6 +45,8 @@ sealed interface AssetMergeDecision {
     data class RequiresUserChoice(val fields: Set<AssetSyncField>) : AssetMergeDecision
 }
 
+enum class TombstoneUpsertDecision { NotTombstone, AcceptDeletion, RequireUserChoice }
+
 object AssetSyncConflictPolicy {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -67,6 +69,12 @@ object AssetSyncConflictPolicy {
 
     fun isAcceptedUploadEcho(remoteState: String?, matchesLocalState: Boolean): Boolean =
         matchesLocalState && (remoteState == null || remoteState == "active")
+
+    fun tombstoneUpsertDecision(remoteState: String?, matchesLocalState: Boolean): TombstoneUpsertDecision = when {
+        remoteState != "deleted" -> TombstoneUpsertDecision.NotTombstone
+        matchesLocalState -> TombstoneUpsertDecision.AcceptDeletion
+        else -> TombstoneUpsertDecision.RequireUserChoice
+    }
 
     /**
      * Detects the authoritative echo of a request whose HTTP response was

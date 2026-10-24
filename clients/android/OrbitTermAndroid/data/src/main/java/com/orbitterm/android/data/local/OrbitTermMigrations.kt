@@ -92,4 +92,26 @@ object OrbitTermMigrations {
             db.execSQL("ALTER TABLE asset_sync_outbox ADD COLUMN nextAttemptAtUnix INTEGER NOT NULL DEFAULT 0")
         }
     }
+
+    /** Existing Android assets were account-synced, so preserve that intent. */
+    val V11_TO_V12 = object : Migration(11, 12) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE server_assets ADD COLUMN storageScope TEXT NOT NULL DEFAULT 'ACCOUNT_SYNCED'",
+            )
+            // v1 rows intentionally had no guessed account owner. They are
+            // genuine device-local assets and become visible while signed out.
+            db.execSQL(
+                "UPDATE server_assets SET accountScope = '__orbitterm_device_local__', " +
+                    "storageScope = 'LOCAL_ONLY' WHERE accountScope = ''",
+            )
+        }
+    }
+
+    /** Old queued deletes remain unproven until a request clock is safely captured. */
+    val V12_TO_V13 = object : Migration(12, 13) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE asset_sync_outbox ADD COLUMN requestVectorClock TEXT")
+        }
+    }
 }

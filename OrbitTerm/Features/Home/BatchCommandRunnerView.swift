@@ -25,6 +25,8 @@ struct BatchCommandRunnerView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var selectedServerIDs: Set<UUID> = []
+    @State private var selectedGroup = "全部分组"
+    @State private var targetQuery = ""
     @State private var commandText = ""
     @State private var isRunning = false
     @State private var receipts: [BatchCommandReceipt] = []
@@ -112,57 +114,51 @@ struct BatchCommandRunnerView: View {
 
     private var selectionPane: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("选择分组")
+            Text("执行目标")
                 .font(.headline)
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
 
-            if batchSelectionSections.isEmpty {
-                Text("暂无分组")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(batchSelectionSections, id: \.group) { section in
-                            let sshItems = section.items
-                            if !sshItems.isEmpty {
-                                let groupIDs = Set(sshItems.map(\.id))
-                                let selectedCount = groupIDs.intersection(selectedServerIDs).count
-                                let isOn = selectedCount == groupIDs.count
-                                Button {
-                                    if isOn {
-                                        selectedServerIDs.subtract(groupIDs)
-                                    } else {
-                                        selectedServerIDs.formUnion(groupIDs)
-                                    }
-                                } label: {
-                                    HStack {
-                                        Image(systemName: selectedCount == 0
-                                            ? "square"
-                                            : isOn ? "checkmark.square.fill" : "minus.square.fill")
-                                        Text("\(section.group) (\(sshItems.count))")
-                                        Spacer()
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 12)
+            Picker("筛选分组", selection: $selectedGroup) {
+                ForEach(batchGroupNames, id: \.self) { group in
+                    Text(group).tag(group)
                 }
             }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .padding(.horizontal, 12)
 
-            Divider().padding(.vertical, 4)
-
-            Text("选择资产")
-                .font(.headline)
+            TextField("搜索名称、地址或分组", text: $targetQuery)
+                .textFieldStyle(.roundedBorder)
                 .padding(.horizontal, 12)
 
-            ScrollView {
+            HStack(spacing: 8) {
+                Text("已选择 \(selectedServerIDs.count) 台")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("选择当前结果") {
+                    selectedServerIDs.formUnion(filteredSSHServers.map(\.id))
+                }
+                .disabled(filteredSSHServers.isEmpty)
+                Button("清空已选") {
+                    selectedServerIDs.removeAll()
+                }
+                .disabled(selectedServerIDs.isEmpty)
+            }
+                .padding(.horizontal, 12)
+
+            if filteredSSHServers.isEmpty {
+                ContentUnavailableView(
+                    "没有匹配的 SSH 资产",
+                    systemImage: "server.rack",
+                    description: Text("调整分组或搜索条件后重试。")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(availableSSHServers) { server in
+                    ForEach(filteredSSHServers) { server in
                         let isOn = selectedServerIDs.contains(server.id)
                         Button {
                             if isOn {
@@ -187,6 +183,7 @@ struct BatchCommandRunnerView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.bottom, 12)
+            }
             }
         }
     }
@@ -285,10 +282,20 @@ struct BatchCommandRunnerView: View {
         }
     }
 
-    private var batchSelectionSections: [(group: String, items: [ServerEntry])] {
-        Dictionary(grouping: availableSSHServers, by: \.displayGroup)
-            .map { (group: $0.key, items: $0.value) }
-            .sorted { $0.group.localizedStandardCompare($1.group) == .orderedAscending }
+    private var batchGroupNames: [String] {
+        ["全部分组"] + Set(availableSSHServers.map(\.displayGroup))
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    private var filteredSSHServers: [ServerEntry] {
+        let query = targetQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        return availableSSHServers.filter { server in
+            (selectedGroup == "全部分组" || server.displayGroup == selectedGroup)
+                && (query.isEmpty
+                    || server.name.localizedCaseInsensitiveContains(query)
+                    || server.endpointText.localizedCaseInsensitiveContains(query)
+                    || server.displayGroup.localizedCaseInsensitiveContains(query))
+        }
     }
 
     private var targetsWithoutVerifiedSession: [ServerEntry] {

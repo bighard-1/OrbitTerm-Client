@@ -136,25 +136,107 @@ final class ApplicationOperationLifecyclePolicyTests: XCTestCase {
         }
     }
 
-    func testMobileBackgroundLockRequiresAuthenticatedConfiguredAccount() {
+    func testMobileBackgroundLockRequiresAuthenticatedUnlockedAccount() {
         XCTAssertTrue(
             MobileAutoLockPolicy.shouldLockOnBackground(
                 isAuthenticated: true,
-                hasMasterPassword: true
+                wasUnlocked: true
             )
         )
         XCTAssertFalse(
             MobileAutoLockPolicy.shouldLockOnBackground(
                 isAuthenticated: false,
-                hasMasterPassword: true
+                wasUnlocked: true
             )
         )
         XCTAssertFalse(
             MobileAutoLockPolicy.shouldLockOnBackground(
                 isAuthenticated: true,
-                hasMasterPassword: false
+                wasUnlocked: false
             )
         )
+    }
+
+    func testProtectedDataLossStillLocksAnUnlockedAccount() {
+        XCTAssertTrue(MobileAutoLockPolicy.shouldLockOnProtectedDataLoss(
+            isAuthenticated: true, wasUnlocked: true
+        ))
+        XCTAssertFalse(MobileAutoLockPolicy.shouldLockOnProtectedDataLoss(
+            isAuthenticated: false, wasUnlocked: true
+        ))
+        XCTAssertFalse(MobileAutoLockPolicy.shouldLockOnProtectedDataLoss(
+            isAuthenticated: true, wasUnlocked: false
+        ))
+    }
+
+    func testSecondFactorResumeRequiresSameAccountRecentIntentAndNewUnlock() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let intent = PendingSecondFactorResumeIntent(
+            serverID: UUID(), accountScopeID: "opaque-account-a", capturedAt: start
+        )
+        let now = start.addingTimeInterval(MobileSecondFactorResumePolicy.maximumAge - 1)
+
+        XCTAssertTrue(MobileSecondFactorResumePolicy.canResume(
+            intent, accountScopeID: "opaque-account-a", now: now,
+            isAuthenticated: true, isUnlocked: true
+        ))
+        XCTAssertFalse(MobileSecondFactorResumePolicy.canResume(
+            intent, accountScopeID: "opaque-account-b", now: now,
+            isAuthenticated: true, isUnlocked: true
+        ))
+        XCTAssertFalse(MobileSecondFactorResumePolicy.canResume(
+            intent, accountScopeID: "opaque-account-a", now: now,
+            isAuthenticated: true, isUnlocked: false
+        ))
+        XCTAssertFalse(MobileSecondFactorResumePolicy.canResume(
+            intent, accountScopeID: "opaque-account-a", now: now,
+            isAuthenticated: false, isUnlocked: true
+        ))
+        XCTAssertFalse(MobileSecondFactorResumePolicy.canResume(
+            intent, accountScopeID: "opaque-account-a",
+            now: start.addingTimeInterval(MobileSecondFactorResumePolicy.maximumAge + 1),
+            isAuthenticated: true, isUnlocked: true
+        ))
+        XCTAssertFalse(MobileSecondFactorResumePolicy.canResume(
+            intent, accountScopeID: "opaque-account-a", now: start.addingTimeInterval(-1),
+            isAuthenticated: true, isUnlocked: true
+        ))
+    }
+
+    func testMobileSecondFactorFocusRequiresCurrentRouteAndConnectedMatchingTerminal() throws {
+        let workspaceID = UUID()
+        let lease = VerifiedWorkspaceSession(
+            workspaceID: workspaceID,
+            baseSessionID: try BaseSessionID(1),
+            terminalChannelID: try TerminalChannelID("2")
+        )
+
+        XCTAssertTrue(MobileSecondFactorSessionFocusPolicy.shouldFocus(
+            after: .connected(lease), expectedWorkspaceID: workspaceID,
+            routeWasCurrent: true, terminalIsConnected: true
+        ))
+        XCTAssertFalse(MobileSecondFactorSessionFocusPolicy.shouldFocus(
+            after: .connected(lease), expectedWorkspaceID: UUID(),
+            routeWasCurrent: true, terminalIsConnected: true
+        ))
+        XCTAssertFalse(MobileSecondFactorSessionFocusPolicy.shouldFocus(
+            after: .connected(lease), expectedWorkspaceID: workspaceID,
+            routeWasCurrent: false, terminalIsConnected: true
+        ))
+        XCTAssertFalse(MobileSecondFactorSessionFocusPolicy.shouldFocus(
+            after: .connected(lease), expectedWorkspaceID: workspaceID,
+            routeWasCurrent: true, terminalIsConnected: false
+        ))
+        let nonConnectedOutcomes: [CheckedTerminalConnectionOutcome] = [
+            .awaitingSecondFactor, .terminalOpenFailed(lease, .protocolViolation),
+            .failed(.protocolViolation), .cancelled
+        ]
+        for outcome in nonConnectedOutcomes {
+            XCTAssertFalse(MobileSecondFactorSessionFocusPolicy.shouldFocus(
+                after: outcome, expectedWorkspaceID: workspaceID,
+                routeWasCurrent: true, terminalIsConnected: true
+            ))
+        }
     }
 
     func testSessionReconnectRequiresUsableRouteAndExplicitIdleState() {
@@ -171,6 +253,15 @@ final class ApplicationOperationLifecyclePolicyTests: XCTestCase {
             SessionReconnectPolicy.accessibilityLabel(isNetworkUsable: false, reconnecting: false),
             "等待网络恢复后重新连接"
         )
+    }
+
+    func testUserInitiatedConnectionIsNotDroppedBeforeFirstPathCallback() {
+        XCTAssertTrue(NetworkRouteState.determining.allowsUserInitiatedConnection)
+        XCTAssertTrue(NetworkRouteState.usable.allowsUserInitiatedConnection)
+        XCTAssertFalse(NetworkRouteState.unavailable.allowsUserInitiatedConnection)
+
+        XCTAssertFalse(NetworkRouteState.determining.isUsable)
+        XCTAssertTrue(NetworkRouteState.usable.isUsable)
     }
 
     func testLiveSessionRecoveryMarkerPersistsOnlyAConsumableBoolean() throws {

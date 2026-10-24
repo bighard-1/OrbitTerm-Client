@@ -33,6 +33,14 @@ const CHECKED_DISCONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_USERNAME_BYTES: usize = 256;
 const MAX_REQUEST_ID_BYTES: usize = 256;
 
+fn validate_one_time_code(code: &str) -> Result<(), CheckedTestInputError> {
+    if code.is_empty() || code.len() > 128 || code.chars().any(char::is_control) {
+        Err(CheckedTestInputError::InvalidSecondFactor)
+    } else {
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub(crate) enum CheckedTestInputError {
     #[error("checked SSH test host is invalid")]
@@ -45,6 +53,8 @@ pub(crate) enum CheckedTestInputError {
     MissingCredentials,
     #[error("checked SSH test known_hosts path is invalid")]
     InvalidKnownHostsPath,
+    #[error("checked SSH one-time code is invalid")]
+    InvalidSecondFactor,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +67,10 @@ pub(crate) enum CheckedTestTimeoutStage {
 pub(crate) enum CheckedAuthenticationError {
     #[error("SSH authentication was not successful")]
     Failed,
+    #[error("SSH requires a one-time verification code")]
+    SecondFactorRequired,
+    #[error("SSH ProxyJump host requires a one-time verification code")]
+    JumpSecondFactorRequired,
 }
 
 #[derive(Debug, Error)]
@@ -121,6 +135,7 @@ pub(crate) struct CheckedTestConnectionRequest {
     private_key: String,
     private_key_passphrase: String,
     allow_password_fallback: bool,
+    one_time_code: Option<String>,
     known_hosts_path: PathBuf,
     request_id: String,
     jump_host: Option<CheckedJumpHostRequest>,
@@ -137,6 +152,7 @@ pub(crate) struct CheckedJumpHostRequest {
     private_key: String,
     private_key_passphrase: String,
     allow_password_fallback: bool,
+    one_time_code: Option<String>,
 }
 
 impl fmt::Debug for CheckedJumpHostRequest {
@@ -186,6 +202,7 @@ impl CheckedJumpHostRequest {
             private_key,
             private_key_passphrase,
             allow_password_fallback,
+            one_time_code: None,
         })
     }
 
@@ -194,7 +211,7 @@ impl CheckedJumpHostRequest {
         known_hosts_path: PathBuf,
         request_id: String,
     ) -> Result<CheckedTestConnectionRequest, CheckedTestInputError> {
-        CheckedTestConnectionRequest::new(
+        let mut request = CheckedTestConnectionRequest::new(
             self.host_identity.normalized_host.clone(),
             self.host_identity.port,
             self.username.clone(),
@@ -204,7 +221,18 @@ impl CheckedJumpHostRequest {
             self.allow_password_fallback,
             known_hosts_path,
             request_id,
-        )
+        )?;
+        request.one_time_code = self.one_time_code.clone();
+        Ok(request)
+    }
+
+    pub(crate) fn with_one_time_code(
+        mut self,
+        code: String,
+    ) -> Result<Self, CheckedTestInputError> {
+        validate_one_time_code(&code)?;
+        self.one_time_code = Some(code);
+        Ok(self)
     }
 
     pub(crate) fn route_identity(&self) -> String {
@@ -224,6 +252,7 @@ impl fmt::Debug for CheckedTestConnectionRequest {
             .field("password", &"[REDACTED]")
             .field("private_key", &"[REDACTED]")
             .field("private_key_passphrase", &"[REDACTED]")
+            .field("one_time_code", &"[REDACTED]")
             .field("allow_password_fallback", &self.allow_password_fallback)
             .field("known_hosts_path", &"[REDACTED]")
             .field("request_id", &self.request_id)
@@ -274,6 +303,7 @@ impl CheckedTestConnectionRequest {
             private_key,
             private_key_passphrase,
             allow_password_fallback,
+            one_time_code: None,
             known_hosts_path,
             request_id,
             jump_host: None,
@@ -291,6 +321,27 @@ impl CheckedTestConnectionRequest {
     pub(crate) fn with_jump_host(mut self, jump_host: CheckedJumpHostRequest) -> Self {
         self.jump_host = Some(jump_host);
         self
+    }
+
+    pub(crate) fn with_one_time_code(
+        mut self,
+        code: String,
+    ) -> Result<Self, CheckedTestInputError> {
+        validate_one_time_code(&code)?;
+        self.one_time_code = Some(code);
+        Ok(self)
+    }
+
+    pub(crate) fn with_jump_one_time_code(
+        mut self,
+        code: String,
+    ) -> Result<Self, CheckedTestInputError> {
+        let jump = self
+            .jump_host
+            .take()
+            .ok_or(CheckedTestInputError::InvalidSecondFactor)?;
+        self.jump_host = Some(jump.with_one_time_code(code)?);
+        Ok(self)
     }
 
     pub(crate) fn jump_host(&self) -> Option<&CheckedJumpHostRequest> {
@@ -594,9 +645,15 @@ pub(crate) async fn authenticate_checked_session(
         &request.private_key,
         &request.private_key_passphrase,
         request.allow_password_fallback,
+        request.one_time_code.as_deref(),
     )
     .await
-    .map_err(|_| CheckedAuthenticationError::Failed)
+    .map_err(|error| match error {
+        crate::OrbitCoreError::SshSecondFactorRequired => {
+            CheckedAuthenticationError::SecondFactorRequired
+        }
+        _ => CheckedAuthenticationError::Failed,
+    })
 }
 
 fn preparation_outcome_from_connect_error(

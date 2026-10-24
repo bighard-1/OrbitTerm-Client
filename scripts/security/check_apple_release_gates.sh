@@ -12,8 +12,10 @@ require_command cargo
 require_command rustup
 require_command xcodebuild
 require_command xcodegen
+require_command xcrun
 require_command nm
 require_command strings
+require_command python3
 
 export CARGO_NET_OFFLINE=true
 project="$ORBIT_ROOT/OrbitTerm.xcodeproj"
@@ -138,13 +140,31 @@ simulator_id="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ { 
 [[ -n "$simulator_id" ]] || fail "no available iPhone simulator for UI lifecycle tests"
 xcrun simctl boot "$simulator_id" 2>/dev/null || true
 xcrun simctl bootstatus "$simulator_id" -b
-# Xcode 26.6 can compile an unsigned UI-test bundle but cannot reliably launch
-# its test host (the runner reports missing debugger metadata and app roots are
-# never exposed). Simulator signing is ephemeral and uses no distribution
-# identity, so keep the source-build lanes unsigned while allowing Xcode's
-# default ad-hoc signing for this executable UI lifecycle contract.
+# This lifecycle suite uses one simulator at a time. Xcode 26.6 may print a
+# DebuggerVersionStore warning even when the UI runner actually executes; the
+# result bundle, not that diagnostic text or xcodebuild's exit code alone, is
+# the evidence for this gate. Simulator signing is ephemeral and uses no
+# distribution identity, so source-build lanes remain unsigned.
+ios_ui_result="$derived_data/ios-ui-tests.xcresult"
 xcodebuild test -quiet -project "$project" -scheme OrbitTermiOSUITests \
-  -destination "platform=iOS Simulator,id=$simulator_id" -derivedDataPath "$derived_data"
+  -destination "platform=iOS Simulator,id=$simulator_id" -derivedDataPath "$derived_data" \
+  -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
+  -resultBundlePath "$ios_ui_result"
+ios_ui_count="$(xcrun xcresulttool get test-results summary --path "$ios_ui_result" | python3 -c '
+import json
+import sys
+
+summary = json.load(sys.stdin)
+total = summary.get("totalTestCount", 0)
+passed = summary.get("passedTests", 0)
+failed = summary.get("failedTests", 0)
+skipped = summary.get("skippedTests", 0)
+if summary.get("result") != "Passed" or total < 12 or passed != total or failed != 0 or skipped != 0:
+    print(f"iOS UI result incomplete: total={total}, passed={passed}, failed={failed}, skipped={skipped}", file=sys.stderr)
+    sys.exit(1)
+print(f"{passed}/{total}")
+')" || fail "iOS Simulator UI lifecycle result bundle is incomplete"
+pass "iOS Simulator UI lifecycle executed: $ios_ui_count, no failures or skips"
 
 section "macOS UI target compile contract"
 # A macOS XCUITest runner needs a locally provisioned signing identity in order
@@ -181,7 +201,7 @@ section "Release fixture exclusion"
 release_binary="$derived_data/Build/Products/Release/OrbitTerm.app/Contents/MacOS/OrbitTerm"
 [[ -x "$release_binary" ]] || fail "macOS Release executable not found for fixture exclusion audit"
 if strings "$release_binary" | rg -i \
-  '当前为模拟模式|模拟目录|进入模拟浏览|Mock 文件列表|ui-test@example[.]invalid|orbitTermUITestState|ORBITTERM_UI_TEST_STATE|fault-probe|FaultInjectionProbeBody|ScriptedURLProtocol|隐藏菜单：仅用于调试|后端地址设置'; then
+  '当前为模拟模式|模拟目录|进入模拟浏览|Mock 文件列表|ui-test@example[.]invalid|orbitTermUITestState|ORBITTERM_UI_TEST_STATE|ORBITTERM_MAC_QA_OFFLINE|fault-probe|FaultInjectionProbeBody|ScriptedURLProtocol|隐藏菜单：仅用于调试|后端地址设置'; then
   fail "Release executable contains a mock-directory or UI-test fixture marker"
 fi
 pass "Release executable excludes mock directories and UI-test fixtures"
@@ -203,7 +223,7 @@ if rg -q '^_orbit_(ssh_connect|test_ssh_connection|sftp_connect|request_channel|
   fail "Release Swift objects reference a dangerous legacy ABI"
 fi
 for symbol in \
-  orbit_ssh_connect_checked_v2 \
+  orbit_ssh_connect_checked_v3 \
   orbit_terminal_open_checked_v1 \
   orbit_sftp_open_checked_v1 \
   orbit_monitor_snapshot_checked_v1 \
@@ -218,7 +238,7 @@ pass "Release objects reference checked ABIs and no dangerous legacy ABI"
 
 section "XcodeGen canonical spec"
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/orbitterm-xcodegen-gate.XXXXXX")"
-trap 'rm -rf "$tmp_dir"' EXIT
+trap 'rm -rf "$tmp_dir" "$derived_data"' EXIT
 xcodegen generate --quiet --spec "$ORBIT_ROOT/project.yml" --project "$tmp_dir" --project-root "$ORBIT_ROOT"
 generated_project="$tmp_dir/OrbitTerm.xcodeproj"
 [[ -f "$generated_project/project.pbxproj" ]] || fail "XcodeGen did not produce a project"
