@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.UI.Xaml;
 using WinRT.Interop;
 
@@ -40,8 +41,11 @@ internal static class NativeWindowCornerService
     private const int HtBottomLeft = 16;
     private const int HtBottomRight = 17;
     private const int HtBorder = 18;
+    private const int HtTransparent = -1;
     private static readonly UIntPtr ResizeSubclassId = new(0x4F544652);
+    private static readonly UIntPtr ResizeChildSubclassId = new(0x4F544643);
     private static readonly WindowSubclassProc ResizeSubclassProc = Windows10ResizeSubclass;
+    private static readonly WindowSubclassProc ResizeChildSubclassProc = Windows10ChildResizeSubclass;
 
     public static void Apply(Window window)
     {
@@ -49,14 +53,18 @@ internal static class NativeWindowCornerService
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
         {
             // Keep the real sizing style, but let the WinUI surface cover its
-            // visible frame. The subclass supplies edge/corner hit tests.
+            // visible frame. WinUI's child HWND receives real mouse hit tests
+            // before the top-level window, so both levels need a subclass.
             _ = SetWindowSubclass(windowHandle, ResizeSubclassProc, ResizeSubclassId, nint.Zero);
+            AttachWindows10ResizeChildren(windowHandle);
             ApplyWindows10Region(windowHandle);
+            window.Activated += (_, _) => AttachWindows10ResizeChildren(windowHandle);
             window.AppWindow.Changed += (_, args) =>
             {
                 if (args.DidSizeChange || args.DidPresenterChange)
                 {
                     ApplyWindows10Region(windowHandle);
+                    AttachWindows10ResizeChildren(windowHandle);
                 }
             };
             return;
@@ -119,6 +127,56 @@ internal static class NativeWindowCornerService
             0,
             SwpNoSize | SwpNoMove | SwpNoZOrder | SwpNoActivate | SwpFrameChanged);
         ApplyWindows10Region(windowHandle);
+        AttachWindows10ResizeChildren(windowHandle);
+    }
+
+    private static void AttachWindows10ResizeChildren(nint parentHandle)
+    {
+        var parentThread = GetWindowThreadProcessId(parentHandle, out _);
+        _ = EnumChildWindows(parentHandle, (childHandle, referenceData) =>
+        {
+            // comctl32 subclassing must occur on the child's owning thread.
+            if (GetWindowThreadProcessId(childHandle, out _) != parentThread)
+            {
+                return true;
+            }
+
+            var className = new StringBuilder(96);
+            _ = GetClassName(childHandle, className, className.Capacity);
+            if (className.ToString() is "Microsoft.UI.Content.DesktopChildSiteBridge" or
+                "InputNonClientPointerSource")
+            {
+                _ = SetWindowSubclass(
+                    childHandle,
+                    ResizeChildSubclassProc,
+                    ResizeChildSubclassId,
+                    parentHandle);
+            }
+            return true;
+        }, nint.Zero);
+    }
+
+    private static nint Windows10ChildResizeSubclass(
+        nint childHandle,
+        uint message,
+        nint wParam,
+        nint lParam,
+        UIntPtr subclassId,
+        nint parentHandle)
+    {
+        if (message == WmNcDestroy)
+        {
+            _ = RemoveWindowSubclass(childHandle, ResizeChildSubclassProc, ResizeChildSubclassId);
+        }
+        else if (message == WmNcHitTest &&
+                 !IsZoomed(parentHandle) &&
+                 GetResizeHit(parentHandle, lParam) != 0)
+        {
+            // HTTRANSPARENT passes the pointer to the parent HWND in this
+            // same UI thread, where its native sizing frame handles the drag.
+            return new nint(HtTransparent);
+        }
+        return DefSubclassProc(childHandle, message, wParam, lParam);
     }
 
     private static nint Windows10ResizeSubclass(
@@ -191,11 +249,21 @@ internal static class NativeWindowCornerService
         // With client paint covering the sizing frame Windows 10 may report
         // HTNOWHERE/HTCLIENT/HTCAPTION at edges. Only those cases are ours;
         // native caption buttons keep their original hit-test result.
-        if ((fallbackHit != HtNowhere && fallbackHit != HtClient && fallbackHit != HtCaption &&
-             fallbackHit != HtBorder) ||
-            !GetVisibleWindowBounds(windowHandle, out var bounds))
+        if (fallbackHit != HtNowhere && fallbackHit != HtClient && fallbackHit != HtCaption &&
+            fallbackHit != HtBorder)
         {
             return fallback;
+        }
+
+        var resizeHit = GetResizeHit(windowHandle, lParam);
+        return resizeHit == 0 ? fallback : new nint(resizeHit);
+    }
+
+    private static int GetResizeHit(nint windowHandle, nint lParam)
+    {
+        if (!GetVisibleWindowBounds(windowHandle, out var bounds))
+        {
+            return 0;
         }
 
         var packed = lParam.ToInt64();
@@ -213,19 +281,19 @@ internal static class NativeWindowCornerService
         var inTopCorner = pointerY < bounds.Top + corner;
         var inBottomCorner = pointerY > bounds.Bottom - corner;
 
-        if (nearTop && inLeftCorner) return new nint(HtTopLeft);
-        if (nearTop && inRightCorner) return new nint(HtTopRight);
-        if (nearBottom && inLeftCorner) return new nint(HtBottomLeft);
-        if (nearBottom && inRightCorner) return new nint(HtBottomRight);
-        if (nearLeft && inTopCorner) return new nint(HtTopLeft);
-        if (nearLeft && inBottomCorner) return new nint(HtBottomLeft);
-        if (nearRight && inTopCorner) return new nint(HtTopRight);
-        if (nearRight && inBottomCorner) return new nint(HtBottomRight);
-        if (nearLeft) return new nint(HtLeft);
-        if (nearRight) return new nint(HtRight);
-        if (nearTop) return new nint(HtTop);
-        if (nearBottom) return new nint(HtBottom);
-        return fallback;
+        if (nearTop && inLeftCorner) return HtTopLeft;
+        if (nearTop && inRightCorner) return HtTopRight;
+        if (nearBottom && inLeftCorner) return HtBottomLeft;
+        if (nearBottom && inRightCorner) return HtBottomRight;
+        if (nearLeft && inTopCorner) return HtTopLeft;
+        if (nearLeft && inBottomCorner) return HtBottomLeft;
+        if (nearRight && inTopCorner) return HtTopRight;
+        if (nearRight && inBottomCorner) return HtBottomRight;
+        if (nearLeft) return HtLeft;
+        if (nearRight) return HtRight;
+        if (nearTop) return HtTop;
+        if (nearBottom) return HtBottom;
+        return 0;
     }
 
     private static void ApplyWindows10Region(nint windowHandle)
@@ -283,6 +351,21 @@ internal static class NativeWindowCornerService
 
     [DllImport("user32.dll", EntryPoint = "DefWindowProcW")]
     private static extern nint DefWindowProc(nint windowHandle, uint message, nint wParam, nint lParam);
+
+    private delegate bool EnumChildWindowProc(nint childHandle, nint referenceData);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EnumChildWindows(
+        nint parentHandle,
+        EnumChildWindowProc callback,
+        nint referenceData);
+
+    [DllImport("user32.dll", EntryPoint = "GetClassNameW", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(nint windowHandle, StringBuilder className, int maximumCount);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(nint windowHandle, out uint processId);
 
     [DllImport("gdi32.dll")]
     private static extern nint CreateRoundRectRgn(int left, int top, int right, int bottom, int width, int height);
