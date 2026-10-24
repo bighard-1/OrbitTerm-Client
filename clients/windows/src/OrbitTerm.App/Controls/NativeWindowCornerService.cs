@@ -41,7 +41,6 @@ internal static class NativeWindowCornerService
     private const int HtBottomLeft = 16;
     private const int HtBottomRight = 17;
     private const int HtBorder = 18;
-    private const int HtTransparent = -1;
     private static readonly UIntPtr ResizeSubclassId = new(0x4F544652);
     private static readonly UIntPtr ResizeChildSubclassId = new(0x4F544643);
     private static readonly WindowSubclassProc ResizeSubclassProc = Windows10ResizeSubclass;
@@ -168,13 +167,27 @@ internal static class NativeWindowCornerService
         {
             _ = RemoveWindowSubclass(childHandle, ResizeChildSubclassProc, ResizeChildSubclassId);
         }
-        else if (message == WmNcHitTest &&
-                 !IsZoomed(parentHandle) &&
-                 GetResizeHit(parentHandle, lParam) != 0)
+        else if (!IsZoomed(parentHandle) && message == WmNcHitTest)
         {
-            // HTTRANSPARENT passes the pointer to the parent HWND in this
-            // same UI thread, where its native sizing frame handles the drag.
-            return new nint(HtTransparent);
+            var hit = GetResizeHit(parentHandle, lParam);
+            if (hit != 0)
+            {
+                // The child owns the painted edge. HTTRANSPARENT only walks
+                // overlapping same-thread siblings here; it does not make
+                // the parent own the subsequent mouse down on Windows 10.
+                return new nint(hit);
+            }
+        }
+        else if (!IsZoomed(parentHandle) && message == WmNcLeftButtonDown)
+        {
+            var hit = GetResizeHit(parentHandle, lParam);
+            if (hit != 0)
+            {
+                // Route the original non-client press, including its screen
+                // coordinates, into the top-level native sizing loop. Both
+                // HWNDs are on this UI thread (checked at installation).
+                return DefWindowProc(parentHandle, message, new nint(hit), lParam);
+            }
         }
         return DefSubclassProc(childHandle, message, wParam, lParam);
     }
