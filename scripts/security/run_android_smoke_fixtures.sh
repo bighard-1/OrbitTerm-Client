@@ -58,9 +58,12 @@ PY
 }
 
 install_smoke_fixture() {
-  local attempt output
+  local attempt output max_attempts=3
+  if [[ "${ORBITTERM_ANDROID_TEST_PROFILE:-}" == "aosp-atd-api35" ]]; then
+    max_attempts=5
+  fi
   section "Install Android isolated smoke fixture"
-  for attempt in 1 2 3; do
+  for attempt in $(seq 1 "$max_attempts"); do
     if output="$(bounded_adb 90 install -r "$apk" 2>&1)"; then
       return 0
     fi
@@ -68,8 +71,8 @@ install_smoke_fixture() {
       *"Can't find service: package"*|*"Cannot access system provider: 'settings' before system providers are installed!"*)
         # ADB and PackageManager can answer before Android has installed its
         # system providers. An APK install still fails at that stage.
-        if (( attempt < 3 )); then
-          warn "Android install services are not ready; waiting for recovery ($attempt/3)"
+        if (( attempt < max_attempts )); then
+          warn "Android install services are not ready; waiting for recovery ($attempt/$max_attempts)"
           local ready=false probe
           for probe in $(seq 1 45); do
             if bounded_adb 20 shell cmd package list packages >/dev/null 2>&1 && \
@@ -84,9 +87,22 @@ install_smoke_fixture() {
         fi
         ;;
       *"Broken pipe"*|*"device offline"*|*"Connection reset"*|*"ADB command timed out"*)
-        if (( attempt < 3 )); then
-          warn "transient ADB transport failure during isolated fixture install; retrying ($attempt/3)"
+        if (( attempt < max_attempts )); then
+          warn "transient ADB transport failure during isolated fixture install; retrying ($attempt/$max_attempts)"
           sleep 3
+          continue
+        fi
+        ;;
+      *"PackageManagerInternal.freeStorage"*"on a null object reference"*)
+        # The hosted software-only ATD can report boot_completed and answer
+        # package queries before StorageManager's PackageManagerInternal is
+        # initialized. This is a system-server install failure, not an APK
+        # assertion. Retry only this exact startup signature; preserve the
+        # final raw failure if the service does not recover.
+        if [[ "${ORBITTERM_ANDROID_TEST_PROFILE:-}" == "aosp-atd-api35" ]] &&
+           (( attempt < max_attempts )); then
+          warn "Android ATD storage/package services are still initializing; retrying fixture install ($attempt/$max_attempts)"
+          sleep 10
           continue
         fi
         ;;

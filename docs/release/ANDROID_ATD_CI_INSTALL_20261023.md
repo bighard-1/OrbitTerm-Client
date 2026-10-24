@@ -1,0 +1,7 @@
+# Android ATD 仪器测试安装服务启动竞态（2026-10-23）
+
+`ab00edb` 的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40049205735) 中，`Android instrumentation and migration gates` 作业在 Android 15 软件渲染模拟器启动后、任何应用断言执行前失败。预构建的隔离 smoke APK 已成功生成；`sys.boot_completed=1`，但第一次 `adb install` 遇到瞬态传输失败，第二次提示系统服务未就绪，第三次在 Android 系统 `StorageManagerService.allocateBytes` 调用 `PackageManagerInternal.freeStorage` 时产生空引用。门禁明确记录 `isolated smoke fixture APK installation failed`，没有 Android connected test 结果，也没有报告 artifact。**此作业失败，不可写成客户端功能通过或仪器测试通过。**
+
+源码候选仅修改 `scripts/security/run_android_smoke_fixtures.sh` 的隔离 APK 安装重试：原有传输/服务未就绪重试保留，针对 `aosp-atd-api35` 环境和上述精确系统服务启动签名，最多允许五次、有界间隔地重试；其他安装错误仍立即失败，最终同一错误仍原样输出并使门禁失败。未更改应用代码、测试断言或生产端安装路径。`bash -n` 用于本地语法核对；是否解决这次 CI 竞态，必须由新提交的完整 Android 仪器门禁及报告证明，不能由脚本语法或 Windows/Linux 构建替代。
+
+Windows 10 独立 QA 更新与鼠标缩放验收另见 [Windows 专项日志](WINDOWS_SESSION_AND_FRAME_20261022.md)。五端完整验收仍未完成；Android/K60 真机、Windows QA、Apple/Linux GUI 与跨端墓碑对照继续作为开放项。
