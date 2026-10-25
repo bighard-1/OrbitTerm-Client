@@ -282,3 +282,11 @@ QA 仍显示下载 **2%** 时，仅按精确 PID 停止夹具并核对端口关�
 最终哈希包初次尝试 `slow-test-zip-final-empty-031.zip` 时复用了已失效会话，夹具尚在监听却立即报 `unknown` 并清理空目标；**这不是受控断线证据，也不覆盖下述重测**。重新建立会话后，新建 `slow-test-zip-final-empty-032.zip`，确认打包 0%、目标 0 字节，再精确停止夹具；失败报 `sftp_operation_failed` 与“已清理系统新建的空目标文件”，目标路径不存在。再次重启夹具并新建 `slow-test-zip-final-nonempty-033.zip`，确认打包 1% 时只向该目标注入 256 KiB 虚构内容，断线前后 SHA-256 均为 `8a39d2ab…89b4a90`、大小均为 262,144 字节；失败报 `sftp_operation_failed`，提示检查目标且重新选择保存位置，没有“已清理”或同目标重试。这仍是人为故障注入，不能证明自然部分 ZIP 或第三方 SAF 竞态。夹具每轮最终精确停止，端口关闭；保留专用非空虚构文件供复核，不清理其它历史测试文件。
 
 未覆盖：第三方 SAF 提供方拒删/元数据未知的**真机**行为、写入 ZIP 目标期间的提供方 I/O 故障、其余四端同类对照和五端完整验收。不得把 fake gateway 单测或人工注入结果抬升为这些范围的通过。
+
+## K60 测试专用 DocumentsProvider 的清理边界（2026-10-25）
+
+为补上只用 fake gateway 的证据缺口，扩展仓库既有的**测试 APK 专用** `SftpCleanupTestDocumentsProvider`：它只暴露内存中的虚构文档，不读取或保存手机文件；可返回空/非空/未知大小、缺失删除能力、拒绝元数据查询或拒绝删除。新增仪器断言要求大小未知、删除能力未知、查询被拒绝时均保留文档且不发起删除。原有非空、无删除标志、拒删、合格空文档删除、拒绝输出流的断言保留。生产代码和独立 QA 包均未因这项测试修改。
+
+在真实 K60（Android 15）运行 `:feature:connectedDebugAndroidTest`，仅选择 `SftpCancelledDocumentProviderTest`：JUnit XML 报告 **8 tests、0 failures、0 errors、0 skipped**，包含以上新增三项。测试通过 Android `ContentResolver`/`DocumentsContract` 访问真实安装的测试提供方，不是纯 JVM fake；构建工具随后自动卸载了测试 APK，设备仅保留原独立 QA 包。手机原受保护 QA 未替换、未打开任何真实资产，插电保持亮屏的临时设置会在本轮结束恢复。
+
+证据边界：这属于**真实设备上的仪器测试**，不是第三方云盘/文件管理器经系统选择器的隔离 GUI 或端到端真机验收。测试提供方的拒删/未知元数据行为受我们控制，尚未覆盖实际第三方 SAF 厂商的权限弹窗、进程重启或写入 ZIP 目标期间 I/O 故障。Windows 普通文件目标、iOS/macOS/Linux 各自文件提供方/目标处理仍应按其平台能力对照；五端完整验收未完成。

@@ -15,8 +15,9 @@ class SftpCleanupTestDocumentsProvider : DocumentsProvider() {
         private const val DOCUMENT_ID = "isolated-cancel-target"
 
         @Volatile var exists = true
-        @Volatile var sizeBytes = 0L
-        @Volatile var flags = DocumentsContract.Document.FLAG_SUPPORTS_DELETE
+        @Volatile var sizeBytes: Long? = 0L
+        @Volatile var flags: Int? = DocumentsContract.Document.FLAG_SUPPORTS_DELETE
+        @Volatile var refuseMetadata = false
         @Volatile var refuseDeletion = false
         @Volatile var deleteCalls = 0
 
@@ -26,6 +27,7 @@ class SftpCleanupTestDocumentsProvider : DocumentsProvider() {
             exists = true
             sizeBytes = 0L
             flags = DocumentsContract.Document.FLAG_SUPPORTS_DELETE
+            refuseMetadata = false
             refuseDeletion = false
             deleteCalls = 0
         }
@@ -58,6 +60,7 @@ class SftpCleanupTestDocumentsProvider : DocumentsProvider() {
 
     override fun queryDocument(documentId: String, projection: Array<out String>?): Cursor {
         if (documentId != DOCUMENT_ID || !exists) throw FileNotFoundException(documentId)
+        if (refuseMetadata) throw SecurityException("Test provider refused metadata")
         val columns = projection ?: arrayOf(
             DocumentsContract.Document.COLUMN_DOCUMENT_ID,
             DocumentsContract.Document.COLUMN_DISPLAY_NAME,

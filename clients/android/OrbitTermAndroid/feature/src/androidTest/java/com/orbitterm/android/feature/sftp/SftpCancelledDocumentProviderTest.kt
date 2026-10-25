@@ -37,6 +37,27 @@ class SftpCancelledDocumentProviderTest {
         assertEquals(0, provider.deleteCalls)
     }
 
+    @Test fun documentWithUnknownSizeIsPreserved() {
+        provider.sizeBytes = null
+        assertFalse(removeEmptyCreatedDownloadDocument(context, destination))
+        assertTrue(provider.exists)
+        assertEquals(0, provider.deleteCalls)
+    }
+
+    @Test fun documentWithUnknownDeleteCapabilityIsPreserved() {
+        provider.flags = null
+        assertFalse(removeEmptyCreatedDownloadDocument(context, destination))
+        assertTrue(provider.exists)
+        assertEquals(0, provider.deleteCalls)
+    }
+
+    @Test fun providerMetadataRefusalPreservesDocument() {
+        provider.refuseMetadata = true
+        assertFalse(removeEmptyCreatedDownloadDocument(context, destination))
+        assertTrue(provider.exists)
+        assertEquals(0, provider.deleteCalls)
+    }
+
     @Test fun providerRefusalPreservesDocumentAndReturnsFailure() {
         provider.refuseDeletion = true
         assertFalse(removeEmptyCreatedDownloadDocument(context, destination))
