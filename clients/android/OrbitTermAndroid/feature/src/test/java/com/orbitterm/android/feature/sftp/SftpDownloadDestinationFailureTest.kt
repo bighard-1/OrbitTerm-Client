@@ -67,18 +67,21 @@ class SftpDownloadDestinationFailureTest {
         }
     }
 
-    @Test fun partialDestinationMustNotBeRetriedAgainstSameUri() {
-        assertFalse(canRetrySftpTransferWithSelectedTarget("下载", "destination_unwritable"))
-        assertTrue(canRetrySftpTransferWithSelectedTarget("下载", "sftp_download_failed"))
-        assertTrue(canRetrySftpTransferWithSelectedTarget("上传", "destination_unwritable"))
+    @Test fun failedDownloadMustAlwaysReselectDestination() {
+        assertFalse(canRetrySftpTransferWithSelectedTarget("下载"))
+        assertTrue(canRetrySftpTransferWithSelectedTarget("上传"))
         assertEquals(
             " 已选目标可能包含不完整内容，请检查并重新选择保存位置。",
             downloadTargetFailureGuidance("destination_unwritable"),
         )
+        assertEquals(
+            " 已选目标可能保留内容，请在保存位置检查；重新下载时请重新选择保存位置。",
+            downloadTargetFailureGuidance("sftp_operation_failed"),
+        )
     }
 
     @Test fun removedEmptyPickerTargetMustBeReselectedAfterNativeFailure() {
-        assertFalse(canRetrySftpTransferWithSelectedTarget("下载", "sftp_operation_failed", emptyDestinationRemoved = true))
+        assertFalse(canRetrySftpTransferWithSelectedTarget("下载"))
         assertEquals(
             " 已清理系统新建的空目标文件；重新建立会话后请选择保存位置重试。",
             downloadTargetFailureGuidance("sftp_operation_failed", emptyDestinationRemoved = true),

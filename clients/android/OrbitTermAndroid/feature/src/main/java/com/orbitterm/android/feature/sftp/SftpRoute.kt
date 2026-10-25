@@ -496,9 +496,6 @@ class SftpViewModel @Inject constructor(
             detail = "正在写入所选位置…",
             onCancelledMessage = { cancelledSftpTransferMessage("下载", emptyDestinationRemoved) },
             onFailureGuidance = { code -> downloadTargetFailureGuidance(code, emptyDestinationRemoved) },
-            canRetrySelectedTarget = { code ->
-                canRetrySftpTransferWithSelectedTarget("下载", code, emptyDestinationRemoved)
-            },
         ) { requestId, markNativeTransferStarted ->
             val staging = File(context.cacheDir, "sftp-download-${UUID.randomUUID()}")
             try {
@@ -705,7 +702,7 @@ class SftpViewModel @Inject constructor(
                         return@launch
                     }
                     val retrySelectedTarget = pending.canRetrySelectedTarget?.invoke(result.code)
-                        ?: canRetrySftpTransferWithSelectedTarget(pending.label, result.code)
+                        ?: canRetrySftpTransferWithSelectedTarget(pending.label)
                     retryLastTransfer = if (retrySelectedTarget) {
                         {
                             mutateTransfer(
@@ -1796,16 +1793,14 @@ internal fun cancelledSftpTransferMessage(label: String, emptyDestinationRemoved
         "${label}已取消"
     }
 
-internal fun canRetrySftpTransferWithSelectedTarget(
-    label: String,
-    code: String,
-    emptyDestinationRemoved: Boolean = false,
-): Boolean = label != "下载" || (!emptyDestinationRemoved && code != "destination_unwritable")
+// A SAF provider may retain or externally modify the selected document after any failed
+// download. Never silently reuse its URI: let the system picker make the next choice explicit.
+internal fun canRetrySftpTransferWithSelectedTarget(label: String): Boolean = label != "下载"
 
 internal fun downloadTargetFailureGuidance(code: String, emptyDestinationRemoved: Boolean = false): String = when {
     emptyDestinationRemoved -> " 已清理系统新建的空目标文件；重新建立会话后请选择保存位置重试。"
     code == "destination_unwritable" -> " 已选目标可能包含不完整内容，请检查并重新选择保存位置。"
-    else -> " 系统创建的目标文件可能为空，请在保存位置检查。"
+    else -> " 已选目标可能保留内容，请在保存位置检查；重新下载时请重新选择保存位置。"
 }
 
 internal fun shouldRemoveEmptyCancelledDownloadTarget(
