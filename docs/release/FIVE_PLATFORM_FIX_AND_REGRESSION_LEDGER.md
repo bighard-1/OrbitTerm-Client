@@ -1,6 +1,6 @@
 # 五端整改与真机回归台账
 
-更新：2026-10-21。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
+更新：2026-10-24。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
 
 ## 记账规则
 
@@ -421,6 +421,10 @@
 | SSH-MFA-DEVICE-01 | 旧客户端对真实 SSH 资产的密码/密钥后验证码无提示；源码、自动化和回环 Linux GUI 已补。**首次真实主机在密码阶段失败**保留。用户恢复登录后，为单一测试账户受控配置 TOTP；Mac 系统 SSH 实测密码后独立验证码成功，密码单独登录被拒；`4cce231` Linux 隔离 GUI 对真实 Debian 主机实测密码＋码后在线、终端/SFTP 可用，重连再次索码、取消失败关闭。 | **未关闭**：密钥＋码、双跳、真实主机错码/超时/Host Key 变化、完整敏感数据审计、macOS/iOS/Android/Windows 客户端 GUI/真机及 Windows 原生编译仍待验。跨实例同步资产回拉为 0 的新疑点另需定位；不得用本机资产连接成功代替云同步或五端验收。 |
 
 ## 后续追加记录
+
+- 2026-10-24｜`FIX-ANDROID-SFTP-EMPTY-160`｜K60 硬断线后系统预创建的空下载目标残留，源码收窄修复；详见 [SFTP 专项日志](SFTP_DOWNLOAD_TARGET_OWNERSHIP_20261021.md#k60-下载取消与硬断线实测空目标修订2026-10-24)。｜**源码/候选**：基于 `b8ccd56` 的 Android `SftpRoute` 候选，在原生下载失败、尚未打开系统目标流时也只清理能证明由本轮 picker 新建、大小为 0 且提供方支持删除的文档；清理成功则禁用指向已删除 URI 的重试并提示重新选择保存位置。非空、元数据不明、拒删及写入阶段失败均不清理。**自动化**：本地 `:feature:testDebugUnitTest --offline --no-daemon`、`:app:assembleQa -x :app:buildOrbitAndroidCore --offline --no-daemon` 成功，新增失败提示/重试资格断言通过；arm64 本地 QA 包摘要见专项日志，复用未提交 JNI 二进制，不能视为固定发布包；远端门禁尚未核对。**隔离 GUI**：新源码未装入隔离 GUI。**真实设备**：修订前 K60 硬断线留下 0 字节目标的失败由 `159` 保留，不能把本地单测/组装写成真机修复；受保护旧 QA 已恢复。**五端完整验收未完成**。｜核对 Android CI 后，用 K60 受保护新版 QA 重测硬断线空目标、第三方 SAF 拒删/非空保留、手动重连；Windows 对照普通文件目标，iOS/macOS/Linux 同候选 SFTP GUI 仍待验。
+
+- 2026-10-24｜`OBS-ANDROID-SFTP-PARITY-159`｜K60 实体机补完取消与硬断线对照，旧失败保留；详见 [SFTP 专项日志](SFTP_DOWNLOAD_TARGET_OWNERSHIP_20261021.md#k60-下载取消与硬断线实测空目标修订2026-10-24)。｜**源码/候选**：本轮设备跑旧受保护 QA 的同签名临时镜像变体，未包含 `160` 新修订；不视为发布候选。**自动化**：本条没有新增自动化。**隔离 GUI**：Mac 镜像仅为 K60 真机画面与有限触控通道，不是模拟器；镜像点击在实体手机接管系统保存页后失效。**真实设备**：首次夹具到期后用户点击保存只留下 0 字节目标，未形成有效传输结果；用户重新解锁并本轮授权 ADB 精确触控后，同一虚构本机 SFTP 资产重连、列出两份测试文件，主动取消显示已清理本轮空目标，ADB 核对不存在；第二次下载到约 1.1 MiB 后精确终止只读夹具，约半分钟自动报 `sftp_operation_failed`、未自动重传，但本轮新建目标仍为 0 字节并残留。两份测试空文件保留待复核。最终恢复原防镜像 APK，设备内 SHA-256 与操作前一致、运行时镜像全黑，夹具进程/端口无残留；真实资产及正式版未动。**五端完整验收未完成**。｜Android/Windows 对照主动取消、硬断线后的终态/残留与重连历史；Android 仍无 Windows 式终态任务列表，不能宣称体验一致。新版源码修复须另跑真机，旧超时未完成和空目标残留失败不能被覆盖。
 
 - 2026-10-24｜`OBS-ANDROID-SFTP-PARITY-158`｜K60 任务历史对照准备后因手机休眠未能执行，已安全恢复；详见 [SFTP 专项日志](SFTP_DOWNLOAD_TARGET_OWNERSHIP_20261021.md#k60-sftp-任务历史对照准备但未执行2026-10-24)。｜**源码/候选**：当前 Android 工作树仅临时去除 `FLAG_SECURE` 构建本轮镜像 QA，之后原样还原，未提交产品代码；镜像包与原受保护包同 QA 身份、同签名、同 arm64 Rust 库，不能当固定发布候选。**自动化**：离线 QA 组装成功，未重跑专项单测或仪器测试。**隔离 GUI**：无。**真实设备**：用户本轮允许镜像可见；K60 临时安装的设备 APK 哈希核对成功，但持续休眠且镜像无法唤醒，未进入 QA、未连接虚构资产、未启动夹具，因此取消/断线/重连均**未测**；随即恢复原受保护 APK，设备内哈希与操作前相同，夹具端口无监听。**五端完整验收未完成**。｜等 K60 本机解锁后再启动限时只读夹具，按取消→硬断线→重复连接顺序验用户可见反馈和空目标；不能把准备成功或 Windows 通过写成 Android 通过，旧失败记录继续保留。
 

@@ -76,4 +76,12 @@ class SftpDownloadDestinationFailureTest {
             downloadTargetFailureGuidance("destination_unwritable"),
         )
     }
+
+    @Test fun removedEmptyPickerTargetMustBeReselectedAfterNativeFailure() {
+        assertFalse(canRetrySftpTransferWithSelectedTarget("下载", "sftp_operation_failed", emptyDestinationRemoved = true))
+        assertEquals(
+            " 已清理系统新建的空目标文件；重新建立会话后请选择保存位置重试。",
+            downloadTargetFailureGuidance("sftp_operation_failed", emptyDestinationRemoved = true),
+        )
+    }
 }

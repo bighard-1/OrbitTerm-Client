@@ -143,6 +143,8 @@ private data class PendingSftpTransfer(
     val onCompleted: (() -> Unit)? = null,
     val onDiscarded: (() -> Unit)? = null,
     val onCancelledMessage: (() -> String)? = null,
+    val onFailureGuidance: ((String) -> String)? = null,
+    val canRetrySelectedTarget: ((String) -> Boolean)? = null,
 )
 
 /** File browser state is tied to the process-lifetime checked SSH session, never to credentials. */
@@ -493,10 +495,17 @@ class SftpViewModel @Inject constructor(
             label = "下载",
             detail = "正在写入所选位置…",
             onCancelledMessage = { cancelledSftpTransferMessage("下载", emptyDestinationRemoved) },
+            onFailureGuidance = { code -> downloadTargetFailureGuidance(code, emptyDestinationRemoved) },
+            canRetrySelectedTarget = { code ->
+                canRetrySftpTransferWithSelectedTarget("下载", code, emptyDestinationRemoved)
+            },
         ) { requestId, markNativeTransferStarted ->
             val staging = File(context.cacheDir, "sftp-download-${UUID.randomUUID()}")
             try {
                 if (!markNativeTransferStarted()) {
+                    if (createdByPicker) {
+                        emptyDestinationRemoved = removeEmptyCreatedDownloadDocument(context, destination)
+                    }
                     return@mutateTransfer CheckedSftpTransferResult.Failure("sftp_transfer_session_changed")
                 }
                 when (val result = sftpClient.download(sessionId, childPath(state.path, entry.name), staging.absolutePath, requestId)) {
@@ -506,9 +515,9 @@ class SftpViewModel @Inject constructor(
                         }
                     }
                     is CheckedSftpTransferResult.Failure -> {
-                        if (createdByPicker && orbitNativeError(result.code).code == OrbitErrorCode.OperationCancelled) {
-                            // CreateDocument has already created a new target, but no output
-                            // stream has been opened on this native-cancelled path.
+                        if (createdByPicker) {
+                            // Native download has only touched staging; the picker-created
+                            // destination is safe to remove only if still provably empty.
                             emptyDestinationRemoved = removeEmptyCreatedDownloadDocument(context, destination)
                         }
                         result
@@ -585,6 +594,8 @@ class SftpViewModel @Inject constructor(
         onCompleted: (() -> Unit)? = null,
         onDiscarded: (() -> Unit)? = null,
         onCancelledMessage: (() -> String)? = null,
+        onFailureGuidance: ((String) -> String)? = null,
+        canRetrySelectedTarget: ((String) -> Boolean)? = null,
         operation: (requestId: String, markNativeTransferStarted: () -> Boolean) -> CheckedSftpTransferResult,
     ) {
         val state = mutableUiState.value
@@ -601,6 +612,8 @@ class SftpViewModel @Inject constructor(
             onCompleted = onCompleted,
             onDiscarded = onDiscarded,
             onCancelledMessage = onCancelledMessage,
+            onFailureGuidance = onFailureGuidance,
+            canRetrySelectedTarget = canRetrySelectedTarget,
         )
         retryLastTransfer = null
         if (activeTransfer == null && !state.queuePaused) {
@@ -691,8 +704,9 @@ class SftpViewModel @Inject constructor(
                         if (pendingTransfers.isEmpty()) refresh() else startNextTransfer()
                         return@launch
                     }
-                    val canRetrySelectedTarget = canRetrySftpTransferWithSelectedTarget(pending.label, result.code)
-                    retryLastTransfer = if (canRetrySelectedTarget) {
+                    val retrySelectedTarget = pending.canRetrySelectedTarget?.invoke(result.code)
+                        ?: canRetrySftpTransferWithSelectedTarget(pending.label, result.code)
+                    retryLastTransfer = if (retrySelectedTarget) {
                         {
                             mutateTransfer(
                                 label = pending.label,
@@ -700,6 +714,8 @@ class SftpViewModel @Inject constructor(
                                 onCompleted = pending.onCompleted,
                                 onDiscarded = pending.onDiscarded,
                                 onCancelledMessage = pending.onCancelledMessage,
+                                onFailureGuidance = pending.onFailureGuidance,
+                                canRetrySelectedTarget = pending.canRetrySelectedTarget,
                                 operation = pending.operation,
                             )
                         }
@@ -710,10 +726,11 @@ class SftpViewModel @Inject constructor(
                         activeTransferRequestId = null,
                         canCancelTransfer = false,
                         cancellationRequested = false,
-                        retryTransferLabel = if (canRetrySelectedTarget) pending.label else null,
+                        retryTransferLabel = if (retrySelectedTarget) pending.label else null,
                         queuePaused = pendingTransfers.isNotEmpty(),
                         error = sftpErrorMessage("文件传输失败", result.code) +
-                            if (pending.label == "下载") downloadTargetFailureGuidance(result.code) else "",
+                            (pending.onFailureGuidance?.invoke(result.code)
+                                ?: if (pending.label == "下载") downloadTargetFailureGuidance(result.code) else ""),
                         queuedTransfers = pendingTransfers.map { SftpQueuedTransferUiState(it.id, it.label) },
                     )
                 }
@@ -1779,15 +1796,17 @@ internal fun cancelledSftpTransferMessage(label: String, emptyDestinationRemoved
         "${label}已取消"
     }
 
-internal fun canRetrySftpTransferWithSelectedTarget(label: String, code: String): Boolean =
-    label != "下载" || code != "destination_unwritable"
+internal fun canRetrySftpTransferWithSelectedTarget(
+    label: String,
+    code: String,
+    emptyDestinationRemoved: Boolean = false,
+): Boolean = label != "下载" || (!emptyDestinationRemoved && code != "destination_unwritable")
 
-internal fun downloadTargetFailureGuidance(code: String): String =
-    if (code == "destination_unwritable") {
-        " 已选目标可能包含不完整内容，请检查并重新选择保存位置。"
-    } else {
-        " 系统创建的目标文件可能为空，请在保存位置检查。"
-    }
+internal fun downloadTargetFailureGuidance(code: String, emptyDestinationRemoved: Boolean = false): String = when {
+    emptyDestinationRemoved -> " 已清理系统新建的空目标文件；重新建立会话后请选择保存位置重试。"
+    code == "destination_unwritable" -> " 已选目标可能包含不完整内容，请检查并重新选择保存位置。"
+    else -> " 系统创建的目标文件可能为空，请在保存位置检查。"
+}
 
 internal fun shouldRemoveEmptyCancelledDownloadTarget(
     createdByPicker: Boolean,
