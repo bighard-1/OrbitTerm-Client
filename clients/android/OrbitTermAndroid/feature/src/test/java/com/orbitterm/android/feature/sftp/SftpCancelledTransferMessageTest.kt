@@ -24,4 +24,16 @@ class SftpCancelledTransferMessageTest {
             cancelledSftpTransferMessage("下载", emptyDestinationRemoved = true),
         )
     }
+
+    @Test
+    fun `zip cancellation reports whether its new empty target was removed`() {
+        assertEquals(
+            "打包下载已取消。系统创建的目标文件可能为空，请在保存位置检查。",
+            cancelledSftpTransferMessage("打包下载"),
+        )
+        assertEquals(
+            "打包下载已取消，已清理系统新建的空目标文件。",
+            cancelledSftpTransferMessage("打包下载", emptyDestinationRemoved = true),
+        )
+    }
 }

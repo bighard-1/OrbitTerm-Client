@@ -528,12 +528,18 @@ class SftpViewModel @Inject constructor(
      * Downloads one or more remote entries as a single ZIP. Directories are walked through SFTP,
      * so the server never has to provide shell access or an archive utility.
      */
-    fun downloadAsZip(entries: List<SftpDirectoryEntry>, destination: Uri) {
+    fun downloadAsZip(entries: List<SftpDirectoryEntry>, destination: Uri, createdByPicker: Boolean) {
         if (entries.isEmpty()) return
         val state = mutableUiState.value
         val sessionId = state.sftpSessionId ?: return
-        mutateTransfer("打包下载", "正在准备 ${entries.size} 个项目…") { requestId, markNativeTransferStarted ->
-            archiveRemoteEntries(
+        var emptyDestinationRemoved = false
+        mutateTransfer(
+            label = "打包下载",
+            detail = "正在准备 ${entries.size} 个项目…",
+            onCancelledMessage = { cancelledSftpTransferMessage("打包下载", emptyDestinationRemoved) },
+            onFailureGuidance = { code -> downloadTargetFailureGuidance(code, emptyDestinationRemoved) },
+        ) { requestId, markNativeTransferStarted ->
+            val result = archiveRemoteEntries(
                 sessionId = sessionId,
                 parentPath = state.path,
                 entries = entries,
@@ -541,6 +547,12 @@ class SftpViewModel @Inject constructor(
                 requestId = requestId,
                 markNativeTransferStarted = markNativeTransferStarted,
             )
+            if (result is CheckedSftpTransferResult.Failure && createdByPicker) {
+                // The archive is staged privately. Delete only a provably empty picker-created
+                // document; retain nonempty or unverifiable targets after any write failure.
+                emptyDestinationRemoved = removeEmptyCreatedDownloadDocument(context, destination)
+            }
+            result
         }
     }
 
@@ -1129,7 +1141,7 @@ fun SftpRoute(
         pendingDownload = null
     }
     val archivePicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
-        uri?.let { destination -> viewModel.downloadAsZip(pendingArchiveDownload, destination) }
+        uri?.let { destination -> viewModel.downloadAsZip(pendingArchiveDownload, destination, createdByPicker = true) }
         pendingArchiveDownload = emptyList()
     }
     uiState.shareArchive?.let { archive ->
@@ -1785,11 +1797,11 @@ private fun sftpErrorMessage(prefix: String, code: String, retryable: Boolean = 
 }
 
 internal fun cancelledSftpTransferMessage(label: String, emptyDestinationRemoved: Boolean = false): String =
-    if (label == "下载") {
+    if (label == "下载" || label == "打包下载") {
         if (emptyDestinationRemoved) {
-            "下载已取消，已清理系统新建的空目标文件。"
+            "${label}已取消，已清理系统新建的空目标文件。"
         } else {
-            "下载已取消。系统创建的目标文件可能为空，请在保存位置检查。"
+            "${label}已取消。系统创建的目标文件可能为空，请在保存位置检查。"
         }
     } else {
         "${label}已取消"
