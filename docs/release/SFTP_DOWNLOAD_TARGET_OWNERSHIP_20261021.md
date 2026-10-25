@@ -212,3 +212,9 @@ K60 上临时覆盖安装成功，设备内 `base.apk` 与镜像 APK 哈希一�
 随后精确恢复原受保护 QA：设备回读 `base.apk` 与操作前 SHA-256 `baf73a1e475ca26672f41185ff85937594169ef8966f8b1f666c254156ffd7c0` 完全一致，启动时镜像重新全黑。夹具进程不存在、端口无监听；正式版、测试账户云端资产和真实 Debian/RDP 资产均未修改。此为 **K60 实体设备的旧候选 GUI 结果**，不是新源码修订的真机证明，也不是五端完整验收。Android 当前仅保留单次失败文案，未提供 Windows 式终态任务历史；本轮没有证明跨手动重连的 Android 历史保留。
 
 源码定位：Android 下载先写应用私有 staging，只有 `Completed` 才打开系统目标；旧实现仅在原生结果为主动取消时尝试删除本次系统保存页预创建的空文档。基于这一边界，本次源码候选在原生失败/会话变化、**尚未打开目标输出流**时也复用保守清理：必须确认本次 picker 创建、确为文档 URI、元数据大小为 0、提供方声明支持删除并且删除成功。清理成功时禁止对已失效 URI 显示原目标“重试下载”，改为提示重新选择保存位置；非空、无法读元数据、拒删或写入阶段失败仍保留目标供检查。`:feature:testDebugUnitTest --offline --no-daemon` 本地成功，新增空目标失败指引与重试资格断言；`:app:assembleQa -x :app:buildOrbitAndroidCore --offline --no-daemon` 亦成功，arm64 APK SHA-256 为 `1e3a32d349087803631cb599f48efda6bdf018fcfdd3c44ded8ae1f3b2bd3a1e`。该本地包复用了工作树既有、未提交的 JNI 二进制，**不是已固定提交的可发布产物，尚未回装 K60 或完成 CI**；旧真机残留失败不因单测/组装通过而关闭。下一步须核对 Android 门禁，在受保护 QA 真机重跑硬断线，证明空目标只清本次、非空/第三方提供方不误删，并与 Windows/iOS/macOS/Linux 对照。
+
+## K60 空目标修复候选的门禁与受保护更新（2026-10-24）
+
+修复固定并推送为 `f046381`。[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40161958815) 最终 `completed/success`：Rust Release、Android Release、Android 仪器/迁移、Apple checked-path、依赖扫描、桌面视觉契约六项实际执行并成功；OpenSSH 发行候选与 macOS 专用签名 UI 冒烟条件跳过，不能写成通过。独立 [Windows Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40161958814)、[Linux Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40161958786) 成功。本地 Debug/Release `feature` 单测、受保护 QA 组装亦成功。
+
+只在已授权 USB 调试的 K60 上原位更新同包名、同测试签名的独立受保护 QA，未触碰正式版。新 APK 签名 SHA-256 证书与先前 K60 受保护包一致，包内 arm64 原生库摘要也一致；从设备安装路径回读 `base.apk` 后 SHA-256 与本地候选 `1e3a32d349087803631cb599f48efda6bdf018fcfdd3c44ded8ae1f3b2bd3a1e` 逐字节相符。本地构建复用了工作树已有未提交 JNI 二进制，不能声称是 CI 直接产出的分发包。安装时手机锁屏，**尚无解锁后的资产保持、SFTP GUI 或硬断线空目标复测结果**；等待用户在实体 K60 解锁后启动限时夹具。上节旧 QA 的 0 字节残留失败继续保留，五端完整验收未完成。
