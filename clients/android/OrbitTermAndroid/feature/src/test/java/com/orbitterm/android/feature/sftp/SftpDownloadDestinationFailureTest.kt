@@ -69,6 +69,7 @@ class SftpDownloadDestinationFailureTest {
 
     @Test fun failedDownloadMustAlwaysReselectDestination() {
         assertFalse(canRetrySftpTransferWithSelectedTarget("下载"))
+        assertFalse(canRetrySftpTransferWithSelectedTarget("打包下载"))
         assertTrue(canRetrySftpTransferWithSelectedTarget("上传"))
         assertEquals(
             " 已选目标可能包含不完整内容，请检查并重新选择保存位置。",

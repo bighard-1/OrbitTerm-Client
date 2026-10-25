@@ -254,3 +254,7 @@ QA 仍显示下载 **2%** 时，仅按精确 PID 停止夹具并核对端口关�
 新源码候选对**所有下载失败**禁用复用已选 URI 的“重试下载”入口，要求用户从文件菜单重新选择保存位置；上传等其它传输原有重试资格不变。未清理目标的失败文案改为“已选目标可能保留内容，请在保存位置检查；重新下载时请重新选择保存位置。”已清理空目标和目标写入失败的既有专门文案保持。目标保留/清理策略本身不变，仍只删可证明为本轮新建且大小为零、提供方允许删除的文档。此修订降低用户在非空目标上误点原地重试的风险；不声称能阻止外部进程在**成功提交前**同时改写 SAF 文档的全部竞态。
 
 新增/更新 `SftpDownloadDestinationFailureTest` 断言下载失败不复用目标、上传仍可重试及普通失败的新文案。本地 `:feature:testDebugUnitTest --offline --no-daemon`、`:feature:testReleaseUnitTest --offline --no-daemon` 与 `:app:assembleQa -x :app:buildOrbitAndroidCore --offline --no-daemon` 均成功；移除冗余下载回调后重跑两组单测和 QA 组装的最终 arm64 APK SHA-256 为 `a4ddd2935c0d2d2264328c90b021a767f2c43deac24a69b0b539c3bc5f46660c`。候选与 K60 已安装旧 QA 的包名、显示名、测试签名证书 SHA-256 及 arm64 原生库摘要一致；构建复用了工作树原有未提交 JNI 二进制，不是远端 CI artifact 或正式发布包。**此处只算源码/本地自动化通过，新 QA 尚未装机，CI 与新版 GUI 结果待核对。**旧 QA 非空失败仍显示重试入口的观察保留，不能倒写为新版已在真机修复。
+
+## Android ZIP 下载的同目标重试保护（2026-10-25）
+
+提交 `c4505ee` 的普通单文件下载保护已通过 Security Gates、Linux Client 和 Windows Client 三组 CI；这不覆盖其后新增的 ZIP 补丁。复查 `downloadAsZip` 发现“打包下载”也接收系统文件选择器的目标 URI，失败后原入口仍可对同一 URI 重试。因此沿用保守策略：失败后不再提供同一目标的“重试打包下载”，提示用户检查目标并重新选择保存位置；上传和“打包分享”仍按各自原有策略。单元测试加入 ZIP 标签断言，Debug/Release 两组单测及 QA 组装均通过；本地 arm64 APK SHA-256 为 `50202c57b0a610d9e759fb1c7a50adb13dac5e5f6fa20c6e58a6d7dd22892934`，构建复用现有未提交 JNI 二进制，不是 CI artifact 或正式包。**本轮仅有源码与自动化证据；ZIP 新策略未在隔离 GUI 或 K60 真机执行，五端完整验收仍未完成。**普通下载旧 QA 失败页曾显示同 URI 重试的事实继续保留；第三方 SAF 提供方与 Windows/iOS/macOS/Linux 对照仍开放。

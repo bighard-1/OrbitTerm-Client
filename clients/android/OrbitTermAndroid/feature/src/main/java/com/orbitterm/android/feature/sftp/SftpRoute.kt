@@ -727,7 +727,9 @@ class SftpViewModel @Inject constructor(
                         queuePaused = pendingTransfers.isNotEmpty(),
                         error = sftpErrorMessage("文件传输失败", result.code) +
                             (pending.onFailureGuidance?.invoke(result.code)
-                                ?: if (pending.label == "下载") downloadTargetFailureGuidance(result.code) else ""),
+                                ?: if (pending.label == "下载" || pending.label == "打包下载") {
+                                    downloadTargetFailureGuidance(result.code)
+                                } else ""),
                         queuedTransfers = pendingTransfers.map { SftpQueuedTransferUiState(it.id, it.label) },
                     )
                 }
@@ -1795,7 +1797,8 @@ internal fun cancelledSftpTransferMessage(label: String, emptyDestinationRemoved
 
 // A SAF provider may retain or externally modify the selected document after any failed
 // download. Never silently reuse its URI: let the system picker make the next choice explicit.
-internal fun canRetrySftpTransferWithSelectedTarget(label: String): Boolean = label != "下载"
+internal fun canRetrySftpTransferWithSelectedTarget(label: String): Boolean =
+    label != "下载" && label != "打包下载"
 
 internal fun downloadTargetFailureGuidance(code: String, emptyDestinationRemoved: Boolean = false): String = when {
     emptyDestinationRemoved -> " 已清理系统新建的空目标文件；重新建立会话后请选择保存位置重试。"
