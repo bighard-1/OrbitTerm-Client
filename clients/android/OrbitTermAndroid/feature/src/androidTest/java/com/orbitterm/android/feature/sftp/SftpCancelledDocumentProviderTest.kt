@@ -58,6 +58,27 @@ class SftpCancelledDocumentProviderTest {
         assertEquals(0, provider.deleteCalls)
     }
 
+    @Test fun pickerCreatedUnknownSizeDocumentIsPreserved() {
+        val selected = createPickerDocument("qa-unknown-size-instrumented.zip")
+        assertFalse(removeEmptyCreatedDownloadDocument(context, selected))
+        assertPickerDocumentExists(selected)
+        assertEquals(0, provider.deleteCalls)
+    }
+
+    @Test fun pickerCreatedDocumentWithoutDeleteFlagIsPreserved() {
+        val selected = createPickerDocument("qa-no-delete-instrumented.zip")
+        assertFalse(removeEmptyCreatedDownloadDocument(context, selected))
+        assertPickerDocumentExists(selected)
+        assertEquals(0, provider.deleteCalls)
+    }
+
+    @Test fun pickerCreatedDocumentRefusingDeleteIsPreserved() {
+        val selected = createPickerDocument("qa-refuse-delete-instrumented.zip")
+        assertFalse(removeEmptyCreatedDownloadDocument(context, selected))
+        assertPickerDocumentExists(selected)
+        assertEquals(1, provider.deleteCalls)
+    }
+
     @Test fun providerRefusalPreservesDocumentAndReturnsFailure() {
         provider.refuseDeletion = true
         assertFalse(removeEmptyCreatedDownloadDocument(context, destination))
@@ -85,5 +106,20 @@ class SftpCancelledDocumentProviderTest {
         } finally {
             staging.delete()
         }
+    }
+
+    private fun createPickerDocument(name: String) =
+        requireNotNull(DocumentsContract.createDocument(context.contentResolver, provider.rootUri(), "application/zip", name))
+
+    private fun assertPickerDocumentExists(uri: android.net.Uri) {
+        assertTrue(
+            context.contentResolver.query(
+                uri,
+                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+                null,
+                null,
+                null,
+            )?.use { it.moveToFirst() } == true,
+        )
     }
 }

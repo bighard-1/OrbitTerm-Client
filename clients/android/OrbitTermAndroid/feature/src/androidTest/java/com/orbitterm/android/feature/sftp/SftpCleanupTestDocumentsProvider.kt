@@ -7,12 +7,15 @@ import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.provider.DocumentsProvider
 import java.io.FileNotFoundException
+import java.util.Collections
 
 /** Test-APK-only provider: never exposes device files or persists a document. */
 class SftpCleanupTestDocumentsProvider : DocumentsProvider() {
     companion object {
         const val AUTHORITY = "com.orbitterm.android.feature.test.cleanup.documents"
         private const val DOCUMENT_ID = "isolated-cancel-target"
+        private const val ROOT_DOCUMENT_ID = "isolated-root-document"
+        private val pickerDocuments = Collections.synchronizedSet(mutableSetOf<String>())
 
         @Volatile var exists = true
         @Volatile var sizeBytes: Long? = 0L
@@ -22,6 +25,7 @@ class SftpCleanupTestDocumentsProvider : DocumentsProvider() {
         @Volatile var deleteCalls = 0
 
         fun documentUri() = DocumentsContract.buildDocumentUri(AUTHORITY, DOCUMENT_ID)
+        fun rootUri() = DocumentsContract.buildDocumentUri(AUTHORITY, ROOT_DOCUMENT_ID)
 
         fun reset() {
             exists = true
@@ -30,6 +34,7 @@ class SftpCleanupTestDocumentsProvider : DocumentsProvider() {
             refuseMetadata = false
             refuseDeletion = false
             deleteCalls = 0
+            pickerDocuments.clear()
         }
     }
 
@@ -47,10 +52,11 @@ class SftpCleanupTestDocumentsProvider : DocumentsProvider() {
             addRow(columns.map { column ->
                 val value: Any? = when (column) {
                     DocumentsContract.Root.COLUMN_ROOT_ID -> "isolated-root"
-                    DocumentsContract.Root.COLUMN_DOCUMENT_ID -> DOCUMENT_ID
-                    DocumentsContract.Root.COLUMN_TITLE -> "Isolated SFTP cleanup test"
-                    DocumentsContract.Root.COLUMN_MIME_TYPES -> "application/octet-stream"
-                    DocumentsContract.Root.COLUMN_FLAGS -> 0
+                    DocumentsContract.Root.COLUMN_DOCUMENT_ID -> ROOT_DOCUMENT_ID
+                    DocumentsContract.Root.COLUMN_TITLE -> "OrbitTerm SAF QA (virtual)"
+                    DocumentsContract.Root.COLUMN_MIME_TYPES -> "application/zip"
+                    DocumentsContract.Root.COLUMN_FLAGS -> DocumentsContract.Root.FLAG_SUPPORTS_CREATE or
+                        DocumentsContract.Root.FLAG_LOCAL_ONLY
                     else -> null
                 }
                 value
@@ -59,7 +65,9 @@ class SftpCleanupTestDocumentsProvider : DocumentsProvider() {
     }
 
     override fun queryDocument(documentId: String, projection: Array<out String>?): Cursor {
-        if (documentId != DOCUMENT_ID || !exists) throw FileNotFoundException(documentId)
+        if (documentId != ROOT_DOCUMENT_ID &&
+            !((documentId == DOCUMENT_ID && exists) || pickerDocuments.contains(documentId))
+        ) throw FileNotFoundException(documentId)
         if (refuseMetadata) throw SecurityException("Test provider refused metadata")
         val columns = projection ?: arrayOf(
             DocumentsContract.Document.COLUMN_DOCUMENT_ID,
@@ -68,26 +76,35 @@ class SftpCleanupTestDocumentsProvider : DocumentsProvider() {
             DocumentsContract.Document.COLUMN_SIZE,
             DocumentsContract.Document.COLUMN_FLAGS,
         )
-        return MatrixCursor(columns).apply {
-            addRow(columns.map { column ->
-                val value: Any? = when (column) {
-                    DocumentsContract.Document.COLUMN_DOCUMENT_ID -> DOCUMENT_ID
-                    DocumentsContract.Document.COLUMN_DISPLAY_NAME -> "isolated-target.bin"
-                    DocumentsContract.Document.COLUMN_MIME_TYPE -> "application/octet-stream"
-                    DocumentsContract.Document.COLUMN_SIZE -> sizeBytes
-                    DocumentsContract.Document.COLUMN_FLAGS -> flags
-                    else -> null
-                }
-                value
-            }.toTypedArray())
-        }
+        return MatrixCursor(columns).apply { addRow(documentRow(documentId, columns)) }
     }
 
     override fun queryChildDocuments(
         parentDocumentId: String,
         projection: Array<out String>?,
         sortOrder: String?,
-    ): Cursor = MatrixCursor(projection ?: arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID))
+    ): Cursor {
+        if (parentDocumentId != ROOT_DOCUMENT_ID) throw FileNotFoundException(parentDocumentId)
+        val columns = projection ?: arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE,
+            DocumentsContract.Document.COLUMN_FLAGS,
+        )
+        return MatrixCursor(columns).apply {
+            pickerDocuments.toList().sorted().forEach { addRow(documentRow(it, columns)) }
+        }
+    }
+
+    override fun createDocument(parentDocumentId: String, mimeType: String, displayName: String): String {
+        if (parentDocumentId != ROOT_DOCUMENT_ID || mimeType != "application/zip" ||
+            !displayName.startsWith("qa-") || !displayName.endsWith(".zip") ||
+            displayName.contains('/')
+        ) throw FileNotFoundException("Only virtual QA ZIP targets are supported")
+        if (!pickerDocuments.add(displayName)) throw FileNotFoundException("Virtual target already exists")
+        return displayName
+    }
 
     override fun openDocument(
         documentId: String,
@@ -96,9 +113,43 @@ class SftpCleanupTestDocumentsProvider : DocumentsProvider() {
     ): ParcelFileDescriptor = throw FileNotFoundException("Test provider has no file stream")
 
     override fun deleteDocument(documentId: String) {
-        if (documentId != DOCUMENT_ID || !exists) throw FileNotFoundException(documentId)
+        if (documentId != DOCUMENT_ID && !pickerDocuments.contains(documentId)) {
+            throw FileNotFoundException(documentId)
+        }
         deleteCalls++
-        if (refuseDeletion) throw FileNotFoundException("Test provider refused deletion")
-        exists = false
+        if (refuseDeletion || documentId.contains("refuse-delete")) {
+            throw FileNotFoundException("Test provider refused deletion")
+        }
+        if (documentId == DOCUMENT_ID) exists = false else pickerDocuments.remove(documentId)
     }
+
+    private fun documentRow(documentId: String, columns: Array<out String>): Array<Any?> =
+        columns.map { column ->
+            when (column) {
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID -> documentId
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME -> when (documentId) {
+                    ROOT_DOCUMENT_ID -> "OrbitTerm SAF QA (virtual)"
+                    DOCUMENT_ID -> "isolated-target.bin"
+                    else -> documentId
+                }
+                DocumentsContract.Document.COLUMN_MIME_TYPE -> when (documentId) {
+                    ROOT_DOCUMENT_ID -> DocumentsContract.Document.MIME_TYPE_DIR
+                    DOCUMENT_ID -> "application/octet-stream"
+                    else -> "application/zip"
+                }
+                DocumentsContract.Document.COLUMN_SIZE -> when {
+                    documentId == ROOT_DOCUMENT_ID -> null
+                    documentId == DOCUMENT_ID -> sizeBytes
+                    documentId.contains("unknown-size") -> null
+                    else -> 0L
+                }
+                DocumentsContract.Document.COLUMN_FLAGS -> when {
+                    documentId == ROOT_DOCUMENT_ID -> DocumentsContract.Document.FLAG_DIR_SUPPORTS_CREATE
+                    documentId == DOCUMENT_ID -> flags
+                    documentId.contains("no-delete") -> 0
+                    else -> DocumentsContract.Document.FLAG_SUPPORTS_DELETE
+                }
+                else -> null
+            }
+        }.toTypedArray()
 }

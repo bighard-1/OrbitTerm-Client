@@ -290,3 +290,7 @@ QA 仍显示下载 **2%** 时，仅按精确 PID 停止夹具并核对端口关�
 在真实 K60（Android 15）运行 `:feature:connectedDebugAndroidTest`，仅选择 `SftpCancelledDocumentProviderTest`：JUnit XML 报告 **8 tests、0 failures、0 errors、0 skipped**，包含以上新增三项。测试通过 Android `ContentResolver`/`DocumentsContract` 访问真实安装的测试提供方，不是纯 JVM fake；构建工具随后自动卸载了测试 APK，设备仅保留原独立 QA 包。手机原受保护 QA 未替换、未打开任何真实资产，插电保持亮屏的临时设置会在本轮结束恢复。
 
 证据边界：这属于**真实设备上的仪器测试**，不是第三方云盘/文件管理器经系统选择器的隔离 GUI 或端到端真机验收。测试提供方的拒删/未知元数据行为受我们控制，尚未覆盖实际第三方 SAF 厂商的权限弹窗、进程重启或写入 ZIP 目标期间 I/O 故障。Windows 普通文件目标、iOS/macOS/Linux 各自文件提供方/目标处理仍应按其平台能力对照；五端完整验收未完成。
+
+### 系统“另存为”选择器 GUI 夹具准备与首次阻滞
+
+继续扩展同一测试 APK 提供方，使其暴露**仅限虚构 ZIP** 的可创建根目录，并按文件名模拟“大小未知”“无删除能力”“拒绝删除”；对应真实 `DocumentsContract.createDocument` 的三条仪器断言已加入。它不读取手机真实文件，且与正式/独立 QA 包身份不同。首次在 K60 运行扩展后的定向仪器测试时，手机已进入系统锁屏，MIUI 手机管家拦截通过 USB 安装测试 APK，Gradle 报 `INSTALL_FAILED_USER_RESTRICTED`；**这是安装前阻滞，不是断言失败，也不能记为新三条通过**。已停止重试并请求用户在手机本机解锁、允许该测试包安装；保持原有 8/8 结果不变。系统选择器 GUI 与扩展后仪器测试均待解锁后再执行。
