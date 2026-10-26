@@ -108,6 +108,34 @@ class SftpCancelledDocumentProviderTest {
         }
     }
 
+    @Test fun pickerWriteFailureAfterPartialBytesPreservesTarget() {
+        val selected = createPickerDocument("qa-write-fail-instrumented.zip")
+        val staging = File.createTempFile("sftp-provider-partial-", ".zip", context.cacheDir)
+        try {
+            staging.writeBytes(ByteArray(256 * 1024) { 7 })
+            val result = copyDownloadedStagingToDestination(
+                staging,
+                CheckedSftpTransferResult.Completed(staging.length()),
+            ) { context.contentResolver.openOutputStream(selected) }
+            assertEquals(CheckedSftpTransferResult.Failure("destination_unwritable"), result)
+            assertFalse(removeEmptyCreatedDownloadDocument(context, selected))
+            assertPickerDocumentExists(selected)
+            assertEquals(0, provider.deleteCalls)
+            context.contentResolver.query(
+                selected,
+                arrayOf(DocumentsContract.Document.COLUMN_SIZE),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertTrue(cursor.getLong(0) > 0L)
+            }
+        } finally {
+            staging.delete()
+        }
+    }
+
     private fun createPickerDocument(name: String) =
         requireNotNull(DocumentsContract.createDocument(context.contentResolver, provider.rootUri(), "application/zip", name))
 

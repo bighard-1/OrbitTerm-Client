@@ -8,6 +8,7 @@ import android.provider.DocumentsContract
 import android.provider.DocumentsProvider
 import java.io.FileNotFoundException
 import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
 
 /** Test-APK-only provider: never exposes device files or persists a document. */
 class SftpCleanupTestDocumentsProvider : DocumentsProvider() {
@@ -16,6 +17,7 @@ class SftpCleanupTestDocumentsProvider : DocumentsProvider() {
         private const val DOCUMENT_ID = "isolated-cancel-target"
         private const val ROOT_DOCUMENT_ID = "isolated-root-document"
         private val pickerDocuments = Collections.synchronizedSet(mutableSetOf<String>())
+        private val pickerWrittenSizes = ConcurrentHashMap<String, Long>()
 
         @Volatile var exists = true
         @Volatile var sizeBytes: Long? = 0L
@@ -35,6 +37,7 @@ class SftpCleanupTestDocumentsProvider : DocumentsProvider() {
             refuseDeletion = false
             deleteCalls = 0
             pickerDocuments.clear()
+            pickerWrittenSizes.clear()
         }
     }
 
@@ -110,7 +113,24 @@ class SftpCleanupTestDocumentsProvider : DocumentsProvider() {
         documentId: String,
         mode: String,
         signal: CancellationSignal?,
-    ): ParcelFileDescriptor = throw FileNotFoundException("Test provider has no file stream")
+    ): ParcelFileDescriptor {
+        if (!pickerDocuments.contains(documentId) || !documentId.contains("write-fail") ||
+            !mode.contains('w')
+        ) throw FileNotFoundException("Test provider has no file stream")
+        val (reader, writer) = ParcelFileDescriptor.createReliablePipe()
+        Thread({
+            try {
+                ParcelFileDescriptor.AutoCloseInputStream(reader).use { input ->
+                    val received = input.read(ByteArray(4096))
+                    if (received > 0) pickerWrittenSizes[documentId] = received.toLong()
+                    reader.closeWithError("Injected virtual QA write failure")
+                }
+            } catch (_: Exception) {
+                reader.close()
+            }
+        }, "qa-saf-write-failure").apply { isDaemon = true; start() }
+        return writer
+    }
 
     override fun deleteDocument(documentId: String) {
         if (documentId != DOCUMENT_ID && !pickerDocuments.contains(documentId)) {
@@ -141,6 +161,7 @@ class SftpCleanupTestDocumentsProvider : DocumentsProvider() {
                     documentId == ROOT_DOCUMENT_ID -> null
                     documentId == DOCUMENT_ID -> sizeBytes
                     documentId.contains("unknown-size") -> null
+                    documentId.contains("write-fail") -> pickerWrittenSizes[documentId] ?: 0L
                     else -> 0L
                 }
                 DocumentsContract.Document.COLUMN_FLAGS -> when {

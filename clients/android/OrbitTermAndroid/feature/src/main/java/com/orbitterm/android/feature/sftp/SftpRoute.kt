@@ -806,9 +806,10 @@ class SftpViewModel @Inject constructor(
                 }
             }
             if (destination != null) {
-                val output = context.contentResolver.openOutputStream(destination)
-                    ?: return CheckedSftpTransferResult.Failure("destination_unwritable")
-                output.use { destinationStream -> archive.inputStream().use { it.copyTo(destinationStream) } }
+                return copyDownloadedStagingToDestination(
+                    archive,
+                    CheckedSftpTransferResult.Completed(byteLength),
+                ) { context.contentResolver.openOutputStream(destination) }
             } else {
                 onArchivePrepared?.invoke(archive)
                 retainArchive = true

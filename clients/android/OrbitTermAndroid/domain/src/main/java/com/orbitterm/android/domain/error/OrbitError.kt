@@ -27,6 +27,7 @@ enum class OrbitErrorCode(val diagnosticCode: String) {
     RequestTooLarge("request_too_large"),
     HostKeyBlocked("host_key_blocked"),
     PermissionDenied("permission_denied"),
+    DestinationUnwritable("destination_unwritable"),
     StorageUnavailable("storage_unavailable"),
     StorageLocked("storage_locked"),
     SftpConflict("sftp_conflict"),
@@ -82,7 +83,8 @@ data class OrbitError(
         OrbitErrorCode.RequestTooLarge -> "资产或同步批次超出服务端大小限制，请缩小后重试。"
         OrbitErrorCode.HostKeyBlocked -> "主机密钥校验未通过，连接已被安全阻断。"
         OrbitErrorCode.PermissionDenied -> "权限不足，请检查远端账户或文件权限。"
-        OrbitErrorCode.StorageUnavailable -> "本机安全存储不可用，请解锁设备后重试。"
+        OrbitErrorCode.DestinationUnwritable -> "无法写入所选保存位置。"
+        OrbitErrorCode.StorageUnavailable -> "本机存储不可用，请检查空间、文件权限或设备解锁状态。"
         OrbitErrorCode.StorageLocked -> "需要解锁应用后才能继续此操作。"
         OrbitErrorCode.SftpConflict -> "远端文件已变化，请刷新目录后重试。"
         OrbitErrorCode.SftpOperationFailed -> "SFTP 操作未完成，请重新建立会话后重试。"
@@ -136,7 +138,8 @@ fun orbitNativeError(rawCode: String?, retryable: Boolean = false, detailCode: S
         "ssh_auth_failed", "ssh_second_factor_required", "jump_credentials_unavailable" -> OrbitErrorCode.AuthenticationFailed
         "host_key_blocked", "host_key_changed", "host_key_revoked" -> OrbitErrorCode.HostKeyBlocked
         "permission_denied", "sftp_permission_denied" -> OrbitErrorCode.PermissionDenied
-        "destination_unwritable", "archive_workspace_unavailable", "archive_write_failed", "local_file_unreadable" -> OrbitErrorCode.StorageUnavailable
+        "destination_unwritable" -> OrbitErrorCode.DestinationUnwritable
+        "archive_workspace_unavailable", "archive_write_failed", "local_file_unreadable" -> OrbitErrorCode.StorageUnavailable
         "sftp_conflict", "sftp_mutation_conflict", "sftp_target_exists" -> OrbitErrorCode.SftpConflict
         "sftp_mutation_failed", "sftp_operation_failed", "sftp_download_failed", "sftp_upload_failed",
         "delete_depth_limit", "delete_entry_limit", "unsafe_remote_name" -> OrbitErrorCode.SftpOperationFailed
@@ -155,6 +158,7 @@ fun orbitNativeError(rawCode: String?, retryable: Boolean = false, detailCode: S
         OrbitErrorCode.RequestTooLarge -> OrbitRecoveryAction.ContactSupport
         OrbitErrorCode.HostKeyBlocked -> OrbitRecoveryAction.ReviewHostKey
         OrbitErrorCode.PermissionDenied -> OrbitRecoveryAction.CheckPermission
+        OrbitErrorCode.DestinationUnwritable -> OrbitRecoveryAction.CheckPermission
         OrbitErrorCode.StorageUnavailable -> OrbitRecoveryAction.Unlock
         OrbitErrorCode.SftpConflict, OrbitErrorCode.SyncConflict -> OrbitRecoveryAction.ResolveConflict
         OrbitErrorCode.StaleOperation, OrbitErrorCode.NativeBridgeUnavailable, OrbitErrorCode.NativeProtocolInvalid,

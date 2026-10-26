@@ -45,5 +45,9 @@ class OrbitErrorTest {
         assertEquals(OrbitErrorCode.OperationCancelled, orbitNativeError("sftp_transfer_cancelled").code)
         assertEquals(OrbitErrorCode.SftpOperationFailed, orbitNativeError("sftp_download_failed").code)
         assertEquals(OrbitErrorCode.SftpOperationFailed, orbitNativeError("sftp_upload_failed").code)
+        val destination = orbitNativeError("destination_unwritable")
+        assertEquals(OrbitErrorCode.DestinationUnwritable, destination.code)
+        assertEquals(OrbitRecoveryAction.CheckPermission, destination.recovery)
+        assertFalse(destination.userMessage().contains("解锁"))
     }
 }
