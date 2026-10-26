@@ -1,6 +1,6 @@
 # 五端整改与真机回归台账
 
-更新：2026-10-24。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
+更新：2026-10-25。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
 
 ## 记账规则
 
@@ -421,6 +421,8 @@
 | SSH-MFA-DEVICE-01 | 旧客户端对真实 SSH 资产的密码/密钥后验证码无提示；源码、自动化和回环 Linux GUI 已补。**首次真实主机在密码阶段失败**保留。用户恢复登录后，为单一测试账户受控配置 TOTP；Mac 系统 SSH 实测密码后独立验证码成功，密码单独登录被拒；`4cce231` Linux 隔离 GUI 对真实 Debian 主机实测密码＋码后在线、终端/SFTP 可用，重连再次索码、取消失败关闭。 | **未关闭**：密钥＋码、双跳、真实主机错码/超时/Host Key 变化、完整敏感数据审计、macOS/iOS/Android/Windows 客户端 GUI/真机及 Windows 原生编译仍待验。跨实例同步资产回拉为 0 的新疑点另需定位；不得用本机资产连接成功代替云同步或五端验收。 |
 
 ## 后续追加记录
+
+- 2026-10-25｜`CI-ANDROID-ATD-175`｜固定修复 `d02d27a` 的后继门禁核对，详见 [Android ATD 专项日志](ANDROID_ATD_CI_INSTALL_20261023.md#固定提交-d02d27a-的门禁结果)。｜**源码/候选**：仅隔离测试脚本的 Android 15 ATD 精确有界安装重试；产品 APK、业务断言、五端签名包未改。**自动化**：[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40252952402) 最终成功，Android 仪器作业越过前轮安装失败点、运行隔离界面夹具和 connected tests，`android-instrumentation-results` 报告归档存在；Rust Release、Android Release、Apple checked-path、依赖/许可、桌面视觉实际作业均成功。独立 [Windows](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40252952331) 与 [Linux](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40252952426) CI 成功；OpenSSH RC 与 macOS 签名 UI 条件跳过。成功不证明本轮一定触发了新增重试分支，`5162561` 的失败按 `174` 保留。**隔离 GUI**：Android 15 模拟器 smoke 夹具通过，非产品真机 GUI。**真实设备**：本条未操作 K60、Windows 或 Apple/Linux 产品客户端；Windows 普通文件目标真机结果仍按 `173`。**五端完整验收未完成**。｜优先补真实第三方 SAF 提供方拒删/未知元数据/写入异常及 Windows 预先规划目标的并发创建竞态；随后以同候选 iOS/macOS/Linux GUI 对照 SFTP 目标与墓碑矩阵，条件跳过的签名 Mac UI 冒烟不能由本门禁替代。
 
 - 2026-10-25｜`FIX-ANDROID-ATD-CI-174`｜Android 15 ATD 隔离 smoke APK 安装服务启动竞态复发，详见 [专项日志](ANDROID_ATD_CI_INSTALL_20261023.md#后继-android-15-atd-的另一项系统安装启动竞态2026-10-25)。｜**源码/候选**：仅为测试脚本的 ATD 安装分支增加 `StorageManager.getVolumes()`/`InstallLocationUtils.resolveInstallVolume` 空引用的精确有界重试；产品 APK 和仪器断言不变，后继远端门禁待核对。**自动化**：`5162561` 的 [Android 仪器作业](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40250699439/job/121341813975) 安装前失败、无 connected 结果/报告，失败保留；同提交 Linux/Windows CI 成功，Android Release、Rust、依赖与桌面契约成功，Apple checked-path 当时仍运行；本地脚本语法、真实签名匹配及无关异常不匹配通过，首次临时检查命令引号错误后重跑，非产品脚本失败。**隔离 GUI**：未进入 smoke 界面，不能记为通过。**真实设备**：本条未操作 K60；上一 Windows 普通文件目标结果另见 `173`。**五端完整验收未完成**。｜Android 后继门禁须证明实际安装和 connected tests，K60 第三方 SAF 仍未覆盖；Windows 与 Apple/Linux 的同类目标及五端墓碑矩阵不能被该 CI 修复代替。
 

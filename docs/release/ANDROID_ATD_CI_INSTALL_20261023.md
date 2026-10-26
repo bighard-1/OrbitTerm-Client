@@ -12,6 +12,12 @@ Windows 10 独立 QA 更新与鼠标缩放验收另见 [Windows 专项日志](WI
 
 后继源码候选仅在 `aosp-atd-api35` 的隔离 smoke APK 安装分支，把上述 `getVolumes()`/`resolveInstallVolume` 精确系统调用签名加入已有的最多五次、有界间隔重试；非 ATD 环境、其它安装失败及最终耗尽重试仍原样失败。没有修改生产 APK 安装、业务功能或仪器断言。本地 `bash -n`、真实日志签名匹配及无关异常不匹配均通过；首次临时测试命令的 shell 引号写错、尚未执行模式检查，修正后重跑通过，**不是产品脚本语法失败**。必须以后继固定提交的 Android 仪器门禁及 connected test 报告来判定此修订是否有效，不能借 K60 既有 12/12 或 Windows/Linux CI 替代。Android/Windows 后续仍对照受保护 QA、SFTP 文件目标和墓碑；五端完整验收未完成。
 
+### 固定提交 `d02d27a` 的门禁结果
+
+后继 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40252952402) 最终为 `completed/success`。Android 15 ATD 作业预构建成功，隔离 smoke APK 安装越过上次 `getVolumes()` 失败点，锁定/浅色/深色、连接失败、离线、同步冲突、传输队列等夹具状态继续运行；`Android instrumentation and migration gates` 作业最终 `completed/success`，`android-instrumentation-results` 报告归档已生成。作业整体成功证明此固定提交的隔离夹具、连接测试及报告保存链路完成；它不证明每次启动都会触发或命中新增重试分支。旧 `5162561` 安装失败保持为独立失败证据。
+
+同提交 [Windows Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40252952331)、[Linux Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40252952426) 均成功。Security Gates 其余实际执行的 Rust Release、Android Release、Apple checked-path、依赖/许可与桌面视觉作业成功；条件式 OpenSSH release-candidate 与 macOS signed UI smoke 为 `skipped`，不记通过。本轮没有新增 K60、iOS、macOS、Linux 或 Windows 产品 GUI 验收；五端完整验收仍未完成。
+
 ## 固定候选的门禁复核（2026-10-23）
 
 修订已随固定提交 `4c15188` 推送。该提交的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40051112073) 最终为 `completed/success`；其中 `Android instrumentation and migration gates` 的 Android 15 模拟器 connected tests 与报告保存步骤均成功，生成 `android-instrumentation-results` artifact。Rust、Apple checked-path、Android Release、桌面视觉契约及依赖/许可作业也成功；条件式 OpenSSH RC 与 macOS 签名 UI 冒烟为 skipped，不记通过。原 `ab00edb` 安装失败仍保留，不能被这次成功改写。此项是自动化证据，**没有新增 K60 真实设备 GUI 结果**，也不是五端完整验收。
