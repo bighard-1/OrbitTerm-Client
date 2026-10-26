@@ -538,11 +538,14 @@ public sealed class CheckedOrbitCoreClient : ICheckedOrbitCoreClient
         if (string.IsNullOrWhiteSpace(localPath) ||
             localPath.Length > 4096 ||
             localPath.Any(char.IsControl) ||
-            !Path.IsPathFullyQualified(localPath) ||
-            File.Exists(localPath))
+            !Path.IsPathFullyQualified(localPath))
         {
-            throw new ArgumentException("SFTP download requires a new absolute local file path.", nameof(localPath));
+            throw new ArgumentException("SFTP download requires a bounded absolute local file path.", nameof(localPath));
         }
+        // Do not preflight File.Exists here: the checked core uses atomic
+        // create_new and reports a stable destination-exists reason. A
+        // managed check can race with another process and masks that reason
+        // as a generic ArgumentException without improving file safety.
     }
 
     private static void EnsureExistingLocalUploadPath(string localPath)
