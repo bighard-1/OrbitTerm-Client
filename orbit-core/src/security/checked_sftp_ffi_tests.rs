@@ -571,6 +571,30 @@ fn download_errors_are_stable_and_redacted() {
 }
 
 #[test]
+fn download_target_collision_is_typed_and_redacted() {
+    let request_id = CString::new(REQUEST_ID).unwrap();
+    let remote_path = CString::new("/var/log/syslog").unwrap();
+    let local_path = CString::new(absolute_local_test_path("orbitterm-syslog")).unwrap();
+    let pointer = sftp_download_checked_response_for_tests(
+        77,
+        remote_path.as_ptr(),
+        local_path.as_ptr(),
+        request_id.as_ptr(),
+        |_, _, _| async move {
+            Err(OrbitCoreError::SftpFailed(
+                "create local file failed: File exists /secret private_key".to_string(),
+            ))
+        },
+    );
+    let (json, error) = read_and_free(pointer);
+    assert_eq!(error["error"]["code"], "sftp_download_failed");
+    assert_eq!(error["error"]["detail_code"], "sftp_destination_exists");
+    for forbidden in ["/secret", "private_key", "orbitterm-syslog"] {
+        assert!(!json.contains(forbidden));
+    }
+}
+
+#[test]
 fn upload_requires_absolute_local_path_and_returns_redacted_checked_payload() {
     let request_id = CString::new(REQUEST_ID).unwrap();
     let local_path = CString::new("upload.txt").unwrap();
