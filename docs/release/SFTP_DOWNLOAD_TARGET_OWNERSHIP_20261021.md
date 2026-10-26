@@ -294,3 +294,11 @@ QA 仍显示下载 **2%** 时，仅按精确 PID 停止夹具并核对端口关�
 ### 系统“另存为”选择器 GUI 夹具准备与首次阻滞
 
 继续扩展同一测试 APK 提供方，使其暴露**仅限虚构 ZIP** 的可创建根目录，并按文件名模拟“大小未知”“无删除能力”“拒绝删除”；对应真实 `DocumentsContract.createDocument` 的三条仪器断言已加入。它不读取手机真实文件，且与正式/独立 QA 包身份不同。首次在 K60 运行扩展后的定向仪器测试时，手机已进入系统锁屏，MIUI 手机管家拦截通过 USB 安装测试 APK，Gradle 报 `INSTALL_FAILED_USER_RESTRICTED`；**这是安装前阻滞，不是断言失败，也不能记为新三条通过**。已停止重试并请求用户在手机本机解锁、允许该测试包安装；保持原有 8/8 结果不变。系统选择器 GUI 与扩展后仪器测试均待解锁后再执行。
+
+### K60 解锁后的仪器测试与系统选择器 GUI 续验
+
+用户解锁 K60 后，在同一源码 `07670ce`、同一受保护独立 QA 包上重跑定向 `:feature:connectedDebugAndroidTest`，JUnit XML 报告 **11 tests、0 failures、0 errors、0 skipped**；其中新增三条经真实 `DocumentsContract.createDocument` 创建虚构文档，再核对未知大小、无删除能力与拒删分支。此前 `INSTALL_FAILED_USER_RESTRICTED` 仍作为首次安装阻滞保留，不倒写为首次成功。随后只把测试 APK 临时装到 K60，确认内存虚拟根目录出现在 Android 系统“另存为”选择器；它不接触用户真实文件或云盘。
+
+通过原受保护 QA 中唯一的虚构本机 SFTP 资产，使用限时只读、无 shell 的虚构慢文件夹具执行四次 ZIP 打包下载，在进度仍为 0% 时取消。系统选择器实际创建的 `qa-unknown-size-001.zip`、`qa-no-delete-002.zip`、`qa-refuse-delete-003.zip` 均得到保守提示“系统创建的目标文件可能为空，请在保存位置检查”；再次打开选择器时三个名称均仍存在。对照 `qa-empty-004.zip`，取消后明确提示“已清理系统新建的空目标文件”；再次打开同一虚拟根目录时前三项仍在，`qa-empty-004.zip` 不在。这里验证的是**受控测试提供方的端到端 GUI 路径**，并非真实第三方云盘的兼容认证；没有验证 ZIP 写系统目标期间的 I/O 故障或非空自然部分文件。
+
+测试 APK `com.orbitterm.android.feature.test` 已精确卸载，原 `com.orbitterm.android.qa` 保留且未关闭防镜像保护；夹具精确终止并核对端口无监听。K60 插电常亮设置从临时值 `3` 恢复原值 `2`。没有操作正式版、真实资产、账户云端资产或其它文件。提交 `5bfe26a` 的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40194500966) 已完成 `success`；该门禁只覆盖该提交，不覆盖后续两项测试源码增量 `bb9b841`、`07670ce`。后续仍须推送测试增量并核对新 CI，以及按需使用真实第三方 SAF 提供方、Windows 普通文件目标和其它平台场景补充验证；五端完整验收未完成。
