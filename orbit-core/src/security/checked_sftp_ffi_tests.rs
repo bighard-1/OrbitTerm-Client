@@ -595,6 +595,33 @@ fn download_target_collision_is_typed_and_redacted() {
 }
 
 #[test]
+fn windows_disk_full_download_is_typed_and_redacted() {
+    let request_id = CString::new(REQUEST_ID).unwrap();
+    let remote_path = CString::new("/qa/slow-test.bin").unwrap();
+    let local_path = CString::new(absolute_local_test_path("slow-test.bin")).unwrap();
+    for message in [
+        "write local file failed: There is not enough space on the disk. (os error 112)",
+        "write local file failed: 磁盘空间不足。 (os error 112)",
+        "flush local file failed: The disk is full.",
+    ] {
+        let message = format!("{message} /secret private_key");
+        let pointer = sftp_download_checked_response_for_tests(
+            77,
+            remote_path.as_ptr(),
+            local_path.as_ptr(),
+            request_id.as_ptr(),
+            |_, _, _| async move { Err(OrbitCoreError::SftpFailed(message)) },
+        );
+        let (json, error) = read_and_free(pointer);
+        assert_eq!(error["error"]["code"], "sftp_download_failed");
+        assert_eq!(error["error"]["detail_code"], "sftp_no_space_left");
+        for forbidden in ["/secret", "private_key", "slow-test.bin"] {
+            assert!(!json.contains(forbidden));
+        }
+    }
+}
+
+#[test]
 fn upload_requires_absolute_local_path_and_returns_redacted_checked_payload() {
     let request_id = CString::new(REQUEST_ID).unwrap();
     let local_path = CString::new("upload.txt").unwrap();

@@ -1187,7 +1187,14 @@ fn classify_sftp_transfer_failure(message: &str, fallback: &'static str) -> &'st
         || normalized.starts_with("exists ")
     {
         "sftp_destination_exists"
-    } else if normalized.contains("no space left") || normalized.contains("disk full") {
+    } else if normalized.contains("no space left")
+        || normalized.contains("disk full")
+        || normalized.contains("disk is full")
+        || normalized.contains("not enough space")
+        || normalized.contains("os error 112")
+        || normalized.contains("磁盘空间不足")
+        || normalized.contains("磁盘已满")
+    {
         "sftp_no_space_left"
     } else if normalized.contains("not found") || normalized.contains("no such file") {
         "sftp_source_not_found"
