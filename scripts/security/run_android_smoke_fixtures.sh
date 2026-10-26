@@ -93,12 +93,13 @@ install_smoke_fixture() {
           continue
         fi
         ;;
-      *"PackageManagerInternal.freeStorage"*"on a null object reference"*)
+      *"PackageManagerInternal.freeStorage"*"on a null object reference"*|\
+      *"StorageManager.getVolumes()' on a null object reference"*"InstallLocationUtils.resolveInstallVolume"*)
         # The hosted software-only ATD can report boot_completed and answer
-        # package queries before StorageManager's PackageManagerInternal is
-        # initialized. This is a system-server install failure, not an APK
-        # assertion. Retry only this exact startup signature; preserve the
-        # final raw failure if the service does not recover.
+        # package queries before its package/storage install dependencies are
+        # initialized. Both signatures originate in Android system-server,
+        # before an APK assertion. Retry only these startup signatures; keep
+        # the final raw failure if the services do not recover.
         if [[ "${ORBITTERM_ANDROID_TEST_PROFILE:-}" == "aosp-atd-api35" ]] &&
            (( attempt < max_attempts )); then
           warn "Android ATD storage/package services are still initializing; retrying fixture install ($attempt/$max_attempts)"
