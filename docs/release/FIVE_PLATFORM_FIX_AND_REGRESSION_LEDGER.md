@@ -1,6 +1,6 @@
 # 五端整改与真机回归台账
 
-更新：2026-10-25。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
+更新：2026-10-26。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
 
 ## 记账规则
 
@@ -421,6 +421,8 @@
 | SSH-MFA-DEVICE-01 | 旧客户端对真实 SSH 资产的密码/密钥后验证码无提示；源码、自动化和回环 Linux GUI 已补。**首次真实主机在密码阶段失败**保留。用户恢复登录后，为单一测试账户受控配置 TOTP；Mac 系统 SSH 实测密码后独立验证码成功，密码单独登录被拒；`4cce231` Linux 隔离 GUI 对真实 Debian 主机实测密码＋码后在线、终端/SFTP 可用，重连再次索码、取消失败关闭。 | **未关闭**：密钥＋码、双跳、真实主机错码/超时/Host Key 变化、完整敏感数据审计、macOS/iOS/Android/Windows 客户端 GUI/真机及 Windows 原生编译仍待验。跨实例同步资产回拉为 0 的新疑点另需定位；不得用本机资产连接成功代替云同步或五端验收。 |
 
 ## 后续追加记录
+
+- 2026-10-26｜`QA-WINDOWS-SMB-INTERRUPT-183`｜Windows 网络目标下载中断的两次受控注入未形成有效断线，详见 [SFTP 专项日志](SFTP_DOWNLOAD_TARGET_OWNERSHIP_20261021.md#windows-smb-服务停用与精确句柄关闭未形成断线2026-10-26)。｜**源码/候选**：沿用已验签的 Windows 独立 QA `0.3.0.33`（磁盘满分类源码 `5a85f64`、装机候选 `02cc414`）；本轮不改产品源码或安装包。**自动化**：仅 Windows 临时测试脚本解析检查 3/3 无错误；沿用 `182` 的定向 FFI 与远端门禁，不把本次注入当成产品自动化通过。**隔离 GUI**：无模拟器；Mac RDP 仅是真实 Windows 10 设备的输入通道。**真实设备**：仅对 64 MiB 虚构 VHDX 上的回环 SMB 网络盘及只读 SFTP 夹具操作。第一轮在目标达到 2 MiB 后短时停止 SMB Server，自动恢复前服务确为 `Stopped`，约 35 秒后为 `Running`；QA 下载仍推进到约 20.8 MiB。第二轮在本次新目标达到 2 MiB 时精确关闭唯一开放 SMB 文件句柄，脚本确认关闭，但 QA 仍推进到约 7.1 MiB；随后主动取消，GUI 为“已取消”，测试卷目标不存在、空闲空间恢复初始 53,628,928 字节。**两次注入均未形成可判定的网络断线；不能记作客户端断线处理通过，也未由此发现产品缺陷。** 测试映射/共享撤销、VHD 卸载但文件保留、只读夹具精确停止且端口无监听；Windows 原资产未动。K60 USB 在线但系统锁屏，未操作第三方提供方。**五端完整验收未完成**。｜Windows 自然网络中断仍需独立 SMB 服务器或经核对的链路隔离后重测；Android K60 的第三方拒删/未知元数据/非空写入中断待设备解锁，iOS/macOS/Linux 同候选负向 GUI 和墓碑矩阵继续开放。旧 `179` 共享撤销仍继续写入的失败保留。
 
 - 2026-10-26｜`QA-WINDOWS-DISKFULL-182`｜外置盘恢复后完成 Windows 新候选签名、状态保持和真实磁盘满复测，详见 [SFTP 专项日志](SFTP_DOWNLOAD_TARGET_OWNERSHIP_20261021.md#windows-smb-网络目标与真实容量不足回归2026-10-26)。｜**源码/候选**：修复 `5a85f64` 进入经哈希核对的 `02cc414` Windows QA `0.3.0.33`；本条无新产品源码。**自动化**：定向 FFI 1/1，`02cc414` Windows/Linux CI 成功；该提交 Security Gates 取消，后继 `b714ea5` Security Gates、Windows、Linux CI 均成功，后继文档门禁不能代替 GUI。**隔离 GUI**：无模拟器；Windows App RDP 仅是真实 Windows 10 设备控制通道。**真实设备**：外置盘恢复后 APFS 在线只读校验通过；Windows 安装日志 `SUCCESS`、MSIX 本机摘要匹配、系统签名 `Valid`、包 `Status=Ok`。远控主密码一次判错保留，用户本人解锁后原分组 1+1+2+2 共 6 项、待确认冲突 0、同步队列已处理。按精确指纹移除旧测试证书后仅新证书保留，MSIX 签名仍 `Valid`。首次慢文件在约 34.8 MiB 时夹具随代理回合中断，历史显示“连接已断开”，**不记磁盘满通过**。第二轮同一只读夹具临时加快虚构文件读取，64 MiB VHD 上的 SMB 盘初始可用 53,628,928 字节；128 MiB 下载约 51.2 MiB 时 GUI 明确显示“本地存储空间不足。”、“未完成”。Windows 独立检查失败目标不存在、可用空间恢复初始值。临时映射/共享撤销、VHD 卸载保留文件；Mac 夹具停止，端口无监听，临时加速脚本删除。**五端完整验收未完成**。｜Windows 真实容量不足文案与目标清理关闭；自然 SMB 网络断线、Android 第三方真实拒删/未知元数据、iOS/macOS/Linux 同候选负向 GUI 和五端完整矩阵继续开放。不得把第一次中断轮合并为通过。
 
