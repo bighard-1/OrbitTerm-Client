@@ -1250,6 +1250,31 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task FailedSftpListingIsVisibleAndRefreshCanRecover()
+    {
+        var coreClient = new FakeCheckedCoreClient();
+        var viewModel = CreateViewModel(coreClient);
+        viewModel.Password = "secret";
+        viewModel.ConnectCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.IsConnected && viewModel.IsSftpOpen);
+
+        coreClient.SftpListFailuresRemaining = 1;
+        viewModel.SftpPathText = "/var/log";
+        viewModel.PrepareSftpBrowseCommand.Execute(null);
+        await WaitUntilAsync(() =>
+            viewModel.SftpBrowserStatus == "目录读取失败，请刷新或重新连接");
+
+        Assert.Equal("目录读取失败，请刷新或重新连接", viewModel.SftpListingSummary);
+        Assert.Equal("sftp_list_failed", viewModel.SftpOperationStatus);
+        Assert.Empty(viewModel.SftpEntries);
+
+        viewModel.RefreshSftpBrowseCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.SftpBrowserStatus == "已列出 /var/log");
+        Assert.Equal("1 个项目", viewModel.SftpListingSummary);
+        Assert.Single(viewModel.SftpEntries);
+    }
+
+    [Fact]
     public async Task SftpDirectorySelectionNavigatesAndPreviewsSafely()
     {
         var coreClient = new FakeCheckedCoreClient();
@@ -3342,6 +3367,7 @@ public sealed class MainWindowViewModelTests
         public int TerminalWriteDelayMilliseconds { get; init; }
         public int ResizeTerminalCallCount { get; private set; }
         public int OpenSftpCallCount { get; private set; }
+        public int SftpListFailuresRemaining { get; set; }
         public int UploadSftpFileCallCount { get; private set; }
         public int DownloadSftpFileCallCount { get; private set; }
         public List<ulong> SftpDownloadSessionIds { get; } = [];
@@ -3494,6 +3520,17 @@ public sealed class MainWindowViewModelTests
 
         public CheckedEnvelope ListSftpDirectory(ulong sftpSessionId, string remotePath, HostKeyRequestId requestId)
         {
+            if (SftpListFailuresRemaining > 0)
+            {
+                SftpListFailuresRemaining--;
+                return new CheckedEnvelope(
+                    1,
+                    CheckedFfiKind.SftpDirectoryList,
+                    requestId.Value,
+                    null,
+                    new CheckedErrorPayload("sftp_list_failed", "error.sftp.list.failed", requestId.Value));
+            }
+
             var entriesJson = remotePath == "/var"
                 ? """
                     [

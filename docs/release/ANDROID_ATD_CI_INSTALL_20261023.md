@@ -21,3 +21,9 @@ Windows 10 独立 QA 更新与鼠标缩放验收另见 [Windows 专项日志](WI
 ## 固定候选的门禁复核（2026-10-23）
 
 修订已随固定提交 `4c15188` 推送。该提交的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40051112073) 最终为 `completed/success`；其中 `Android instrumentation and migration gates` 的 Android 15 模拟器 connected tests 与报告保存步骤均成功，生成 `android-instrumentation-results` artifact。Rust、Apple checked-path、Android Release、桌面视觉契约及依赖/许可作业也成功；条件式 OpenSSH RC 与 macOS 签名 UI 冒烟为 skipped，不记通过。原 `ab00edb` 安装失败仍保留，不能被这次成功改写。此项是自动化证据，**没有新增 K60 真实设备 GUI 结果**，也不是五端完整验收。
+
+## `e00c023` 的隔离安装服务再次失联（2026-10-27）
+
+[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40515205598/job/122227250975) 的 Android 仪器作业在软件模拟器报告 `sys.boot_completed=1` 后安装预构建 smoke APK。五次有界尝试先后遇到 ADB 传输失联、系统安装服务未就绪、已知存储服务初始化空引用、ADB 传输失联，最后返回 `cmd: Can't find service: package`；作业明确报 `isolated smoke fixture APK installation failed`。没有运行任何 smoke/connected 断言，也没有 Android 仪器报告。**该固定候选 Android 仪器门禁失败，旧成功不能替代。**
+
+日志仅能证明托管模拟器的包服务在安装阶段反复失联，不能据此归因于 Android 产品代码。当前只记录失败并在后继固定提交重跑；若反复出现，应将模拟器启动稳定性与安装重试上限单独处理，保持非启动类安装错误立即失败。Windows/Linux CI 与其它 Security Gates 子作业的结果须各自列示，不得把整组门禁误记通过；K60 真机也未由本作业重新验证。

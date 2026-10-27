@@ -1335,7 +1335,13 @@ public sealed class MainWindowViewModel : ObservableObject
     public string SftpBrowserStatus
     {
         get => sftpBrowserStatus;
-        private set => SetProperty(ref sftpBrowserStatus, value);
+        private set
+        {
+            if (SetProperty(ref sftpBrowserStatus, value))
+            {
+                OnPropertyChanged(nameof(SftpListingSummary));
+            }
+        }
     }
 
     public string SftpOperationStatus
@@ -1558,6 +1564,16 @@ public sealed class MainWindowViewModel : ObservableObject
             if (sftpLease is null)
             {
                 return "尚未打开 SFTP";
+            }
+
+            if (SftpBrowserStatus.StartsWith("Listing ", StringComparison.Ordinal))
+            {
+                return "正在读取目录…";
+            }
+
+            if (SftpBrowserStatus == "目录读取失败，请刷新或重新连接")
+            {
+                return SftpBrowserStatus;
             }
 
             return SftpEntries.Count == 0
@@ -6649,7 +6665,10 @@ public sealed class MainWindowViewModel : ObservableObject
                 break;
             case SftpDirectoryListResult.Failed failed:
                 SftpEntries.Clear();
-                SftpBrowserStatus = failed.MessageKey;
+                // An empty list must never stand in for a failed checked read.
+                // Keep the fixed diagnostic code separately; do not surface
+                // arbitrary server text in the directory summary.
+                SftpBrowserStatus = "目录读取失败，请刷新或重新连接";
                 SftpOperationStatus = failed.Code;
                 break;
         }
