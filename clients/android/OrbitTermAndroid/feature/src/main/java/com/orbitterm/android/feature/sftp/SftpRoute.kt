@@ -269,7 +269,14 @@ class SftpViewModel @Inject constructor(
 
     fun refresh() {
         val state = mutableUiState.value
-        val sftpSessionId = state.sftpSessionId ?: return
+        if (state.isLoading) return
+        val sftpSessionId = state.sftpSessionId
+        if (sftpSessionId == null) {
+            // A failed first open has no SFTP id yet. The visible refresh
+            // action must actually retry the checked open, not silently do nothing.
+            state.session?.let(::bind)
+            return
+        }
         listDirectory(sftpSessionId, state.path)
     }
 
@@ -1793,6 +1800,9 @@ private fun String.textDocumentMessage(): String = when (this) {
 }
 
 private fun sftpErrorMessage(prefix: String, code: String, retryable: Boolean = false): String {
+    if (code == "sftp_list_timeout") {
+        return "$prefix：目录读取超时，请重新建立会话后重试。诊断代码：sftp_list_timeout。"
+    }
     val error = orbitNativeError(code, retryable)
     return "$prefix：${error.userMessage()} 诊断代码：${error.diagnosticCode}。"
 }

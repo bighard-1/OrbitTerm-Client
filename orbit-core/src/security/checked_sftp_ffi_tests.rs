@@ -8,6 +8,7 @@ fn absolute_local_test_path(file_name: &str) -> String {
     }
 }
 use std::os::raw::c_char;
+use std::time::Duration;
 
 use serde_json::Value;
 
@@ -16,10 +17,11 @@ use super::checked_sftp_ffi::{
     orbit_sftp_mkdir_checked_v1, orbit_sftp_open_checked_v1, orbit_sftp_remove_checked_v1,
     orbit_sftp_rename_checked_v1, sftp_chmod_checked_response_for_tests,
     sftp_create_file_checked_response_for_tests, sftp_download_checked_response_for_tests,
-    sftp_list_checked_response_for_tests, sftp_mkdir_checked_response_for_tests,
-    sftp_open_checked_response_for_tests, sftp_read_text_checked_response_for_tests,
-    sftp_remove_checked_response_for_tests, sftp_rename_checked_response_for_tests,
-    sftp_upload_checked_response_for_tests, sftp_write_text_checked_response_for_tests,
+    sftp_list_checked_response_for_tests, sftp_list_checked_response_with_timeout_for_tests,
+    sftp_mkdir_checked_response_for_tests, sftp_open_checked_response_for_tests,
+    sftp_read_text_checked_response_for_tests, sftp_remove_checked_response_for_tests,
+    sftp_rename_checked_response_for_tests, sftp_upload_checked_response_for_tests,
+    sftp_write_text_checked_response_for_tests,
 };
 use super::{
     fingerprint_sha256, CheckedChannelAccessError, HostIdentity, HostKeyFfiEnvelope,
@@ -318,6 +320,24 @@ fn list_success_returns_checked_directory_payload_without_sensitive_fields() {
     ] {
         assert!(!json.contains(forbidden));
     }
+}
+
+#[test]
+fn stalled_directory_list_returns_bounded_redacted_error() {
+    let request_id = CString::new(REQUEST_ID).unwrap();
+    let path = CString::new("/qa").unwrap();
+    let pointer = sftp_list_checked_response_with_timeout_for_tests(
+        77,
+        path.as_ptr(),
+        request_id.as_ptr(),
+        |_, _| std::future::pending::<Result<String, OrbitCoreError>>(),
+        Duration::from_millis(10),
+    );
+    let (json, value) = read_and_free(pointer);
+    assert_eq!(value["error"]["code"], "sftp_list_failed");
+    assert_eq!(value["error"]["detail_code"], "sftp_list_timeout");
+    assert_eq!(value["request_id"], REQUEST_ID);
+    assert!(!json.contains("/qa"));
 }
 
 #[test]

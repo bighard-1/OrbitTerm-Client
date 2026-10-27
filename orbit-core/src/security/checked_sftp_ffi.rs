@@ -30,6 +30,9 @@ const MAX_SFTP_PATH_BYTES: usize = 512;
 const MAX_LOCAL_DOWNLOAD_PATH_BYTES: usize = 4096;
 const MAX_SFTP_TEXT_EDIT_BYTES: usize = 2 * 1024 * 1024;
 const SFTP_PROGRESS_MIN_INTERVAL: Duration = Duration::from_millis(100);
+// The checked SFTP client has a 30-second request timer. This outer bound also
+// covers a stalled channel/transport before the request timer starts.
+const SFTP_DIRECTORY_RESPONSE_TIMEOUT: Duration = Duration::from_secs(35);
 
 static ACTIVE_SFTP_TRANSFERS: Lazy<Mutex<HashMap<String, Arc<AtomicBool>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -349,10 +352,16 @@ where
                 HostKeyFfiErrorPayload::from_checked_channel_error(error, Some(request_id.clone()))
             })?;
         let home_path = ORBIT_RUNTIME
-            .block_on(crate::sftp_canonical_home_path_checked(
-                sftp_session_id.get(),
-            ))
-            .unwrap_or_else(|_| "/".to_string());
+            .block_on(async {
+                tokio::time::timeout(
+                    SFTP_DIRECTORY_RESPONSE_TIMEOUT,
+                    crate::sftp_canonical_home_path_checked(sftp_session_id.get()),
+                )
+                .await
+            })
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_else(|| "/".to_string());
         let envelope = (|| {
             let payload = SftpChannelOpenedPayload::new_with_home(
                 base_session_id,
@@ -393,6 +402,26 @@ where
     F: FnOnce(u64, String) -> Fut,
     Fut: Future<Output = Result<String, OrbitCoreError>>,
 {
+    sftp_list_checked_response_with_timeout(
+        sftp_session_id,
+        remote_path,
+        request_id,
+        lister,
+        SFTP_DIRECTORY_RESPONSE_TIMEOUT,
+    )
+}
+
+fn sftp_list_checked_response_with_timeout<F, Fut>(
+    sftp_session_id: u64,
+    remote_path: *const c_char,
+    request_id: *const c_char,
+    lister: F,
+    timeout: Duration,
+) -> *mut c_char
+where
+    F: FnOnce(u64, String) -> Fut,
+    Fut: Future<Output = Result<String, OrbitCoreError>>,
+{
     ffi_response(|| {
         let request_id = parse_request_id(request_id)?;
         if sftp_session_id == 0 {
@@ -401,7 +430,17 @@ where
 
         let remote_path = parse_remote_path(remote_path, Some(request_id.clone()))?;
         let list_json = ORBIT_RUNTIME
-            .block_on(lister(sftp_session_id, remote_path.clone()))
+            .block_on(async {
+                tokio::time::timeout(timeout, lister(sftp_session_id, remote_path.clone())).await
+            })
+            .map_err(|_| {
+                HostKeyFfiErrorPayload::new(
+                    HostKeyFfiErrorCode::SftpListFailed,
+                    Some("sftp_list_timeout"),
+                    Some(request_id.clone()),
+                    None,
+                )
+            })?
             .map_err(|error| sftp_list_error_payload(error, Some(request_id.clone())))?;
         let payload = directory_list_payload(sftp_session_id, remote_path, &list_json)
             .map_err(|error| error.to_error_payload(Some(request_id.clone())))?;
@@ -1316,6 +1355,27 @@ where
     Fut: Future<Output = Result<String, OrbitCoreError>>,
 {
     sftp_list_checked_response(sftp_session_id, remote_path, request_id, lister)
+}
+
+#[cfg(test)]
+pub(crate) fn sftp_list_checked_response_with_timeout_for_tests<F, Fut>(
+    sftp_session_id: u64,
+    remote_path: *const c_char,
+    request_id: *const c_char,
+    lister: F,
+    timeout: Duration,
+) -> *mut c_char
+where
+    F: FnOnce(u64, String) -> Fut,
+    Fut: Future<Output = Result<String, OrbitCoreError>>,
+{
+    sftp_list_checked_response_with_timeout(
+        sftp_session_id,
+        remote_path,
+        request_id,
+        lister,
+        timeout,
+    )
 }
 
 #[cfg(test)]

@@ -30,4 +30,19 @@ class CheckedSftpTransferFailureCodeTest {
     fun `missing error remains a safe generic failure`() {
         assertEquals("native_operation_failed", checkedSftpTransferFailureCode(null))
     }
+
+    @Test
+    fun `directory timeout is distinct without exposing an arbitrary detail`() {
+        val timedOut = buildJsonObject {
+            put("code", "sftp_list_failed")
+            put("detail_code", "sftp_list_timeout")
+        }
+        val untrusted = buildJsonObject {
+            put("code", "sftp_list_failed")
+            put("detail_code", "/private/server/path")
+        }
+
+        assertEquals("sftp_list_timeout", checkedSftpListFailureCode(timedOut))
+        assertEquals("sftp_list_failed", checkedSftpListFailureCode(untrusted))
+    }
 }

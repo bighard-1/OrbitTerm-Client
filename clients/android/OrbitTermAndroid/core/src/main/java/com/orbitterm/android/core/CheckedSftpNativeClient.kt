@@ -232,7 +232,7 @@ class CheckedSftpNativeClient @Inject constructor() {
         )
 
         fun listFailure() = CheckedSftpListResult.Failure(
-            code = error?.string("code") ?: "native_operation_failed",
+            code = checkedSftpListFailureCode(error),
             retryable = error?.string("retryable")?.toBooleanStrictOrNull() ?: false,
         )
     }
@@ -242,6 +242,14 @@ class CheckedSftpNativeClient @Inject constructor() {
 internal fun checkedSftpTransferFailureCode(error: JsonObject?): String =
     if (error?.string("detail_code") == "sftp_transfer_cancelled") {
         "sftp_transfer_cancelled"
+    } else {
+        error?.string("code") ?: "native_operation_failed"
+    }
+
+/** Promote only the fixed timeout detail; never expose arbitrary server text. */
+internal fun checkedSftpListFailureCode(error: JsonObject?): String =
+    if (error?.string("code") == "sftp_list_failed" && error.string("detail_code") == "sftp_list_timeout") {
+        "sftp_list_timeout"
     } else {
         error?.string("code") ?: "native_operation_failed"
     }
