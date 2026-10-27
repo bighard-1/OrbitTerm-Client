@@ -370,3 +370,15 @@ Windows 10 实体测试机经 Mac RDP 操作现有独立 QA `0.3.0.33`，仅连�
 后续只读查询确认，上述 `02cc414` 的 Security Gates 最终为 `completed/cancelled`；它被后继推送取代，**不是通过**。当前分支后继提交 `b714ea5` 的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40321473023)、[Windows Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40321473194) 与 [Linux Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40321473057) 均为 `completed/success`。Windows 待装包仍是经哈希核对的 `02cc414` 合并候选；后继文档提交的门禁成功不替代该包的真机 GUI 验收。
 
 用户已明确允许本轮新测试证书导入、独立 QA 更新及旧证书精确清理。Mac RDP PowerShell 已定位到经核对的候选目录并提交原归档安装脚本命令；**命令提交后、尚未收到安装成功回显时，Mac 的加密外置盘从系统磁盘列表消失**。Windows App 的运行进程仍在，但其外置盘上的应用本体路径已不可用，桌面控制接口报文件不存在；Windows 共享挂载及备份目录亦随盘不可达。Windows 的 RDP 端口只读探测仍在线。此时**安装结果、系统签名、原资产、证书清理和新文案真机复测均未核实**，不得把已提交命令记作安装成功，也不重复盲跑安装器。待外置盘重新连接并解锁后，先核对 Windows 本机安装日志、签名与包注册状态，再核对原资产，之后才继续容量不足回归和旧证书清理。外置盘暂不可检测属于测试环境阻滞，不计产品缺陷；前述真实容量不足旧版通用提示仍保持开放。
+
+### 外置盘恢复后的 Windows 新候选验收
+
+用户重新插拔后，macOS 重新识别、挂载并解锁加密 `ExternalSSD`；`diskutil verifyVolume` 在线只读检查报告卷 `appears to be OK`、退出码 0。Windows 管理共享恢复连接。安装脚本的 Windows 本机日志显示 `SUCCESS`、`OrbitTerm.Client_0.3.0.33_x64`；没有再次执行安装器。独立 PowerShell 审计读取 Windows 本机 MSIX 摘要与候选一致、`Get-AuthenticodeSignature=Valid`、签名者是本次 `9506…6002` 证书、`Get-AppxPackage` 为 `Status=Ok`。安装后新旧两张测试证书一度并存，且 64 MiB 测试 VHD 当时未挂载。
+
+代理经远程桌面逐字符输入测试账户主密码一次仍被 QA 判错，立即停止重试；用户本人输入后成功解锁。解锁后的 QA 原资产分组为 **1+1+2+2，共 6 项**，个人中心显示待确认冲突 **0 项**，底部同步状态为“云端已同步、本机队列已处理”。这证明本次安装后的有限数据保持，不等于五端墓碑全矩阵。仅在原资产确认后，按更新前已记录的精确旧 OrbitTerm 测试证书指纹删除旧证书；Windows 后审计为 `OldCertificateRemoved=True`、`NewCertificatePresent=True`、同一 MSIX 系统签名仍 `Valid`、签名者仍匹配新证书。没有改动其它证书、正式版或线上服务。
+
+第一轮新候选慢文件传输在约 **34.8 MiB** 时，当前代理回合被中断，只读夹具进程随之停止；Windows GUI 历史显示“连接已断开，请重新连…”，不能把该轮当磁盘满提示通过。独立文件审计发现测试卷空间回到初始 **53,628,928 字节**，目标文件不存在。这只证明该中断轮没有残留目标；**失败/未完成结果保留**。
+
+为取得明确容量边界，在同一个私有只读、禁 shell/远端写入夹具目录中临时使用同一测试主机密钥和文件，仅把虚构文件的逐块读取等待从 120 ms 缩短到 8 ms。重新检查测试 VHD 卷标、NTFS、目标不存在、盘符/共享无占用后，只给当前 Windows 测试账户挂载临时回环 SMB 网络盘；初始可用空间仍为 **53,628,928 字节**。Windows QA 从原本机虚构 SFTP 资产重新连接，远端只列出虚构文件。对 128 MiB `slow-test.bin` 选择该网络盘，GUI 传输任务至约 **51.2 MiB / 128 MiB** 后明确显示 **“本地存储空间不足。”**，位于“未完成”，没有成功提示。Windows 本机独立检查：卷可用空间恢复为 **53,628,928 字节**，本轮 `slow-test.bin` **不存在**；共享和映射身份仍是本轮隔离夹具。这是修复后 Windows 10 真机 GUI 对**真实容量不足**的正向反馈及失败目标清理通过，不能推断自然网络断线或所有第三方目标提供方也通过。
+
+验后 Windows 脚本按精确卷标、VHD 路径、映射和共享身份撤销临时网络映射与共享并卸载 VHD；复查 `ZVolumeRemoved=True`、`ImageAttached=False`，测试 VHD 文件保留供审计。Mac 按精确测试进程停止 SFTP 夹具，测试端口无监听；本轮临时加速脚本已删除。旧版 GUI 通用提示失败与首次撤销共享未能中断开放句柄的失败仍见上文，未被本轮通过记录抹去。**证据等级**：源码修复 `5a85f64`、定向自动化 1/1、Windows/Linux CI 通过、Windows 10 实体机原生 QA GUI 通过；无新模拟器 GUI、无 iOS/macOS/Linux/Android 同候选真机容量不足对照，五端完整验收仍未完成。
