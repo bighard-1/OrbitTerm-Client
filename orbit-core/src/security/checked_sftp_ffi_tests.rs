@@ -387,6 +387,7 @@ fn list_errors_map_to_stable_redacted_codes() {
             OrbitCoreError::SftpFailed("permission denied /secret".to_string()),
             "sftp_list_failed",
         ),
+        (OrbitCoreError::SftpTimedOut, "sftp_list_failed"),
         (
             OrbitCoreError::Internal("json includes private_key".to_string()),
             "ffi_internal_error",
@@ -405,6 +406,22 @@ fn list_errors_map_to_stable_redacted_codes() {
             assert!(!json.contains(forbidden));
         }
     }
+}
+
+#[test]
+fn backend_directory_timeout_maps_to_stable_redacted_detail() {
+    let request_id = CString::new(REQUEST_ID).unwrap();
+    let path = CString::new("/private/path").unwrap();
+    let pointer = sftp_list_checked_response_for_tests(
+        77,
+        path.as_ptr(),
+        request_id.as_ptr(),
+        |_, _| async { Err(OrbitCoreError::SftpTimedOut) },
+    );
+    let (json, value) = read_and_free(pointer);
+    assert_eq!(value["error"]["code"], "sftp_list_failed");
+    assert_eq!(value["error"]["detail_code"], "sftp_list_timeout");
+    assert!(!json.contains("/private/path"));
 }
 
 #[test]

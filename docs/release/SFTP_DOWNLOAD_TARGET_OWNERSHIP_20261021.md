@@ -452,3 +452,13 @@ Windows 10 实体机通过 Mac RDP 操作已有的**仅此设备虚构 SFTP 资�
 **剩余分类边界**：该夹具触发的是 SFTP 客户端内部约 30 秒请求期限，返回通用 `sftp_list_failed`，先于受检 FFI 的 35 秒外层期限。因此本次 GUI **没有**走到专用 `sftp_list_timeout` 细节；定向单测只证明该固定细节若出现会被安全映射。用户当前可看到明确的通用恢复建议，不能宣称专用超时分类的真机通过。后续应在 Rust 核心按 SFTP 客户端的结构化 Timeout 类型传递固定细节，再对 Android K60、Windows 与 Linux 做同一延迟夹具对照；原 K60 间歇性无限加载的唯一根因仍未确定。
 
 **清理与范围**：按唯一测试资产 UUID 清除隔离 Keyring 项并复查无匹配；停止 QA、只读夹具、VNC、Xvfb 和 Openbox 的精确进程，测试端口无监听，移除隔离资产目录及临时认证文件。原 Linux Flatpak 进程保持运行，真实资产、Windows/K60/iOS/macOS 客户端和线上服务均未操作。第一轮 Secret Service 保存失败、误用 `scandir`、图形隧道中断和本轮 Host Key 变化阻断均保留为测试过程记录；不把这些环境事件改写成产品通过。
+
+## SFTP 目录内部超时的类型化分类候选（2026-10-28）
+
+**问题来源**：上节 70 秒延迟夹具在约 30 秒先触发 `russh-sftp` 内部请求超时，旧 `list_dir` 把具体 `SftpClientError::Timeout` 转成普通 `SftpFailed(String)`；受检接口只能返回通用 `sftp_list_failed`，因此 Linux 隔离 GUI 的专用超时说明未被触发。这是已见 GUI 结果，保留旧版通用提示，不改写为专用分类通过。
+
+**源码候选**：仅目录读取把库的 `Timeout` 枚举映射为内部 `SftpTimedOut`，受检 FFI 对它返回固定 `sftp_list_timeout` 细节；其他 SFTP 状态和远端自定义文字继续走通用失败，不能凭文本中含有 “Timeout” 就认定超时。Android 终端错误枚举补齐该内部变体，但不会把远端错误文字返回 Java。枚举变体加在现有列表尾部以尽量保持既有跨语言枚举次序；是否存在发行版兼容影响仍以 CI 和新包验证为准。
+
+**自动化**：`orbit-core` 全库 322 通过、2 忽略；新增用例覆盖库的真实 `Timeout` 类型、伪造含 “Timeout” 的服务器错误文本，以及受检 FFI 的稳定、脱敏细节；Clippy `--all-targets -D warnings`、格式和 `git diff --check` 通过。Mac 本机尝试 Linux GUI 定向测试失败：缺少 Linux GTK/GObject/Graphene 的 `pkg-config` 环境，属于交叉主机环境限制；本次未据此宣称 Linux GUI 编译通过。先前独立 Linux GUI 候选 `b29ce38` 的旧结果保留。
+
+**验收分层**：源码和 Rust 自动化通过；本修复尚无新的隔离 GUI、K60/Windows 真机或 iOS/macOS 验证，也没有五端完整验收。K60 USB 本轮只读确认设备在线、前台在桌面、插电常亮设置仍在，没有安装或操作产品 QA。后续对照需用同一虚构延迟夹具在 Linux、Windows、K60 核对专用超时提示与同进程恢复，再补 iOS/macOS 负向 GUI；保留 K60 原间歇无限加载的未知根因。本提交的远端 CI 结果待核对。

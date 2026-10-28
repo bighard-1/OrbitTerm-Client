@@ -1060,6 +1060,12 @@ fn sftp_list_error_payload(
             request_id,
             None,
         ),
+        OrbitCoreError::SftpTimedOut => HostKeyFfiErrorPayload::new(
+            HostKeyFfiErrorCode::SftpListFailed,
+            Some("sftp_list_timeout"),
+            request_id,
+            None,
+        ),
         OrbitCoreError::SftpFailed(_) => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SftpListFailed,
             Some("sftp_list_failed"),
@@ -1100,6 +1106,12 @@ fn sftp_read_error_payload(
         OrbitCoreError::SftpTransferCancelled => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SftpReadFailed,
             Some("sftp_operation_cancelled"),
+            request_id,
+            None,
+        ),
+        OrbitCoreError::SftpTimedOut => HostKeyFfiErrorPayload::new(
+            HostKeyFfiErrorCode::SftpReadFailed,
+            Some("sftp_read_failed"),
             request_id,
             None,
         ),
@@ -1148,6 +1160,12 @@ fn sftp_download_error_payload(
             request_id,
             None,
         ),
+        OrbitCoreError::SftpTimedOut => HostKeyFfiErrorPayload::new(
+            HostKeyFfiErrorCode::SftpDownloadFailed,
+            Some("sftp_download_failed"),
+            request_id,
+            None,
+        ),
         OrbitCoreError::SftpFailed(message) => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SftpDownloadFailed,
             Some(classify_sftp_transfer_failure(
@@ -1191,6 +1209,12 @@ fn sftp_upload_error_payload(
         OrbitCoreError::SftpTransferCancelled => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SftpUploadFailed,
             Some("sftp_transfer_cancelled"),
+            request_id,
+            None,
+        ),
+        OrbitCoreError::SftpTimedOut => HostKeyFfiErrorPayload::new(
+            HostKeyFfiErrorCode::SftpUploadFailed,
+            Some("sftp_upload_failed"),
             request_id,
             None,
         ),

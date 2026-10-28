@@ -85,6 +85,8 @@ pub enum OrbitCoreError {
     Internal(String),
     #[error("legacy_network_disabled")]
     LegacyNetworkDisabled,
+    #[error("SFTP 请求超时")]
+    SftpTimedOut,
 }
 
 impl From<legacy_network::LegacyNetworkDisabled> for OrbitCoreError {

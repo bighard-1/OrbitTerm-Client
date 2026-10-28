@@ -203,9 +203,9 @@ fn terminal_command_response(
                 OrbitCoreError::EncryptFailed | OrbitCoreError::DecryptFailed => {
                     ("ffi_internal_error", false)
                 }
-                OrbitCoreError::SftpFailed(_) | OrbitCoreError::SftpTransferCancelled => {
-                    ("native_operation_failed", false)
-                }
+                OrbitCoreError::SftpFailed(_)
+                | OrbitCoreError::SftpTimedOut
+                | OrbitCoreError::SftpTransferCancelled => ("native_operation_failed", false),
             };
             json!({
                 "schema_version": 1,

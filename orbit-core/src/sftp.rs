@@ -105,6 +105,13 @@ fn map_create_mutation_error(error: SftpClientError) -> SftpMutationError {
     }
 }
 
+fn map_list_dir_error(error: SftpClientError) -> OrbitCoreError {
+    match error {
+        SftpClientError::Timeout => OrbitCoreError::SftpTimedOut,
+        other => OrbitCoreError::SftpFailed(other.to_string()),
+    }
+}
+
 pub(crate) async fn list_dir(
     session_id: u64,
     session: &Arc<OrbitSftpSession>,
@@ -119,7 +126,7 @@ pub(crate) async fn list_dir(
         .sftp
         .read_dir(path)
         .await
-        .map_err(|e| OrbitCoreError::SftpFailed(e.to_string()))?;
+        .map_err(map_list_dir_error)?;
 
     let items: Vec<SftpListItem> = entries
         .map(|entry| {
@@ -1082,8 +1089,9 @@ fn shell_single_quote(input: &str) -> String {
 #[cfg(test)]
 mod transfer_progress_tests {
     use super::{
-        await_download_read_or_cancel, map_create_mutation_error, with_new_download_target,
-        SftpMutationError, TransferProgressThrottle, SFTP_PROGRESS_MIN_BYTES,
+        await_download_read_or_cancel, map_create_mutation_error, map_list_dir_error,
+        with_new_download_target, SftpMutationError, TransferProgressThrottle,
+        SFTP_PROGRESS_MIN_BYTES,
     };
     use crate::OrbitCoreError;
     use russh_sftp::{
@@ -1200,5 +1208,24 @@ mod transfer_progress_tests {
             map_create_mutation_error(error),
             SftpMutationError::TargetExists
         );
+    }
+
+    #[test]
+    fn list_timeout_uses_backend_type_not_server_text() {
+        assert!(matches!(
+            map_list_dir_error(SftpClientError::Timeout),
+            OrbitCoreError::SftpTimedOut
+        ));
+
+        let server_status = SftpClientError::Status(Status {
+            id: 1,
+            status_code: StatusCode::Failure,
+            error_message: "Timeout /private/path".to_string(),
+            language_tag: String::new(),
+        });
+        assert!(matches!(
+            map_list_dir_error(server_status),
+            OrbitCoreError::SftpFailed(_)
+        ));
     }
 }
