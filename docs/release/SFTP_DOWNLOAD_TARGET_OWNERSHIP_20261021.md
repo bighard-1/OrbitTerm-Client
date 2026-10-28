@@ -474,3 +474,13 @@ Windows 10 实体机通过 Mac RDP 操作已有的**仅此设备虚构 SFTP 资�
 **Android 提示修复候选**：把受检接口固定的 `security_generation_mismatch`、`legacy_session_not_allowed` 映射到脱敏的“会话已失效，请重新连接资产后重试”；另补 `invalid_request` 与 `ffi_internal_error` 的固定分类，不允许任意错误文本进入诊断码。Android `domain` 单测通过。独立检出仅同步这两处 Kotlin 源码/测试，保留同一 `2ccc72f` 原生库，重建并安装受保护 QA；签名一致、设备 APK 哈希与本地修复包 `1e7867a2…dffaee` 一致。正常只读夹具先列出三项，随后停止夹具并在旧会话刷新，页面准确显示 **“会话已失效，请重新连接资产后重试。诊断代码：session_unavailable。操作未完成，当前目录列表仍可查看。”**；恢复夹具后重新连接，同一 QA 应用进程再次列出三项。旧版 `unknown` 失败仍保留，不被修复版通过覆盖。
 
 **清理和剩余范围**：精确停止只读夹具及延迟夹具，测试端口不再监听，移除临时延迟脚本与设备临时 UI 转储，结束 QA 前台进程；K60 保留当前同签名受保护修复版，运行时窗口 `SECURE` 标志已核对。没有连接真实资产、下载测试文件、调整主机密钥或更新线上服务。Linux/Windows/iOS/macOS 尚未使用此新核心候选完成 GUI/真机同场景对照；Windows 自然断线、K60 原间歇无限加载、五端完整矩阵仍开放。
+
+### Linux 隔离 GUI 类型化超时与同进程恢复（2026-10-28）
+
+固定候选为 `cf7a20d`（包含 `2ccc72f` 的 Rust 核心改动）；[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40690114204)、[Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40690114399)、[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40690114070) 最终成功。Security Gates 中的 macOS 签名 UI 与 OpenSSH 候选冒烟按条件跳过，不能算作设备验收。
+
+Linux 开发机以隔离源码/XDG 配置、独立应用 ID 和 Xvfb 启动 Release QA，原 Flatpak 保持运行。只添加一条“仅此设备”虚构 SSH 资产，连接仅监听回环地址的只读、禁 shell SFTP 夹具；GUI 首次显示的 ED25519 指纹与夹具公钥的独立 `ssh-keygen` 结果一致后才信任。正常目录列出虚构文件。启用夹具的 70 秒 `listdir` 延迟并刷新，夹具记录 `DELAY_ACTIVE`；约 30 秒后 GUI 显示 **“SFTP 读取失败：远端目录响应超时，请刷新重试；若持续失败，请重新连接该资产”**，没有无限加载、通用 `sftp_list_failed` 或原始远端文本。移除延迟后，在**同一 QA 进程、同一会话**点击刷新，虚构文件重新列出。夹具禁 shell 引起的 Monitor 采样失败单独保留，不作为目录失败。
+
+过程中曾依据旧截图把侧栏 0 项误判为资产未显示。资产管理能列出新资产；诊断构建确认目录实际载入 1 项、所有权索引可读、侧栏筛选结果 1 项，当前可访问性树也显示该资产。后续截图受隐私保护变黑，因此旧截图不能证明资产丢失；此诊断过程保留，不记成产品修复。只在远端隔离源码插入非敏感计数日志，本仓库产品源码没有诊断改动。
+
+结束后按唯一测试凭据 ID 清除 Secret Service 项并验证无匹配，停止 QA/夹具/Xvfb/Openbox，测试端口无监听，删除隔离源码、配置与一次性主机密钥；原 Flatpak 进程仍在。**证据层级**为 Linux 开发机上的隔离原生 GUI，尚非正式 Linux 发行包；Windows 10 的同候选 SFTP 延迟/恢复尚未验，iOS/macOS 负向 GUI、K60 原间歇加载与五端完整验收仍开放。
