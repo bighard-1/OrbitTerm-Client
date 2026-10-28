@@ -490,3 +490,9 @@ Linux 开发机以隔离源码/XDG 配置、独立应用 ID 和 Xvfb 启动 Rele
 [Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40690114399) 产物名中的 PR 合并提交为 `5403506`，其 Git tree 与分支候选 `cf7a20d` 完全一致。136 MB 外层归档的本机 SHA-256 与 GitHub 显示的 `48ee9c61…a28724` 一致；包内 MSIX 与随包 `SHA256.txt` 一致，清单为 `OrbitTerm.Client` / `0.3.0.33` / x64 / `CN=OrbitTerm Development`，新公开测试证书 SHA-1 指纹为 `947F…E7BD`。浏览器首次 `downloadMedia` 在 120 秒超时，但普通下载随后完成并通过完整摘要核验；失败保留。包置于加密外置盘，四份安装相关文件经 SMB 复制到 Windows 测试机下载目录后逐项重读并验证 SHA-256 一致。加密外置盘另备份测试机账户目录 24 个文件、QA Settings 2 个文件并逐项验证；QA LocalState 当时为空。备份不包括被系统占用的 Helium 注册表，不能宣称完整可恢复。
 
 Windows App 已发起到既有测试机的 RDP 连接，但停在自签名证书安全警告；按远程控制规则，此警告须由用户本人核对并点击继续。**本轮没有点击警告、没有导入新测试证书、没有安装新 QA，也没有完成 Windows SFTP GUI 复测。**旧客户端、签名信任库及测试资产均未改动。待用户完成连接后，先在 Windows 本机核对包哈希和当前 QA 状态，再处理新证书/同版更新与隔离只读延迟夹具。Linux 隔离通过和 Windows CI 成功不能代替这一步真机结果。
+
+### Windows 类型化目录超时提示传递修复（2026-10-28）
+
+用户在 Windows App 的 RDP 自签名证书警告中亲自确认后，Windows 测试机可进入桌面。只读核对确认原独立 QA 仍可打开，原有 4 个分组、6 条测试资产可见；新候选归档与 Windows 本机 MSIX 摘要一致，新测试证书指纹为 `947F…E7BD`，签名状态在尚未信任该证书时为 `UnknownError`。账户目录及 QA Settings 的原备份保持可用。用户随后允许为该候选导入证书并更新 QA，但安装前源码审查发现 `SftpDirectoryListResult.FromEnvelope` 丢弃受检错误的 `DetailCode`，Windows 界面因此无法识别 Rust 已修复的 `sftp_list_timeout`，即使安装原候选也只会显示通用失败。**原候选未安装，证书未导入**；准备过的桌面启动器和旧候选安装脚本已精确删除，保留已核验的包文件与备份以供追溯。
+
+新的源码候选保留 `DetailCode`，仅在受检目录失败代码为 `sftp_list_failed` 且固定细节为 `sftp_list_timeout` 时显示“远端目录响应超时”，通过可见错误提示和最近操作给出刷新/重连建议；包含 Timeout 字样的任意远端错误文字仍走通用失败，不按字面猜测类型。新增 Windows ViewModel 自动化用例验证固定分类、可见提示、清空旧列表以及同一会话刷新恢复；原通用失败用例加入伪造文字对照。本段撰写时 Windows CI、新候选 QA 安装及真实 Windows GUI 延迟/恢复尚未执行，不能把 Linux GUI 结果外推为 Windows 通过。新包可能采用另一张测试证书，须在核验新包后再由用户确认具体导入动作。Android K60、iOS/macOS 负向 GUI、Windows 自然断线及五端墓碑矩阵仍待各自验证。

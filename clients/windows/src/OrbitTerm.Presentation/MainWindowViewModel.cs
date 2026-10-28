@@ -1571,7 +1571,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 return "正在读取目录…";
             }
 
-            if (SftpBrowserStatus == "目录读取失败，请刷新或重新连接")
+            if (SftpBrowserStatus is "目录读取失败，请刷新或重新连接" or "远端目录响应超时")
             {
                 return SftpBrowserStatus;
             }
@@ -6666,10 +6666,19 @@ public sealed class MainWindowViewModel : ObservableObject
             case SftpDirectoryListResult.Failed failed:
                 SftpEntries.Clear();
                 // An empty list must never stand in for a failed checked read.
-                // Keep the fixed diagnostic code separately; do not surface
-                // arbitrary server text in the directory summary.
-                SftpBrowserStatus = "目录读取失败，请刷新或重新连接";
-                SftpOperationStatus = failed.Code;
+                // Only the checked, fixed timeout detail selects specialized
+                // guidance. Never show arbitrary server error text here.
+                if (failed.Code == "sftp_list_failed" && failed.DetailCode == "sftp_list_timeout")
+                {
+                    SftpBrowserStatus = "远端目录响应超时";
+                    SftpOperationStatus = "请刷新重试；若持续失败，请重新连接该资产。";
+                    PublishSftpFeedback(SftpFeedbackKind.Error, "目录读取超时", SftpOperationStatus);
+                }
+                else
+                {
+                    SftpBrowserStatus = "目录读取失败，请刷新或重新连接";
+                    SftpOperationStatus = failed.Code;
+                }
                 break;
         }
 

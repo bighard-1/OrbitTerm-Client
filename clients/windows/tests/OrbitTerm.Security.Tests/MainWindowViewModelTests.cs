@@ -1258,6 +1258,7 @@ public sealed class MainWindowViewModelTests
         viewModel.ConnectCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.IsConnected && viewModel.IsSftpOpen);
 
+        coreClient.SftpListFailureDetailCode = "remote says Timeout: arbitrary text";
         coreClient.SftpListFailuresRemaining = 1;
         viewModel.SftpPathText = "/var/log";
         viewModel.PrepareSftpBrowseCommand.Execute(null);
@@ -1266,6 +1267,34 @@ public sealed class MainWindowViewModelTests
 
         Assert.Equal("目录读取失败，请刷新或重新连接", viewModel.SftpListingSummary);
         Assert.Equal("sftp_list_failed", viewModel.SftpOperationStatus);
+        Assert.Empty(viewModel.SftpEntries);
+
+        viewModel.RefreshSftpBrowseCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.SftpBrowserStatus == "已列出 /var/log");
+        Assert.Equal("1 个项目", viewModel.SftpListingSummary);
+        Assert.Single(viewModel.SftpEntries);
+    }
+
+    [Fact]
+    public async Task TypedSftpListTimeoutShowsRecoveryGuidanceAndRefreshCanRecover()
+    {
+        var coreClient = new FakeCheckedCoreClient();
+        var viewModel = CreateViewModel(coreClient);
+        viewModel.Password = "secret";
+        viewModel.ConnectCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.IsConnected && viewModel.IsSftpOpen);
+
+        coreClient.SftpListFailureDetailCode = "sftp_list_timeout";
+        coreClient.SftpListFailuresRemaining = 1;
+        viewModel.SftpPathText = "/var/log";
+        viewModel.PrepareSftpBrowseCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.SftpBrowserStatus == "远端目录响应超时");
+
+        Assert.Equal("远端目录响应超时", viewModel.SftpListingSummary);
+        Assert.Equal("请刷新重试；若持续失败，请重新连接该资产。", viewModel.SftpOperationStatus);
+        Assert.Equal("目录读取超时", viewModel.SftpFeedbackTitle);
+        Assert.Equal(viewModel.SftpOperationStatus, viewModel.SftpFeedbackMessage);
+        Assert.Equal("目录读取超时", viewModel.RecentSftpOperations[0].Title);
         Assert.Empty(viewModel.SftpEntries);
 
         viewModel.RefreshSftpBrowseCommand.Execute(null);
@@ -3368,6 +3397,7 @@ public sealed class MainWindowViewModelTests
         public int ResizeTerminalCallCount { get; private set; }
         public int OpenSftpCallCount { get; private set; }
         public int SftpListFailuresRemaining { get; set; }
+        public string? SftpListFailureDetailCode { get; set; }
         public int UploadSftpFileCallCount { get; private set; }
         public int DownloadSftpFileCallCount { get; private set; }
         public List<ulong> SftpDownloadSessionIds { get; } = [];
@@ -3528,7 +3558,7 @@ public sealed class MainWindowViewModelTests
                     CheckedFfiKind.SftpDirectoryList,
                     requestId.Value,
                     null,
-                    new CheckedErrorPayload("sftp_list_failed", "error.sftp.list.failed", requestId.Value));
+                    new CheckedErrorPayload("sftp_list_failed", "error.sftp.list.failed", requestId.Value, SftpListFailureDetailCode));
             }
 
             var entriesJson = remotePath == "/var"
