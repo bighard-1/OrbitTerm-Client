@@ -52,4 +52,17 @@ class OrbitErrorTest {
         assertEquals(OrbitRecoveryAction.CheckPermission, destination.recovery)
         assertFalse(destination.userMessage().contains("解锁"))
     }
+
+    @Test
+    fun checkedSftpSessionFailuresGuideReconnectWithoutExposingNativeText() {
+        for (token in listOf("security_generation_mismatch", "legacy_session_not_allowed")) {
+            val error = orbitNativeError(token)
+            assertEquals(OrbitErrorCode.SessionUnavailable, error.code)
+            assertEquals(OrbitRecoveryAction.ReopenSession, error.recovery)
+            assertTrue(error.userMessage().contains("重新连接资产"))
+        }
+        assertEquals(OrbitErrorCode.InvalidRequest, orbitNativeError("invalid_request").code)
+        assertEquals(OrbitErrorCode.NativeProtocolInvalid, orbitNativeError("ffi_internal_error").code)
+        assertEquals(OrbitErrorCode.Unknown, orbitNativeError("security_generation_mismatch /private/path").code)
+    }
 }

@@ -462,3 +462,15 @@ Windows 10 实体机通过 Mac RDP 操作已有的**仅此设备虚构 SFTP 资�
 **自动化**：`orbit-core` 全库 322 通过、2 忽略；新增用例覆盖库的真实 `Timeout` 类型、伪造含 “Timeout” 的服务器错误文本，以及受检 FFI 的稳定、脱敏细节；Clippy `--all-targets -D warnings`、格式和 `git diff --check` 通过。Mac 本机尝试 Linux GUI 定向测试失败：缺少 Linux GTK/GObject/Graphene 的 `pkg-config` 环境，属于交叉主机环境限制；本次未据此宣称 Linux GUI 编译通过。先前独立 Linux GUI 候选 `b29ce38` 的旧结果保留。
 
 **验收分层**：源码和 Rust 自动化通过；本修复尚无新的隔离 GUI、K60/Windows 真机或 iOS/macOS 验证，也没有五端完整验收。K60 USB 本轮只读确认设备在线、前台在桌面、插电常亮设置仍在，没有安装或操作产品 QA。后续对照需用同一虚构延迟夹具在 Linux、Windows、K60 核对专用超时提示与同进程恢复，再补 iOS/macOS 负向 GUI；保留 K60 原间歇无限加载的未知根因。本提交的远端 CI 结果待核对。
+
+### K60 受保护 QA 真机续验及旧会话提示修复
+
+`2ccc72f` 的 [Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40650352070)、[Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40650351991) 和 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40650352000) 最终成功；Security Gates 中的 macOS 签名 UI、OpenSSH 候选冒烟按工作流条件跳过，不计作真机通过。上一提交 `07a056d` 的 Security Gates 虽然漏洞扫描成功，但整体因后续推送被取消，保留其取消结论。
+
+为避免覆盖工作树中原有的两份未提交 JNI 二进制，在外置盘独立检出 `2ccc72f`，只编译 arm64 Rust 核心并构建同身份、同测试签名的受保护 K60 QA。包内核心库与本次构建哈希一致，设备实际安装 APK 与本地候选哈希 `f285d0a5…c9886bc259` 一致；安装前已备份受保护 QA APK。通过已授权 USB 调试进入原测试账户，原分组仍可见，没有修改资产。只启动既有虚构、只读、禁 shell 的 SFTP 夹具，对目录枚举注入 70 秒延迟；夹具记录 `DELAY_ACTIVE`。K60 页面先显示“正在加载目录”，约 30 秒后显示 **“读取目录失败：目录读取超时，请重新建立会话后重试。诊断代码：sftp_list_timeout。”**，不再无限加载。该结果是 Android 真机对本次类型化超时的通过证据，不等同 Linux/Windows/Apple GUI 通过。
+
+**新发现并保留的失败**：停止延迟夹具、同主机密钥重启正常夹具后，在旧 SFTP 会话直接点刷新，页面显示“操作失败……诊断代码：unknown”，而非明确要求重新连接。回到资产页重新连接同一虚构资产、再进 SFTP 时，在同一 QA 应用进程内显示“目录已就绪”和三项虚构文件。故此处证明**重新建立会话恢复**，不能记为旧会话刷新成功。
+
+**Android 提示修复候选**：把受检接口固定的 `security_generation_mismatch`、`legacy_session_not_allowed` 映射到脱敏的“会话已失效，请重新连接资产后重试”；另补 `invalid_request` 与 `ffi_internal_error` 的固定分类，不允许任意错误文本进入诊断码。Android `domain` 单测通过。独立检出仅同步这两处 Kotlin 源码/测试，保留同一 `2ccc72f` 原生库，重建并安装受保护 QA；签名一致、设备 APK 哈希与本地修复包 `1e7867a2…dffaee` 一致。正常只读夹具先列出三项，随后停止夹具并在旧会话刷新，页面准确显示 **“会话已失效，请重新连接资产后重试。诊断代码：session_unavailable。操作未完成，当前目录列表仍可查看。”**；恢复夹具后重新连接，同一 QA 应用进程再次列出三项。旧版 `unknown` 失败仍保留，不被修复版通过覆盖。
+
+**清理和剩余范围**：精确停止只读夹具及延迟夹具，测试端口不再监听，移除临时延迟脚本与设备临时 UI 转储，结束 QA 前台进程；K60 保留当前同签名受保护修复版，运行时窗口 `SECURE` 标志已核对。没有连接真实资产、下载测试文件、调整主机密钥或更新线上服务。Linux/Windows/iOS/macOS 尚未使用此新核心候选完成 GUI/真机同场景对照；Windows 自然断线、K60 原间歇无限加载、五端完整矩阵仍开放。

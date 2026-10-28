@@ -15,6 +15,7 @@ enum class OrbitErrorCode(val diagnosticCode: String) {
     NativeBridgeUnavailable("native_bridge_unavailable"),
     NativeProtocolInvalid("native_protocol_invalid"),
     NativeOperationFailed("native_operation_failed"),
+    SessionUnavailable("session_unavailable"),
     OperationCancelled("operation_cancelled"),
     StaleOperation("stale_operation"),
     NetworkUnavailable("network_unavailable"),
@@ -71,6 +72,7 @@ data class OrbitError(
         OrbitErrorCode.InvalidRequest -> "请求内容无效，请检查后重试。"
         OrbitErrorCode.NativeBridgeUnavailable -> "本机安全连接组件不可用，请重启应用后重试。"
         OrbitErrorCode.NativeProtocolInvalid, OrbitErrorCode.NativeOperationFailed -> "本机连接组件未能完成操作，请重新建立会话后重试。"
+        OrbitErrorCode.SessionUnavailable -> "会话已失效，请重新连接资产后重试。"
         OrbitErrorCode.OperationCancelled -> "操作已取消。"
         OrbitErrorCode.StaleOperation -> "会话已切换，本次操作未继续执行。"
         OrbitErrorCode.NetworkUnavailable -> "网络不可用，请检查网络后重试。"
@@ -125,13 +127,14 @@ object PrivacySafeErrorMetrics {
 /** Converts only known protocol tokens. Unknown text is safely collapsed. */
 fun orbitNativeError(rawCode: String?, retryable: Boolean = false, detailCode: String? = null): OrbitError {
     val code = when (rawCode) {
-        "invalid_exec_request", "invalid_terminal_request", "invalid_sftp_list_request", "invalid_sftp_read_request", "invalid_docker_action" -> OrbitErrorCode.InvalidRequest
+        "invalid_request", "invalid_exec_request", "invalid_terminal_request", "invalid_sftp_list_request", "invalid_sftp_read_request", "invalid_docker_action" -> OrbitErrorCode.InvalidRequest
         "native_bridge_unavailable", "native_bridge_failed" -> OrbitErrorCode.NativeBridgeUnavailable
-        "invalid_native_response", "uncorrelated_native_response", "invalid_connected_response", "invalid_host_key_challenge",
+        "ffi_internal_error", "invalid_native_response", "uncorrelated_native_response", "invalid_connected_response", "invalid_host_key_challenge",
         "invalid_terminal_open_response", "invalid_exec_response", "invalid_sftp_open_response", "invalid_sftp_list_response",
         "invalid_sftp_text_response", "invalid_docker_list_response", "invalid_docker_logs_response", "invalid_docker_stats_response",
         "invalid_monitor_snapshot" -> OrbitErrorCode.NativeProtocolInvalid
         "sftp_transfer_cancelled" -> OrbitErrorCode.OperationCancelled
+        "security_generation_mismatch", "legacy_session_not_allowed" -> OrbitErrorCode.SessionUnavailable
         "sftp_transfer_session_changed", "entry_changed" -> OrbitErrorCode.StaleOperation
         "ssh_timeout" -> if (detailCode == "authentication_timeout") OrbitErrorCode.AuthenticationFailed else OrbitErrorCode.NetworkTimeout
         "ssh_connect_failed" -> OrbitErrorCode.NetworkUnavailable
@@ -162,7 +165,7 @@ fun orbitNativeError(rawCode: String?, retryable: Boolean = false, detailCode: S
         OrbitErrorCode.DestinationUnwritable -> OrbitRecoveryAction.CheckPermission
         OrbitErrorCode.StorageUnavailable -> OrbitRecoveryAction.Unlock
         OrbitErrorCode.SftpConflict, OrbitErrorCode.SyncConflict -> OrbitRecoveryAction.ResolveConflict
-        OrbitErrorCode.StaleOperation, OrbitErrorCode.NativeBridgeUnavailable, OrbitErrorCode.NativeProtocolInvalid,
+        OrbitErrorCode.StaleOperation, OrbitErrorCode.SessionUnavailable, OrbitErrorCode.NativeBridgeUnavailable, OrbitErrorCode.NativeProtocolInvalid,
         OrbitErrorCode.NativeOperationFailed, OrbitErrorCode.SftpOperationFailed, OrbitErrorCode.DockerOperationFailed,
         OrbitErrorCode.MonitorOperationFailed -> OrbitRecoveryAction.ReopenSession
         OrbitErrorCode.OperationCancelled -> OrbitRecoveryAction.None

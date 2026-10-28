@@ -18,3 +18,7 @@
 - **自动化**：上述本机验证通过；新提交的远端 Security Gates 待核对，旧提交依赖扫描失败持续保留。
 - **隔离 GUI / 真实设备**：均未为本修复运行；K60 未安装新 QA。
 - **五端完整验收**：未完成。后续先确认新固定提交的依赖扫描、Android 仪器和 Release 门禁，再继续 K60 与 Windows SFTP 延迟目录、断线及原有跨端矩阵对照。
+
+## 远端门禁续验
+
+`07a056d` 的 Security Gates 中依赖漏洞与许可证扫描已通过，但该次整体运行在下一提交推送后被取消；不能把局部成功写为整组通过。包含同一 Guava 修复的后续固定提交 `2ccc72f` 的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40650352000) 已完成且结果为成功：依赖扫描、Rust Release、Android Release、Android 仪器与迁移、Apple checked-path 及桌面契约作业均成功；条件性 macOS 签名 UI 与 OpenSSH 候选冒烟跳过。对应 [Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40650352070) 和 [Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40650351991) 亦成功。旧提交 `4528427` 的首次依赖扫描失败仍保留；这组 CI 不代表五端真机验收完成。
