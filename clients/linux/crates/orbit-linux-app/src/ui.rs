@@ -11618,10 +11618,10 @@ fn begin_sftp_list(context: UiContext, path: String) {
             }
             Ok(Err(error)) => {
                 context.tools.sftp_refresh.set_sensitive(true);
-                context
-                    .tools
-                    .sftp_status
-                    .set_label(&format!("SFTP 读取失败：{error}"));
+                context.tools.sftp_status.set_label(&format!(
+                    "SFTP 读取失败：{}",
+                    describe_sftp_list_error(&error)
+                ));
                 gtk::glib::ControlFlow::Break
             }
             Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
@@ -12046,6 +12046,24 @@ fn describe_sftp_error(error: &BridgeError) -> &'static str {
         BridgeError::InvalidInput("local_upload_path") => "所选本地文件不可访问",
         BridgeError::InvalidInput("local_download_path") => "所选保存位置无效或目标文件已经存在",
         _ => "请检查连接、源文件及目标目录权限后重试",
+    }
+}
+
+fn describe_sftp_list_error(error: &BridgeError) -> &'static str {
+    match error {
+        BridgeError::Core {
+            detail_code: Some(detail),
+            ..
+        } if detail == "sftp_list_timeout" => {
+            "远端目录响应超时，请刷新重试；若持续失败，请重新连接该资产"
+        }
+        BridgeError::Core {
+            detail_code: Some(detail),
+            ..
+        } if detail == "sftp_generation_mismatch" || detail == "sftp_session_unavailable" => {
+            "SFTP 会话已中断，请重新连接该资产"
+        }
+        _ => "目录读取未完成，可能是连接超时或权限不足；请刷新或重新连接",
     }
 }
 
@@ -20762,6 +20780,28 @@ mod tests {
         let guidance = describe_sftp_error(&error);
         assert!(guidance.contains("登录主目录"));
         assert!(!guidance.contains("orbit-core"));
+    }
+
+    #[test]
+    fn sftp_list_timeout_guidance_keeps_native_details_out_of_the_ui() {
+        let timeout = BridgeError::Core {
+            code: "sftp_list_failed".into(),
+            message_key: "error.sftp.list.failed".into(),
+            detail_code: Some("sftp_list_timeout".into()),
+        };
+        let guidance = describe_sftp_list_error(&timeout);
+        assert!(guidance.contains("超时"));
+        assert!(guidance.contains("刷新重试"));
+        assert!(!guidance.contains("sftp_list_failed"));
+
+        let other = BridgeError::Core {
+            code: "sftp_list_failed".into(),
+            message_key: "error.sftp.list.failed".into(),
+            detail_code: Some("/private/remote/path".into()),
+        };
+        let fallback = describe_sftp_list_error(&other);
+        assert!(fallback.contains("刷新或重新连接"));
+        assert!(!fallback.contains("/private/remote/path"));
     }
 
     #[test]
