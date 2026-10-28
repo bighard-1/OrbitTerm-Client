@@ -1301,6 +1301,8 @@ public sealed class MainWindowViewModelTests
         await WaitUntilAsync(() => viewModel.SftpBrowserStatus == "已列出 /var/log");
         Assert.Equal("1 个项目", viewModel.SftpListingSummary);
         Assert.Single(viewModel.SftpEntries);
+        Assert.False(viewModel.HasSftpFeedback);
+        Assert.Equal("目录读取超时", viewModel.RecentSftpOperations[0].Title);
     }
 
     [Fact]

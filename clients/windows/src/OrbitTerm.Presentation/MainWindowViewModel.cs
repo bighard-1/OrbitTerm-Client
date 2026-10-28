@@ -6662,6 +6662,10 @@ public sealed class MainWindowViewModel : ObservableObject
 
                 SftpBrowserStatus = string.Concat("已列出 ", listed.Path);
                 SftpOperationStatus = "目录已刷新：文件夹优先，再按名称排序。";
+                if (sftpFeedbackKind == SftpFeedbackKind.Error && SftpFeedbackTitle == "目录读取超时")
+                {
+                    ClearSftpFeedback();
+                }
                 break;
             case SftpDirectoryListResult.Failed failed:
                 SftpEntries.Clear();
