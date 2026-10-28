@@ -1,6 +1,6 @@
 # 五端整改与真机回归台账
 
-更新：2026-10-27。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
+更新：2026-10-28。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
 
 ## 记账规则
 
@@ -421,6 +421,8 @@
 | SSH-MFA-DEVICE-01 | 旧客户端对真实 SSH 资产的密码/密钥后验证码无提示；源码、自动化和回环 Linux GUI 已补。**首次真实主机在密码阶段失败**保留。用户恢复登录后，为单一测试账户受控配置 TOTP；Mac 系统 SSH 实测密码后独立验证码成功，密码单独登录被拒；`4cce231` Linux 隔离 GUI 对真实 Debian 主机实测密码＋码后在线、终端/SFTP 可用，重连再次索码、取消失败关闭。 | **未关闭**：密钥＋码、双跳、真实主机错码/超时/Host Key 变化、完整敏感数据审计、macOS/iOS/Android/Windows 客户端 GUI/真机及 Windows 原生编译仍待验。跨实例同步资产回拉为 0 的新疑点另需定位；不得用本机资产连接成功代替云同步或五端验收。 |
 
 ## 后续追加记录
+
+- 2026-10-28｜`SEC-ANDROID-GUAVA-190`｜[安全门禁与依赖修复日志](ANDROID_DEPENDENCY_SECURITY_20261028.md)。**失败保留**：`4528427` 的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40646694547) 依赖扫描发现 Gradle 锁文件内 Guava 旧版触发 `CVE-2026-102554`（HIGH），该 job 失败；同提交 Linux、Windows CI 成功，不代表安全门禁通过。**源码/候选**：Android 根 Gradle 配置统一固定 `33.7.2-jre`，重新生成 app/core/data 锁文件；新提交号和 CI 结果见专项日志。**自动化**：本机三模块单测与 app Release 构建通过，Gradle 依赖解析确认锁文件中仅剩 `33.7.2-jre`；为保护工作树内原有 JNI 二进制改动，最终构建排除了 JNI 重建任务。首次未排除该任务导致 JNI 文件被重建，已从较早 QA 构建副本恢复到本轮开始时的文件大小；因事前未记录摘要，无法证明字节级完全相同，此操作失误保留。**隔离 GUI**：未做。**真实设备**：未在 K60、Windows 或其他端安装新包。**五端完整验收未完成**。Android 下一步核对新提交的 Security Gates 依赖扫描与仪器测试；Windows 对照门禁和既有 SFTP 恢复，K60 对照延迟目录、断线与安全保护，iOS/macOS/Linux 不以此次 Android 依赖修复宣称真机通过。
 
 - 2026-10-27｜`QA-LINUX-SFTP-LIST-189`｜Linux 隔离 GUI 的目录失败与同进程恢复已完成复测；旧版底层错误外露已修复，详见 [SFTP 专项日志](SFTP_DOWNLOAD_TARGET_OWNERSHIP_20261021.md#linux-隔离-gui-目录延迟与同进程恢复续验2026-10-27)。｜**源码/候选**：以 `e00c023` 为旧候选，`b29ce38` 仅修 Linux 目录失败文案映射，固定提示不显示 `orbit-core`、任意远端错误文本或路径；隔离构建只临时修改远端 QA 应用 ID，本仓库产品 ID 未改。**自动化**：定向 Linux 单测 1/1、格式检查、独立 Release 构建通过；本条提交后的完整 CI 尚待核对。**隔离 GUI**：先验证旧候选在 70 秒目录延迟下约 30 秒有界失败、刷新可用、撤销延迟后同进程列出两份虚构文件；旧版显示底层 `sftp_list_failed` 的失败保留。最终候选重复相同步骤，固定通用提示“目录读取未完成，可能是连接超时或权限不足；请刷新或重新连接”，刷新后仍无需重启即恢复两项。夹具重建导致旧端口 Host Key 变化时客户端正确阻断，换新测试端口并核对新指纹后才继续。**真实设备**：仅 Linux 开发机的隔离原生 Xvfb/QA，不是正式包真机；精确清理测试 Keyring、进程、端口和隔离数据，原 Flatpak 保持运行；Android/Windows/iOS/macOS 本轮未操作。**五端完整验收未完成**。｜内部约 30 秒请求超时先于 35 秒外层期限，只产生通用 `sftp_list_failed`；专用 `sftp_list_timeout` 仅有单测，未获本轮 GUI 证明。下一步在 Rust 核心按结构化 Timeout 分类，并对 Android K60、Windows、Linux 做同一延迟场景对照；K60 间歇无限加载、Windows 自然 SMB 断线、第三方 SAF 拒删时序、iOS/macOS 负向 GUI 及五端墓碑矩阵仍开放。
 
