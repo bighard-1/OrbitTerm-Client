@@ -39,4 +39,30 @@ class OrbitErrorTest {
         assertEquals(1, metrics[OrbitErrorCode.SyncDecryptionFailed])
         assertTrue(metrics.keys.all { it.diagnosticCode.matches(Regex("[a-z_]+")) })
     }
+
+    @Test
+    fun checkedSftpTransferFailuresHaveStableCategories() {
+        assertEquals(OrbitErrorCode.OperationCancelled, orbitNativeError("sftp_transfer_cancelled").code)
+        assertEquals(OrbitErrorCode.SftpOperationFailed, orbitNativeError("sftp_download_failed").code)
+        assertEquals(OrbitErrorCode.SftpOperationFailed, orbitNativeError("sftp_upload_failed").code)
+        assertEquals(OrbitRecoveryAction.ReopenSession, orbitNativeError("sftp_list_failed").recovery)
+        assertEquals(OrbitRecoveryAction.ReopenSession, orbitNativeError("subsystem_request_failed").recovery)
+        val destination = orbitNativeError("destination_unwritable")
+        assertEquals(OrbitErrorCode.DestinationUnwritable, destination.code)
+        assertEquals(OrbitRecoveryAction.CheckPermission, destination.recovery)
+        assertFalse(destination.userMessage().contains("解锁"))
+    }
+
+    @Test
+    fun checkedSftpSessionFailuresGuideReconnectWithoutExposingNativeText() {
+        for (token in listOf("security_generation_mismatch", "legacy_session_not_allowed")) {
+            val error = orbitNativeError(token)
+            assertEquals(OrbitErrorCode.SessionUnavailable, error.code)
+            assertEquals(OrbitRecoveryAction.ReopenSession, error.recovery)
+            assertTrue(error.userMessage().contains("重新连接资产"))
+        }
+        assertEquals(OrbitErrorCode.InvalidRequest, orbitNativeError("invalid_request").code)
+        assertEquals(OrbitErrorCode.NativeProtocolInvalid, orbitNativeError("ffi_internal_error").code)
+        assertEquals(OrbitErrorCode.Unknown, orbitNativeError("security_generation_mismatch /private/path").code)
+    }
 }

@@ -26,7 +26,7 @@ struct MasterPasswordGateView: View {
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 18) {
-                        OrbitLogoBadgeView(size: 88)
+                        SecurityGateBadgeView(size: 56)
 
                         Text(session.hasMasterPassword ? "验证主密码" : "设置主密码")
                             .font(.title2.bold())
@@ -46,6 +46,13 @@ struct MasterPasswordGateView: View {
                                 .font(.footnote)
                                 .foregroundStyle(palette.textSecondary.color)
                                 .frame(maxWidth: .infinity, alignment: .leading)
+
+#if os(iOS)
+                            Text("若已启用 iPhone 镜像，解锁后的资产与终端可能被授权的 Mac 看到；不需要时请先断开镜像。")
+                                .font(.footnote)
+                                .foregroundStyle(palette.textSecondary.color)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+#endif
 
                             if !message.isEmpty {
                                 Text(message)
@@ -290,7 +297,7 @@ struct MasterPasswordGateView: View {
     }
 }
 
-private struct OrbitLogoBadgeView: View {
+private struct SecurityGateBadgeView: View {
     let size: CGFloat
     @Environment(\.appThemePalette) private var palette
 
@@ -305,19 +312,8 @@ private struct OrbitLogoBadgeView: View {
                     )
                 )
 
-            Circle()
-                .stroke(
-                    LinearGradient(
-                        colors: [palette.accentPrimary.color, palette.accentSecondary.color],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: size * 0.11
-                )
-                .padding(size * 0.1)
-
-            Text("OT")
-                .font(.system(size: size * 0.3, weight: .heavy, design: .rounded))
+            Image(systemName: "lock.shield.fill")
+                .font(.system(size: size * 0.38, weight: .semibold))
                 .foregroundStyle(palette.textPrimary.color)
         }
         .frame(width: size, height: size)

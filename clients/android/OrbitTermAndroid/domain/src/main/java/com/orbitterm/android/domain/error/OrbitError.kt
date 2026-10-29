@@ -15,14 +15,20 @@ enum class OrbitErrorCode(val diagnosticCode: String) {
     NativeBridgeUnavailable("native_bridge_unavailable"),
     NativeProtocolInvalid("native_protocol_invalid"),
     NativeOperationFailed("native_operation_failed"),
+    SessionUnavailable("session_unavailable"),
     OperationCancelled("operation_cancelled"),
     StaleOperation("stale_operation"),
     NetworkUnavailable("network_unavailable"),
     NetworkTimeout("network_timeout"),
     AuthenticationFailed("authentication_failed"),
     AuthenticationExpired("authentication_expired"),
+    PasswordChangeRequired("password_change_required"),
+    RefreshInProgress("refresh_in_progress"),
+    AuthStateChanged("auth_state_changed"),
+    RequestTooLarge("request_too_large"),
     HostKeyBlocked("host_key_blocked"),
     PermissionDenied("permission_denied"),
+    DestinationUnwritable("destination_unwritable"),
     StorageUnavailable("storage_unavailable"),
     StorageLocked("storage_locked"),
     SftpConflict("sftp_conflict"),
@@ -66,15 +72,21 @@ data class OrbitError(
         OrbitErrorCode.InvalidRequest -> "请求内容无效，请检查后重试。"
         OrbitErrorCode.NativeBridgeUnavailable -> "本机安全连接组件不可用，请重启应用后重试。"
         OrbitErrorCode.NativeProtocolInvalid, OrbitErrorCode.NativeOperationFailed -> "本机连接组件未能完成操作，请重新建立会话后重试。"
+        OrbitErrorCode.SessionUnavailable -> "会话已失效，请重新连接资产后重试。"
         OrbitErrorCode.OperationCancelled -> "操作已取消。"
         OrbitErrorCode.StaleOperation -> "会话已切换，本次操作未继续执行。"
         OrbitErrorCode.NetworkUnavailable -> "网络不可用，请检查网络后重试。"
         OrbitErrorCode.NetworkTimeout -> "连接超时，请检查网络、地址和防火墙。"
         OrbitErrorCode.AuthenticationFailed -> "认证失败，请检查账号、密码或私钥。"
         OrbitErrorCode.AuthenticationExpired -> "登录已过期，请重新登录后重试。"
+        OrbitErrorCode.PasswordChangeRequired -> "请先更新登录密码，再继续使用资产和同步功能。"
+        OrbitErrorCode.RefreshInProgress -> "登录状态正在更新，请稍后重试。"
+        OrbitErrorCode.AuthStateChanged -> "账户安全状态已变化，请重新登录。"
+        OrbitErrorCode.RequestTooLarge -> "资产或同步批次超出服务端大小限制，请缩小后重试。"
         OrbitErrorCode.HostKeyBlocked -> "主机密钥校验未通过，连接已被安全阻断。"
         OrbitErrorCode.PermissionDenied -> "权限不足，请检查远端账户或文件权限。"
-        OrbitErrorCode.StorageUnavailable -> "本机安全存储不可用，请解锁设备后重试。"
+        OrbitErrorCode.DestinationUnwritable -> "无法写入所选保存位置。"
+        OrbitErrorCode.StorageUnavailable -> "本机存储不可用，请检查空间、文件权限或设备解锁状态。"
         OrbitErrorCode.StorageLocked -> "需要解锁应用后才能继续此操作。"
         OrbitErrorCode.SftpConflict -> "远端文件已变化，请刷新目录后重试。"
         OrbitErrorCode.SftpOperationFailed -> "SFTP 操作未完成，请重新建立会话后重试。"
@@ -115,22 +127,26 @@ object PrivacySafeErrorMetrics {
 /** Converts only known protocol tokens. Unknown text is safely collapsed. */
 fun orbitNativeError(rawCode: String?, retryable: Boolean = false, detailCode: String? = null): OrbitError {
     val code = when (rawCode) {
-        "invalid_exec_request", "invalid_terminal_request", "invalid_sftp_list_request", "invalid_sftp_read_request", "invalid_docker_action" -> OrbitErrorCode.InvalidRequest
+        "invalid_request", "invalid_exec_request", "invalid_terminal_request", "invalid_sftp_list_request", "invalid_sftp_read_request", "invalid_docker_action" -> OrbitErrorCode.InvalidRequest
         "native_bridge_unavailable", "native_bridge_failed" -> OrbitErrorCode.NativeBridgeUnavailable
-        "invalid_native_response", "uncorrelated_native_response", "invalid_connected_response", "invalid_host_key_challenge",
+        "ffi_internal_error", "invalid_native_response", "uncorrelated_native_response", "invalid_connected_response", "invalid_host_key_challenge",
         "invalid_terminal_open_response", "invalid_exec_response", "invalid_sftp_open_response", "invalid_sftp_list_response",
         "invalid_sftp_text_response", "invalid_docker_list_response", "invalid_docker_logs_response", "invalid_docker_stats_response",
         "invalid_monitor_snapshot" -> OrbitErrorCode.NativeProtocolInvalid
         "sftp_transfer_cancelled" -> OrbitErrorCode.OperationCancelled
+        "security_generation_mismatch", "legacy_session_not_allowed" -> OrbitErrorCode.SessionUnavailable
         "sftp_transfer_session_changed", "entry_changed" -> OrbitErrorCode.StaleOperation
         "ssh_timeout" -> if (detailCode == "authentication_timeout") OrbitErrorCode.AuthenticationFailed else OrbitErrorCode.NetworkTimeout
         "ssh_connect_failed" -> OrbitErrorCode.NetworkUnavailable
-        "ssh_auth_failed", "jump_credentials_unavailable" -> OrbitErrorCode.AuthenticationFailed
+        "ssh_auth_failed", "ssh_second_factor_required", "jump_credentials_unavailable" -> OrbitErrorCode.AuthenticationFailed
         "host_key_blocked", "host_key_changed", "host_key_revoked" -> OrbitErrorCode.HostKeyBlocked
         "permission_denied", "sftp_permission_denied" -> OrbitErrorCode.PermissionDenied
-        "destination_unwritable", "archive_workspace_unavailable", "archive_write_failed", "local_file_unreadable" -> OrbitErrorCode.StorageUnavailable
+        "destination_unwritable" -> OrbitErrorCode.DestinationUnwritable
+        "archive_workspace_unavailable", "archive_write_failed", "local_file_unreadable" -> OrbitErrorCode.StorageUnavailable
         "sftp_conflict", "sftp_mutation_conflict", "sftp_target_exists" -> OrbitErrorCode.SftpConflict
-        "sftp_mutation_failed", "sftp_operation_failed", "delete_depth_limit", "delete_entry_limit", "unsafe_remote_name" -> OrbitErrorCode.SftpOperationFailed
+        "sftp_mutation_failed", "sftp_operation_failed", "sftp_download_failed", "sftp_upload_failed",
+        "sftp_list_failed", "subsystem_request_failed", "channel_open_failed", "sftp_registration_failed",
+        "delete_depth_limit", "delete_entry_limit", "unsafe_remote_name" -> OrbitErrorCode.SftpOperationFailed
         "docker_operation_failed" -> OrbitErrorCode.DockerOperationFailed
         "monitor_operation_failed" -> OrbitErrorCode.MonitorOperationFailed
         "native_operation_failed" -> OrbitErrorCode.NativeOperationFailed
@@ -140,11 +156,16 @@ fun orbitNativeError(rawCode: String?, retryable: Boolean = false, detailCode: S
         OrbitErrorCode.NetworkUnavailable, OrbitErrorCode.NetworkTimeout -> OrbitRecoveryAction.CheckNetwork
         OrbitErrorCode.AuthenticationFailed -> OrbitRecoveryAction.CheckCredentials
         OrbitErrorCode.AuthenticationExpired -> OrbitRecoveryAction.SignInAgain
+        OrbitErrorCode.PasswordChangeRequired -> OrbitRecoveryAction.CheckCredentials
+        OrbitErrorCode.AuthStateChanged -> OrbitRecoveryAction.SignInAgain
+        OrbitErrorCode.RefreshInProgress -> OrbitRecoveryAction.Retry
+        OrbitErrorCode.RequestTooLarge -> OrbitRecoveryAction.ContactSupport
         OrbitErrorCode.HostKeyBlocked -> OrbitRecoveryAction.ReviewHostKey
         OrbitErrorCode.PermissionDenied -> OrbitRecoveryAction.CheckPermission
+        OrbitErrorCode.DestinationUnwritable -> OrbitRecoveryAction.CheckPermission
         OrbitErrorCode.StorageUnavailable -> OrbitRecoveryAction.Unlock
         OrbitErrorCode.SftpConflict, OrbitErrorCode.SyncConflict -> OrbitRecoveryAction.ResolveConflict
-        OrbitErrorCode.StaleOperation, OrbitErrorCode.NativeBridgeUnavailable, OrbitErrorCode.NativeProtocolInvalid,
+        OrbitErrorCode.StaleOperation, OrbitErrorCode.SessionUnavailable, OrbitErrorCode.NativeBridgeUnavailable, OrbitErrorCode.NativeProtocolInvalid,
         OrbitErrorCode.NativeOperationFailed, OrbitErrorCode.SftpOperationFailed, OrbitErrorCode.DockerOperationFailed,
         OrbitErrorCode.MonitorOperationFailed -> OrbitRecoveryAction.ReopenSession
         OrbitErrorCode.OperationCancelled -> OrbitRecoveryAction.None
@@ -165,6 +186,10 @@ fun syncError(code: OrbitErrorCode, retryAfterSeconds: Long? = null): OrbitError
     ),
     recovery = when (code) {
         OrbitErrorCode.AuthenticationExpired -> OrbitRecoveryAction.SignInAgain
+        OrbitErrorCode.PasswordChangeRequired -> OrbitRecoveryAction.CheckCredentials
+        OrbitErrorCode.AuthStateChanged -> OrbitRecoveryAction.SignInAgain
+        OrbitErrorCode.RefreshInProgress -> OrbitRecoveryAction.Retry
+        OrbitErrorCode.RequestTooLarge -> OrbitRecoveryAction.ContactSupport
         OrbitErrorCode.SyncDecryptionFailed -> OrbitRecoveryAction.Unlock
         OrbitErrorCode.SyncConflict -> OrbitRecoveryAction.ResolveConflict
         OrbitErrorCode.NetworkUnavailable, OrbitErrorCode.NetworkTimeout -> OrbitRecoveryAction.CheckNetwork

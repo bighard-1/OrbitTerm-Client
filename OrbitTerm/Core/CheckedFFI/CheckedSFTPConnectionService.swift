@@ -118,7 +118,8 @@ actor CheckedSFTPConnectionService: CheckedSFTPConnectionOpening {
             .userCancelled
         case .invalidInput:
             .invalidSFTPSessionID
-        case .unavailable, .timeout, .protocolViolation, .nullCStringResult,
+        case .unavailable, .credentialUnavailable, .credentialStorageFailed,
+             .timeout, .protocolViolation, .nullCStringResult,
              .invalidUTF8Result, .jsonDecodeFailed, .unsupportedSchema,
              .internalInvariant:
             .unknownCheckedFFIError

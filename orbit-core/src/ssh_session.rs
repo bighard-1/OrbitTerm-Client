@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use russh::client::{self, KeyboardInteractiveAuthResponse, Prompt};
 use russh::keys::{decode_secret_key, PrivateKey, PrivateKeyWithHashAlg};
+use russh::MethodKind;
 
 use crate::OrbitCoreError;
 
@@ -87,9 +88,11 @@ pub(crate) async fn authenticate_ssh<H: client::Handler>(
     private_key_content: &str,
     private_key_passphrase: &str,
     allow_password_fallback: bool,
+    one_time_code: Option<&str>,
 ) -> Result<(), OrbitCoreError> {
     let trimmed_key = private_key_content.trim();
     let mut key_auth_failed = false;
+    let mut key_partial_success = false;
     if !trimmed_key.is_empty() {
         let private_key = decode_supported_private_key(trimmed_key, private_key_passphrase)?;
         let hash_alg = ssh_session
@@ -106,12 +109,52 @@ pub(crate) async fn authenticate_ssh<H: client::Handler>(
             .await
             .map_err(|e| OrbitCoreError::SshFailed(e.to_string()))?;
 
-        if auth_result.success() {
-            return Ok(());
+        match auth_result {
+            client::AuthResult::Success => return Ok(()),
+            client::AuthResult::Failure {
+                remaining_methods,
+                partial_success: true,
+            } => {
+                key_partial_success = true;
+                if remaining_methods.contains(&MethodKind::KeyboardInteractive) {
+                    return authenticate_keyboard_interactive(
+                        ssh_session,
+                        username,
+                        if allow_password_fallback {
+                            password
+                        } else {
+                            ""
+                        },
+                        one_time_code,
+                    )
+                    .await
+                    .and_then(authentication_result);
+                }
+                if !allow_password_fallback || !remaining_methods.contains(&MethodKind::Password) {
+                    return Err(OrbitCoreError::SshFailed(
+                        "SSH 服务器要求未支持的后续认证方式".to_string(),
+                    ));
+                }
+            }
+            client::AuthResult::Failure {
+                remaining_methods, ..
+            } => {
+                key_auth_failed = true;
+                if !allow_password_fallback
+                    && remaining_methods.contains(&MethodKind::KeyboardInteractive)
+                {
+                    return authenticate_keyboard_interactive(
+                        ssh_session,
+                        username,
+                        "",
+                        one_time_code,
+                    )
+                    .await
+                    .and_then(authentication_result);
+                }
+            }
         }
-
-        key_auth_failed = true;
-        if !allow_password_fallback {
+        if key_auth_failed && !allow_password_fallback {
             return Err(OrbitCoreError::SshFailed(
                 "SSH 密钥认证失败（已禁用密码回退）".to_string(),
             ));
@@ -124,8 +167,17 @@ pub(crate) async fn authenticate_ssh<H: client::Handler>(
             .await
             .map_err(|e| OrbitCoreError::SshFailed(e.to_string()))?;
 
-        if auth_result.success() {
-            return Ok(());
+        match auth_result {
+            client::AuthResult::Success => return Ok(()),
+            client::AuthResult::Failure {
+                remaining_methods,
+                partial_success: true,
+            } if !remaining_methods.contains(&MethodKind::KeyboardInteractive) => {
+                return Err(OrbitCoreError::SshFailed(
+                    "SSH 服务器要求未支持的后续认证方式".to_string(),
+                ));
+            }
+            _ => {}
         }
 
         // Some OpenSSH-for-Windows configurations expose password sign-in
@@ -133,7 +185,8 @@ pub(crate) async fn authenticate_ssh<H: client::Handler>(
         // Respond only to one explicit, non-echo password prompt; arbitrary
         // challenges (for example MFA or security questions) must never be
         // answered with the stored password.
-        if authenticate_keyboard_interactive_password(ssh_session, username, password).await? {
+        if authenticate_keyboard_interactive(ssh_session, username, password, one_time_code).await?
+        {
             return Ok(());
         }
 
@@ -145,7 +198,11 @@ pub(crate) async fn authenticate_ssh<H: client::Handler>(
         return Err(OrbitCoreError::SshFailed("SSH 密码认证失败".to_string()));
     }
 
-    if key_auth_failed {
+    if key_partial_success {
+        Err(OrbitCoreError::SshFailed(
+            "SSH 后续认证缺少可用凭据".to_string(),
+        ))
+    } else if key_auth_failed {
         Err(OrbitCoreError::SshFailed(
             "SSH 认证失败：密钥失败且未提供可用密码".to_string(),
         ))
@@ -154,10 +211,19 @@ pub(crate) async fn authenticate_ssh<H: client::Handler>(
     }
 }
 
-async fn authenticate_keyboard_interactive_password<H: client::Handler>(
+fn authentication_result(authenticated: bool) -> Result<(), OrbitCoreError> {
+    if authenticated {
+        Ok(())
+    } else {
+        Err(OrbitCoreError::SshFailed("SSH 二次认证失败".to_string()))
+    }
+}
+
+async fn authenticate_keyboard_interactive<H: client::Handler>(
     ssh_session: &mut client::Handle<H>,
     username: &str,
     password: &str,
+    one_time_code: Option<&str>,
 ) -> Result<bool, OrbitCoreError> {
     let mut response = ssh_session
         .authenticate_keyboard_interactive_start(username.to_string(), None)
@@ -166,14 +232,26 @@ async fn authenticate_keyboard_interactive_password<H: client::Handler>(
 
     // An SSH server may send an informational, prompt-free round before its
     // actual password prompt. Bound the exchange to avoid unbounded dialogs.
-    for _ in 0..3 {
+    let mut code_used = false;
+    for _ in 0..4 {
         match response {
             KeyboardInteractiveAuthResponse::Success => return Ok(true),
             KeyboardInteractiveAuthResponse::Failure { .. } => return Ok(false),
             KeyboardInteractiveAuthResponse::InfoRequest { prompts, .. } => {
-                let Some(responses) = keyboard_interactive_password_responses(&prompts, password)
-                else {
-                    return Ok(false);
+                let responses = match keyboard_interactive_responses(
+                    &prompts,
+                    password,
+                    one_time_code,
+                    code_used,
+                ) {
+                    InteractiveResponse::Answers(values, used_code) => {
+                        code_used |= used_code;
+                        values
+                    }
+                    InteractiveResponse::NeedsCode => {
+                        return Err(OrbitCoreError::SshSecondFactorRequired)
+                    }
+                    InteractiveResponse::Unsupported => return Ok(false),
                 };
                 response = ssh_session
                     .authenticate_keyboard_interactive_respond(responses)
@@ -217,16 +295,66 @@ mod private_key_policy_tests {
     }
 }
 
-fn keyboard_interactive_password_responses(
+#[derive(Debug, PartialEq, Eq)]
+enum InteractiveResponse {
+    Answers(Vec<String>, bool),
+    NeedsCode,
+    Unsupported,
+}
+
+fn keyboard_interactive_responses(
     prompts: &[Prompt],
     password: &str,
-) -> Option<Vec<String>> {
-    let [prompt] = prompts else { return None };
-    let normalized = prompt.prompt.trim().to_ascii_lowercase();
-    if prompt.echo || !normalized.contains("password") {
-        return None;
+    one_time_code: Option<&str>,
+    code_used: bool,
+) -> InteractiveResponse {
+    if prompts.len() > 2 {
+        return InteractiveResponse::Unsupported;
     }
-    Some(vec![password.to_string()])
+    let mut answers = Vec::with_capacity(prompts.len());
+    let mut used_code = false;
+    let mut used_password = false;
+    for prompt in prompts {
+        if prompt.echo {
+            return InteractiveResponse::Unsupported;
+        }
+        let normalized = prompt.prompt.trim().to_lowercase();
+        let is_code = [
+            "verification code",
+            "one-time",
+            "one time",
+            "otp",
+            "2fa",
+            "mfa",
+            "authenticator",
+            "passcode",
+            "security code",
+            "token",
+            "code:",
+            "验证码",
+            "动态口令",
+            "验证代码",
+            "校验码",
+        ]
+        .iter()
+        .any(|term| normalized.contains(term));
+        if is_code {
+            if code_used || used_code {
+                return InteractiveResponse::Unsupported;
+            }
+            let Some(code) = one_time_code.filter(|value| !value.is_empty()) else {
+                return InteractiveResponse::NeedsCode;
+            };
+            answers.push(code.to_string());
+            used_code = true;
+        } else if normalized.contains("password") && !password.is_empty() && !used_password {
+            answers.push(password.to_string());
+            used_password = true;
+        } else {
+            return InteractiveResponse::Unsupported;
+        }
+    }
+    InteractiveResponse::Answers(answers, used_code)
 }
 
 #[cfg(test)]
@@ -241,8 +369,8 @@ mod tests {
             echo: false,
         };
         assert_eq!(
-            keyboard_interactive_password_responses(&[prompt], password),
-            Some(vec![password.to_string()])
+            keyboard_interactive_responses(&[prompt], password, None, false),
+            InteractiveResponse::Answers(vec![password.to_string()], false)
         );
     }
 
@@ -270,10 +398,189 @@ mod tests {
             ],
             vec![],
         ] {
-            assert_eq!(
-                keyboard_interactive_password_responses(&prompts, password),
-                None
+            assert_ne!(
+                keyboard_interactive_responses(&prompts, password, None, false),
+                InteractiveResponse::Answers(vec![password.to_string()], false)
             );
+        }
+    }
+
+    #[test]
+    fn otp_is_never_answered_with_saved_password() {
+        let prompt = Prompt {
+            prompt: "One-time password: ".into(),
+            echo: false,
+        };
+        assert_eq!(
+            keyboard_interactive_responses(
+                std::slice::from_ref(&prompt),
+                "stored-password",
+                None,
+                false
+            ),
+            InteractiveResponse::NeedsCode
+        );
+        assert_eq!(
+            keyboard_interactive_responses(
+                std::slice::from_ref(&prompt),
+                "stored-password",
+                Some("123456"),
+                false
+            ),
+            InteractiveResponse::Answers(vec!["123456".into()], true)
+        );
+        assert_eq!(
+            keyboard_interactive_responses(&[prompt], "stored-password", Some("123456"), true),
+            InteractiveResponse::Unsupported
+        );
+    }
+
+    #[tokio::test]
+    async fn checked_authentication_completes_password_or_key_plus_code() {
+        use russh::keys::ssh_key::LineEnding;
+        use russh::server::{self, Auth, Response, Server as _};
+        use russh::{keys::Algorithm, MethodSet};
+        use std::borrow::Cow;
+        use tokio::net::TcpListener;
+
+        #[derive(Clone)]
+        struct TestServer {
+            key_first: bool,
+            first_step_done: bool,
+        }
+        impl server::Server for TestServer {
+            type Handler = Self;
+            fn new_client(&mut self, _: Option<std::net::SocketAddr>) -> Self {
+                Self {
+                    key_first: self.key_first,
+                    first_step_done: false,
+                }
+            }
+        }
+        impl server::Handler for TestServer {
+            type Error = russh::Error;
+            async fn auth_password(
+                &mut self,
+                _: &str,
+                password: &str,
+            ) -> Result<Auth, Self::Error> {
+                if self.key_first || password != "test-primary" {
+                    return Ok(Auth::reject());
+                }
+                self.first_step_done = true;
+                Ok(Auth::Reject {
+                    proceed_with_methods: Some(MethodSet::from(
+                        &[MethodKind::KeyboardInteractive][..],
+                    )),
+                    partial_success: true,
+                })
+            }
+            async fn auth_publickey(
+                &mut self,
+                _: &str,
+                _: &russh::keys::ssh_key::PublicKey,
+            ) -> Result<Auth, Self::Error> {
+                if !self.key_first {
+                    return Ok(Auth::reject());
+                }
+                self.first_step_done = true;
+                Ok(Auth::Reject {
+                    proceed_with_methods: Some(MethodSet::from(
+                        &[MethodKind::KeyboardInteractive][..],
+                    )),
+                    partial_success: true,
+                })
+            }
+            async fn auth_keyboard_interactive<'a>(
+                &'a mut self,
+                _: &str,
+                _: &str,
+                response: Option<Response<'a>>,
+            ) -> Result<Auth, Self::Error> {
+                if !self.first_step_done {
+                    return Ok(Auth::reject());
+                }
+                match response {
+                    None => Ok(Auth::Partial {
+                        name: Cow::Borrowed("verification"),
+                        instructions: Cow::Borrowed(""),
+                        prompts: Cow::Borrowed(&[(Cow::Borrowed("Verification code: "), false)]),
+                    }),
+                    Some(mut response) => Ok(
+                        if response.next().as_deref() == Some(b"123456".as_slice()) {
+                            Auth::Accept
+                        } else {
+                            Auth::reject()
+                        },
+                    ),
+                }
+            }
+        }
+        #[derive(Clone)]
+        struct TestHostKey;
+        impl client::Handler for TestHostKey {
+            type Error = OrbitCoreError;
+            async fn check_server_key(
+                &mut self,
+                _: &russh::keys::PublicKeyOrCertificate,
+            ) -> Result<bool, Self::Error> {
+                Ok(true) // Isolated loopback fixture only; production uses CheckedHostKeyHandler.
+            }
+        }
+
+        for key_first in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let host_key = PrivateKey::random(&mut rand10::rng(), Algorithm::Ed25519).unwrap();
+            let client_key = PrivateKey::random(&mut rand10::rng(), Algorithm::Ed25519).unwrap();
+            let encoded_key = client_key.to_openssh(LineEnding::LF).unwrap();
+            let mut config = server::Config::default();
+            config.keys.push(host_key);
+            config.methods = MethodSet::from(
+                &[
+                    MethodKind::Password,
+                    MethodKind::PublicKey,
+                    MethodKind::KeyboardInteractive,
+                ][..],
+            );
+            config.auth_rejection_time = Duration::from_millis(1);
+            let task = tokio::spawn(async move {
+                let mut server = TestServer {
+                    key_first,
+                    first_step_done: false,
+                };
+                let _ = server.run_on_socket(Arc::new(config), &listener).await;
+            });
+            for (code, expect_success) in [
+                (None, false),
+                (Some("123456"), true),
+                (Some("wrong"), false),
+            ] {
+                let mut connection = client::connect(new_client_config(), address, TestHostKey)
+                    .await
+                    .unwrap();
+                let result = authenticate_ssh(
+                    &mut connection,
+                    "fixture",
+                    if key_first { "" } else { "test-primary" },
+                    if key_first { &encoded_key } else { "" },
+                    "",
+                    false,
+                    code,
+                )
+                .await;
+                if expect_success {
+                    assert!(result.is_ok(), "{result:?}");
+                } else if code.is_none() {
+                    assert!(
+                        matches!(result, Err(OrbitCoreError::SshSecondFactorRequired)),
+                        "{result:?}"
+                    );
+                } else {
+                    assert!(result.is_err());
+                }
+            }
+            task.abort();
         }
     }
 }

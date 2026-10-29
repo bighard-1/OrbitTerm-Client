@@ -78,6 +78,15 @@ internal static partial class NativeMethods
         string known_hosts_path,
         string request_id);
 
+    [LibraryImport(LibraryName, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial OrbitCString orbit_ssh_connect_checked_v3(
+        string host, int port, string username, string password,
+        string private_key, string private_key_passphrase, int allow_password_fallback,
+        int jump_enabled, string jump_host, int jump_port, string jump_username,
+        string jump_password, string jump_private_key, string jump_private_key_passphrase,
+        int jump_allow_password_fallback, string known_hosts_path, string request_id,
+        string one_time_code, string jump_one_time_code);
+
     [LibraryImport(LibraryName)]
     internal static partial OrbitCString orbit_terminal_open_checked_v1(
         ulong base_session_id,
@@ -116,6 +125,9 @@ internal static partial class NativeMethods
 
     [DllImport(LibraryName)]
     internal static extern void orbit_terminal_set_callback(OrbitTerminalDataCallback? callback);
+
+    [DllImport(LibraryName)]
+    internal static extern void orbit_connection_set_callback(OrbitConnectionEventCallback? callback);
 
     [LibraryImport(LibraryName)]
     internal static partial OrbitCString orbit_sftp_open_checked_v1(
@@ -264,6 +276,9 @@ internal static partial class NativeMethods
         ulong terminal_channel_id,
         IntPtr data_ptr,
         nuint data_len);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    internal delegate void OrbitConnectionEventCallback(ulong session_or_channel_id, IntPtr code);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     internal delegate void OrbitSftpProgressCallback(

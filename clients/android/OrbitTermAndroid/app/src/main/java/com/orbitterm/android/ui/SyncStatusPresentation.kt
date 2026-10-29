@@ -12,6 +12,20 @@ internal data class SyncStatusPresentation(
     val isActionRequired: Boolean = false,
 )
 
+internal data class AssetPageSyncFeedback(val message: String, val isError: Boolean)
+
+internal fun SyncStatus.assetPageFeedback(): AssetPageSyncFeedback? {
+    val presentation = presentation()
+    return when (presentation.phase) {
+        SyncPresentationPhase.WAITING,
+        SyncPresentationPhase.FAILURE -> AssetPageSyncFeedback(
+            message = "${presentation.headline}：${presentation.detail}",
+            isError = presentation.phase == SyncPresentationPhase.FAILURE,
+        )
+        else -> null
+    }
+}
+
 internal fun SyncStatus.presentation(): SyncStatusPresentation = when (this) {
     SyncStatus.Idle -> SyncStatusPresentation(SyncPresentationPhase.IDLE, "等待同步", "尚未开始同步")
     SyncStatus.AwaitingNetwork -> SyncStatusPresentation(SyncPresentationPhase.WAITING, "等待网络", "网络恢复后自动同步")
@@ -55,12 +69,21 @@ internal data class SyncConflictPresentation(
     val keepCloudLabel: String,
 )
 
-internal fun com.orbitterm.android.sync.AssetSyncConflict.presentation() = SyncConflictPresentation(
-    title = "检测到同步冲突",
-    detail = "冲突字段：${fields.joinToString { it.label }}\n\n本地修改：\n$localSummary\n\n云端修改：\n$remoteSummary",
-    keepLocalLabel = "保留本地修改",
-    keepCloudLabel = "保留云端修改",
-)
+internal fun com.orbitterm.android.sync.AssetSyncConflict.presentation() = if (remoteDeleted) {
+    SyncConflictPresentation(
+        title = "云端已删除此资产",
+        detail = "本机仍有未同步的修改：\n$localSummary\n\n云端资产已删除。只有你明确选择恢复，才会重新出现在其他设备。",
+        keepLocalLabel = "恢复资产并保留本地修改",
+        keepCloudLabel = "接受云端删除",
+    )
+} else {
+    SyncConflictPresentation(
+        title = "检测到同步冲突",
+        detail = "冲突字段：${fields.joinToString { it.label }}\n\n本地修改：\n$localSummary\n\n云端修改：\n$remoteSummary",
+        keepLocalLabel = "保留本地修改",
+        keepCloudLabel = "保留云端修改",
+    )
+}
 
 internal enum class RecentlyDeletedPresentationPhase { LOADING, EMPTY, READY, FAILED }
 

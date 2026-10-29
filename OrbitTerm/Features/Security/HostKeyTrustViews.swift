@@ -6,7 +6,9 @@ struct HostKeyTrustView: View {
     private let onCancel: () -> Void
     private let onTrust: () -> Void
     private let onRetrySave: () -> Void
+    private let onSubmitSecondFactor: (String) -> Void
     private let onClose: () -> Void
+    private let onRemovePreviousTrust: (HostKeyBlockedPayload) async -> String?
 
     init(
         coordinator: HostKeyTrustCoordinator,
@@ -18,14 +20,22 @@ struct HostKeyTrustView: View {
         onCancel: (() -> Void)? = nil,
         onTrust: (() -> Void)? = nil,
         onRetrySave: (() -> Void)? = nil,
-        onClose: (() -> Void)? = nil
+        onSubmitSecondFactor: ((String) -> Void)? = nil,
+        onClose: (() -> Void)? = nil,
+        onRemovePreviousTrust: @escaping (HostKeyBlockedPayload) async -> String? = { _ in
+            "当前版本无法维护此信任记录。"
+        }
     ) {
         self.coordinator = coordinator
         self.copyText = copyText
         self.onCancel = onCancel ?? coordinator.cancel
         self.onTrust = onTrust ?? { Task { await coordinator.trustCurrentChallenge() } }
         self.onRetrySave = onRetrySave ?? { Task { await coordinator.retrySave() } }
+        self.onSubmitSecondFactor = onSubmitSecondFactor ?? { code in
+            Task { await coordinator.submitSecondFactor(code) }
+        }
         self.onClose = onClose ?? coordinator.close
+        self.onRemovePreviousTrust = onRemovePreviousTrust
     }
 
     var body: some View {
@@ -41,6 +51,9 @@ struct HostKeyTrustView: View {
                     onCancel: onCancel,
                     onTrust: onTrust
                 )
+            case let .awaitingSecondFactor(_, forJump):
+                SSHSecondFactorSheet(forJump: forJump, onCancel: onCancel,
+                                     onSubmit: onSubmitSecondFactor)
             case let .persisting(_, challenge, _):
                 HostKeyChallengeSheet(
                     presentation: HostKeyChallengePresentation(
@@ -56,7 +69,8 @@ struct HostKeyTrustView: View {
                 HostKeyBlockedView(
                     presentation: HostKeyBlockedPresentation(payload: block),
                     onClose: onClose,
-                    onCopy: copyText
+                    onCopy: copyText,
+                    onRemovePreviousTrust: { await onRemovePreviousTrust(block) }
                 )
             case .failed(_, .storeSave):
                 HostKeySaveErrorView(
@@ -64,8 +78,11 @@ struct HostKeyTrustView: View {
                     onRetry: onRetrySave,
                     onCancel: onCancel
                 )
-            case .failed:
-                HostKeyFailureView(onClose: onClose)
+            case let .failed(_, failure):
+                HostKeyFailureView(
+                    presentation: OperationRecoveryMapper.connection(failure),
+                    onClose: onClose
+                )
             case .cancelled:
                 EmptyView()
             }
@@ -78,6 +95,52 @@ struct HostKeyTrustView: View {
             Text(title).font(.headline)
         }
         .padding(24)
+    }
+}
+
+private struct SSHSecondFactorSheet: View {
+    @Environment(\.scenePhase) private var scenePhase
+    let forJump: Bool
+    let onCancel: () -> Void
+    let onSubmit: (String) -> Void
+    @State private var code = ""
+
+    var body: some View {
+        HostKeyCard {
+            Label("SSH 二次验证", systemImage: "lock.shield")
+                .font(.title2.weight(.semibold))
+            Text(forJump ? "跳板机需要一次性验证码。" : "目标服务器需要一次性验证码。")
+            SecureField("一次性验证码", text: $code)
+                .textContentType(.oneTimeCode)
+                .onSubmit(submit)
+            Text("验证码仅用于本次连接，不会保存或同步。请核对这是你预期的服务器。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                Button("取消", action: onCancel)
+                Spacer()
+                Button("验证并连接", action: submit)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(code.isEmpty || code.utf8.count > 128 || hasControlCharacters)
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { code = "" }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .orbitTermClearTransientSensitiveInput)) { _ in
+            code = ""
+        }
+    }
+
+    private func submit() {
+        guard !code.isEmpty, code.utf8.count <= 128, !hasControlCharacters else { return }
+        let submitted = code
+        code = ""
+        onSubmit(submitted)
+    }
+
+    private var hasControlCharacters: Bool {
+        code.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
     }
 }
 
@@ -122,6 +185,10 @@ struct HostKeyBlockedView: View {
     let presentation: HostKeyBlockedPresentation
     let onClose: () -> Void
     let onCopy: (String) -> Void
+    let onRemovePreviousTrust: () async -> String?
+    @State private var showsRemovalConfirmation = false
+    @State private var isRemovingPreviousTrust = false
+    @State private var removalError: String?
 
     var body: some View {
         HostKeyCard(isWarning: true) {
@@ -138,7 +205,42 @@ struct HostKeyBlockedView: View {
                 Button("关闭", action: onClose)
                 Spacer()
                 Button("复制指纹") { onCopy(presentation.copyText) }
+                if presentation.canRemovePreviousTrust {
+                    Button("移除旧信任并重新验证") {
+                        showsRemovalConfirmation = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isRemovingPreviousTrust)
+                }
             }
+            if isRemovingPreviousTrust {
+                ProgressView("正在安全移除旧信任记录…")
+            }
+            if let removalError {
+                Label(removalError, systemImage: "exclamationmark.circle.fill")
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .confirmationDialog(
+            "重新验证这台服务器？",
+            isPresented: $showsRemovalConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("移除旧信任并重新连接", role: .destructive) {
+                isRemovingPreviousTrust = true
+                removalError = nil
+                Task {
+                    let error = await onRemovePreviousTrust()
+                    await MainActor.run {
+                        removalError = error
+                        isRemovingPreviousTrust = false
+                    }
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("请先通过服务器控制台、云厂商后台或管理员等独立渠道核对当前指纹。此操作只移除弹窗中显示的旧指纹，不会自动信任新指纹；重新连接后仍需再次确认。")
         }
     }
 
@@ -248,13 +350,17 @@ private struct HostKeyCard<Content: View>: View {
 }
 
 private struct HostKeyFailureView: View {
+    let presentation: OperationRecoveryPresentation
     let onClose: () -> Void
 
     var body: some View {
         HostKeyCard(isWarning: true) {
-            Label("连接无法继续", systemImage: "exclamationmark.triangle.fill")
+            Label(presentation.title, systemImage: presentation.systemImage)
                 .font(.title2.weight(.semibold))
-            Text("OrbitTerm 在打开会话前已安全停止。请检查连接信息后重试。")
+            Text(presentation.message)
+            Text(presentation.diagnosticCode)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
             Button("关闭", action: onClose)
         }
     }

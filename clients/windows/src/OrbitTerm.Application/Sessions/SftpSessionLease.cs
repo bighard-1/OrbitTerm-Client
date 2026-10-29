@@ -8,4 +8,5 @@ public sealed record SftpSessionLease(
     string Host,
     int Port,
     string HostKeyAlgorithm,
-    string HostKeyFingerprintSha256);
+    string HostKeyFingerprintSha256,
+    string HomePath = "/");

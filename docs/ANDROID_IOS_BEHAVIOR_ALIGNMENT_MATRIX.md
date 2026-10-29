@@ -1,6 +1,6 @@
 # Android / iOS 行为对齐矩阵
 
-更新时间：2026-09-01
+更新时间：2026-10-14
 范围：移动端的功能、信息架构、视觉层级、操作结果、安全语义与数据变化；追求品牌与布局高度一致，不复制非原生控件。
 状态：`已对齐`、`有意差异`、`待完成`。负责人中的“Android”指 Android 客户端实现与验收责任，“产品/安全”指需要明确产品或安全决策后才能改变的项目。
 
@@ -26,6 +26,7 @@
 | 资产 | 分组长列表中可随时收起 | `ServerListView.swift` 的分组折叠 | `AssetsRoute.kt` 的 `stickyHeader` | 有意差异 | Android | Android 固定分组标题，方便触摸长列表；不改变分组或资产数据。 |
 | 资产 | SSH 跳板机的独立凭据、独立主机密钥与最终会话复用 | `Core/JumpHostConfiguration.swift`、`SessionManager.swift` | `AssetsViewModel.kt`、`CheckedSshNativeClient.kt` | 已对齐 | Android | 先验证跳板、再验证目标；终端、SFTP、Docker、监控只使用最终已验证会话。 |
 | 连接 | 首次信任、变更/撤销阻断、取消不建立会话 | `Core/HostKeyTrust/*` | `AssetsRoute.kt`、`CheckedSshNativeClient.kt` | 已对齐 | Android | 指纹可复制；变更、撤销和未知密钥均无绕过路径。 |
+| SSH 二次验证 | 正确码仅在同一已验证终端打开后自动进入会话；切验证器触发锁定后，主密码解锁须获取新的空白挑战，不能沿用旧码 | `SessionManager.swift`、`ApplicationOperationLifecyclePolicy.swift`、[Apple 真机记录](release/APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md) | `AssetsRoute.kt`、`AssetsViewModel.kt`、`MobileSecondFactorResumePolicyTest.kt`（2026-10-14 源码候选） | 待完成 | Android | Android 同一候选真机验证：正码自动进终端、错码/取消绝不误跳；切验证器后先过主密码，5 分钟内重新获得空白挑战，超时、换账号和进程终止不恢复；旧码与迟到 native handle 不留存。源码与模拟器门禁不替代真机。 |
 | 外部链接 | `ssh://` / `orbitterm://connect` 只预填充服务器审核页，不携带凭据且不自动连接 | `DeepLinkManager.swift`、`ContentView.swift` | `DeepLinkCoordinator.kt`、`AssetsViewModel.kt`、`MainActivity.kt` | 已对齐 | Apple + Android | 拒绝密码、令牌、私钥、控制字符与超长字段；未解锁或审核页未就绪时保留待处理链接；现有与新资产都必须经用户明确保存并连接。 |
 | 连接与同步状态 | 用户可见主状态使用固定词典，详细原因不替代连接事实 | `ConnectionPresentation.swift`、`OperationRecoveryPresentation.swift` | `ConnectionPhasePresentation.kt`、`TerminalSessionStatus.kt`、`SyncStatusPresentation.kt` | 已对齐 | Apple + Android | 连接主状态固定为“连接中 / 重连中 / 已连接 / 已断开 / 连接失败”；同步主状态固定为“等待网络 / 等待解锁 / 同步中 / 同步失败”；无可靠会话证据不得显示“已连接”或“在线”。 |
 | 连接 | Telnet 仅能在明确风险确认后创建、测试和连接 | `SessionManager.swift`、`TelnetRiskConfirmationView.swift` | `AndroidTransportSupportPolicy.kt`、`AssetsRoute.kt`、`TelnetTerminalConnection.kt` | 已对齐 | Apple + Android | 两端均需显式风险确认；Telnet 禁用跳板、Host Key、SFTP、Docker 与监控；SSH 失败绝不自动降级。 |
@@ -35,6 +36,7 @@
 | 终端 | 输入、ANSI 输出、滚动历史、回到底部、清屏、复制/粘贴与快捷键 | `SwiftTermTerminalView.swift`、`WorkstationTerminalSessionPane.swift` | `RemoteTerminalCanvasView.kt`、`TerminalClipboard.kt`、`TerminalSessionsRoute.kt` | 已对齐 | Android | 大输出无 ANR；复制/粘贴须由显式用户操作触发，敏感剪贴板按策略清理。 |
 | 隐私 | 剪贴板按内容类型分级，避免密码、私钥和终端输出无限期暴露 | `SecureClipboard.swift`、`ClipboardSecurityPolicyTests.swift` | `SensitiveClipboard.kt`、`ClipboardContentKindPolicyTest.kt` | 已对齐 | Apple + Android | 凭据和私钥不得写入剪贴板；终端内容和主机指纹 60 秒后仅在仍为本次内容时清除，并使用系统支持的本机/敏感标记；公钥、容器 ID 和脱敏诊断可普通复制。 |
 | 隐私 | 任务切换、录屏和截图时保护解锁后画面与短期敏感输入 | `SensitiveScreenProtection.swift`、`ClipboardSecurityPolicyTests.swift` | `MainActivity.kt` 的 `FLAG_SECURE` | 有意差异 | Apple + Android | Android 由 `FLAG_SECURE` 阻止截图、录屏与任务预览；iOS 在录屏或非活跃场景覆盖内容，系统截图无法阻止时立即清理短期敏感输入；均不得在锁定后暴露已解密内容。 |
+| 隐私 | 用户复核主密码后临时允许主动录屏，并在到期或后台切换时重新遮挡 | `SettingsView.swift`、`SensitiveScreenProtection.swift`、[Apple 真机记录](release/APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md) | `MainActivity.kt` 当前持续设置 `FLAG_SECURE`，尚无对应授权 | 待完成 | 产品/安全 + Android | 明确 Android 是否提供等价的限时授权；若提供，须证明默认阻止、复核主密码、到期即时恢复保护、切后台撤销、任务预览仍无敏感内容，并做实体设备录屏验收。未完成前不能宣称两端录屏体验一致。 |
 | 终端 | 移动端键盘附件的常用键、方向键与符号集合一致 | `SwiftTermPlatformSupport.swift`、`MobileSessionViews.swift` | `TerminalSessionsRoute.kt`、`TerminalSpecialKeyOrderTest.kt` | 已对齐 | Apple + Android | 键盘附件使用策划固定顺序；“快捷操作”可按本机使用频率排序，仅保存标签与计数，不保存命令或输出。 |
 | 终端 | 移动端单终端视图，多会话通过标签或切换器访问 | `MobileSessionViews.swift` | `TerminalSessionsRoute.kt` | 已对齐 | Apple + Android | Android 与 iOS 均不显示终端分屏入口；切换、关闭和状态提示完整可达。macOS/Windows 工作站分屏不属于移动端范围。 |
 | 命令片段 | 分类、资产范围、变量提示、插入与直接执行、同步 | `SnippetsPanelView.swift` | `TerminalSessionsRoute.kt`、`SnippetSyncRequestBus.kt` | 已对齐 | Android | 受限片段不得对未授权资产执行；变量未填写不能下发。“快捷操作”只提供控制键与符号，不再内置重复命令模板。 |

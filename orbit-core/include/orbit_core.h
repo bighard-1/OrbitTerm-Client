@@ -124,6 +124,18 @@ char *orbit_ssh_connect_checked_v2(
     const char *known_hosts_path,
     const char *request_id
 );
+/* One-time SSH keyboard-interactive codes are transient and scoped to their
+ * respective destination or ProxyJump host; pass empty strings when absent. */
+char *orbit_ssh_connect_checked_v3(
+    const char *host, int32_t port, const char *username,
+    const char *password, const char *private_key, const char *private_key_passphrase,
+    int32_t allow_password_fallback, int32_t jump_enabled,
+    const char *jump_host, int32_t jump_port, const char *jump_username,
+    const char *jump_password, const char *jump_private_key,
+    const char *jump_private_key_passphrase, int32_t jump_allow_password_fallback,
+    const char *known_hosts_path, const char *request_id,
+    const char *one_time_code, const char *jump_one_time_code
+);
 char *orbit_ssh_disconnect(uint64_t base_session_id);
 
 char *orbit_sftp_connect(
@@ -327,13 +339,22 @@ char *orbit_hostkey_challenge_accept_and_persist_v1(
     const char *known_hosts_path,
     const char *comment
 );
+char *orbit_known_hosts_remove_trusted_v1(
+    const char *host,
+    uint16_t port,
+    const char *key_algorithm,
+    const char *expected_fingerprint_sha256,
+    const char *known_hosts_path
+);
 char *orbit_hostkey_challenge_reject_v1(const char *challenge_id);
 char *orbit_hostkey_challenge_status_v1(const char *challenge_id);
 char *orbit_hostkey_challenge_cleanup_expired_v1(void);
 char *orbit_hostkey_protocol_version_v1(void);
 
 typedef void (*orbit_terminal_data_callback_t)(uint64_t terminal_channel_id, const uint8_t *data, size_t len);
-typedef void (*orbit_connection_event_callback_t)(uint64_t base_session_id, const char *message);
+/* ERR_CONNECTION_LOST carries a base session ID; ERR_TERMINAL_CLOSED carries a
+ * terminal channel ID. Consumers must dispatch by message before using the ID. */
+typedef void (*orbit_connection_event_callback_t)(uint64_t session_or_channel_id, const char *message);
 typedef void (*orbit_sftp_progress_callback_t)(const char *request_id, uint64_t transferred, uint64_t total, bool has_total);
 void orbit_terminal_set_callback(orbit_terminal_data_callback_t callback);
 void orbit_connection_set_callback(orbit_connection_event_callback_t callback);

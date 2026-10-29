@@ -8,6 +8,7 @@ fn absolute_local_test_path(file_name: &str) -> String {
     }
 }
 use std::os::raw::c_char;
+use std::time::Duration;
 
 use serde_json::Value;
 
@@ -16,10 +17,11 @@ use super::checked_sftp_ffi::{
     orbit_sftp_mkdir_checked_v1, orbit_sftp_open_checked_v1, orbit_sftp_remove_checked_v1,
     orbit_sftp_rename_checked_v1, sftp_chmod_checked_response_for_tests,
     sftp_create_file_checked_response_for_tests, sftp_download_checked_response_for_tests,
-    sftp_list_checked_response_for_tests, sftp_mkdir_checked_response_for_tests,
-    sftp_open_checked_response_for_tests, sftp_read_text_checked_response_for_tests,
-    sftp_remove_checked_response_for_tests, sftp_rename_checked_response_for_tests,
-    sftp_upload_checked_response_for_tests, sftp_write_text_checked_response_for_tests,
+    sftp_list_checked_response_for_tests, sftp_list_checked_response_with_timeout_for_tests,
+    sftp_mkdir_checked_response_for_tests, sftp_open_checked_response_for_tests,
+    sftp_read_text_checked_response_for_tests, sftp_remove_checked_response_for_tests,
+    sftp_rename_checked_response_for_tests, sftp_upload_checked_response_for_tests,
+    sftp_write_text_checked_response_for_tests,
 };
 use super::{
     fingerprint_sha256, CheckedChannelAccessError, HostIdentity, HostKeyFfiEnvelope,
@@ -321,6 +323,24 @@ fn list_success_returns_checked_directory_payload_without_sensitive_fields() {
 }
 
 #[test]
+fn stalled_directory_list_returns_bounded_redacted_error() {
+    let request_id = CString::new(REQUEST_ID).unwrap();
+    let path = CString::new("/qa").unwrap();
+    let pointer = sftp_list_checked_response_with_timeout_for_tests(
+        77,
+        path.as_ptr(),
+        request_id.as_ptr(),
+        |_, _| std::future::pending::<Result<String, OrbitCoreError>>(),
+        Duration::from_millis(10),
+    );
+    let (json, value) = read_and_free(pointer);
+    assert_eq!(value["error"]["code"], "sftp_list_failed");
+    assert_eq!(value["error"]["detail_code"], "sftp_list_timeout");
+    assert_eq!(value["request_id"], REQUEST_ID);
+    assert!(!json.contains("/qa"));
+}
+
+#[test]
 fn list_payload_rejects_unsafe_entries_and_round_trips() {
     let entry = SftpDirectoryEntryPayload::new(
         "app.log".to_string(),
@@ -367,6 +387,7 @@ fn list_errors_map_to_stable_redacted_codes() {
             OrbitCoreError::SftpFailed("permission denied /secret".to_string()),
             "sftp_list_failed",
         ),
+        (OrbitCoreError::SftpTimedOut, "sftp_list_failed"),
         (
             OrbitCoreError::Internal("json includes private_key".to_string()),
             "ffi_internal_error",
@@ -385,6 +406,22 @@ fn list_errors_map_to_stable_redacted_codes() {
             assert!(!json.contains(forbidden));
         }
     }
+}
+
+#[test]
+fn backend_directory_timeout_maps_to_stable_redacted_detail() {
+    let request_id = CString::new(REQUEST_ID).unwrap();
+    let path = CString::new("/private/path").unwrap();
+    let pointer = sftp_list_checked_response_for_tests(
+        77,
+        path.as_ptr(),
+        request_id.as_ptr(),
+        |_, _| async { Err(OrbitCoreError::SftpTimedOut) },
+    );
+    let (json, value) = read_and_free(pointer);
+    assert_eq!(value["error"]["code"], "sftp_list_failed");
+    assert_eq!(value["error"]["detail_code"], "sftp_list_timeout");
+    assert!(!json.contains("/private/path"));
 }
 
 #[test]
@@ -564,8 +601,60 @@ fn download_errors_are_stable_and_redacted() {
     );
     let (json, error) = read_and_free(pointer);
     assert_eq!(error["error"]["code"], "sftp_download_failed");
+    assert_eq!(error["error"]["detail_code"], "sftp_permission_denied");
     for forbidden in ["/secret", "private_key", "orbitterm-syslog"] {
         assert!(!json.contains(forbidden));
+    }
+}
+
+#[test]
+fn download_target_collision_is_typed_and_redacted() {
+    let request_id = CString::new(REQUEST_ID).unwrap();
+    let remote_path = CString::new("/var/log/syslog").unwrap();
+    let local_path = CString::new(absolute_local_test_path("orbitterm-syslog")).unwrap();
+    let pointer = sftp_download_checked_response_for_tests(
+        77,
+        remote_path.as_ptr(),
+        local_path.as_ptr(),
+        request_id.as_ptr(),
+        |_, _, _| async move {
+            Err(OrbitCoreError::SftpFailed(
+                "create local file failed: File exists /secret private_key".to_string(),
+            ))
+        },
+    );
+    let (json, error) = read_and_free(pointer);
+    assert_eq!(error["error"]["code"], "sftp_download_failed");
+    assert_eq!(error["error"]["detail_code"], "sftp_destination_exists");
+    for forbidden in ["/secret", "private_key", "orbitterm-syslog"] {
+        assert!(!json.contains(forbidden));
+    }
+}
+
+#[test]
+fn windows_disk_full_download_is_typed_and_redacted() {
+    let request_id = CString::new(REQUEST_ID).unwrap();
+    let remote_path = CString::new("/qa/slow-test.bin").unwrap();
+    let local_path = CString::new(absolute_local_test_path("slow-test.bin")).unwrap();
+    for message in [
+        "write local file failed: There is not enough space on the disk. (os error 112)",
+        "write local file failed: 磁盘空间不足。 (os error 112)",
+        "flush local file failed: The disk is full.",
+    ] {
+        let message = format!("{message} /secret private_key");
+        let pointer = sftp_download_checked_response_for_tests(
+            77,
+            remote_path.as_ptr(),
+            local_path.as_ptr(),
+            request_id.as_ptr(),
+            |_, _, _| async move { Err(OrbitCoreError::SftpFailed(message)) },
+        );
+        let (json, error) = read_and_free(pointer);
+        assert_eq!(error["error"]["code"], "sftp_download_failed");
+        assert_eq!(error["error"]["detail_code"], "sftp_no_space_left");
+        for forbidden in ["/secret", "private_key", "slow-test.bin"] {
+            assert!(!json.contains(forbidden));
+        }
     }
 }
 
@@ -627,6 +716,7 @@ fn upload_errors_are_stable_and_redacted() {
     );
     let (json, error) = read_and_free(pointer);
     assert_eq!(error["error"]["code"], "sftp_upload_failed");
+    assert_eq!(error["error"]["detail_code"], "sftp_destination_exists");
     for forbidden in ["/secret", "private_key", "orbitterm-upload.txt"] {
         assert!(!json.contains(forbidden));
     }

@@ -94,6 +94,7 @@ enum ConnectionPresentationAdapter {
         case .blocked: phase = .blocked
         case .failed: phase = .failed
         case .awaitingDecision: phase = .awaitingHostKeyDecision
+        case .awaitingSecondFactor: phase = .awaitingSecondFactor
         case .cancelled: phase = .cancelled
         case .none where snapshot.isConnectOperationInProgress: phase = .connecting
         case .none where snapshot.wasConnectionLost: phase = .disconnected

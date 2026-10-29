@@ -1,9 +1,11 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use crate::checked_sftp::{
-    open_sftp_channel_checked_with_backend, CheckedSftpBackend, SftpSessionId,
+    open_sftp_channel_checked_with_backend, open_sftp_channel_checked_with_backend_timeout,
+    CheckedSftpBackend, SftpSessionId,
 };
 use crate::security::{
     fingerprint_sha256, CheckedChannelAccessError, HostIdentity, HostKeyFfiErrorCode,
@@ -46,6 +48,7 @@ impl Drop for TestBase {
 struct FakeBackend {
     open_error: Option<CheckedChannelAccessError>,
     registration_error: Option<CheckedChannelAccessError>,
+    stall_open: bool,
     open_calls: AtomicUsize,
     registration_calls: AtomicUsize,
 }
@@ -55,6 +58,7 @@ impl FakeBackend {
         Self {
             open_error: None,
             registration_error: None,
+            stall_open: false,
             open_calls: AtomicUsize::new(0),
             registration_calls: AtomicUsize::new(0),
         }
@@ -85,6 +89,9 @@ impl CheckedSftpBackend for FakeBackend {
     {
         Box::pin(async move {
             self.open_calls.fetch_add(1, Ordering::SeqCst);
+            if self.stall_open {
+                return std::future::pending().await;
+            }
             self.open_error.map_or(Ok(()), Err)
         })
     }
@@ -97,6 +104,27 @@ impl CheckedSftpBackend for FakeBackend {
         self.registration_calls.fetch_add(1, Ordering::SeqCst);
         self.registration_error.map_or(Ok(SftpSessionId(9)), Err)
     }
+}
+
+#[tokio::test]
+async fn stalled_sftp_handshake_times_out_before_session_registration() {
+    let base = TestBase::new(verified_generation(b"key", b"store"));
+    let backend = FakeBackend {
+        stall_open: true,
+        ..FakeBackend::successful()
+    };
+    assert_eq!(
+        open_sftp_channel_checked_with_backend_timeout(
+            base.id,
+            &backend,
+            Duration::from_millis(10),
+        )
+        .await
+        .unwrap_err(),
+        CheckedChannelAccessError::SubsystemRequestFailed,
+    );
+    assert_eq!(backend.open_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(backend.registration_calls.load(Ordering::SeqCst), 0);
 }
 
 #[test]

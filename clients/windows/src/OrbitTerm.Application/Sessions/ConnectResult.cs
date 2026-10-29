@@ -15,6 +15,8 @@ public abstract record ConnectResult
 
     public sealed record Blocked(HostKeyBlockedViewModel Block) : ConnectResult;
 
+    public sealed record RequiresSecondFactor(bool ForJump) : ConnectResult;
+
     public sealed record Failed(string Code, string MessageKey) : ConnectResult;
 
     public static ConnectResult FromNative(Guid workspaceId, Guid serverId, CheckedConnectOutcome outcome)
@@ -24,6 +26,8 @@ public abstract record ConnectResult
             CheckedConnectOutcome.Connected connected => FromConnected(workspaceId, serverId, connected.Payload),
             CheckedConnectOutcome.Challenge challenge => FromChallenge(challenge.Payload),
             CheckedConnectOutcome.Blocked blocked => FromBlocked(blocked.Payload),
+            CheckedConnectOutcome.Failed failed when failed.Error.Code == "ssh_second_factor_required" =>
+                new RequiresSecondFactor(failed.Error.DetailCode == "jump_verification_code_required"),
             CheckedConnectOutcome.Failed failed => new Failed(failed.Error.Code, failed.Error.MessageKey),
             _ => throw new InvalidOperationException("Unknown checked connection outcome."),
         };
