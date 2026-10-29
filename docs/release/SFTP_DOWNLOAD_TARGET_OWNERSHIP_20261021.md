@@ -535,4 +535,6 @@ K60 通过既有 USB 调试通道在线、插电且屏幕唤醒，独立受保�
 
 **自动化与分层**：Rust 新增 Windows 网络路径不存在、网络名失效、本地拒绝、清理失败、真正远端不存在的受检分类与脱敏断言；另在 Unix 隔离目录构造清理失败，验证不再把失败吞掉。`orbit-core` 全库 324 通过、2 忽略，Clippy `--all-targets -D warnings` 与格式检查通过。Windows fake-core 增加两种本地目标故障的失败任务提示断言；本机无 .NET SDK，**尚未经 Windows CI 执行**。本次没有安装新 Windows QA，也没有新 Linux/Android/iOS/macOS GUI 结果；五端完整验收未完成。旧 QA 真机误报和 3.5 MiB 残片失败保持原样，不能由单测改写为通过。
 
+首个固定源码提交 `b7d4536` 的 [Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40823513860) 在 Rust 构建前因 Linux UI 两条长文案不符合该工作区的 rustfmt 排版而失败；这是**门禁失败保留**，不是功能测试通过。随后按 `orbitterm-linux` 工作区格式化这两条文案并复查，通过后另提交候选；Windows 和 Security Gates 的该次运行继续按各自最终结论记账，不用它们掩盖 Linux 失败。
+
 **清理与下一轮**：Windows 映射在共享恢复后精确卸载；约 3.5 MiB 残片的大小及摘要先核对，再只删除本轮独立测试文件。限时 SMB 容器与镜像、一次性凭据及 Windows 映射脚本均已清除，端口不再监听；既有 Windows QA 资产和 SFTP 测试主机公钥未改。下一轮先核对固定候选的 Windows/Linux/Security CI，再在 Windows 10 新 QA 上用同样独立共享重演目标断线，要求用户可见提示定位本地目标且明确残片风险、任务仍未完成、远端 SFTP 保持在线、无自动重传；再对照 Linux 本地网络挂载与 K60 SAF 目标提供方失联。iOS/macOS 负向 GUI 与五端墓碑矩阵依旧开放。

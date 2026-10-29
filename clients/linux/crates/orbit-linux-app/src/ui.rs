@@ -12039,8 +12039,12 @@ fn describe_sftp_error(error: &BridgeError) -> &'static str {
             Some("sftp_connection_closed" | "sftp_generation_mismatch") => {
                 "SFTP 会话已中断，请重新连接该资产后重试"
             }
-            Some("sftp_local_io_failed") => "本地文件或保存目录不可访问；请检查是否留有部分文件，再重新选择位置",
-            Some("sftp_local_cleanup_failed") => "下载目标清理失败；恢复保存位置后，请检查并删除本次部分文件",
+            Some("sftp_local_io_failed") => {
+                "本地文件或保存目录不可访问；请检查是否留有部分文件，再重新选择位置"
+            }
+            Some("sftp_local_cleanup_failed") => {
+                "下载目标清理失败；恢复保存位置后，请检查并删除本次部分文件"
+            }
             Some("sftp_transfer_cancelled") => "传输已取消",
             _ => "请检查连接、源文件及目标目录权限后重试",
         },
