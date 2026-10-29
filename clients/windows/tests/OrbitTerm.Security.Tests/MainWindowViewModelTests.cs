@@ -1900,6 +1900,39 @@ public sealed class MainWindowViewModelTests
         }
     }
 
+    [Theory]
+    [InlineData("sftp_local_io_failed", "检查是否留有部分文件")]
+    [InlineData("sftp_local_cleanup_failed", "下载目标清理失败")]
+    public async Task DownloadTargetFailureExplainsLocalRecoveryWithoutClaimingRemoteSourceLoss(
+        string detailCode,
+        string expectedText)
+    {
+        var coreClient = new FakeCheckedCoreClient { SftpDownloadFailureDetailCode = detailCode };
+        var viewModel = CreateViewModel(coreClient);
+        viewModel.Password = "secret";
+        viewModel.ConnectCommand.Execute(null);
+        await WaitUntilAsync(() => !viewModel.ConnectCommand.IsRunning && viewModel.IsSftpOpen);
+        viewModel.SftpPathText = "/batch";
+        viewModel.PrepareSftpBrowseCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.SftpEntries.Count == 3);
+        viewModel.SetSelectedSftpEntries(viewModel.SftpEntries.Where(static entry => !entry.IsDirectory).Take(1));
+
+        var downloadDirectory = Path.Combine(Path.GetTempPath(), $"orbitterm-sftp-local-error-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(downloadDirectory);
+        try
+        {
+            await viewModel.DownloadSelectedSftpEntriesAsync(downloadDirectory, CancellationToken.None);
+            var task = Assert.Single(viewModel.SftpTransferTasks);
+            Assert.Equal(SftpTransferTaskState.Failed, task.State);
+            Assert.Contains(expectedText, task.StatusText, StringComparison.Ordinal);
+            Assert.DoesNotContain("源文件已移动或删除", task.StatusText, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(downloadDirectory, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task ManualReconnectKeepsTransferHistoryWithoutRetrySnapshot()
     {
@@ -3402,6 +3435,7 @@ public sealed class MainWindowViewModelTests
         public string? SftpListFailureDetailCode { get; set; }
         public int UploadSftpFileCallCount { get; private set; }
         public int DownloadSftpFileCallCount { get; private set; }
+        public string? SftpDownloadFailureDetailCode { get; init; }
         public List<ulong> SftpDownloadSessionIds { get; } = [];
         public List<string> SftpDownloadLocalPaths { get; } = [];
         public int CancelSftpTransferCallCount { get; private set; }
@@ -3696,6 +3730,15 @@ public sealed class MainWindowViewModelTests
                     requestId.Value,
                     null,
                     new CheckedErrorPayload("sftp_transfer_cancelled", "error.sftp.transfer_cancelled", requestId.Value));
+            }
+            if (SftpDownloadFailureDetailCode is { } failureDetailCode)
+            {
+                return new CheckedEnvelope(
+                    1,
+                    "error",
+                    requestId.Value,
+                    null,
+                    new CheckedErrorPayload("sftp_download_failed", "error.sftp.download.failed", requestId.Value, failureDetailCode));
             }
             return CreateEnvelope(
                 CheckedFfiKind.SftpDownloadCompleted,

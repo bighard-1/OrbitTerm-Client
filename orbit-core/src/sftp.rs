@@ -612,7 +612,13 @@ where
         .map_err(|e| OrbitCoreError::SftpFailed(format!("create local file failed: {e}")))?;
     let result = operation(local).await;
     if result.is_err() {
-        let _ = tokio::fs::remove_file(local_path).await;
+        if let Err(error) = tokio::fs::remove_file(local_path).await {
+            // A disconnected network target may keep the partial file. Do not
+            // claim cleanup succeeded or replace this with a source-file error.
+            return Err(OrbitCoreError::SftpFailed(format!(
+                "cleanup local file failed: {error}"
+            )));
+        }
     }
     result
 }
@@ -1160,6 +1166,39 @@ mod transfer_progress_tests {
 
         assert!(result.is_err());
         assert!(!path.exists());
+        tokio::fs::remove_dir(&directory).await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failed_download_reports_when_its_partial_target_cannot_be_cleaned() {
+        let directory = std::env::temp_dir().join(format!(
+            "orbitterm-sftp-uncleanable-target-{}",
+            rand::random::<u64>()
+        ));
+        tokio::fs::create_dir(&directory).await.unwrap();
+        let path = directory.join("partial.bin");
+        let moved_path = directory.join("moved-partial.bin");
+        let path_for_operation = path.clone();
+        let moved_for_operation = moved_path.clone();
+
+        let result = with_new_download_target(path.to_str().unwrap(), |mut file| async move {
+            file.write_all(b"partial data").await.unwrap();
+            tokio::fs::rename(&path_for_operation, &moved_for_operation)
+                .await
+                .unwrap();
+            tokio::fs::create_dir(&path_for_operation).await.unwrap();
+            Err::<(), OrbitCoreError>(OrbitCoreError::SftpTransferCancelled)
+        })
+        .await;
+
+        assert!(
+            matches!(result, Err(OrbitCoreError::SftpFailed(ref message))
+            if message.starts_with("cleanup local file failed:"))
+        );
+        assert_eq!(tokio::fs::read(&moved_path).await.unwrap(), b"partial data");
+        tokio::fs::remove_dir(&path).await.unwrap();
+        tokio::fs::remove_file(&moved_path).await.unwrap();
         tokio::fs::remove_dir(&directory).await.unwrap();
     }
 

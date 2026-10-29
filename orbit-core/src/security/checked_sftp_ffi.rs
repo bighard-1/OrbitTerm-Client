@@ -1243,7 +1243,33 @@ fn sftp_upload_error_payload(
 /// strings, but desktop clients still need enough information to guide users.
 fn classify_sftp_transfer_failure(message: &str, fallback: &'static str) -> &'static str {
     let normalized = message.to_ascii_lowercase();
-    if normalized.contains("permission denied") || normalized.contains("access denied") {
+    // The operation prefix is ours; the trailing OS/server text is not. In
+    // particular, Windows reports a lost SMB download target as "network path
+    // was not found", which must not be mistaken for a missing remote source.
+    if normalized.starts_with("cleanup local file failed:") {
+        "sftp_local_cleanup_failed"
+    } else if normalized.starts_with("open local file failed:")
+        || normalized.starts_with("create local file failed:")
+        || normalized.starts_with("write local file failed:")
+        || normalized.starts_with("flush local file failed:")
+        || normalized.starts_with("truncate local file failed:")
+        || normalized.starts_with("seek local failed:")
+    {
+        if normalized.contains("already exists") || normalized.contains("file exists") {
+            "sftp_destination_exists"
+        } else if normalized.contains("no space left")
+            || normalized.contains("disk full")
+            || normalized.contains("disk is full")
+            || normalized.contains("not enough space")
+            || normalized.contains("os error 112")
+            || normalized.contains("磁盘空间不足")
+            || normalized.contains("磁盘已满")
+        {
+            "sftp_no_space_left"
+        } else {
+            "sftp_local_io_failed"
+        }
+    } else if normalized.contains("permission denied") || normalized.contains("access denied") {
         "sftp_permission_denied"
     } else if normalized.contains("already exists")
         || normalized.contains("file exists")
@@ -1267,11 +1293,6 @@ fn classify_sftp_transfer_failure(message: &str, fallback: &'static str) -> &'st
             || normalized.contains("lost"))
     {
         "sftp_connection_closed"
-    } else if normalized.contains("open local")
-        || normalized.contains("create local")
-        || normalized.contains("write local")
-    {
-        "sftp_local_io_failed"
     } else {
         fallback
     }

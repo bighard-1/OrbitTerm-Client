@@ -659,6 +659,50 @@ fn windows_disk_full_download_is_typed_and_redacted() {
 }
 
 #[test]
+fn lost_local_download_target_is_not_reported_as_missing_remote_source() {
+    let request_id = CString::new(REQUEST_ID).unwrap();
+    let remote_path = CString::new("/qa/slow-test.bin").unwrap();
+    let local_path = CString::new(absolute_local_test_path("slow-test.bin")).unwrap();
+    for (message, expected) in [
+        (
+            "write local file failed: The network path was not found. (os error 53)",
+            "sftp_local_io_failed",
+        ),
+        (
+            "flush local file failed: The specified network name is no longer available. (os error 64)",
+            "sftp_local_io_failed",
+        ),
+        (
+            "create local file failed: Access denied. (os error 5)",
+            "sftp_local_io_failed",
+        ),
+        (
+            "cleanup local file failed: The network path was not found. (os error 53)",
+            "sftp_local_cleanup_failed",
+        ),
+        (
+            "open remote file failed: No such file /secret private_key",
+            "sftp_source_not_found",
+        ),
+    ] {
+        let message = format!("{message} /secret private_key");
+        let pointer = sftp_download_checked_response_for_tests(
+            77,
+            remote_path.as_ptr(),
+            local_path.as_ptr(),
+            request_id.as_ptr(),
+            |_, _, _| async move { Err(OrbitCoreError::SftpFailed(message)) },
+        );
+        let (json, error) = read_and_free(pointer);
+        assert_eq!(error["error"]["code"], "sftp_download_failed");
+        assert_eq!(error["error"]["detail_code"], expected);
+        for forbidden in ["/secret", "private_key", "slow-test.bin"] {
+            assert!(!json.contains(forbidden));
+        }
+    }
+}
+
+#[test]
 fn upload_requires_absolute_local_path_and_returns_redacted_checked_payload() {
     let request_id = CString::new(REQUEST_ID).unwrap();
     let local_path = CString::new("upload.txt").unwrap();
