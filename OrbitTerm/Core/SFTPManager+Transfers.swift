@@ -6,6 +6,10 @@ extension SFTPManager {
             statusText = "模拟模式下不可上传"
             return
         }
+        guard isCheckedConnection || allowsLegacyConnection else {
+            statusText = "上传失败: 需要已验证的 SFTP 会话"
+            return
+        }
         guard let sid = operationSessionID else {
             statusText = "上传失败: 未连接"
             return
@@ -39,19 +43,29 @@ extension SFTPManager {
         ])
 
         do {
-            let payload = try await RustFFI.runWithTimeout(seconds: 45) {
-                try RustFFI.parseOKPayload(
-                    RustFFI.call {
-                        localURL.path.withCString { local in
-                            remoteTarget.withCString { remote in
-                                orbit_sftp_upload_file(sid, local, remote)
+            let bytes: UInt64
+            if isCheckedConnection {
+                bytes = try await SFTPCheckedTransfer.upload(
+                    sessionID: sid, localURL: localURL, remotePath: remoteTarget
+                )
+            } else {
+                #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
+                let payload = try await RustFFI.runWithTimeout(seconds: 45) {
+                    try RustFFI.parseOKPayload(
+                        RustFFI.call {
+                            localURL.path.withCString { local in
+                                remoteTarget.withCString { remote in
+                                    orbit_sftp_upload_file(sid, local, remote)
+                                }
                             }
                         }
-                    }
-                )
+                    )
+                }
+                bytes = parseTransferBytes(payload)
+                #else
+                throw SFTPError.rustError("需要已验证的 SFTP 会话")
+                #endif
             }
-
-            let bytes = parseTransferBytes(payload)
             guard acceptsTransferCompletion(connectionLease, sessionID: sid) else { return }
             updateTransfer(taskID: task.id, progress: 1, statusText: "上传完成 \(FileSizeFormatter.humanReadable(bytes))", isDone: true)
             trimTransferHistory()
@@ -71,6 +85,10 @@ extension SFTPManager {
     func download(item: FileItem, to localURL: URL, resumeOffset: UInt64 = 0, progress: ((Double) -> Void)? = nil) async {
         if isUsingMockData {
             statusText = "模拟模式下不可下载"
+            return
+        }
+        guard isCheckedConnection || allowsLegacyConnection else {
+            statusText = "下载失败: 需要已验证的 SFTP 会话"
             return
         }
         guard let sid = operationSessionID else {
@@ -107,19 +125,32 @@ extension SFTPManager {
         ])
 
         do {
-            let payload = try await RustFFI.runWithTimeout(seconds: 45) {
-                try RustFFI.parseOKPayload(
-                    RustFFI.call {
-                        remotePath.withCString { remote in
-                            localURL.path.withCString { local in
-                                orbit_sftp_download_file(sid, remote, local, resumeOffset)
+            let bytes: UInt64
+            if isCheckedConnection {
+                guard resumeOffset == 0 else {
+                    throw SFTPError.rustError("受保护连接暂不支持续传；请选择新的保存目标")
+                }
+                bytes = try await SFTPCheckedTransfer.download(
+                    sessionID: sid, remotePath: remotePath, localURL: localURL
+                )
+            } else {
+                #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
+                let payload = try await RustFFI.runWithTimeout(seconds: 45) {
+                    try RustFFI.parseOKPayload(
+                        RustFFI.call {
+                            remotePath.withCString { remote in
+                                localURL.path.withCString { local in
+                                    orbit_sftp_download_file(sid, remote, local, resumeOffset)
+                                }
                             }
                         }
-                    }
-                )
+                    )
+                }
+                bytes = parseTransferBytes(payload)
+                #else
+                throw SFTPError.rustError("需要已验证的 SFTP 会话")
+                #endif
             }
-
-            let bytes = parseTransferBytes(payload)
             guard acceptsTransferCompletion(connectionLease, sessionID: sid) else { return }
             updateTransfer(taskID: task.id, progress: 1, statusText: "下载完成 \(FileSizeFormatter.humanReadable(bytes))", isDone: true)
             trimTransferHistory()
@@ -144,6 +175,10 @@ extension SFTPManager {
         let total = items.count
         guard total > 0 else {
             return BatchDownloadResult(summary: BatchOperationSummary(), downloadedURLs: [])
+        }
+        guard isCheckedConnection || allowsLegacyConnection else {
+            let failed = Dictionary(uniqueKeysWithValues: items.map { ($0.name, "需要已验证的 SFTP 会话") })
+            return BatchDownloadResult(summary: BatchOperationSummary(succeeded: [], failed: failed), downloadedURLs: [])
         }
         guard let sid = operationSessionID else {
             let failed = Dictionary(uniqueKeysWithValues: items.map { ($0.name, "未连接") })
@@ -178,7 +213,8 @@ extension SFTPManager {
         let results = await SFTPBatchDownloader.run(
             sessionID: sid,
             entries: entries,
-            maxConcurrent: grantedWorkers
+            maxConcurrent: grantedWorkers,
+            checked: isCheckedConnection
         )
 
         guard acceptsTransferCompletion(connectionLease, sessionID: sid) else {

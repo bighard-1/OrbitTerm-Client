@@ -4,6 +4,8 @@ enum CheckedFFIResultKind: Hashable, Sendable, Codable {
     case connected
     case connectionTestSucceeded
     case sftpChannelOpened
+    case sftpDownloadCompleted
+    case sftpUploadCompleted
     case terminalChannelOpened
     case monitorSnapshot
     case dockerContainers
@@ -41,6 +43,8 @@ enum CheckedFFIResultKind: Hashable, Sendable, Codable {
         case "connected": self = .connected
         case "connection_test_succeeded": self = .connectionTestSucceeded
         case "sftp_channel_opened": self = .sftpChannelOpened
+        case "sftp_download_completed": self = .sftpDownloadCompleted
+        case "sftp_upload_completed": self = .sftpUploadCompleted
         case "terminal_channel_opened": self = .terminalChannelOpened
         case "monitor_snapshot": self = .monitorSnapshot
         case "docker_containers": self = .dockerContainers
@@ -69,6 +73,8 @@ enum CheckedFFIResultKind: Hashable, Sendable, Codable {
         case .connected: "connected"
         case .connectionTestSucceeded: "connection_test_succeeded"
         case .sftpChannelOpened: "sftp_channel_opened"
+        case .sftpDownloadCompleted: "sftp_download_completed"
+        case .sftpUploadCompleted: "sftp_upload_completed"
         case .terminalChannelOpened: "terminal_channel_opened"
         case .monitorSnapshot: "monitor_snapshot"
         case .dockerContainers: "docker_containers"

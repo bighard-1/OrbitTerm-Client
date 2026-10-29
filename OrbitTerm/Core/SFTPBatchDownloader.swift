@@ -22,7 +22,8 @@ enum SFTPBatchDownloader {
     nonisolated static func run(
         sessionID: UInt64,
         entries: [SFTPBatchDownloadEntry],
-        maxConcurrent: Int
+        maxConcurrent: Int,
+        checked: Bool
     ) async -> [SFTPBatchDownloadSingleResult] {
         var results: [SFTPBatchDownloadSingleResult] = []
         results.reserveCapacity(entries.count)
@@ -39,7 +40,7 @@ enum SFTPBatchDownloader {
                 let next = entries[nextIndex]
                 nextIndex += 1
                 group.addTask {
-                    await downloadEntry(sessionID: sessionID, entry: next)
+                    await downloadEntry(sessionID: sessionID, entry: next, checked: checked)
                 }
             }
 
@@ -53,7 +54,7 @@ enum SFTPBatchDownloader {
                     let next = entries[nextIndex]
                     nextIndex += 1
                     group.addTask {
-                        await downloadEntry(sessionID: sessionID, entry: next)
+                        await downloadEntry(sessionID: sessionID, entry: next, checked: checked)
                     }
                 }
             }
@@ -75,7 +76,8 @@ enum SFTPBatchDownloader {
 
     private nonisolated static func downloadEntry(
         sessionID: UInt64,
-        entry: SFTPBatchDownloadEntry
+        entry: SFTPBatchDownloadEntry,
+        checked: Bool
     ) async -> SFTPBatchDownloadSingleResult {
         guard !Task.isCancelled else { return cancelledResult(for: entry) }
         if entry.item.isDirectory {
@@ -88,22 +90,32 @@ enum SFTPBatchDownloader {
         }
 
         do {
-            let payload = try await RustFFI.runWithTimeout(seconds: 50) {
-                try RustFFI.parseOKPayload(
-                    RustFFI.call {
-                        entry.remotePath.withCString { remote in
-                            entry.localURL.path.withCString { local in
-                                orbit_sftp_download_file(sessionID, remote, local, 0)
+            let bytes: UInt64
+            if checked {
+                bytes = try await SFTPCheckedTransfer.download(
+                    sessionID: sessionID,
+                    remotePath: entry.remotePath,
+                    localURL: entry.localURL
+                )
+            } else {
+                #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
+                let payload = try await RustFFI.runWithTimeout(seconds: 50) {
+                    try RustFFI.parseOKPayload(
+                        RustFFI.call {
+                            entry.remotePath.withCString { remote in
+                                entry.localURL.path.withCString { local in
+                                    orbit_sftp_download_file(sessionID, remote, local, 0)
+                                }
                             }
                         }
-                    }
-                )
+                    )
+                }
+                struct TransferResp: Decodable { let bytes: UInt64 }
+                bytes = (try? JSONDecoder().decode(TransferResp.self, from: Data(payload.utf8)).bytes) ?? 0
+                #else
+                throw SFTPError.rustError("需要已验证的 SFTP 会话")
+                #endif
             }
-
-            guard !Task.isCancelled else { return cancelledResult(for: entry) }
-
-            struct TransferResp: Decodable { let bytes: UInt64 }
-            let bytes = (try? JSONDecoder().decode(TransferResp.self, from: Data(payload.utf8)).bytes) ?? 0
 
             return SFTPBatchDownloadSingleResult(
                 fileName: entry.item.name,
@@ -111,8 +123,12 @@ enum SFTPBatchDownloader {
                 bytes: bytes,
                 error: nil
             )
+        } catch SFTPCheckedTransferError.cancelled {
+            return cancelledResult(for: entry)
         } catch {
-            if Task.isCancelled {
+            // A failed cleanup must remain visible even if the batch was
+            // cancelled. Only an acknowledged core cancellation is success.
+            if !checked && Task.isCancelled {
                 return cancelledResult(for: entry)
             }
             return SFTPBatchDownloadSingleResult(

@@ -218,14 +218,17 @@ section "Release Swift object references"
 object_root="$(awk -F'= ' '/OBJECT_FILE_DIR_normal/{print $2; exit}' <<<"$release_settings")/arm64"
 [[ -d "$object_root" ]] || fail "Release Swift object directory not found: $object_root"
 object_refs="$(find "$object_root" -name '*.o' -print0 | xargs -0 nm -u 2>/dev/null | awk '{print $NF}')"
-if rg -q '^_orbit_(ssh_connect|test_ssh_connection|sftp_connect|request_channel|exec_command|fetch_system_stats|fetch_docker_containers|fetch_docker_stats|fetch_docker_logs|docker_action)$' <<<"$object_refs"; then
-  rg '^_orbit_(ssh_connect|test_ssh_connection|sftp_connect|request_channel|exec_command|fetch_system_stats|fetch_docker_containers|fetch_docker_stats|fetch_docker_logs|docker_action)$' <<<"$object_refs" >&2
+if rg -q '^_orbit_(ssh_connect|test_ssh_connection|sftp_connect|sftp_download_file|sftp_upload_file|request_channel|exec_command|fetch_system_stats|fetch_docker_containers|fetch_docker_stats|fetch_docker_logs|docker_action)$' <<<"$object_refs"; then
+  rg '^_orbit_(ssh_connect|test_ssh_connection|sftp_connect|sftp_download_file|sftp_upload_file|request_channel|exec_command|fetch_system_stats|fetch_docker_containers|fetch_docker_stats|fetch_docker_logs|docker_action)$' <<<"$object_refs" >&2
   fail "Release Swift objects reference a dangerous legacy ABI"
 fi
 for symbol in \
   orbit_ssh_connect_checked_v3 \
   orbit_terminal_open_checked_v1 \
   orbit_sftp_open_checked_v1 \
+  orbit_sftp_download_checked_v1 \
+  orbit_sftp_upload_checked_v1 \
+  orbit_sftp_cancel_checked_v1 \
   orbit_monitor_snapshot_checked_v1 \
   orbit_docker_list_checked_v1 \
   orbit_docker_stats_checked_v1 \

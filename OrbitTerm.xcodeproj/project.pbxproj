@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		12D620C33A3348E9B85BF125 /* OrbitCoreCheckedFFILiveFunctions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9767CC31B2E380BC77CA4295 /* OrbitCoreCheckedFFILiveFunctions.swift */; };
 		003E361D55EE62247FBAA1F4 /* SnippetAssetScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49A82DE81A0B407B463AD4AF /* SnippetAssetScope.swift */; };
 		00AD57C3A1087FF4118D5AF7 /* AccountScopedServiceLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21664BB8085C952E8AB3C53B /* AccountScopedServiceLifecycleTests.swift */; };
 		00D11168A4219FA8EC587704 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 381EB860DD822B532F60A2E4 /* ContentView.swift */; };
@@ -1453,6 +1454,7 @@
 				62E109460DA9F74DD9B86A24 /* CheckedMonitorSnapshotService.swift in Sources */,
 				06E7FED45C6F8B1FE62F264D /* CheckedSFTPConnectionService.swift in Sources */,
 				DA7C1B7C577C21A3A10BEC73 /* CheckedSFTPServiceTests.swift in Sources */,
+				12D620C33A3348E9B85BF125 /* OrbitCoreCheckedFFILiveFunctions.swift in Sources */,
 				350AE0902F54E7F588995BD4 /* CheckedSessionOrchestrationTests.swift in Sources */,
 				C225AD8DF6492AFDB01E726D /* CheckedTerminalConnectionOrchestrator.swift in Sources */,
 				5DF9F4A0663E1BEFB8BE30F5 /* ClipboardSecurityPolicyTests.swift in Sources */,

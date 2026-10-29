@@ -17,6 +17,7 @@ enum CheckedFFIErrorCode: Hashable, Sendable, Codable {
         "session_terminating", "session_closed", "channel_open_failed",
         "invalid_pty_size", "pty_request_failed", "shell_start_failed",
         "subsystem_request_failed", "sftp_registration_failed", "exec_request_failed",
+        "sftp_download_failed", "sftp_upload_failed",
         "exec_output_failed", "exec_timeout", "exec_command_failed", "monitor_snapshot_failed",
         "invalid_command", "command_too_large", "invalid_exec_options",
         "exec_output_limit_exceeded",
