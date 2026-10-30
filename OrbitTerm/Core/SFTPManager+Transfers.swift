@@ -254,10 +254,9 @@ extension SFTPManager {
         guard mayPublish else {
             return BatchDownloadResult(summary: summary, downloadedURLs: [])
         }
-        if summary.hasFailure {
-            statusText = "批量下载完成：成功 \(summary.successCount)，失败 \(summary.failureCount)"
-        } else {
-            statusText = "批量下载完成：\(summary.successCount) 项"
+        let wasCancelled = Task.isCancelled
+        statusText = summary.downloadStatusText(wasCancelled: wasCancelled)
+        if !wasCancelled, !summary.hasFailure {
             successHaptic()
         }
 

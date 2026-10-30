@@ -122,6 +122,10 @@ targets:
           - Core/WorkspacePresentationCoordinator.swift
           - Core/WorkspaceToolCoordinator.swift
           - Core/OperationResourceBudget.swift
+          - Core/SFTPModels.swift
+          - Core/FileSizeFormatter.swift
+          - Features/Home/SFTPBrowserBatchState.swift
+          - Features/Home/SFTPBatchOperationFormatter.swift
           - Core/DevicePerformanceSLO.swift
           - Core/PerformanceSignpost.swift
           - Core/TerminalChunkBuffer.swift

@@ -236,6 +236,18 @@ struct SFTPBrowserView: View {
                             revealInFinderURL = nil
                     }
                 }
+#else
+                if !batchState.isResultPresented, !batchState.completedDownloadURLs.isEmpty {
+                    SFTPBatchExportToolbar(
+                        completedCount: batchState.completedDownloadURLs.count,
+                        onExport: {
+                            shareURLs = batchState.takeCompletedDownloads()
+                            showingShareSheet = !shareURLs.isEmpty
+                        },
+                        onDismiss: { _ = batchState.takeCompletedDownloads() }
+                    )
+                    .padding(.horizontal, 12)
+                }
 #endif
 
                 if batchState.hasSelection {
@@ -243,7 +255,8 @@ struct SFTPBrowserView: View {
                         selectedCount: batchState.selectedIDs.count,
                         progress: batchState.progress,
                         isRunning: batchState.isRunning,
-                        onCancel: { cancelBatchDownload() },
+                        isCancelling: batchState.isCancelling,
+                        onCancel: { requestBatchCancellation() },
                         onDownload: { startBatchDownload() },
                         onDelete: { batchState.requestDeleteConfirmation() }
                     )
@@ -438,28 +451,42 @@ struct SFTPBrowserView: View {
 
     private func startBatchDownload() {
         guard batchDownloadTask == nil else { return }
+        let targets = SFTPBatchOperationFormatter.downloadableItems(from: selectedItems)
+        guard !targets.isEmpty else {
+            batchState.showResult(SFTPBatchOperationFormatter.noDownloadableFilesMessage)
+            return
+        }
         let generation = UUID()
         let transferManager = effectiveManager
         batchDownloadGeneration = generation
+        batchState.beginDownload(total: targets.count)
         batchDownloadTask = Task {
             await performBatchDownload(
                 generation: generation,
-                manager: transferManager
+                manager: transferManager,
+                targets: targets
             )
             guard batchDownloadGeneration == generation else { return }
             batchDownloadTask = nil
         }
     }
 
+    private func requestBatchCancellation() {
+        guard let task = batchDownloadTask else {
+            batchState.clearSelection()
+            return
+        }
+        batchState.requestCancellation()
+        task.cancel()
+    }
+
     private func cancelBatchDownload() {
+        // Page/session abandonment revokes presentation ownership. Explicit
+        // toolbar cancellation instead keeps ownership until cleanup returns.
         batchDownloadGeneration = UUID()
         batchDownloadTask?.cancel()
         batchDownloadTask = nil
-        if batchState.isRunning {
-            batchState.cancelBatch()
-        } else {
-            batchState.clearSelection()
-        }
+        batchState.cancelBatch()
     }
 
     private func openDocument(_ item: FileItem) async {
@@ -605,16 +632,9 @@ struct SFTPBrowserView: View {
 
     private func performBatchDownload(
         generation: UUID,
-        manager: SFTPManager
+        manager: SFTPManager,
+        targets: [FileItem]
     ) async {
-        let targets = SFTPBatchOperationFormatter.downloadableItems(from: selectedItems)
-        guard !targets.isEmpty else {
-            batchState.showResult(SFTPBatchOperationFormatter.noDownloadableFilesMessage)
-            return
-        }
-
-        batchState.beginDownload(total: targets.count)
-
         let base = SFTPBrowserPathHelper.batchDownloadDirectory()
 
         let result = await manager.batchDownload(
@@ -628,20 +648,25 @@ struct SFTPBrowserView: View {
             }
         }
 
-        guard !Task.isCancelled, batchDownloadGeneration == generation else {
+        guard batchDownloadGeneration == generation else {
             return
         }
 
-        batchState.finishBatch(message: SFTPBatchOperationFormatter.downloadResultMessage(for: result.summary))
+        let wasCancelled = Task.isCancelled || batchState.isCancelling
+        batchState.finishBatch(
+            message: SFTPBatchOperationFormatter.downloadResultMessage(
+                for: result.summary, wasCancelled: wasCancelled
+            ),
+            downloadedURLs: result.downloadedURLs,
+            wasCancelled: wasCancelled
+        )
+        // Cancellation never opens a share sheet or Finder, including when
+        // some entries finished before the user stopped the batch.
+        guard !wasCancelled else { return }
 
 #if os(macOS)
         if let first = result.downloadedURLs.first {
             revealInFinderURL = first
-        }
-#else
-        if !result.downloadedURLs.isEmpty {
-            shareURLs = result.downloadedURLs
-            showingShareSheet = true
         }
 #endif
     }

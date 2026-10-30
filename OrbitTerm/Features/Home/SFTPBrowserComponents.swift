@@ -187,6 +187,7 @@ struct SFTPBatchToolbar: View {
     let selectedCount: Int
     let progress: BatchDownloadProgress?
     let isRunning: Bool
+    let isCancelling: Bool
     let onCancel: () -> Void
     let onDownload: () -> Void
     let onDelete: () -> Void
@@ -201,11 +202,16 @@ struct SFTPBatchToolbar: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(palette.textPrimary.color)
                 Spacer()
-                Button("取消", action: onCancel)
+                Button(isCancelling ? "正在停止…" : "取消", action: onCancel)
                     .buttonStyle(.bordered)
+                    .disabled(isCancelling)
             }
 
-            if let progress, isRunning {
+            if isCancelling {
+                Label("正在停止传输并等待目标清理，请稍候。", systemImage: "hourglass")
+                    .font(.caption)
+                    .foregroundStyle(palette.textSecondary.color)
+            } else if let progress, isRunning {
                 VStack(alignment: .leading, spacing: 4) {
                     ProgressView(value: progress.fraction)
                     Text("下载进度 \(progress.completed)/\(progress.total) · \(FileSizeFormatter.humanReadable(progress.bytesTransferred))")
@@ -233,6 +239,30 @@ struct SFTPBatchToolbar: View {
         )
         .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: selectedCount)
+    }
+}
+
+struct SFTPBatchExportToolbar: View {
+    let completedCount: Int
+    let onExport: () -> Void
+    let onDismiss: () -> Void
+    @Environment(\.appThemePalette) private var palette
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("已完成 \(completedCount) 个文件，可导出保存。")
+                .font(.subheadline)
+            HStack {
+                Button("导出已完成文件", action: onExport)
+                    .buttonStyle(.borderedProminent)
+                Spacer()
+                Button("关闭", action: onDismiss)
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("关闭批量下载导出入口")
+            }
+        }
+        .padding(12)
+        .background(palette.surfaceGlassStrong.color, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
