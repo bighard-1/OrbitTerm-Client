@@ -674,3 +674,7 @@ Mac Release **`20261029.4`** 和 iOS Release **`20261029.32`** 构建及严格�
 在新 SFTP 通道继续显式下载已有 Fresh 虚构目标，任务正常进入受检接口并明确提示 **“保存目标已存在，未覆盖；请选择其他文件名”**，并未继承旧取消信号。只回读这个精确目标，仍为 **262,144 字节**、SHA-256 **`2312394b…15e9`**；慢目标再次查询仍不存在。随后从终端关闭这条虚构会话、回到资产列表，精确停止夹具，两测试端口均无监听；iPhone 保持受保护 `.32`，没有安装镜像 Debug 或覆盖正式版。两份既有虚构短目标及虚构资产保留用于后继验收，未访问其他文件/资产；原始设备 JSON 只保存在加密外置盘，不提交设备标识。
 
 **结论与下一步**：`208` 的取消/清理收敛问题已有源码、确定性自动化、真实回环协议、Mac `.4` 与 iPhone `.32` 两类有限真实设备证据；本轮未发现新的下载取消缺陷。仍需收完固定源码 Security Gates，后续分别补 Apple 上传 GUI 的目标冲突/中断、批量下载主动取消与分享生命周期，以及真实目标清理失败的 GUI 提示；不能据下载证据外推这些场景。无新增模拟器产品 GUI，未完成五端完整墓碑/同候选矩阵，系统录屏保护也未重跑。Android/Windows 后续继续优先对照源故障与客户端取消、部分目标清理/失败保留、停止中与真实终态、重连旧任务隔离和不自动重传；第三方 SAF 拒删时序限制原样保留。
+
+### 连接取消固定候选远端门禁收尾（2026-10-29）
+
+回读并核对完整 `head_sha` 后，取消修复 **`f9ef1b0`** 的 [Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40988175856)、[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40988175853)、[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/40988175849) 均为 **`completed/success`**。Security Gates 的 Android release、仪器与迁移、Apple checked-path、Rust、依赖漏洞/许可证扫描、桌面视觉契约均成功；条件式 macOS signed UI 与 OpenSSH release-candidate 作业跳过，仍不能计真实 GUI 或主机验收。本条只收远端门禁，没有修改产品代码、安装新包或增加设备用例。`211/212` 记录当时“仍运行”的状态保留；此前暂存的 Mac/iPhone 真机回执随本条统一推送，不重写固定源码提交。下一步继续在虚构夹具中验上传同名保护及批量主动取消/分享生命周期；原始第三方 SAF 限制、真实清理失败 GUI、五端完整矩阵和录屏回归仍开放。
