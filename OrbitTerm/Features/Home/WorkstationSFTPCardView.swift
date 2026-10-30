@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 struct WorkstationSFTPCardView: View {
     @ObservedObject var sftpManager: SFTPManager
@@ -12,7 +15,7 @@ struct WorkstationSFTPCardView: View {
     let onEnterDirectory: (FileItem) -> Void
     let onOpenFile: (FileItem) -> Void
     let onDownload: (FileItem) -> Void
-    let onBatchDownload: ([FileItem]) async -> Void
+    let onBatchDownload: ([FileItem]) async -> BatchDownloadResult
     let onRename: (FileItem) -> Void
     let onChmod: (FileItem) -> Void
     let onSetMode: (FileItem, String) -> Void
@@ -24,7 +27,10 @@ struct WorkstationSFTPCardView: View {
     @State private var isTransferQueueExpanded = false
     @State private var selectedItemIDs: Set<String> = []
     @State private var isBatchDeleteConfirmationPresented = false
-    @State private var isBatchOperationRunning = false
+    @State private var isBatchDeleteRunning = false
+    @StateObject private var batchDownload = SFTPBatchDownloadController()
+
+    private var isBatchOperationRunning: Bool { isBatchDeleteRunning || batchDownload.state.isRunning }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -32,7 +38,7 @@ struct WorkstationSFTPCardView: View {
 
             SFTPPathNavigator(
                 path: $pathInput,
-                isEnabled: sftpManager.isConnected && !sftpManager.isLoading,
+                isEnabled: canBrowse,
                 focusRequest: pathFocusRequest,
                 onNavigate: {
                     let requestedPath = pathInput
@@ -90,8 +96,9 @@ struct WorkstationSFTPCardView: View {
             .contextMenu {
                 directoryActions
             }
+            .disabled(isBatchOperationRunning)
 
-            if selectedItemIDs.count > 1 {
+            if selectedItemIDs.count > 1 || isBatchOperationRunning {
                 selectionToolbar
             }
 
@@ -121,11 +128,35 @@ struct WorkstationSFTPCardView: View {
             titleVisibility: .visible
         ) {
             Button("删除", role: .destructive) {
-                runBatchOperation { await onBatchDelete(selectedItems) }
+                runBatchDelete()
             }
             Button("取消", role: .cancel) {}
         } message: {
             Text("将逐项核对远端修订后删除；此操作无法撤销。")
+        }
+        .alert("批量下载结果", isPresented: Binding(
+            get: { batchDownload.state.isResultPresented },
+            set: { if !$0 { batchDownload.dismissResult() } }
+        )) {
+            Button("确定", role: .cancel) { batchDownload.dismissResult() }
+#if os(macOS)
+            if !batchDownload.state.completedDownloadURLs.isEmpty {
+                Button("在 Finder 中显示") {
+                    batchDownload.dismissResult()
+                    let urls = batchDownload.takeCompletedDownloads()
+                    if !urls.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(urls) }
+                }
+            }
+#endif
+        } message: {
+            Text(batchDownload.state.resultMessage)
+        }
+        .onDisappear { abandonBatchDownload() }
+        .onChange(of: ObjectIdentifier(sftpManager)) { _, _ in abandonBatchDownload() }
+        .onChange(of: sftpManager.activeSessionID) { _, _ in abandonBatchDownload() }
+        .onChange(of: sftpManager.currentPath) { _, _ in abandonBatchDownload() }
+        .onChange(of: batchDownload.state.isRunning) { _, running in
+            if !running { selectedItemIDs.removeAll() }
         }
     }
 
@@ -178,7 +209,7 @@ struct WorkstationSFTPCardView: View {
     }
 
     private var canBrowse: Bool {
-        sftpManager.isConnected && !sftpManager.isLoading
+        sftpManager.isConnected && !sftpManager.isLoading && !isBatchOperationRunning
     }
 
     private func fileRow(_ item: FileItem) -> some View {
@@ -256,22 +287,42 @@ struct WorkstationSFTPCardView: View {
     }
 
     private var selectionToolbar: some View {
-        HStack(spacing: 8) {
-            Text("已选 \(selectedItemIDs.count) 项")
-                .font(.caption.weight(.semibold))
-            Spacer(minLength: 4)
-            Button("取消") { selectedItemIDs.removeAll() }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(batchDownload.state.isRunning
+                    ? "本次下载 \(batchDownload.state.progress?.total ?? 0) 项"
+                    : "已选 \(selectedItemIDs.count) 项")
+                    .font(.caption.weight(.semibold))
+                Spacer(minLength: 4)
+                Button(batchDownload.state.isCancelling ? "正在停止…"
+                    : batchDownload.state.isRunning ? "取消传输" : "取消选择") {
+                    if batchDownload.state.isRunning {
+                        batchDownload.requestCancellation()
+                    } else {
+                        selectedItemIDs.removeAll()
+                    }
+                }
                 .buttonStyle(.borderless)
-                .disabled(isBatchOperationRunning)
-            Button("下载") {
-                let files = selectedItems.filter { !$0.isDirectory }
-                runBatchOperation { await onBatchDownload(files) }
+                .disabled(batchDownload.state.isCancelling || isBatchDeleteRunning)
+                .accessibilityIdentifier("workstation.sftp.batch.cancel")
             }
-            .disabled(isBatchOperationRunning || selectedItems.allSatisfy(\.isDirectory))
-            Button("删除", role: .destructive) {
-                isBatchDeleteConfirmationPresented = true
+            if batchDownload.state.isRunning {
+                Label(batchDownload.state.isCancelling
+                    ? "正在停止传输并等待目标清理，请稍候。"
+                    : "正在下载，可取消本次传输。", systemImage: "hourglass")
+                    .font(.caption)
+            } else if isBatchDeleteRunning {
+                Text("正在删除所选项目…").font(.caption)
             }
-            .disabled(isBatchOperationRunning)
+            HStack(spacing: 8) {
+                Button("下载") { startBatchDownload() }
+                    .disabled(isBatchOperationRunning || !canBrowse || selectedItems.allSatisfy(\.isDirectory))
+                    .accessibilityIdentifier("workstation.sftp.batch.download")
+                Button("删除", role: .destructive) {
+                    isBatchDeleteConfirmationPresented = true
+                }
+                .disabled(isBatchOperationRunning || !canBrowse)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -279,13 +330,29 @@ struct WorkstationSFTPCardView: View {
         .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(palette.borderGlass.color, lineWidth: 1))
     }
 
-    private func runBatchOperation(_ operation: @escaping () async -> Void) {
+    private func startBatchDownload() {
+        guard !isBatchOperationRunning, canBrowse else { return }
+        let operation = onBatchDownload
+        let targets = selectedItems
+        batchDownload.start(items: targets) { files in
+            await operation(files)
+        }
+    }
+
+    private func abandonBatchDownload() {
+        batchDownload.abandon()
+        selectedItemIDs.removeAll()
+    }
+
+    private func runBatchDelete() {
         guard !isBatchOperationRunning else { return }
-        isBatchOperationRunning = true
+        let targets = selectedItems
+        let operation = onBatchDelete
+        isBatchDeleteRunning = true
         Task {
-            await operation()
+            await operation(targets)
             selectedItemIDs.removeAll()
-            isBatchOperationRunning = false
+            isBatchDeleteRunning = false
         }
     }
 }

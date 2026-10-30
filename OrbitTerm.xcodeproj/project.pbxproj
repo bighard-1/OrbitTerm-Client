@@ -524,6 +524,10 @@
 		EB1299825A5AED417DC0B1A6 /* SFTPBrowserBatchState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E248AF3D4742AFECB5DCCEEA /* SFTPBrowserBatchState.swift */; };
 		C5F521B86F41659BD3FC99E3 /* SFTPBatchOperationFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0745CC8E9FCDB47926A280 /* SFTPBatchOperationFormatter.swift */; };
 		6E1678BA861A8334F2520249 /* SFTPBatchCancellationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FDEDABAEEEFFD16333CA411 /* SFTPBatchCancellationTests.swift */; };
+		3B997F7FB3039B784E1DB837 /* SFTPBatchDownloadController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C751F35E423CF5B993A2ABD4 /* SFTPBatchDownloadController.swift */; };
+		B38041F2FCF1F8F2D25F2805 /* SFTPBatchDownloadController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C751F35E423CF5B993A2ABD4 /* SFTPBatchDownloadController.swift */; };
+		ED0BD3F825EA3C5057A83BD2 /* SFTPBatchDownloadController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C751F35E423CF5B993A2ABD4 /* SFTPBatchDownloadController.swift */; };
+		B81CC897215D4F2B5E5A3B67 /* SFTPBatchDownloadControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAC405A49E252DB8BE60F3FA /* SFTPBatchDownloadControllerTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -793,6 +797,8 @@
 		FD8735F617A690186895C697 /* SyncRequestIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncRequestIdentityTests.swift; sourceTree = "<group>"; };
 		FDF348DE95064576B85DADD2 /* SFTPThemeSemantics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPThemeSemantics.swift; sourceTree = "<group>"; };
 		1FDEDABAEEEFFD16333CA411 /* SFTPBatchCancellationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBatchCancellationTests.swift; sourceTree = "<group>"; };
+		C751F35E423CF5B993A2ABD4 /* SFTPBatchDownloadController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBatchDownloadController.swift; sourceTree = "<group>"; };
+		CAC405A49E252DB8BE60F3FA /* SFTPBatchDownloadControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPBatchDownloadControllerTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -951,6 +957,7 @@
 				17A8CF8B6134CC76C9376A2B /* SFTPActivityShareSheet.swift */,
 				FC0745CC8E9FCDB47926A280 /* SFTPBatchOperationFormatter.swift */,
 				E248AF3D4742AFECB5DCCEEA /* SFTPBrowserBatchState.swift */,
+				C751F35E423CF5B993A2ABD4 /* SFTPBatchDownloadController.swift */,
 				A6F5A3407984B279EF080673 /* SFTPBrowserComponents.swift */,
 				4F3A50B12C7EDA8BE4D4CF2F /* SFTPBrowserConnectionDraft.swift */,
 				39F14E3A78611D6EDB41479C /* SFTPBrowserEditState.swift */,
@@ -1059,6 +1066,7 @@
 				555D5885D74C7A64B2960725 /* CheckedSessionOrchestrationTests.swift */,
 				1C91C966272BB497962A031F /* CheckedSFTPServiceTests.swift */,
 				1FDEDABAEEEFFD16333CA411 /* SFTPBatchCancellationTests.swift */,
+				CAC405A49E252DB8BE60F3FA /* SFTPBatchDownloadControllerTests.swift */,
 				6B0E2E7B61EBD8625D0DB564 /* ClipboardSecurityPolicyTests.swift */,
 				5C84F621EBED61659728A12C /* ConnectionPresentationTests.swift */,
 				13F9C18E0DC577E1A71DA76B /* DevicePerformanceSLOTests.swift */,
@@ -1468,8 +1476,10 @@
 				CEF85E897E5606B885D03FCF /* SFTPTransferOperationScope.swift in Sources */,
 				DA7C1B7C577C21A3A10BEC73 /* CheckedSFTPServiceTests.swift in Sources */,
 				6E1678BA861A8334F2520249 /* SFTPBatchCancellationTests.swift in Sources */,
+				B81CC897215D4F2B5E5A3B67 /* SFTPBatchDownloadControllerTests.swift in Sources */,
 				C5F521B86F41659BD3FC99E3 /* SFTPBatchOperationFormatter.swift in Sources */,
 				EB1299825A5AED417DC0B1A6 /* SFTPBrowserBatchState.swift in Sources */,
+				3B997F7FB3039B784E1DB837 /* SFTPBatchDownloadController.swift in Sources */,
 				885CD60D97391A309192D831 /* FileSizeFormatter.swift in Sources */,
 				682A1AD504F19C03306FC27E /* SFTPModels.swift in Sources */,
 				12D620C33A3348E9B85BF125 /* OrbitCoreCheckedFFILiveFunctions.swift in Sources */,
@@ -1676,6 +1686,7 @@
 				05B3FCDA5DDEC076BAF0EDAC /* SFTPBatchDownloader.swift in Sources */,
 				2FEB079D8FFF4F50AE6F9850 /* SFTPBatchOperationFormatter.swift in Sources */,
 				ADE54CB34A97ED4840491315 /* SFTPBrowserBatchState.swift in Sources */,
+				B38041F2FCF1F8F2D25F2805 /* SFTPBatchDownloadController.swift in Sources */,
 				CA7FC5FBC52AE3F94EFAD31C /* SFTPBrowserComponents.swift in Sources */,
 				A4E96BAB0642D955931A7C81 /* SFTPBrowserConnectionDraft.swift in Sources */,
 				9039C06E7D941ADA06A8C216 /* SFTPBrowserEditState.swift in Sources */,
@@ -1889,6 +1900,7 @@
 				A0155143734296B0E0EEC4BC /* SFTPBatchDownloader.swift in Sources */,
 				5B517D9960F3AE3AA540E5F4 /* SFTPBatchOperationFormatter.swift in Sources */,
 				C81D9C828DDD4151085FCA46 /* SFTPBrowserBatchState.swift in Sources */,
+				ED0BD3F825EA3C5057A83BD2 /* SFTPBatchDownloadController.swift in Sources */,
 				27A6180C2D81986BD90296A4 /* SFTPBrowserComponents.swift in Sources */,
 				C5FDED5ED408066B5AF7B2B8 /* SFTPBrowserConnectionDraft.swift in Sources */,
 				018ABE369CBC10D75F294011 /* SFTPBrowserEditState.swift in Sources */,

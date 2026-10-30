@@ -173,8 +173,7 @@ struct WorkstationRightPanelView: View {
                     }
                 },
                 onBatchDownload: { items in
-                    guard !items.isEmpty else { return }
-                    _ = await active.sftpManager.batchDownload(
+                    await active.sftpManager.batchDownload(
                         items: items,
                         destinationDirectory: SFTPBrowserPathHelper.batchDownloadDirectory(),
                         maxConcurrent: OperationResourceBudget.sftpMaximumConcurrentTransfers
@@ -200,6 +199,7 @@ struct WorkstationRightPanelView: View {
                     _ = await active.sftpManager.batchDelete(paths: paths)
                 }
             )
+            .id(active.id)
         }
     }
 
