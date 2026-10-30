@@ -973,6 +973,20 @@ impl SftpActionContext {
 }
 
 impl SessionRegistry {
+    fn finish_monitor_request(&mut self, workspace_id: Uuid, base_session_id: u64) -> bool {
+        let Some(runtime) = self.sessions.get_mut(&workspace_id) else {
+            return false;
+        };
+        if runtime.transport != Transport::Ssh
+            || runtime.phase != WorkspacePhase::Connected
+            || runtime.base_session_id != Some(base_session_id)
+        {
+            return false;
+        }
+        runtime.monitor_in_flight = false;
+        true
+    }
+
     fn owns_sftp_context(&self, target: &SftpActionContext) -> bool {
         self.active_workspace_id == Some(target.workspace_id)
             && self
@@ -10645,7 +10659,10 @@ fn begin_monitor_refresh(context: UiContext) {
         let Some(runtime) = registry.active_mut() else {
             return;
         };
-        if runtime.transport != Transport::Ssh || runtime.monitor_in_flight {
+        if runtime.transport != Transport::Ssh
+            || runtime.phase != WorkspacePhase::Connected
+            || runtime.monitor_in_flight
+        {
             return;
         }
         let Some(id) = runtime.base_session_id else {
@@ -10660,38 +10677,46 @@ fn begin_monitor_refresh(context: UiContext) {
         let _ = sender.send(result);
     });
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
-        match receiver.try_recv() {
+        let result = receiver.try_recv();
+        if matches!(result, Err(mpsc::TryRecvError::Empty)) {
+            return gtk::glib::ControlFlow::Continue;
+        }
+        if !context
+            .session
+            .borrow_mut()
+            .finish_monitor_request(workspace_id, base_session_id)
+        {
+            // A late result from the previous connection cannot clear the
+            // new connection's in-flight request or disconnect its handles.
+            return gtk::glib::ControlFlow::Break;
+        }
+        match result {
             Ok(Ok(snapshot)) => {
-                if let Some(runtime) = context.session.borrow_mut().sessions.get_mut(&workspace_id)
-                {
-                    runtime.monitor_in_flight = false;
-                }
                 if context.session.borrow().active_workspace_id == Some(workspace_id) {
                     render_monitor(&context, &snapshot);
                 }
                 gtk::glib::ControlFlow::Break
             }
             Ok(Err(error)) => {
-                if let Some(runtime) = context.session.borrow_mut().sessions.get_mut(&workspace_id)
-                {
-                    runtime.monitor_in_flight = false;
+                if monitor_confirms_closed_ssh_session(&error) {
+                    disconnect_workspace(context.clone(), workspace_id, false);
+                } else if context.session.borrow().active_workspace_id == Some(workspace_id) {
+                    context.workspace.monitor_latency.set_label("不可用");
+                    context
+                        .status
+                        .set_label(&format!("Monitor 采样失败：{error}"));
                 }
-                context.workspace.monitor_latency.set_label("不可用");
-                context
-                    .status
-                    .set_label(&format!("Monitor 采样失败：{error}"));
                 gtk::glib::ControlFlow::Break
             }
             Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
-            Err(mpsc::TryRecvError::Disconnected) => {
-                if let Some(runtime) = context.session.borrow_mut().sessions.get_mut(&workspace_id)
-                {
-                    runtime.monitor_in_flight = false;
-                }
-                gtk::glib::ControlFlow::Break
-            }
+            Err(mpsc::TryRecvError::Disconnected) => gtk::glib::ControlFlow::Break,
         }
     });
+}
+
+fn monitor_confirms_closed_ssh_session(error: &BridgeError) -> bool {
+    matches!(error, BridgeError::Core { code, .. }
+        if matches!(code.as_str(), "session_closed" | "session_not_found"))
 }
 
 fn render_monitor(context: &UiContext, snapshot: &MonitorSnapshot) {
@@ -20577,6 +20602,59 @@ fn fatal_state(message: &str) -> adw::StatusPage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_monitor_completion_cannot_change_a_reconnected_workspace() {
+        let asset = ServerAsset::new("virtual", "test.invalid", "qa");
+        let mut runtime = SessionRuntime::new(&asset);
+        runtime.phase = WorkspacePhase::Connected;
+        runtime.base_session_id = Some(42);
+        runtime.monitor_in_flight = true;
+        let mut registry = SessionRegistry {
+            active_workspace_id: Some(asset.id),
+            sessions: [(asset.id, runtime)].into(),
+            ..Default::default()
+        };
+        assert!(!registry.finish_monitor_request(asset.id, 41));
+        let current = &registry.sessions[&asset.id];
+        assert!(current.monitor_in_flight);
+        assert_eq!(current.phase, WorkspacePhase::Connected);
+        assert_eq!(current.base_session_id, Some(42));
+        assert!(registry.finish_monitor_request(asset.id, 42));
+        assert!(!registry.sessions[&asset.id].monitor_in_flight);
+        registry.sessions.get_mut(&asset.id).unwrap().phase = WorkspacePhase::Disconnected;
+        assert!(!registry.finish_monitor_request(asset.id, 42));
+    }
+
+    #[test]
+    fn monitor_disconnect_requires_an_authoritative_base_session_error() {
+        for code in ["session_closed", "session_not_found"] {
+            assert!(monitor_confirms_closed_ssh_session(&BridgeError::Core {
+                code: code.into(),
+                message_key: "error.exec.command.failed".into(),
+                detail_code: None,
+            }));
+        }
+        for code in [
+            "exec_command_failed",
+            "permission_denied",
+            "sftp_connection_closed",
+            "sftp_generation_mismatch",
+            "sftp_session_unavailable",
+            "monitor_timeout",
+        ] {
+            // Details or generic sampling failures do not prove the SSH
+            // transport is closed; in particular SFTP can fail independently.
+            assert!(!monitor_confirms_closed_ssh_session(&BridgeError::Core {
+                code: code.into(),
+                message_key: "error.exec.command.failed".into(),
+                detail_code: Some("session_closed".into()),
+            }));
+        }
+        assert!(!monitor_confirms_closed_ssh_session(
+            &BridgeError::InvalidInput("session_closed")
+        ));
+    }
 
     fn sftp_dialog_target() -> SftpActionContext {
         SftpActionContext {

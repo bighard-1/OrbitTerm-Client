@@ -102,3 +102,28 @@ Windows 上述真机路径已补收；仅本轮虚构会话已关闭、服务／
 随后源码自审发现 `c33eb83` 的完成回执若因工作区变化被过早放弃，共用任务汇总可能停留“进行中”。后继候选继续收取完成回执，传输明细标注原资产来源，仅最新一次传输更新共用汇总；目录状态及刷新仍须属于原连接／目录。同时在目录请求开始时禁用旧选择动作。该后继源码需重新编译／测试，不能沿用 `c33eb83` 的通过结果；不新增持久历史，不宣称切换工作区期间的全部 GUI 路径已验收。
 
 **Windows 下步安装准备**：取得 `63d751f` 成功 CI 的原始包（Windows／orbit-core 产品代码与 `c33eb83` 无差异），外层归档 SHA-256 `2c9c063271838b51bfe3b7da305c3dbd85c732110a171c34b89ba61ddce9b045`，MSIX SHA-256 `1dfb57133afb05d0e6d18c118a4d7d3a9f14f96dd356c227e97f0045d588e243`，与包内清单、SMB 回读及 Windows Get-FileHash 一致；签名者与附带证书同为 `7A874CD24A3DA50275A4E6BA88F03B588FE7A81B`。旧 QA 确认无活动会话、正常退出，Windows 本机 QA 进程为 0；27 个状态／包设置文件共 130,066 字节已备份到加密外置盘、0 读取错误。WMI 首两次调用遗漏 remoteHost 参数而连向空地址被拒，修正后正常；不是测试机网络或产品失败。新证书尚未导入、QA 尚未更新，等待本次证书具体确认及 Mac 解锁，不把包准备当新布局 GUI 通过。
+
+**后继固定候选 `d5f4611` 检查点**：完成反馈修复已推送。新私有目录以已验证 `c33eb83` 全量归档加精确三文件增量重建；增量 SHA-256 `9b40462ed9db838e0238b802f2c0fe59aea3d010a12b8c81c23af42e177a4bff`，仅含 UI 源码及两份回归记录，不含本地 JNI 改动。该最终源码的 Ubuntu `check_linux.sh` **退出 0**，严格 Clippy、168 项测试通过／0 失败／5 个既有忽略、元数据／桌面契约通过；首检查点 Release 仍在执行；随后构建退出 0，最终 ELF SHA-256 `0f8e3d463ecac258dd5389e8e4ad9085b2912fc51c8e130e313c978bb28509ca`，尚未做 GUI。`c33eb83` 的 Security Gates 因推送后继被并发策略取消，结果保留，不标为成功或产品测试失败。后继 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41094421992)、[Linux](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41094421965)、[Windows](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41094422255) 本检查点均仍运行。
+
+Mac 锁屏后已结束前一私有 QA 桌面与等待中的选择器，VNC／SFTP 两项临时监听及本机隧道均已关闭，原 Flatpak 仍运行。最终候选 GUI 尚未开始；待 Mac 解锁后重新开限时夹具，再做断线后提交、取消与重选正常上传，不沿用已中止用例。Windows 具体新证书确认待用户答复，未触发导入或安装。此次证据追加暂留工作树，待固定候选 CI 收尾再统一提交，避免仅补文档再次取消正在运行的门禁。
+
+## d5f4611 固定门禁及选择器 GUI 回执
+
+后续核对 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41094421992)、[Linux](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41094421965) 和 [Windows](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41094422255) 均 **completed／success**。六项常规安全作业成功，专用签名 Mac UI／OpenSSH 发布任务仍为条件跳过。通过 GitHub 连接器下载 Android 报告，ZIP SHA-256 `e7b244bc270ce159c33a137bdce4634d771020772ac9ab48b16ff01e422b56a7` 与 Actions 一致；实际 XML 为 app 33、core 1、feature 20，共 **54 项，0 失败／错误／跳过**，八条阶段记录均 passed／退出 0。这是固定 `d5f4611` 的证据，不外推后继源码。
+
+Mac 控制恢复后，精确 ELF `0f8e3d463ecac258dd5389e8e4ad9085b2912fc51c8e130e313c978bb28509ca` 在原私有配置启动，唯一“仅此设备”虚构资产仍在，checked SSH／受信 SFTP 可用；没有登录真实账户。
+
+1. 上传系统选择器已打开时，仅停止回环夹具，随后明确选择合成源并点 Open。界面反馈“SFTP 会话已中断，请重新连接该资产后重试”，任务为 **0 进行中／1 失败**。夹具上传 OPEN=0，正式目标和临时文件均未出现，27 字节哨兵不变。**该轮 UI 缓存仍显示“在线”，因此不是 UI 上下文守卫提前拒绝的完整证明；实际由 checked core 拒绝已关闭的原句柄，没有重定向新会话或新目录。** 此反馈缺口按下一节修复，首次结果保留。
+2. 用相同夹具公钥恢复服务，从会话菜单显式断开、重连。连接恢复，失败摘要仍在，上传 OPEN 仍为 0、目标未出现，未自动重传。
+3. 新打开上传选择器并点 Cancel，观察系统窗口实际关闭；摘要仍为 0 进行中／1 失败。取消没有产生新远端 OPEN／目标／残片。远控首次点击仅激活窗口，需要再次点击，最终以窗口关闭和协议证据确认，不将尝试当完成。
+4. 再次明确选择合成源并点 Open，结果为 **0 进行中／1 完成**；明细包含原资产名称和文件名。正式目标 262,144 字节，SHA-256 `2312394bd99545d9de131c24efb781e765ac1aec243f2ed9347597a793a415e9` 与源相同；27 字节哨兵摘要 `d7e0317c9429a76779b262f78fc5d747bf5ea47a8f62e1b1d0bb4e0243234724` 不变，临时残片 0。
+
+上述为 Ubuntu 虚拟开发机私有 GUI 的有限结果。选择器期间真实切换到另一工作区／目录、同资产已重连后提交旧选择，仍只有自动化覆盖；没有把它们宣称为 GUI 通过。已停止本轮 QA／夹具／VNC／桌面和隧道，原 Flatpak 仍运行。Windows 本次具体新证书确认仍待答复，未安装或清理证书，五端完整验收未完成。
+
+## Linux 断线状态反馈与监控回执归属候选
+
+**首次 GUI 发现**：`d5f4611` 已收到 core 的 `session_closed`，SFTP 明确报会话中断，但主会话标签仍“在线”。源码确认 Monitor 回执仅显示采样错误，不把明确关闭的 SSH 转为断开；并且旧请求能清除同资产新连接的 `monitor_in_flight`，完成结果也缺 base handle 核验。
+
+本节后继源码只接受 checked core 的稳定顶层 `session_closed`／`session_not_found` 作为关闭证明，并且必须仍属于该工作区的同一 SSH base handle／Connected 阶段，才沿既有安全断开流程释放通道。普通命令失败、权限、采样超时、SFTP 子系统关闭或 detail 字符串不作为 SSH 断连依据。所有 Monitor 回执先核验连接归属，旧连接的结果不得清除新请求、显示旧快照或关闭新句柄；非活动工作区的一般采样错误不改当前工作区反馈。
+
+新增两条回归分别核对旧请求不能改变重连后的在途标记／句柄／阶段，及只有权威 base-session 错误才断开、普通或 SFTP 错误与误导 detail 均不触发。格式、差异与桌面契约已通过；固定后继提交、Ubuntu 编译／实际执行及新 GUI 尚待补，不能套用 `d5f4611` 的通过。Android／Windows 后续对照采样失败不误断、明确会话关闭及时反映、旧 Monitor 回执不污染新连接及选择器安全停止。
