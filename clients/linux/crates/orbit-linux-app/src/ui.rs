@@ -1125,6 +1125,7 @@ struct ToolsWidgets {
     sftp_entries: Rc<RefCell<Vec<SftpEntry>>>,
     sftp_view_revision: Rc<Cell<u64>>,
     sftp_listing_context: Rc<RefCell<Option<SftpActionContext>>>,
+    sftp_transfer_revision: Rc<Cell<u64>>,
     docker_refresh: gtk::Button,
     docker_list: gtk::ListBox,
     docker_status: gtk::Label,
@@ -4277,6 +4278,7 @@ fn build_tools(snippet_repository: SnippetRepository) -> ToolsWidgets {
         sftp_entries: Rc::new(RefCell::new(Vec::new())),
         sftp_view_revision: Rc::new(Cell::new(0)),
         sftp_listing_context: Rc::new(RefCell::new(None)),
+        sftp_transfer_revision: Rc::new(Cell::new(0)),
         docker_refresh,
         docker_list,
         docker_status,
@@ -11618,6 +11620,7 @@ fn begin_sftp_list(context: UiContext, path: String) {
     let revision = context.tools.sftp_view_revision.get().wrapping_add(1);
     context.tools.sftp_view_revision.set(revision);
     context.tools.sftp_listing_context.replace(None);
+    update_sftp_selection_actions(&context);
     context.tools.sftp_upload.set_sensitive(false);
     context.tools.sftp_new_directory.set_sensitive(false);
     context.tools.sftp_new_file.set_sensitive(false);
@@ -12067,6 +12070,19 @@ fn run_sftp_operation<F>(
     let Some(sftp_id) = authorize_sftp_context(&context, &target) else {
         return;
     };
+    // The transfer summary is shared across workspaces. Name its origin and
+    // keep polling after a tab switch so a finished worker cannot leave a
+    // permanent "in progress" label. Only the latest transfer may update it.
+    let transfer_task = transfer_task.map(|task| {
+        let registry = context.session.borrow();
+        let origin = &registry.sessions[&target.workspace_id].name;
+        format!("{origin} · {task}")
+    });
+    let transfer_revision = transfer_task.as_ref().map(|_| {
+        let revision = context.tools.sftp_transfer_revision.get().wrapping_add(1);
+        context.tools.sftp_transfer_revision.set(revision);
+        revision
+    });
     context.tools.sftp_status.set_label(progress);
     if let Some(task) = transfer_task.as_ref() {
         context
@@ -12084,14 +12100,12 @@ fn run_sftp_operation<F>(
         let _ = sender.send(result);
     });
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
-        if !context.session.borrow().owns_sftp_context(&target) {
-            // Never attribute an old operation's result to another workspace
-            // or to a replacement connection of the same asset.
-            return gtk::glib::ControlFlow::Break;
-        }
+        let owns_summary = transfer_revision
+            .is_none_or(|revision| context.tools.sftp_transfer_revision.get() == revision);
+        let owns_status = owns_summary && context.session.borrow().owns_sftp_context(&target);
         match receiver.try_recv() {
             Ok(Ok(())) => {
-                if let Some(task) = transfer_task.as_ref() {
+                if let Some(task) = transfer_task.as_ref().filter(|_| owns_summary) {
                     context
                         .tools
                         .sftp_transfer_summary
@@ -12101,7 +12115,7 @@ fn run_sftp_operation<F>(
                         .sftp_transfer_detail
                         .set_label(&format!("{task} · 已完成"));
                 }
-                if current_sftp_context(&context).as_ref() == Some(&target) {
+                if owns_status && current_sftp_context(&context).as_ref() == Some(&target) {
                     context
                         .tools
                         .sftp_status
@@ -12112,7 +12126,7 @@ fn run_sftp_operation<F>(
             }
             Ok(Err(error)) => {
                 let guidance = describe_sftp_error(&error);
-                if let Some(task) = transfer_task.as_ref() {
+                if let Some(task) = transfer_task.as_ref().filter(|_| owns_summary) {
                     context
                         .tools
                         .sftp_transfer_summary
@@ -12122,15 +12136,17 @@ fn run_sftp_operation<F>(
                         .sftp_transfer_detail
                         .set_label(&format!("{task} · 失败：{guidance}"));
                 }
-                context
-                    .tools
-                    .sftp_status
-                    .set_label(&format!("SFTP 操作失败：{guidance}"));
+                if owns_status {
+                    context
+                        .tools
+                        .sftp_status
+                        .set_label(&format!("SFTP 操作失败：{guidance}"));
+                }
                 gtk::glib::ControlFlow::Break
             }
             Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
             Err(mpsc::TryRecvError::Disconnected) => {
-                if let Some(task) = transfer_task.as_ref() {
+                if let Some(task) = transfer_task.as_ref().filter(|_| owns_summary) {
                     context
                         .tools
                         .sftp_transfer_summary
@@ -12140,10 +12156,12 @@ fn run_sftp_operation<F>(
                         .sftp_transfer_detail
                         .set_label(&format!("{task} · 工作线程意外退出"));
                 }
-                context
-                    .tools
-                    .sftp_status
-                    .set_label("SFTP 操作线程意外退出。");
+                if owns_status {
+                    context
+                        .tools
+                        .sftp_status
+                        .set_label("SFTP 操作线程意外退出。");
+                }
                 gtk::glib::ControlFlow::Break
             }
         }
