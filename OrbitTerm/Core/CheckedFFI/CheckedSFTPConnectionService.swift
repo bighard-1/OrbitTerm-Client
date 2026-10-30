@@ -185,26 +185,34 @@ enum SFTPCheckedTransfer {
         case upload
     }
 
-    static func download(sessionID: UInt64, remotePath: String, localURL: URL) async throws -> UInt64 {
+    static func download(
+        sessionID: UInt64, remotePath: String, localURL: URL,
+        cancellation: SFTPTransferCancellation? = nil
+    ) async throws -> UInt64 {
         try await run(sessionID: sessionID, remotePath: remotePath,
-                      localURL: localURL, direction: .download)
+                      localURL: localURL, direction: .download, cancellation: cancellation)
     }
 
-    static func upload(sessionID: UInt64, localURL: URL, remotePath: String) async throws -> UInt64 {
+    static func upload(
+        sessionID: UInt64, localURL: URL, remotePath: String,
+        cancellation: SFTPTransferCancellation? = nil
+    ) async throws -> UInt64 {
         try await run(sessionID: sessionID, remotePath: remotePath,
-                      localURL: localURL, direction: .upload)
+                      localURL: localURL, direction: .upload, cancellation: cancellation)
     }
 
     private static func run(
         sessionID: UInt64,
         remotePath: String,
         localURL: URL,
-        direction: Direction
+        direction: Direction,
+        cancellation: SFTPTransferCancellation?
     ) async throws -> UInt64 {
         let localPath = localURL.path
         let isDownload = direction == .download
         return try await execute(
             sessionID: sessionID, remotePath: remotePath, direction: direction,
+            cancellation: cancellation,
             operation: { request in
                 let pointer = remotePath.withCString { remote in
                     localPath.withCString { local in
@@ -234,6 +242,7 @@ enum SFTPCheckedTransfer {
         remotePath: String,
         direction: Direction,
         timeout: TimeInterval = 50,
+        cancellation: SFTPTransferCancellation? = nil,
         operation: @escaping @Sendable (String) throws -> String,
         cancel: @escaping @Sendable (String) -> Bool
     ) async throws -> UInt64 {
@@ -245,6 +254,9 @@ enum SFTPCheckedTransfer {
         // cannot leave a hidden transfer running.
         let cancellationWatcher = Task.detached(priority: .utility) {
             while !Task.isCancelled, !lifetime.isFinished {
+                if cancellation?.isCancelled == true {
+                    lifetime.requestCancellation(timedOut: false)
+                }
                 if ContinuousClock.now >= deadline {
                     lifetime.requestCancellation(timedOut: true)
                 }
@@ -263,12 +275,12 @@ enum SFTPCheckedTransfer {
             cancellationWatcher.cancel()
         }
         return try await withTaskCancellationHandler {
-            if Task.isCancelled {
+            if Task.isCancelled || cancellation?.isCancelled == true {
                 throw SFTPCheckedTransferError.cancelled
             }
             let raw: String = try await withCheckedThrowingContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
-                    guard !lifetime.isCancellationRequested else {
+                    guard !lifetime.isCancellationRequested, cancellation?.isCancelled != true else {
                         continuation.resume(throwing: SFTPCheckedTransferError.cancelled)
                         return
                     }

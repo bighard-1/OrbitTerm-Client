@@ -87,6 +87,113 @@ final class CheckedSFTPServiceTests: XCTestCase {
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: partial.path))
         XCTAssertEqual(try Data(contentsOf: sentinel), original)
+
+        // A lost/replaced connection must cancel the worker independently of
+        // the Swift task which originally initiated the download.
+        try FileManager.default.removeItem(at: marker)
+        var registry = SFTPTransferOperationRegistry(maximumConcurrentOperations: 2)
+        let scopedOperation = try XCTUnwrap(registry.begin())
+        let scopedTarget = root.appendingPathComponent("scope-cancelled.bin")
+        let scopedTransfer = Task {
+            try await SFTPCheckedTransfer.download(
+                sessionID: sid, remotePath: "/slow.bin", localURL: scopedTarget,
+                cancellation: scopedOperation.cancellation
+            )
+        }
+        for _ in 0..<100 where !FileManager.default.fileExists(atPath: marker.path) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let scopedReadStarted = FileManager.default.fileExists(atPath: marker.path)
+        registry.cancelAll()
+        XCTAssertEqual(registry.activeOperationCount, 1)
+        do {
+            _ = try await scopedTransfer.value
+            XCTFail("Invalidated connection must stop its owned transfer")
+        } catch SFTPCheckedTransferError.cancelled {
+            XCTAssertTrue(scopedReadStarted)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: scopedTarget.path))
+        registry.finish(scopedOperation)
+        XCTAssertEqual(registry.activeOperationCount, 0)
+    }
+
+    func testConnectionCancellationWaitsForCleanupAndDoesNotReleaseReconnectedWorkers() async throws {
+        let started = expectation(description: "old worker entered")
+        let cleanupStarted = expectation(description: "old worker cleaning up")
+        let fixture = DelayedSFTPTransferRegistration(started: started, cleanupStarted: cleanupStarted)
+        var registry = SFTPTransferOperationRegistry(maximumConcurrentOperations: 2)
+        let old = try XCTUnwrap(registry.begin())
+        let transfer = Task {
+            try await SFTPCheckedTransfer.execute(
+                sessionID: 42, remotePath: "/virtual.bin", direction: .download,
+                cancellation: old.cancellation,
+                operation: { try fixture.run($0) }, cancel: { fixture.cancel($0) }
+            )
+        }
+        await fulfillment(of: [started], timeout: 2)
+        // Invalidate before the core has registered its cancellable request.
+        registry.cancelAll()
+        let reconnected = try XCTUnwrap(registry.begin())
+        XCTAssertFalse(reconnected.cancellation.isCancelled)
+        fixture.allowRegistration.signal()
+        await fulfillment(of: [cleanupStarted], timeout: 2)
+        XCTAssertFalse(fixture.finished)
+        XCTAssertEqual(registry.activeOperationCount, 2)
+        XCTAssertNil(registry.begin(), "Stopping I/O still owns its resource slots")
+        fixture.allowCleanup.signal()
+        do {
+            _ = try await transfer.value
+            XCTFail("Connection cancellation must not report completion")
+        } catch SFTPCheckedTransferError.cancelled {
+            XCTAssertTrue(fixture.acceptedCancellation)
+            XCTAssertTrue(fixture.finished)
+        }
+        registry.finish(old)
+        XCTAssertEqual(registry.activeOperationCount, 1)
+        registry.finish(old)
+        XCTAssertEqual(registry.activeOperationCount, 1, "Duplicate old exit must not release new I/O")
+        XCTAssertFalse(reconnected.cancellation.isCancelled)
+        registry.cancelAll()
+        XCTAssertTrue(reconnected.cancellation.isCancelled)
+        registry.finish(reconnected)
+        XCTAssertEqual(registry.activeOperationCount, 0)
+    }
+
+    func testCancelledConnectionCannotStartNewCoreWork() async throws {
+        let cancellation = SFTPTransferCancellation()
+        cancellation.cancel()
+        do {
+            _ = try await SFTPCheckedTransfer.execute(
+                sessionID: 42, remotePath: "/virtual.bin", direction: .download,
+                cancellation: cancellation,
+                operation: { _ in XCTFail("Cancelled scope must not enter FFI"); return "{}" },
+                cancel: { _ in false }
+            )
+            XCTFail("Cancelled scope must fail closed")
+        } catch SFTPCheckedTransferError.cancelled {}
+    }
+
+    func testConnectionCancellationPreservesCleanupFailure() async throws {
+        let started = expectation(description: "worker entered")
+        let fixture = DelayedSFTPTransferRegistration(started: started, cleanupFailed: true)
+        fixture.allowRegistration.signal()
+        let cancellation = SFTPTransferCancellation()
+        let transfer = Task {
+            try await SFTPCheckedTransfer.execute(
+                sessionID: 42, remotePath: "/virtual.bin", direction: .download,
+                cancellation: cancellation,
+                operation: { try fixture.run($0) }, cancel: { fixture.cancel($0) }
+            )
+        }
+        await fulfillment(of: [started], timeout: 2)
+        cancellation.cancel()
+        do {
+            _ = try await transfer.value
+            XCTFail("Cleanup failure must not report success")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("目标清理失败"))
+            XCTAssertTrue(fixture.finished)
+        }
     }
 
     func testCancellationBeforeCoreRegistrationIsRetriedUntilTransferStops() async throws {
@@ -359,17 +466,21 @@ private struct LoopbackSFTPConfig: Decodable, CheckedCredentialProvider, KnownHo
 
 private final class DelayedSFTPTransferRegistration: @unchecked Sendable {
     let allowRegistration = DispatchSemaphore(value: 0)
+    let allowCleanup = DispatchSemaphore(value: 0)
     private let stopped = DispatchSemaphore(value: 0)
     private let lock = NSLock()
     private let started: XCTestExpectation
     private let cleanupFailed: Bool
+    private let cleanupStarted: XCTestExpectation?
     private var registered = false
     private var accepted = false
     private var exited = false
 
-    init(started: XCTestExpectation, cleanupFailed: Bool = false) {
+    init(started: XCTestExpectation, cleanupFailed: Bool = false,
+         cleanupStarted: XCTestExpectation? = nil) {
         self.started = started
         self.cleanupFailed = cleanupFailed
+        self.cleanupStarted = cleanupStarted
     }
     var acceptedCancellation: Bool { lock.withLock { accepted } }
     var finished: Bool { lock.withLock { exited } }
@@ -382,6 +493,12 @@ private final class DelayedSFTPTransferRegistration: @unchecked Sendable {
         lock.withLock { registered = true }
         guard stopped.wait(timeout: .now() + 3) == .success else {
             throw SFTPCheckedTransferError.invalidResponse
+        }
+        if let cleanupStarted {
+            cleanupStarted.fulfill()
+            guard allowCleanup.wait(timeout: .now() + 3) == .success else {
+                throw SFTPCheckedTransferError.invalidResponse
+            }
         }
         lock.withLock { exited = true }
         let detail = cleanupFailed ? "sftp_local_cleanup_failed" : "sftp_transfer_cancelled"

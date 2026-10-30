@@ -23,7 +23,8 @@ enum SFTPBatchDownloader {
         sessionID: UInt64,
         entries: [SFTPBatchDownloadEntry],
         maxConcurrent: Int,
-        checked: Bool
+        checked: Bool,
+        cancellation: SFTPTransferCancellation? = nil
     ) async -> [SFTPBatchDownloadSingleResult] {
         var results: [SFTPBatchDownloadSingleResult] = []
         results.reserveCapacity(entries.count)
@@ -40,13 +41,14 @@ enum SFTPBatchDownloader {
                 let next = entries[nextIndex]
                 nextIndex += 1
                 group.addTask {
-                    await downloadEntry(sessionID: sessionID, entry: next, checked: checked)
+                    await downloadEntry(sessionID: sessionID, entry: next, checked: checked,
+                                        cancellation: cancellation)
                 }
             }
 
             while let result = await group.next() {
                 results.append(result)
-                guard !Task.isCancelled else {
+                guard !Task.isCancelled, cancellation?.isCancelled != true else {
                     group.cancelAll()
                     break
                 }
@@ -54,12 +56,13 @@ enum SFTPBatchDownloader {
                     let next = entries[nextIndex]
                     nextIndex += 1
                     group.addTask {
-                        await downloadEntry(sessionID: sessionID, entry: next, checked: checked)
+                        await downloadEntry(sessionID: sessionID, entry: next, checked: checked,
+                                            cancellation: cancellation)
                     }
                 }
             }
 
-            if Task.isCancelled {
+            if Task.isCancelled || cancellation?.isCancelled == true {
                 // Mark entries never handed to a worker so the caller can
                 // render a complete, deterministic batch result.
                 for entry in entries[nextIndex...] {
@@ -77,9 +80,10 @@ enum SFTPBatchDownloader {
     private nonisolated static func downloadEntry(
         sessionID: UInt64,
         entry: SFTPBatchDownloadEntry,
-        checked: Bool
+        checked: Bool,
+        cancellation: SFTPTransferCancellation?
     ) async -> SFTPBatchDownloadSingleResult {
-        guard !Task.isCancelled else { return cancelledResult(for: entry) }
+        guard !Task.isCancelled, cancellation?.isCancelled != true else { return cancelledResult(for: entry) }
         if entry.item.isDirectory {
             return SFTPBatchDownloadSingleResult(
                 fileName: entry.item.name,
@@ -95,7 +99,8 @@ enum SFTPBatchDownloader {
                 bytes = try await SFTPCheckedTransfer.download(
                     sessionID: sessionID,
                     remotePath: entry.remotePath,
-                    localURL: entry.localURL
+                    localURL: entry.localURL,
+                    cancellation: cancellation
                 )
             } else {
                 #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK

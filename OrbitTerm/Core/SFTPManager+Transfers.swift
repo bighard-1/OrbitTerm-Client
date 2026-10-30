@@ -18,8 +18,8 @@ extension SFTPManager {
             return
         }
 
-        guard beginTransferOperation() != nil else { return }
-        defer { finishTransferOperation() }
+        guard let operation = beginTransferOperation() else { return }
+        defer { finishTransferOperation(operation) }
 
         let task = TransferTaskItem(
             fileName: localURL.lastPathComponent,
@@ -46,7 +46,8 @@ extension SFTPManager {
             let bytes: UInt64
             if isCheckedConnection {
                 bytes = try await SFTPCheckedTransfer.upload(
-                    sessionID: sid, localURL: localURL, remotePath: remoteTarget
+                    sessionID: sid, localURL: localURL, remotePath: remoteTarget,
+                    cancellation: operation.cancellation
                 )
             } else {
                 #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
@@ -66,17 +67,20 @@ extension SFTPManager {
                 throw SFTPError.rustError("需要已验证的 SFTP 会话")
                 #endif
             }
-            guard acceptsTransferCompletion(connectionLease, sessionID: sid) else { return }
             updateTransfer(taskID: task.id, progress: 1, statusText: "上传完成 \(FileSizeFormatter.humanReadable(bytes))", isDone: true)
             trimTransferHistory()
+            guard acceptsTransferCompletion(connectionLease, sessionID: sid) else { return }
             progress?(1)
-            try await refresh(path: currentPath)
+            // A directory refresh failure cannot turn an acknowledged upload
+            // into a failed transfer or invite a duplicate retry.
+            try? await refresh(path: currentPath)
+            guard acceptsTransferCompletion(connectionLease, sessionID: sid) else { return }
             successHaptic()
             debugLog("upload_ok", ["bytes": "\(bytes)"])
         } catch {
-            guard acceptsTransferCompletion(connectionLease, sessionID: sid) else { return }
             updateTransfer(taskID: task.id, progress: 0, statusText: "上传失败: \(error.localizedDescription)", isDone: true)
             trimTransferHistory()
+            guard acceptsTransferCompletion(connectionLease, sessionID: sid) else { return }
             statusText = "上传失败: \(error.localizedDescription)"
             debugLog("upload_failed", ["error": error.localizedDescription])
         }
@@ -100,8 +104,8 @@ extension SFTPManager {
         }
 
         let remotePath = makeChildPath(name: item.name)
-        guard beginTransferOperation() != nil else { return }
-        defer { finishTransferOperation() }
+        guard let operation = beginTransferOperation() else { return }
+        defer { finishTransferOperation(operation) }
 
         let task = TransferTaskItem(
             fileName: item.name,
@@ -131,7 +135,8 @@ extension SFTPManager {
                     throw SFTPError.rustError("受保护连接暂不支持续传；请选择新的保存目标")
                 }
                 bytes = try await SFTPCheckedTransfer.download(
-                    sessionID: sid, remotePath: remotePath, localURL: localURL
+                    sessionID: sid, remotePath: remotePath, localURL: localURL,
+                    cancellation: operation.cancellation
                 )
             } else {
                 #if DEBUG && ORBITTERM_INTERNAL_LEGACY_NETWORK
@@ -151,16 +156,16 @@ extension SFTPManager {
                 throw SFTPError.rustError("需要已验证的 SFTP 会话")
                 #endif
             }
-            guard acceptsTransferCompletion(connectionLease, sessionID: sid) else { return }
             updateTransfer(taskID: task.id, progress: 1, statusText: "下载完成 \(FileSizeFormatter.humanReadable(bytes))", isDone: true)
             trimTransferHistory()
+            guard acceptsTransferCompletion(connectionLease, sessionID: sid) else { return }
             progress?(1)
             successHaptic()
             debugLog("download_ok", ["bytes": "\(bytes)"])
         } catch {
-            guard acceptsTransferCompletion(connectionLease, sessionID: sid) else { return }
             updateTransfer(taskID: task.id, progress: 0, statusText: "下载失败: \(error.localizedDescription)", isDone: true)
             trimTransferHistory()
+            guard acceptsTransferCompletion(connectionLease, sessionID: sid) else { return }
             statusText = "下载失败: \(error.localizedDescription)"
             debugLog("download_failed", ["error": error.localizedDescription])
         }
@@ -204,23 +209,21 @@ extension SFTPManager {
             )
         }
 
-        guard let grantedWorkers = beginTransferOperation(requestedSlots: maxConcurrent) else {
+        guard let operation = beginTransferOperation(requestedSlots: maxConcurrent) else {
             let failed = Dictionary(uniqueKeysWithValues: items.map { ($0.name, "传输队列繁忙") })
             return BatchDownloadResult(summary: BatchOperationSummary(succeeded: [], failed: failed), downloadedURLs: [])
         }
-        defer { finishTransferOperation(slots: grantedWorkers) }
+        defer { finishTransferOperation(operation) }
 
         let results = await SFTPBatchDownloader.run(
             sessionID: sid,
             entries: entries,
-            maxConcurrent: grantedWorkers,
-            checked: isCheckedConnection
+            maxConcurrent: operation.slots,
+            checked: isCheckedConnection,
+            cancellation: operation.cancellation
         )
 
-        guard acceptsTransferCompletion(connectionLease, sessionID: sid) else {
-            let failed = Dictionary(uniqueKeysWithValues: items.map { ($0.name, "会话已切换或断开") })
-            return BatchDownloadResult(summary: BatchOperationSummary(succeeded: [], failed: failed), downloadedURLs: [])
-        }
+        let mayPublish = acceptsTransferCompletion(connectionLease, sessionID: sid)
 
         var summary = BatchOperationSummary()
         var urls: [URL] = []
@@ -236,14 +239,21 @@ extension SFTPManager {
                 urls.append(result.localURL)
                 transferredBytes += result.bytes ?? 0
             }
-            progress?(BatchDownloadProgress(
-                completed: completed,
-                total: total,
-                bytesTransferred: transferredBytes,
-                currentFile: result.fileName
-            ))
+            if mayPublish {
+                progress?(BatchDownloadProgress(
+                    completed: completed,
+                    total: total,
+                    bytesTransferred: transferredBytes,
+                    currentFile: result.fileName
+                ))
+            }
         }
 
+        // Preserve each worker's cleanup error across connection invalidation,
+        // but never present old-session documents or status in the new session.
+        guard mayPublish else {
+            return BatchDownloadResult(summary: summary, downloadedURLs: [])
+        }
         if summary.hasFailure {
             statusText = "批量下载完成：成功 \(summary.successCount)，失败 \(summary.failureCount)"
         } else {

@@ -23,6 +23,7 @@
 		05B3FCDA5DDEC076BAF0EDAC /* SFTPBatchDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E32A07BCF85C4A7E8EF7CDE /* SFTPBatchDownloader.swift */; };
 		06B5A6A1C64180548A72FBF3 /* WorkstationAssetSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC35C4CE7198F143C318FB84 /* WorkstationAssetSidebarView.swift */; };
 		06E7FED45C6F8B1FE62F264D /* CheckedSFTPConnectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783FF132F1CA3C0639576C0F /* CheckedSFTPConnectionService.swift */; };
+		CEF85E897E5606B885D03FCF /* SFTPTransferOperationScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 781B4298365C1A7FED7CC1AB /* SFTPTransferOperationScope.swift */; };
 		072AA9B4694BD69D0887BDC3 /* MobileSessionComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76AB95FB1E7D6619332A255A /* MobileSessionComponents.swift */; };
 		0746A780CA9CCC691B347D4F /* SyncMetadataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D39A4AEB90905AF3505A2948 /* SyncMetadataStore.swift */; };
 		082F783302A56581D9180327 /* TerminalThemeReadability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 508EB3B71E213C9F1AC37945 /* TerminalThemeReadability.swift */; };
@@ -268,6 +269,7 @@
 		7A3BD87982A0870DA301F2D5 /* DevicePerformanceSLO.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7028EE39201622835F829776 /* DevicePerformanceSLO.swift */; };
 		7A5DA8587C3D44669F85A098 /* CheckedFFIIDs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EBA9ADD7B50F769A714D880 /* CheckedFFIIDs.swift */; };
 		7AA430ADA4BD4E83DF5B7CA7 /* CheckedSFTPConnectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783FF132F1CA3C0639576C0F /* CheckedSFTPConnectionService.swift */; };
+		61D6C174BA676EAF74FA3D4B /* SFTPTransferOperationScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 781B4298365C1A7FED7CC1AB /* SFTPTransferOperationScope.swift */; };
 		7B78C1ED8A77E79C38BA52EB /* MonitorPollingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DAB223E842154D2614BEFDB /* MonitorPollingPolicy.swift */; };
 		7BCDEB379D2BCBD46813D516 /* BatchCommandRunnerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23CDE6AF8E0550184AC99A12 /* BatchCommandRunnerView.swift */; };
 		7C666A92C422C5BFDF2054B0 /* SFTPManager+Directory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9575AA7E205CF09F7CE38E07 /* SFTPManager+Directory.swift */; };
@@ -349,6 +351,7 @@
 		A6FAF4E1A4CC4519CEBD9E38 /* SyncIdentityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0FAA4130AD937FDB99259DB /* SyncIdentityService.swift */; };
 		A71E613C556C660348BF8795 /* WorkstationTerminalToolbarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC1301A8254D411A95E31A69 /* WorkstationTerminalToolbarView.swift */; };
 		A7613C2152A9D83EC53932A7 /* CheckedSFTPConnectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783FF132F1CA3C0639576C0F /* CheckedSFTPConnectionService.swift */; };
+		2A19B3CD699155C97A5D7ED4 /* SFTPTransferOperationScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 781B4298365C1A7FED7CC1AB /* SFTPTransferOperationScope.swift */; };
 		A862AC4B421001B773B5636C /* ServerCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E36BC98D4A1C976188B592D /* ServerCredentials.swift */; };
 		A94634DBBB0599DE4294848C /* ApplicationOperationLifecyclePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB132EE6006010051D48C71F /* ApplicationOperationLifecyclePolicy.swift */; };
 		A95C10C79E9AFFC37E80ED68 /* WorkstationTerminalToolbarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC1301A8254D411A95E31A69 /* WorkstationTerminalToolbarView.swift */; };
@@ -650,6 +653,7 @@
 		7713E6E04A40DA1BC5D07D1A /* HeaderForwardingCompileCheck.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = HeaderForwardingCompileCheck.c; sourceTree = "<group>"; };
 		77D09730A51A26B9E686F253 /* SFTPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPManager.swift; sourceTree = "<group>"; };
 		783FF132F1CA3C0639576C0F /* CheckedSFTPConnectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckedSFTPConnectionService.swift; sourceTree = "<group>"; };
+		781B4298365C1A7FED7CC1AB /* SFTPTransferOperationScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPTransferOperationScope.swift; sourceTree = "<group>"; };
 		78814C1CD0FE53F972F7011F /* MasterPasswordGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterPasswordGateView.swift; sourceTree = "<group>"; };
 		79C98A67B69AA654CC5A6B77 /* DetachedSessionWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedSessionWindowView.swift; sourceTree = "<group>"; };
 		79FEF13075C7CADC3ADBE67B /* NetworkServiceFaultInjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkServiceFaultInjectionTests.swift; sourceTree = "<group>"; };
@@ -1111,6 +1115,7 @@
 				E8127F4F1A174C012E9A1ACD /* CheckedFFIProviders.swift */,
 				B716472EFB5C05C3C8596133 /* CheckedMonitorSnapshotService.swift */,
 				783FF132F1CA3C0639576C0F /* CheckedSFTPConnectionService.swift */,
+				781B4298365C1A7FED7CC1AB /* SFTPTransferOperationScope.swift */,
 				04892B3FCBDC216B7013CF35 /* CheckedTerminalConnectionOrchestrator.swift */,
 				094AE566852B57129DFE5E7D /* CredentialVaultCheckedProvider.swift */,
 				98B23E2A2CD42FFDD3EF8330 /* OrbitCoreCheckedFFIClient.swift */,
@@ -1453,6 +1458,7 @@
 				62211B7D8D433B30B17D23DC /* CheckedMonitorServiceTests.swift in Sources */,
 				62E109460DA9F74DD9B86A24 /* CheckedMonitorSnapshotService.swift in Sources */,
 				06E7FED45C6F8B1FE62F264D /* CheckedSFTPConnectionService.swift in Sources */,
+				CEF85E897E5606B885D03FCF /* SFTPTransferOperationScope.swift in Sources */,
 				DA7C1B7C577C21A3A10BEC73 /* CheckedSFTPServiceTests.swift in Sources */,
 				12D620C33A3348E9B85BF125 /* OrbitCoreCheckedFFILiveFunctions.swift in Sources */,
 				350AE0902F54E7F588995BD4 /* CheckedSessionOrchestrationTests.swift in Sources */,
@@ -1594,6 +1600,7 @@
 				6BCEC96807636C57E7D01148 /* CheckedFFIProviders.swift in Sources */,
 				BD9AACDAB262B7C087A6EE75 /* CheckedMonitorSnapshotService.swift in Sources */,
 				A7613C2152A9D83EC53932A7 /* CheckedSFTPConnectionService.swift in Sources */,
+				2A19B3CD699155C97A5D7ED4 /* SFTPTransferOperationScope.swift in Sources */,
 				342AD13900E4EC59BB96F44B /* CheckedTerminalConnectionOrchestrator.swift in Sources */,
 				A0099AF738EC91C4F8EED145 /* ConnectionPresentation.swift in Sources */,
 				75287E4DB49502C0CD5FA1BF /* ConnectionPresentationAdapter.swift in Sources */,
@@ -1806,6 +1813,7 @@
 				09EEBF8B082F19F65D770862 /* CheckedFFIProviders.swift in Sources */,
 				D63DAE9D045D661437612F70 /* CheckedMonitorSnapshotService.swift in Sources */,
 				7AA430ADA4BD4E83DF5B7CA7 /* CheckedSFTPConnectionService.swift in Sources */,
+				61D6C174BA676EAF74FA3D4B /* SFTPTransferOperationScope.swift in Sources */,
 				BD9AEE27593CF29C61324EF2 /* CheckedTerminalConnectionOrchestrator.swift in Sources */,
 				270C667F0655088C006BB897 /* ConnectionPresentation.swift in Sources */,
 				881FD6495438BC6F7FD17D0E /* ConnectionPresentationAdapter.swift in Sources */,
