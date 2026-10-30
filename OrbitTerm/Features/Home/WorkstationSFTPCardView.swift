@@ -103,13 +103,13 @@ struct WorkstationSFTPCardView: View {
                     Text("传输任务")
                         .font(.caption.weight(.semibold))
                     if !sftpManager.transfers.isEmpty {
-                        Text("\(sftpManager.transfers.filter { !$0.isDone }.count) 进行中 · \(sftpManager.transfers.filter { $0.isDone }.count) 完成")
+                        Text(transferSummaryText)
                             .font(.caption2.monospacedDigit())
                             .foregroundStyle(palette.textSecondary.color)
                     }
                 }
             }
-            .accessibilityLabel("SFTP 传输任务队列")
+            .accessibilityIdentifier("workstation.sftp.transfers")
         }
         .padding(10)
         .foregroundStyle(palette.textPrimary.color)
@@ -246,6 +246,13 @@ struct WorkstationSFTPCardView: View {
 
     private var selectedItems: [FileItem] {
         sftpManager.items.filter { selectedItemIDs.contains($0.id) }
+    }
+
+    private var transferSummaryText: String {
+        let active = sftpManager.transfers.filter { !$0.isDone }.count
+        let succeeded = sftpManager.transfers.filter { $0.isDone && $0.progress >= 1 }.count
+        let incomplete = sftpManager.transfers.filter { $0.isDone && $0.progress < 1 }.count
+        return "\(active) 进行中 · \(succeeded) 成功 · \(incomplete) 未完成"
     }
 
     private var selectionToolbar: some View {

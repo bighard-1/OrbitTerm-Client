@@ -111,6 +111,7 @@ struct WorkstationRightPanelView: View {
             sftpSection(active)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 12)
+                .accessibilityElement(children: .contain)
                 .accessibilityLabel("SFTP 工具内容")
         case .docker:
             ScrollView(.vertical, showsIndicators: true) {
@@ -118,6 +119,7 @@ struct WorkstationRightPanelView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 12)
             }
+            .accessibilityElement(children: .contain)
             .accessibilityLabel("Docker 工具内容")
         }
     }

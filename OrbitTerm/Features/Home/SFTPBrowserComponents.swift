@@ -239,7 +239,7 @@ struct SFTPBatchToolbar: View {
 struct SFTPTransferBoard: View {
     private enum QueueSection: String, CaseIterable, Identifiable {
         case active = "进行中"
-        case completed = "已完成"
+        case completed = "已结束"
         var id: String { rawValue }
     }
 
@@ -354,6 +354,7 @@ struct SFTPTransferBoard: View {
         .background(palette.surfaceInput.color, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(task.fileName)，\(presentation.label)，进度 \(Int(task.progress * 100))%")
+        .accessibilityValue(task.statusText)
     }
 
     private func transferRole(for task: TransferTaskItem) -> SFTPTransferSemanticRole {
