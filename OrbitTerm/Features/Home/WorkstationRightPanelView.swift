@@ -29,6 +29,9 @@ struct WorkstationRightPanelView: View {
     @Binding var selectedTab: WorkstationRightPanelTab
     @Binding var sftpPathFocusRequest: Int
     @State private var showingSFTPUploadImporter = false
+    @State private var uploadSelection: SFTPUploadSelectionContext?
+    @State private var uploadManager: SFTPManager?
+    @StateObject private var uploadQueue = SFTPUploadQueueController()
 
     let onCollapse: () -> Void
     let onCreateSFTPItem: (UUID, SFTPCreateKind) -> Void
@@ -60,14 +63,11 @@ struct WorkstationRightPanelView: View {
             isPresented: $showingSFTPUploadImporter,
             allowedContentTypes: [.item],
             allowsMultipleSelection: true
-        ) { result in
-            guard case let .success(urls) = result,
-                  let active = sessionManager.activeSession else {
-                return
-            }
-            Task {
-                await uploadSelectedSFTPFiles(urls, to: active.sftpManager)
-            }
+        ) { handleSelectedSFTPFiles($0) }
+        .onDisappear { cancelFileUpload() }
+        .onChange(of: sessionManager.activeTabID) { _, _ in cancelFileUpload() }
+        .onChange(of: selectedTab) { _, tab in
+            if tab != .sftp { cancelFileUpload() }
         }
     }
 
@@ -131,12 +131,14 @@ struct WorkstationRightPanelView: View {
         } else {
             WorkstationSFTPCardView(
                 sftpManager: active.sftpManager,
+                isUploadRunning: uploadQueue.isRunning,
                 onRefresh: {
                     Task { try? await active.sftpManager.refresh() }
                 },
                 onUpload: {
-                    showingSFTPUploadImporter = true
+                    beginFileUpload(active)
                 },
+                onUploadContextInvalidated: { cancelFileUpload() },
                 onCreateDirectory: {
                     onCreateSFTPItem(active.id, .directory)
                 },
@@ -248,21 +250,53 @@ struct WorkstationRightPanelView: View {
 #endif
     }
 
-    private func uploadSelectedSFTPFiles(_ urls: [URL], to manager: SFTPManager) async {
-        for url in urls {
-            let hasSecurityScope = url.startAccessingSecurityScopedResource()
-            defer {
-                if hasSecurityScope {
-                    url.stopAccessingSecurityScopedResource()
-                }
-            }
+    private func beginFileUpload(_ active: WorkspaceSession) {
+        let target = active.sftpManager
+        guard target.isConnected, !uploadQueue.isRunning,
+              let context = SFTPUploadSelectionContext(
+                workspaceID: active.id, sessionID: target.activeSessionID, directory: target.currentPath
+              ) else { return }
+        uploadManager = target
+        uploadSelection = context
+        showingSFTPUploadImporter = true
+    }
 
-            let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
-            guard values?.isDirectory != true else {
-                manager.statusText = "上传失败: 暂不支持直接上传文件夹"
-                continue
-            }
-            await manager.upload(localURL: url)
+    private func handleSelectedSFTPFiles(_ result: Result<[URL], Error>) {
+        guard let target = uploadManager, let context = uploadSelection else { return }
+        uploadManager = nil
+        uploadSelection = nil
+        guard target === sessionManager.activeSession?.sftpManager, target.isConnected,
+              context.matches(workspaceID: sessionManager.activeTabID,
+                              sessionID: target.activeSessionID, directory: target.currentPath) else { return }
+        let urls: [URL]
+        switch result {
+        case let .success(selected): urls = selected
+        case let .failure(error):
+            let cocoaError = error as NSError
+            if cocoaError.domain == NSCocoaErrorDomain && cocoaError.code == NSUserCancelledError { return }
+            target.statusText = "上传失败: 无法读取所选文件，请重新选择"
+            return
         }
+        uploadQueue.start(urls: urls, canContinue: {
+            target === sessionManager.activeSession?.sftpManager && target.isConnected &&
+                context.matches(workspaceID: sessionManager.activeTabID,
+                                sessionID: target.activeSessionID, directory: target.currentPath)
+        }, operation: { url in
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
+                  let remotePath = context.remotePath(fileName: url.lastPathComponent) else {
+                target.statusText = "上传失败: 请选择可读取的普通文件，暂不支持文件夹"
+                return
+            }
+            await target.upload(localURL: url, remotePath: remotePath)
+        })
+    }
+
+    private func cancelFileUpload() {
+        uploadQueue.abandon()
+        uploadManager = nil
+        uploadSelection = nil
+        showingSFTPUploadImporter = false
     }
 }

@@ -127,6 +127,7 @@ targets:
           - Features/Home/SFTPBrowserBatchState.swift
           - Features/Home/SFTPBatchDownloadController.swift
           - Features/Home/SFTPUploadSelectionContext.swift
+          - Features/Home/SFTPUploadQueueController.swift
           - Features/Home/SFTPBatchOperationFormatter.swift
           - Core/DevicePerformanceSLO.swift
           - Core/PerformanceSignpost.swift

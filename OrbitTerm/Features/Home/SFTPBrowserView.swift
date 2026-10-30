@@ -26,8 +26,7 @@ struct SFTPBrowserView: View {
     @State private var showingUploadImporter = false
     @State private var uploadSelection: SFTPUploadSelectionContext?
     @State private var uploadManager: SFTPManager?
-    @State private var uploadOwner = OperationOwner()
-    @State private var uploadTask: Task<Void, Never>?
+    @StateObject private var uploadQueue = SFTPUploadQueueController()
 #else
     @State private var revealInFinderURL: URL?
 #endif
@@ -308,7 +307,7 @@ struct SFTPBrowserView: View {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button("选择文件上传…", systemImage: "arrow.up.doc") { beginFileUpload() }
-                        .disabled(uploadTask != nil || batchState.isRunning)
+                        .disabled(uploadQueue.isRunning || batchState.isRunning)
                     Button("新建目录", systemImage: "folder.badge.plus") { editState.beginCreateFolder() }
                     Button("新建文件", systemImage: "doc.badge.plus") { editState.beginCreateFile() }
                 } label: {
@@ -390,7 +389,7 @@ struct SFTPBrowserView: View {
 #if os(iOS)
     private func beginFileUpload() {
         let target = effectiveManager
-        guard target.isConnected, uploadTask == nil, !batchState.isRunning,
+        guard target.isConnected, !uploadQueue.isRunning, !batchState.isRunning,
               let context = SFTPUploadSelectionContext(
                 workspaceID: sessionManager.activeTabID,
                 sessionID: target.activeSessionID, directory: target.currentPath
@@ -416,30 +415,24 @@ struct SFTPBrowserView: View {
             target.statusText = "上传失败: 无法读取所选文件，请重新选择"
             return
         }
-        let lease = uploadOwner.begin()
-        uploadTask = Task {
-            for url in urls {
-                guard !Task.isCancelled, uploadOwner.owns(lease), target === effectiveManager,
-                      context.matches(workspaceID: sessionManager.activeTabID,
-                                      sessionID: target.activeSessionID, directory: target.currentPath) else { break }
-                let scoped = url.startAccessingSecurityScopedResource()
-                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
-                      let remotePath = context.remotePath(fileName: url.lastPathComponent) else {
-                    target.statusText = "上传失败: 请选择可读取的普通文件，暂不支持文件夹"
-                    continue
-                }
-                await target.upload(localURL: url, remotePath: remotePath)
+        uploadQueue.start(urls: urls, canContinue: {
+            target === effectiveManager && target.isConnected &&
+                context.matches(workspaceID: sessionManager.activeTabID,
+                                sessionID: target.activeSessionID, directory: target.currentPath)
+        }, operation: { url in
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
+                  let remotePath = context.remotePath(fileName: url.lastPathComponent) else {
+                target.statusText = "上传失败: 请选择可读取的普通文件，暂不支持文件夹"
+                return
             }
-            guard uploadOwner.owns(lease) else { return }
-            uploadTask = nil
-        }
+            await target.upload(localURL: url, remotePath: remotePath)
+        })
     }
 
     private func cancelFileUpload() {
-        uploadOwner.invalidate()
-        uploadTask?.cancel()
-        uploadTask = nil
+        uploadQueue.abandon()
         uploadManager = nil
         uploadSelection = nil
         showingUploadImporter = false

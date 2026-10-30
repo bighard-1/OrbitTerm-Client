@@ -5,8 +5,10 @@ import AppKit
 
 struct WorkstationSFTPCardView: View {
     @ObservedObject var sftpManager: SFTPManager
+    let isUploadRunning: Bool
     let onRefresh: () -> Void
     let onUpload: () -> Void
+    let onUploadContextInvalidated: () -> Void
     let onCreateDirectory: () -> Void
     let onCreateFile: () -> Void
     let onUp: () -> Void
@@ -151,10 +153,10 @@ struct WorkstationSFTPCardView: View {
         } message: {
             Text(batchDownload.state.resultMessage)
         }
-        .onDisappear { abandonBatchDownload() }
-        .onChange(of: ObjectIdentifier(sftpManager)) { _, _ in abandonBatchDownload() }
-        .onChange(of: sftpManager.activeSessionID) { _, _ in abandonBatchDownload() }
-        .onChange(of: sftpManager.currentPath) { _, _ in abandonBatchDownload() }
+        .onDisappear { abandonOwnedTransfers() }
+        .onChange(of: ObjectIdentifier(sftpManager)) { _, _ in abandonOwnedTransfers() }
+        .onChange(of: sftpManager.activeSessionID) { _, _ in abandonOwnedTransfers() }
+        .onChange(of: sftpManager.currentPath) { _, _ in abandonOwnedTransfers() }
         .onChange(of: batchDownload.state.isRunning) { _, running in
             if !running { selectedItemIDs.removeAll() }
         }
@@ -195,7 +197,7 @@ struct WorkstationSFTPCardView: View {
     @ViewBuilder
     private var directoryActions: some View {
         Button("上传文件…", action: onUpload)
-            .disabled(!canBrowse)
+            .disabled(!canBrowse || isUploadRunning)
         Divider()
         Button("新建目录…", action: onCreateDirectory)
             .disabled(!canBrowse)
@@ -337,6 +339,11 @@ struct WorkstationSFTPCardView: View {
         batchDownload.start(items: targets) { files in
             await operation(files)
         }
+    }
+
+    private func abandonOwnedTransfers() {
+        abandonBatchDownload()
+        onUploadContextInvalidated()
     }
 
     private func abandonBatchDownload() {
