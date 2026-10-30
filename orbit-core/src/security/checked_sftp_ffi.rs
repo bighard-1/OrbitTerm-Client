@@ -1246,7 +1246,9 @@ fn classify_sftp_transfer_failure(message: &str, fallback: &'static str) -> &'st
     // The operation prefix is ours; the trailing OS/server text is not. In
     // particular, Windows reports a lost SMB download target as "network path
     // was not found", which must not be mistaken for a missing remote source.
-    if normalized.starts_with("cleanup local file failed:") {
+    if normalized.starts_with("cleanup remote temporary file failed:") {
+        "sftp_remote_cleanup_failed"
+    } else if normalized.starts_with("cleanup local file failed:") {
         "sftp_local_cleanup_failed"
     } else if normalized.starts_with("open local file failed:")
         || normalized.starts_with("create local file failed:")

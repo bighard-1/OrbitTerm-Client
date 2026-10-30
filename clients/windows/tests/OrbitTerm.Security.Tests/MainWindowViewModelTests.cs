@@ -2023,6 +2023,37 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task FailedUploadCleanupExplainsRemoteInspectionWithoutClaimingCancellation()
+    {
+        var coreClient = new FakeCheckedCoreClient
+        {
+            SftpUploadFailuresRemaining = 1,
+            SftpUploadFailureDetailCode = "sftp_remote_cleanup_failed",
+        };
+        var viewModel = CreateViewModel(coreClient);
+        viewModel.Password = "secret";
+        viewModel.ConnectCommand.Execute(null);
+        await WaitUntilAsync(() => !viewModel.ConnectCommand.IsRunning && viewModel.IsSftpOpen);
+        var directory = Path.Combine(Path.GetTempPath(), $"orbitterm-upload-cleanup-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var source = Path.Combine(directory, "virtual.txt");
+        File.WriteAllText(source, "virtual");
+        try
+        {
+            await viewModel.UploadSftpFilesAsync(
+                [new SftpUploadSource(source, "virtual.txt", 7)],
+                SftpUploadConflictPolicy.Skip, CancellationToken.None);
+            var task = Assert.Single(viewModel.SftpTransferTasks);
+            Assert.Equal(SftpTransferTaskState.Failed, task.State);
+            Assert.Contains("远端临时上传文件清理失败", task.StatusText, StringComparison.Ordinal);
+            Assert.Contains("检查远端临时文件", task.StatusText, StringComparison.Ordinal);
+            Assert.DoesNotContain("已取消", task.StatusText, StringComparison.Ordinal);
+            Assert.Equal(1, coreClient.UploadSftpFileCallCount);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [Fact]
     public async Task SftpBatchUploadFailureRemainsInQueueAndRetriesOnlyFailedItems()
     {
         var coreClient = new FakeCheckedCoreClient { SftpUploadFailuresRemaining = 1 };
@@ -3450,6 +3481,7 @@ public sealed class MainWindowViewModelTests
         public int SftpUploadInFlight => Volatile.Read(ref sftpUploadInFlight);
         public int MaxConcurrentSftpUploads => Volatile.Read(ref maxConcurrentSftpUploads);
         public int SftpUploadFailuresRemaining { get; set; }
+        public string? SftpUploadFailureDetailCode { get; init; }
         public int RemoveSftpEntryCallCount { get; private set; }
         public List<string> RemovedSftpPaths { get; } = [];
         public int ChangeSftpPermissionsCallCount { get; private set; }
@@ -3794,7 +3826,7 @@ public sealed class MainWindowViewModelTests
                         "error",
                         requestId.Value,
                         null,
-                        new CheckedErrorPayload("sftp_upload_failed", "error.sftp.upload_failed", requestId.Value));
+                        new CheckedErrorPayload("sftp_upload_failed", "error.sftp.upload_failed", requestId.Value, SftpUploadFailureDetailCode));
                 }
                 return CreateEnvelope(
                     CheckedFfiKind.SftpUploadCompleted,

@@ -115,6 +115,66 @@ final class CheckedSFTPServiceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: scopedTarget.path))
         registry.finish(scopedOperation)
         XCTAssertEqual(registry.activeOperationCount, 0)
+
+        // Exercise remote write and cleanup failures through Swift -> C -> Rust
+        // -> SSH, without replacing the FFI result with a scripted response.
+        let writeFault = root.appendingPathComponent("fail-upload-write")
+        let cleanupFault = root.appendingPathComponent("fail-upload-cleanup")
+        let remoteRoot = root.appendingPathComponent("remote", isDirectory: true)
+        for denyCleanup in [false, true] {
+            try Data().write(to: writeFault)
+            if denyCleanup { try Data().write(to: cleanupFault) }
+            do {
+                _ = try await SFTPCheckedTransfer.upload(
+                    sessionID: sid, localURL: fresh, remotePath: "/fault-upload.bin"
+                )
+                XCTFail("Injected remote write fault must not complete")
+            } catch {
+                XCTAssertEqual(error.localizedDescription.contains("远端临时上传文件清理失败"), denyCleanup)
+                XCTAssertFalse(error.localizedDescription.contains("untrusted-server"))
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: remoteRoot.appendingPathComponent("fault-upload.bin").path))
+            let temporaryFiles = try FileManager.default.contentsOfDirectory(at: remoteRoot, includingPropertiesForKeys: nil)
+                .filter { $0.lastPathComponent.hasPrefix(".orbitterm-upload-") && $0.pathExtension == "part" }
+            XCTAssertEqual(temporaryFiles.count, denyCleanup ? 1 : 0)
+            if denyCleanup {
+                let partial = try XCTUnwrap(temporaryFiles.first)
+                XCTAssertGreaterThan(try Data(contentsOf: partial).count, 0)
+                try FileManager.default.removeItem(at: cleanupFault)
+                try FileManager.default.removeItem(at: partial)
+            }
+            try FileManager.default.removeItem(at: writeFault)
+        }
+
+        let uploadStall = root.appendingPathComponent("stall-upload-write")
+        let uploadStarted = root.appendingPathComponent("upload-write-started")
+        try Data().write(to: uploadStall)
+        let stalledUpload = Task {
+            try await SFTPCheckedTransfer.upload(
+                sessionID: sid, localURL: fresh, remotePath: "/stalled-upload.bin"
+            )
+        }
+        for _ in 0..<100 where !FileManager.default.fileExists(atPath: uploadStarted.path) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: uploadStarted.path))
+        let cancelledAt = ContinuousClock.now
+        stalledUpload.cancel()
+        do {
+            _ = try await stalledUpload.value
+            XCTFail("Stalled upload must acknowledge cancellation")
+        } catch SFTPCheckedTransferError.failure(let message) {
+            // This fixture also blocks the queued REMOVE behind its stalled
+            // writes. The bounded cleanup deadline must remain a failure.
+            XCTAssertTrue(message.contains("远端临时上传文件清理失败"))
+        }
+        XCTAssertLessThan(cancelledAt.duration(to: .now), .seconds(8))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: remoteRoot.appendingPathComponent("stalled-upload.bin").path))
+        let stalledPartials = try FileManager.default.contentsOfDirectory(at: remoteRoot, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix(".orbitterm-upload-") && $0.pathExtension == "part" }
+        XCTAssertEqual(stalledPartials.count, 1)
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(stalledPartials.first)).count, 0)
+        try FileManager.default.removeItem(at: uploadStall)
     }
 
     func testConnectionCancellationWaitsForCleanupAndDoesNotReleaseReconnectedWorkers() async throws {
@@ -329,6 +389,27 @@ final class CheckedSFTPServiceTests: XCTestCase {
         } catch {
             XCTAssertTrue(error.localizedDescription.contains("未覆盖"))
             XCTAssertFalse(error.localizedDescription.contains("/virtual.bin"))
+        }
+    }
+
+    func testRemoteUploadCleanupFailureDoesNotBecomeCancellationOrExposeServerText() throws {
+        let request = try HostKeyRequestID("remote-cleanup-qa")
+        let response: [String: Any] = [
+            "schema_version": 1, "request_id": request.rawValue, "kind": "error",
+            "error": [
+                "code": "sftp_upload_failed", "detail_code": "sftp_remote_cleanup_failed",
+                "message_key": "untrusted-server /private/remote-path", "retryable": false,
+                "request_id": request.rawValue, "challenge_id": NSNull()
+            ]
+        ]
+        let raw = String(data: try JSONSerialization.data(withJSONObject: response), encoding: .utf8)!
+        XCTAssertThrowsError(try SFTPCheckedTransfer.decode(
+            raw, requestID: request, sessionID: 42, remotePath: "/virtual.bin", direction: .upload
+        )) { error in
+            XCTAssertTrue(error.localizedDescription.contains("远端临时上传文件清理失败"))
+            XCTAssertTrue(error.localizedDescription.contains("检查远端临时文件"))
+            XCTAssertFalse(error.localizedDescription.contains("已取消"))
+            XCTAssertFalse(error.localizedDescription.contains("/private/remote-path"))
         }
     }
 

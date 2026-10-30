@@ -7,6 +7,21 @@ import org.junit.Test
 
 class CheckedSftpTransferFailureCodeTest {
     @Test
+    fun `remote cleanup failure is preserved without exposing arbitrary server detail`() {
+        val error = buildJsonObject {
+            put("code", "sftp_upload_failed")
+            put("detail_code", "sftp_remote_cleanup_failed")
+            put("message_key", "/private/remote-path")
+        }
+        val untrusted = buildJsonObject {
+            put("code", "sftp_upload_failed")
+            put("detail_code", "/private/remote-path")
+        }
+        assertEquals("sftp_remote_cleanup_failed", checkedSftpTransferFailureCode(error))
+        assertEquals("sftp_upload_failed", checkedSftpTransferFailureCode(untrusted))
+    }
+
+    @Test
     fun `download cancellation uses stable detail rather than broad failure code`() {
         val error = buildJsonObject {
             put("code", "sftp_download_failed")

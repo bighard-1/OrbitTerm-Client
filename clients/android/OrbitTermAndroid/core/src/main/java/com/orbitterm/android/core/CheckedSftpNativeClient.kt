@@ -238,12 +238,11 @@ class CheckedSftpNativeClient @Inject constructor() {
     }
 }
 
-/** The checked ABI uses a broad error code and a stable detail code for cancellation. */
+/** Promote only fixed transfer details, never server messages or arbitrary tokens. */
 internal fun checkedSftpTransferFailureCode(error: JsonObject?): String =
-    if (error?.string("detail_code") == "sftp_transfer_cancelled") {
-        "sftp_transfer_cancelled"
-    } else {
-        error?.string("code") ?: "native_operation_failed"
+    when (val detail = error?.string("detail_code")) {
+        "sftp_transfer_cancelled", "sftp_remote_cleanup_failed" -> detail
+        else -> error?.string("code") ?: "native_operation_failed"
     }
 
 /** Promote only the fixed timeout detail; never expose arbitrary server text. */

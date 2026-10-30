@@ -659,6 +659,31 @@ fn windows_disk_full_download_is_typed_and_redacted() {
 }
 
 #[test]
+fn remote_upload_cleanup_failure_is_stable_and_redacted() {
+    let request_id = CString::new(REQUEST_ID).unwrap();
+    let remote_path = CString::new("/qa/virtual.bin").unwrap();
+    let local_path = CString::new(absolute_local_test_path("virtual.bin")).unwrap();
+    let pointer = sftp_upload_checked_response_for_tests(
+        77,
+        local_path.as_ptr(),
+        remote_path.as_ptr(),
+        request_id.as_ptr(),
+        |_, _, _| async {
+            Err(OrbitCoreError::SftpFailed(
+                "cleanup remote temporary file failed: permission denied /secret private_key"
+                    .to_owned(),
+            ))
+        },
+    );
+    let (json, error) = read_and_free(pointer);
+    assert_eq!(error["error"]["code"], "sftp_upload_failed");
+    assert_eq!(error["error"]["detail_code"], "sftp_remote_cleanup_failed");
+    for forbidden in ["/secret", "private_key", "virtual.bin", "permission denied"] {
+        assert!(!json.contains(forbidden));
+    }
+}
+
+#[test]
 fn lost_local_download_target_is_not_reported_as_missing_remote_source() {
     let request_id = CString::new(REQUEST_ID).unwrap();
     let remote_path = CString::new("/qa/slow-test.bin").unwrap();

@@ -12045,6 +12045,9 @@ fn describe_sftp_error(error: &BridgeError) -> &'static str {
             Some("sftp_local_cleanup_failed") => {
                 "下载目标清理失败；恢复保存位置后，请检查并删除本次部分文件"
             }
+            Some("sftp_remote_cleanup_failed") => {
+                "远端临时上传文件清理失败；请重新连接后检查远端临时文件，再重试"
+            }
             Some("sftp_transfer_cancelled") => "传输已取消",
             _ => "请检查连接、源文件及目标目录权限后重试",
         },
@@ -20785,6 +20788,20 @@ mod tests {
         let guidance = describe_sftp_error(&error);
         assert!(guidance.contains("登录主目录"));
         assert!(!guidance.contains("orbit-core"));
+    }
+
+    #[test]
+    fn remote_upload_cleanup_guidance_requires_inspecting_remote_files() {
+        let error = BridgeError::Core {
+            code: "sftp_upload_failed".into(),
+            message_key: "/private/remote-path".into(),
+            detail_code: Some("sftp_remote_cleanup_failed".into()),
+        };
+        let guidance = describe_sftp_error(&error);
+        assert!(guidance.contains("远端临时上传文件清理失败"));
+        assert!(guidance.contains("检查远端临时文件"));
+        assert!(!guidance.contains("/private/remote-path"));
+        assert!(!guidance.contains("已取消"));
     }
 
     #[test]

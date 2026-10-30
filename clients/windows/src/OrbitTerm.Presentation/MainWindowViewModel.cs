@@ -10424,6 +10424,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 "SFTP 会话已中断，请重新连接该资产后重试。",
             "sftp_local_io_failed" => "本地文件或目标目录不可访问；请检查是否留有部分文件，再重新选择位置。",
             "sftp_local_cleanup_failed" => "下载目标清理失败；恢复保存位置后，请检查并删除本次部分文件，再重新下载。",
+            "sftp_remote_cleanup_failed" => "远端临时上传文件清理失败；请重新连接后检查远端临时文件，再重试。",
             "sftp_transfer_cancelled" => "传输已取消。",
             _ => "请检查连接与目标目录权限；可在“最近操作”中查看完整提示后重试。",
         };

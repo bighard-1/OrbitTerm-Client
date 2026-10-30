@@ -39,6 +39,19 @@ async def main(root: Path) -> None:
                 await asyncio.sleep(0.05)
             return super().read(file_obj, offset, min(size, 32768))
 
+        async def write(self, file_obj, offset, data):
+            if (root / "stall-upload-write").exists():
+                (root / "upload-write-started").touch()
+                await asyncio.sleep(60)
+            if (root / "fail-upload-write").exists() and offset >= 65536:
+                raise asyncssh.SFTPPermissionDenied("untrusted-server induced write fault")
+            return super().write(file_obj, offset, data)
+
+        def remove(self, path):
+            if (root / "fail-upload-cleanup").exists():
+                raise asyncssh.SFTPPermissionDenied("untrusted-server induced cleanup fault")
+            return super().remove(path)
+
     key = asyncssh.generate_private_key("ssh-ed25519")
     listener = await asyncssh.listen(
         "127.0.0.1", 0, server_factory=Server,

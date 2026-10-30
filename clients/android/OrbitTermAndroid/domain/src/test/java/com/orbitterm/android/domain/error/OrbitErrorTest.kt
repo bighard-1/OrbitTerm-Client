@@ -7,6 +7,17 @@ import org.junit.Before
 import org.junit.Test
 
 class OrbitErrorTest {
+    @Test
+    fun remoteUploadCleanupFailureRequiresInspectionRatherThanClaimingCancellation() {
+        val error = orbitNativeError("sftp_remote_cleanup_failed", retryable = true)
+        assertEquals(OrbitErrorCode.SftpRemoteCleanupFailed, error.code)
+        assertEquals(OrbitRecoveryAction.CheckPermission, error.recovery)
+        assertFalse(error.retryable)
+        assertTrue(error.userMessage().contains("远端临时上传文件清理失败"))
+        assertFalse(error.userMessage().contains("已取消"))
+        assertEquals(OrbitErrorCode.Unknown, orbitNativeError("sftp_remote_cleanup_failed /private/path").code)
+    }
+
     @Before
     fun resetMetrics() {
         PrivacySafeErrorMetrics.clearForTests()

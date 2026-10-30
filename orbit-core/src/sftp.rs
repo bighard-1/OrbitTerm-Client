@@ -26,6 +26,7 @@ const SFTP_UPLOAD_BUF_SIZE: usize = 128 * 1024;
 const SFTP_DOWNLOAD_BUF_SIZE: usize = 240 * 1024;
 const SFTP_PROGRESS_MIN_INTERVAL: Duration = Duration::from_millis(125);
 const SFTP_PROGRESS_MIN_BYTES: u64 = 512 * 1024;
+const SFTP_FAILED_UPLOAD_CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
 const SFTP_TEXT_EDIT_MAX_BYTES: usize = 2 * 1024 * 1024;
 const SFTP_TEXT_NEW_SUFFIX: &str = ".orbitterm-new";
 const SFTP_TEXT_BACKUP_SUFFIX: &str = ".orbitterm-backup";
@@ -255,9 +256,9 @@ pub(crate) async fn upload_file(
 }
 
 /// Transfers to an unpredictable sibling file and only publishes the completed
-/// file at the requested path.  Cancellation is intentionally observed only at
-/// chunk boundaries, preventing a half-written file from becoming visible at
-/// the requested destination.
+/// file at the requested path. Writes and pipeline flushes can be cancelled
+/// while waiting for acknowledgements. Only the final rename publishes bytes
+/// at the requested destination; its acknowledged result is kept intact.
 pub(crate) async fn upload_file_create_new_cancellable(
     _session_id: u64,
     session: &Arc<OrbitSftpSession>,
@@ -365,8 +366,36 @@ where
         Ok(()) => operation(temporary_remote_path.clone()).await,
         Err(error) => Err(error),
     };
+    finish_remote_upload_cleanup(result, session.sftp.remove_file(temporary_remote_path)).await
+}
+
+async fn finish_remote_upload_cleanup<T>(
+    result: Result<T, OrbitCoreError>,
+    cleanup: impl Future<Output = Result<(), SftpClientError>>,
+) -> Result<T, OrbitCoreError> {
+    finish_remote_upload_cleanup_with_timeout(result, cleanup, SFTP_FAILED_UPLOAD_CLEANUP_TIMEOUT)
+        .await
+}
+
+async fn finish_remote_upload_cleanup_with_timeout<T>(
+    result: Result<T, OrbitCoreError>,
+    cleanup: impl Future<Output = Result<(), SftpClientError>>,
+    deadline: Duration,
+) -> Result<T, OrbitCoreError> {
     if result.is_err() {
-        let _ = session.sftp.remove_file(temporary_remote_path).await;
+        let cleanup_result = tokio::time::timeout(deadline, cleanup).await.map_err(|_| {
+            OrbitCoreError::SftpFailed("cleanup remote temporary file failed: timeout".to_owned())
+        })?;
+        if let Err(error) = cleanup_result {
+            // A typed absence response confirms there is no leftover. All
+            // other cleanup failures must survive cancellation/transport errors.
+            if !matches!(&error, SftpClientError::Status(status) if status.status_code == StatusCode::NoSuchFile)
+            {
+                return Err(OrbitCoreError::SftpFailed(format!(
+                    "cleanup remote temporary file failed: {error}"
+                )));
+            }
+        }
     }
     result
 }
@@ -405,10 +434,15 @@ async fn upload_file_single_checked(
         if count == 0 {
             break;
         }
-        remote
-            .write_all(&buffer[..count])
-            .await
-            .map_err(|e| OrbitCoreError::SftpFailed(format!("write remote file failed: {e}")))?;
+        await_upload_io_or_cancel(
+            async {
+                remote.write_all(&buffer[..count]).await.map_err(|e| {
+                    OrbitCoreError::SftpFailed(format!("write remote file failed: {e}"))
+                })
+            },
+            cancelled,
+        )
+        .await?;
         uploaded += count as u64;
         if progress_throttle.should_report(uploaded, false) {
             progress(uploaded.min(total_bytes), Some(total_bytes));
@@ -420,9 +454,15 @@ async fn upload_file_single_checked(
         if requested_monitor_generation != observed_monitor_generation {
             // Drain the bounded write pipeline once so the pending monitor exec
             // can be scheduled without permanently reducing upload throughput.
-            remote.flush().await.map_err(|e| {
-                OrbitCoreError::SftpFailed(format!("flush remote file failed: {e}"))
-            })?;
+            await_upload_io_or_cancel(
+                async {
+                    remote.flush().await.map_err(|e| {
+                        OrbitCoreError::SftpFailed(format!("flush remote file failed: {e}"))
+                    })
+                },
+                cancelled,
+            )
+            .await?;
             observed_monitor_generation = requested_monitor_generation;
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
@@ -432,9 +472,15 @@ async fn upload_file_single_checked(
         tokio::task::yield_now().await;
     }
     check_transfer_cancelled(cancelled)?;
-    remote.shutdown().await.map_err(|e| {
-        OrbitCoreError::SftpFailed(format!("shutdown temporary remote file failed: {e}"))
-    })?;
+    await_upload_io_or_cancel(
+        async {
+            remote.shutdown().await.map_err(|e| {
+                OrbitCoreError::SftpFailed(format!("shutdown temporary remote file failed: {e}"))
+            })
+        },
+        cancelled,
+    )
+    .await?;
     if progress_throttle.should_report(uploaded, true) {
         progress(uploaded.min(total_bytes), Some(total_bytes));
     }
@@ -628,6 +674,23 @@ fn check_transfer_cancelled(cancelled: &AtomicBool) -> Result<(), OrbitCoreError
         Err(OrbitCoreError::SftpTransferCancelled)
     } else {
         Ok(())
+    }
+}
+
+async fn await_upload_io_or_cancel<T>(
+    operation: impl Future<Output = Result<T, OrbitCoreError>>,
+    cancelled: &AtomicBool,
+) -> Result<T, OrbitCoreError> {
+    tokio::pin!(operation);
+    loop {
+        check_transfer_cancelled(cancelled)?;
+        tokio::select! {
+            result = &mut operation => {
+                check_transfer_cancelled(cancelled)?;
+                return result;
+            }
+            _ = tokio::time::sleep(Duration::from_millis(200)) => {}
+        }
     }
 }
 
@@ -1095,7 +1158,8 @@ fn shell_single_quote(input: &str) -> String {
 #[cfg(test)]
 mod transfer_progress_tests {
     use super::{
-        await_download_read_or_cancel, map_create_mutation_error, map_list_dir_error,
+        await_download_read_or_cancel, await_upload_io_or_cancel, finish_remote_upload_cleanup,
+        finish_remote_upload_cleanup_with_timeout, map_create_mutation_error, map_list_dir_error,
         with_new_download_target, SftpMutationError, TransferProgressThrottle,
         SFTP_PROGRESS_MIN_BYTES,
     };
@@ -1107,6 +1171,92 @@ mod transfer_progress_tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
     use tokio::io::AsyncWriteExt;
+
+    #[tokio::test]
+    async fn stalled_upload_write_or_flush_observes_cancel_without_server_confirmation() {
+        let cancelled = AtomicBool::new(false);
+        let operation = async {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            cancelled.store(true, Ordering::SeqCst);
+        };
+        let transfer = await_upload_io_or_cancel(
+            std::future::pending::<Result<(), OrbitCoreError>>(),
+            &cancelled,
+        );
+        let (_, result) = tokio::time::timeout(Duration::from_secs(1), async {
+            tokio::join!(operation, transfer)
+        })
+        .await
+        .expect("Upload cancellation must not wait for the SFTP request timeout");
+        assert!(matches!(result, Err(OrbitCoreError::SftpTransferCancelled)));
+    }
+
+    #[tokio::test]
+    async fn unresponsive_remote_cleanup_finishes_with_an_explicit_cleanup_failure() {
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            finish_remote_upload_cleanup_with_timeout::<()>(
+                Err(OrbitCoreError::SftpTransferCancelled),
+                std::future::pending::<Result<(), SftpClientError>>(),
+                Duration::from_millis(10),
+            ),
+        )
+        .await
+        .expect("Cleanup must have a bounded deadline");
+        assert!(matches!(result, Err(OrbitCoreError::SftpFailed(message))
+            if message == "cleanup remote temporary file failed: timeout"));
+    }
+
+    fn remote_cleanup_status(status_code: StatusCode) -> SftpClientError {
+        SftpClientError::Status(Status {
+            id: 1,
+            status_code,
+            error_message: "untrusted server /private/remote-path".to_owned(),
+            language_tag: String::new(),
+        })
+    }
+
+    #[tokio::test]
+    async fn remote_cleanup_failure_survives_upload_cancellation() {
+        let result =
+            finish_remote_upload_cleanup::<()>(Err(OrbitCoreError::SftpTransferCancelled), async {
+                Err(remote_cleanup_status(StatusCode::PermissionDenied))
+            })
+            .await;
+        assert!(matches!(result, Err(OrbitCoreError::SftpFailed(message))
+            if message.starts_with("cleanup remote temporary file failed:")));
+    }
+
+    #[tokio::test]
+    async fn remote_cleanup_success_or_confirmed_absence_preserves_original_failure() {
+        for absent in [false, true] {
+            let result = finish_remote_upload_cleanup::<()>(
+                Err(OrbitCoreError::SftpTransferCancelled),
+                async {
+                    if absent {
+                        Err(remote_cleanup_status(StatusCode::NoSuchFile))
+                    } else {
+                        Ok(())
+                    }
+                },
+            )
+            .await;
+            assert!(matches!(result, Err(OrbitCoreError::SftpTransferCancelled)));
+        }
+    }
+
+    #[tokio::test]
+    async fn published_upload_never_runs_failure_cleanup() {
+        let cleanup_polled = AtomicBool::new(false);
+        let result = finish_remote_upload_cleanup(Ok(262144_u64), async {
+            cleanup_polled.store(true, Ordering::SeqCst);
+            Ok(())
+        })
+        .await
+        .unwrap();
+        assert_eq!(result, 262144);
+        assert!(!cleanup_polled.load(Ordering::SeqCst));
+    }
 
     #[tokio::test]
     async fn stalled_download_read_observes_cancel_without_server_response() {

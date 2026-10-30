@@ -33,6 +33,7 @@ enum class OrbitErrorCode(val diagnosticCode: String) {
     StorageLocked("storage_locked"),
     SftpConflict("sftp_conflict"),
     SftpOperationFailed("sftp_operation_failed"),
+    SftpRemoteCleanupFailed("sftp_remote_cleanup_failed"),
     DockerOperationFailed("docker_operation_failed"),
     MonitorOperationFailed("monitor_operation_failed"),
     SyncConflict("sync_conflict"),
@@ -90,6 +91,7 @@ data class OrbitError(
         OrbitErrorCode.StorageLocked -> "需要解锁应用后才能继续此操作。"
         OrbitErrorCode.SftpConflict -> "远端文件已变化，请刷新目录后重试。"
         OrbitErrorCode.SftpOperationFailed -> "SFTP 操作未完成，请重新建立会话后重试。"
+        OrbitErrorCode.SftpRemoteCleanupFailed -> "远端临时上传文件清理失败；请重新连接后检查远端临时文件，再重试。"
         OrbitErrorCode.DockerOperationFailed -> "Docker 操作未完成，请确认会话和容器状态后重试。"
         OrbitErrorCode.MonitorOperationFailed -> "监控采样未完成，请确认 SSH 会话后重试。"
         OrbitErrorCode.SyncConflict -> "同步发现冲突，请处理冲突后再同步。"
@@ -134,6 +136,7 @@ fun orbitNativeError(rawCode: String?, retryable: Boolean = false, detailCode: S
         "invalid_sftp_text_response", "invalid_docker_list_response", "invalid_docker_logs_response", "invalid_docker_stats_response",
         "invalid_monitor_snapshot" -> OrbitErrorCode.NativeProtocolInvalid
         "sftp_transfer_cancelled" -> OrbitErrorCode.OperationCancelled
+        "sftp_remote_cleanup_failed" -> OrbitErrorCode.SftpRemoteCleanupFailed
         "security_generation_mismatch", "legacy_session_not_allowed" -> OrbitErrorCode.SessionUnavailable
         "sftp_transfer_session_changed", "entry_changed" -> OrbitErrorCode.StaleOperation
         "ssh_timeout" -> if (detailCode == "authentication_timeout") OrbitErrorCode.AuthenticationFailed else OrbitErrorCode.NetworkTimeout
@@ -162,6 +165,7 @@ fun orbitNativeError(rawCode: String?, retryable: Boolean = false, detailCode: S
         OrbitErrorCode.RequestTooLarge -> OrbitRecoveryAction.ContactSupport
         OrbitErrorCode.HostKeyBlocked -> OrbitRecoveryAction.ReviewHostKey
         OrbitErrorCode.PermissionDenied -> OrbitRecoveryAction.CheckPermission
+        OrbitErrorCode.SftpRemoteCleanupFailed -> OrbitRecoveryAction.CheckPermission
         OrbitErrorCode.DestinationUnwritable -> OrbitRecoveryAction.CheckPermission
         OrbitErrorCode.StorageUnavailable -> OrbitRecoveryAction.Unlock
         OrbitErrorCode.SftpConflict, OrbitErrorCode.SyncConflict -> OrbitRecoveryAction.ResolveConflict
@@ -171,7 +175,7 @@ fun orbitNativeError(rawCode: String?, retryable: Boolean = false, detailCode: S
         OrbitErrorCode.OperationCancelled -> OrbitRecoveryAction.None
         else -> if (retryable) OrbitRecoveryAction.Retry else OrbitRecoveryAction.ContactSupport
     }
-    return OrbitError(code, retryable && code !in setOf(OrbitErrorCode.OperationCancelled, OrbitErrorCode.InvalidRequest), recovery)
+    return OrbitError(code, retryable && code !in setOf(OrbitErrorCode.OperationCancelled, OrbitErrorCode.InvalidRequest, OrbitErrorCode.SftpRemoteCleanupFailed), recovery)
         .also(PrivacySafeErrorMetrics::record)
 }
 

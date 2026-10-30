@@ -349,6 +349,7 @@ enum SFTPCheckedTransfer {
             ? "保存目标已存在，未覆盖；请选择其他文件名"
             : "远端同名目标已存在，未覆盖"
         case "sftp_local_cleanup_failed": return "下载目标清理失败，请检查并删除本次部分文件"
+        case "sftp_remote_cleanup_failed": return "远端临时上传文件清理失败；请重新连接后检查远端临时文件，再重试"
         case "sftp_local_io_failed": return "本地保存位置不可访问；请检查是否留有部分文件"
         case "sftp_no_space_left": return "存储空间不足；请检查是否留有部分文件"
         case "sftp_permission_denied": return "读写权限不足，请检查目标位置"
