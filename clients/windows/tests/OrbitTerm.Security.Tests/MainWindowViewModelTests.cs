@@ -2048,6 +2048,9 @@ public sealed class MainWindowViewModelTests
             Assert.Contains("远端临时上传文件清理失败", task.StatusText, StringComparison.Ordinal);
             Assert.Contains("检查远端临时文件", task.StatusText, StringComparison.Ordinal);
             Assert.DoesNotContain("已取消", task.StatusText, StringComparison.Ordinal);
+            Assert.Single(viewModel.ActiveSftpTransferTasks);
+            Assert.Equal(0, viewModel.ActiveSftpTransferCount);
+            Assert.False(viewModel.HasActiveSftpTransfers);
             Assert.Equal(1, coreClient.UploadSftpFileCallCount);
         }
         finally { Directory.Delete(directory, recursive: true); }

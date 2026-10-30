@@ -583,7 +583,7 @@ public sealed class MainWindowViewModel : ObservableObject
         ? "暂无传输任务"
         : string.Create(
             System.Globalization.CultureInfo.InvariantCulture,
-            $"传输任务 {SftpTransferTasks.Count} 项 · 当前队列 {ActiveSftpTransferTasks.Count} 项 · 已完成 {CompletedSftpTransferTasks.Count} 项");
+            $"传输任务 {SftpTransferTasks.Count} 项 · 未完成 {ActiveSftpTransferTasks.Count} 项 · 已完成 {CompletedSftpTransferTasks.Count} 项");
 
     public string CompletedSftpTransferSummary => string.Create(
         System.Globalization.CultureInfo.InvariantCulture,

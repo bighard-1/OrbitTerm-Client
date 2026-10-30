@@ -7902,10 +7902,6 @@ public sealed partial class MainWindow : Window
     {
         ActiveSftpTransfersTab.IsChecked = true;
         CompletedSftpTransfersTab.IsChecked = false;
-        ActiveSftpTransfersTab.Content = "进行中";
-        CompletedSftpTransfersTab.Content = "完成";
-        ActiveSftpTransfersTabColumn.Width = new GridLength(58);
-        CompletedSftpTransfersTabColumn.Width = new GridLength(42);
         ActiveSftpTransfersContent.Visibility = Visibility.Visible;
         CompletedSftpTransfersContent.Visibility = Visibility.Collapsed;
     }
@@ -7914,10 +7910,6 @@ public sealed partial class MainWindow : Window
     {
         ActiveSftpTransfersTab.IsChecked = false;
         CompletedSftpTransfersTab.IsChecked = true;
-        ActiveSftpTransfersTab.Content = "进行";
-        CompletedSftpTransfersTab.Content = "已完成";
-        ActiveSftpTransfersTabColumn.Width = new GridLength(42);
-        CompletedSftpTransfersTabColumn.Width = new GridLength(58);
         ActiveSftpTransfersContent.Visibility = Visibility.Collapsed;
         CompletedSftpTransfersContent.Visibility = Visibility.Visible;
     }

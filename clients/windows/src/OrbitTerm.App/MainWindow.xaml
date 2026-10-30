@@ -1507,7 +1507,7 @@
                                                         <TextBlock Grid.Row="1" Grid.ColumnSpan="3"
                                                                    Text="{Binding Message}" FontSize="12"
                                                                    Foreground="{StaticResource OrbitMutedTextBrush}"
-                                                                   TextTrimming="CharacterEllipsis"
+                                                                   TextWrapping="Wrap"
                                                                    ToolTipService.ToolTip="{Binding Message}" />
                                                     </Grid>
                                                 </DataTemplate>
@@ -1616,8 +1616,8 @@
                               AutomationProperties.Name="SFTP 传输任务标签页">
                             <Grid ColumnSpacing="4">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition x:Name="ActiveSftpTransfersTabColumn" Width="58" />
-                                    <ColumnDefinition x:Name="CompletedSftpTransfersTabColumn" Width="42" />
+                                    <ColumnDefinition Width="64" />
+                                    <ColumnDefinition Width="64" />
                                     <ColumnDefinition Width="48" />
                                     <ColumnDefinition Width="48" />
                                 </Grid.ColumnDefinitions>
@@ -1633,7 +1633,7 @@
                                               AutomationProperties.Name="显示未完成的传输" />
                                 <ToggleButton x:Name="CompletedSftpTransfersTab"
                                               Grid.Column="1"
-                                              Content="完成"
+                                              Content="已完成"
                                               Click="CompletedSftpTransfersTabClick"
                                               HorizontalAlignment="Stretch"
                                               HorizontalContentAlignment="Center"
@@ -1665,15 +1665,17 @@
                                     </ListView.ItemContainerStyle>
                                     <ListView.ItemTemplate>
                                         <DataTemplate>
-                                            <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
+                                            <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
                                                 <TextBlock Text="{Binding DirectionText}" FontSize="12"
                                                            Foreground="{StaticResource OrbitMutedTextBrush}" />
-                                                <TextBlock Grid.Column="1" Text="{Binding FileName}" FontWeight="SemiBold"
+                                                <TextBlock Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding FileName}" FontWeight="SemiBold"
+                                                           ToolTipService.ToolTip="{Binding FileName}"
                                                            TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Grid.Column="2" Text="{Binding StatusText}" FontSize="12"
+                                                <TextBlock Grid.Row="1" Grid.ColumnSpan="3" Text="{Binding StatusText}" FontSize="12"
                                                            Foreground="{StaticResource OrbitMutedTextBrush}"
-                                                           TextTrimming="CharacterEllipsis" MaxWidth="130" />
-                                                <Grid Grid.Row="1" Grid.ColumnSpan="3"
+                                                           TextWrapping="Wrap"
+                                                           ToolTipService.ToolTip="{Binding StatusText}" />
+                                                <Grid Grid.Row="2" Grid.ColumnSpan="3"
                                                       Margin="0,3,0,0"
                                                       ColumnDefinitions="*,Auto,Auto,Auto"
                                                       ColumnSpacing="4">
@@ -1706,7 +1708,7 @@
                                                         <FontIcon Glyph="&#xE711;" FontSize="12" />
                                                     </Button>
                                                 </Grid>
-                                                <TextBlock Grid.Row="2" Grid.ColumnSpan="3"
+                                                <TextBlock Grid.Row="3" Grid.ColumnSpan="3"
                                                            Text="{Binding TransferDetailText}"
                                                            FontSize="12" Margin="0,2,0,0"
                                                            Foreground="{StaticResource OrbitMutedTextBrush}"
@@ -1733,13 +1735,15 @@
                                     </ListView.ItemContainerStyle>
                                     <ListView.ItemTemplate>
                                         <DataTemplate>
-                                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
+                                            <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*" ColumnSpacing="6">
                                                 <TextBlock Text="{Binding DirectionText}" FontSize="12"
                                                            Foreground="{StaticResource OrbitMutedTextBrush}" />
                                                 <TextBlock Grid.Column="1" Text="{Binding FileName}"
+                                                           ToolTipService.ToolTip="{Binding FileName}"
                                                            TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Grid.Column="2" Text="{Binding StatusText}" FontSize="12"
-                                                           Foreground="{StaticResource OrbitMutedTextBrush}" />
+                                                <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding StatusText}" FontSize="12"
+                                                           Foreground="{StaticResource OrbitMutedTextBrush}"
+                                                           TextWrapping="Wrap" ToolTipService.ToolTip="{Binding StatusText}" />
                                             </Grid>
                                         </DataTemplate>
                                     </ListView.ItemTemplate>

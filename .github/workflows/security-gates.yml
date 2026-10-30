@@ -28,7 +28,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Verify shared macOS, Windows, and Linux workstation rules
-        run: python3 scripts/quality/check_desktop_visual_contract.py
+        run: |
+          python3 scripts/quality/check_desktop_visual_contract.py
+          python3 -m unittest discover -s scripts/security/tests -p 'test_bounded_phase.py'
 
   rust-security-gates:
     name: Rust release gates
@@ -125,6 +127,8 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v7
+      - name: Require accelerated Android CPU virtualization
+        run: bash scripts/security/prepare_android_ci_kvm.sh
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -139,6 +143,7 @@ jobs:
             "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
       - name: Prebuild Android instrumentation artifacts
+        timeout-minutes: 18
         working-directory: clients/android/OrbitTermAndroid
         run: |
           ./gradlew --no-daemon \
@@ -147,6 +152,7 @@ jobs:
             :app:assembleDebug :app:assembleDebugAndroidTest \
             :app:assembleSmoke
       - name: Run connected tests on Android 15 emulator
+        timeout-minutes: 30
         uses: reactivecircus/android-emulator-runner@v2
         env:
           ORBITTERM_ANDROID_TEST_PROFILE: aosp-atd-api35
@@ -156,8 +162,12 @@ jobs:
           # Google services that make software-emulated hosted runners time out.
           target: aosp_atd
           arch: x86_64
+          disable-linux-hw-accel: 'false'
           disable-animations: true
-          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          # Keep the audited software graphics baseline, but require KVM for
+          # CPU execution instead of silently spending the job in -accel off.
+          emulator-options: -accel on -no-snapshot -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          pre-emulator-launch-script: '"$ANDROID_HOME/emulator/emulator" -accel-check'
           script: scripts/security/check_android_instrumentation_gates.sh
       - name: Preserve Android instrumentation reports
         if: always()
@@ -169,6 +179,9 @@ jobs:
             clients/android/OrbitTermAndroid/app/build/outputs/androidTest-results/connected/**
             clients/android/OrbitTermAndroid/core/build/reports/androidTests/connected/**
             clients/android/OrbitTermAndroid/core/build/outputs/androidTest-results/connected/**
+            clients/android/OrbitTermAndroid/feature/build/reports/androidTests/connected/**
+            clients/android/OrbitTermAndroid/feature/build/outputs/androidTest-results/connected/**
+            clients/android/OrbitTermAndroid/build/qa-instrumentation/**
           if-no-files-found: warn
           retention-days: 14
 

@@ -43,3 +43,13 @@ Windows 上述真机路径已补收；仅本轮虚构会话已关闭、服务／
 源码对照另见 Linux 上传选择器回调返回后才读取当前活跃 SFTP 会话及目录，需优先审查选择期间断线／重连的目标归属；本轮尚无 GUI 复现，不宣称该边界已关闭。
 
 **五端完整验收未完成。** Android／Windows 后续继续对照源授权首次／重试、离页或隐藏队列停止、成功文件保持、清理期限风险不被普通取消覆盖和无自动重传；Apple 双 workspace／第三方提供方／沙箱、普通取消、最终硬断线及完整墓碑矩阵仍开放。Android 原 JNI 改动未提交；Apple／Android 安装、正式版及线上服务本轮未动。
+
+## 后继：CI 加速与 Windows 风险可读性修复
+
+**归因补证**：继续读取固定失败作业的原始日志，明确显示 KVM 不可访问、`disable Linux hardware acceleration: true`；预构建耗时 12 分 49 秒，模拟器阶段 36 分 52 秒，smoke 经三次安装服务恢复后完成，core 通过，app 仍在推进时撞到 50 分钟总限额。因此已确认该轮使用纯软件 CPU 模拟，但没有证据认定最后一个性能用例自身死锁。上游 [动作实现](https://github.com/ReactiveCircus/android-emulator-runner/blob/main/src/main.ts) 在无法读写 KVM 时会自动关闭 CPU 加速；[官方说明](https://github.com/ReactiveCircus/android-emulator-runner#running-hardware-accelerated-emulators-on-linux-runners) 支持为 Linux runner 配置 KVM。CPU 虚拟化和软件图形渲染分别处理，不混为一谈。
+
+**CI 源码候选**：仅在 GitHub 临时 Linux runner 为当前 UID 添加 KVM 读写 ACL，不添加全员可写 udev 规则，不修改开发机。启动前执行实际加速检查，显式要求 `-accel on`，不再静默回退；保留 API 35 ATD／SwiftShader 图形基线、性能／迁移／可访问性／安全断言及原 50 分钟总上限。预构建和模拟器步骤分别有界，ADB 就绪、smoke、各模块 Gradle 执行增加阶段限时及结果 JSONL；超时／取消终止所属进程组，保留原失败退出码并记录状态，不将失败重试成成功。诊断仅针对合成 CI 模拟器；归档补齐 feature 报告及阶段证据。
+
+**Windows 源码候选**：传输标签固定“未完成／已完成”，切换只改选择和可见性；汇总明确“未完成”数量，不再冒充活跃 I/O。任务状态移至跨列独立行自动换行，最近操作的恢复说明也自动换行；保留文件名省略及完整提示、暂停／取消／重试与队列归属。既有清理失败单测补核未完成项保留但实际活跃传输为 0。前轮真实失败及窄面板省略现象保留，本候选尚未安装／GUI 复测。
+
+**本地验证／边界**：阶段执行器四条真实子进程测试通过，覆盖非零退出不丢失、挂起被明确超时、父进程结束后不残留忽略 TERM 的子孙进程、工具缺失不算通过；Bash 语法、Windows XAML XML 语法、桌面契约及差异检查通过。本机无 .NET SDK，C# 测试和 WinUI 编译需固定候选 CI，不能宣称本机已通过。本条固定提交号及新 CI 结果待收；未更新任何设备安装包或线上服务，Android 原 JNI 改动仍排除。Linux 产品仍待在新私有进程验证上传，**五端完整验收未完成**。

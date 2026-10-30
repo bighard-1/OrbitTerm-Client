@@ -13,6 +13,12 @@ ADB_BIN="${ANDROID_HOME:-}/platform-tools/adb"
 [[ -x "$ADB_BIN" ]] || ADB_BIN="$(command -v adb || true)"
 [[ -n "$ADB_BIN" && -x "$ADB_BIN" ]] || fail "adb is unavailable"
 
+phase_report="$ANDROID_PROJECT/build/qa-instrumentation/phases.jsonl"
+run_phase() {
+  python3 "$SECURITY_SCRIPT_DIR/run_bounded_phase.py" \
+    --phase "$1" --timeout "$2" --report "$phase_report" -- "${@:3}"
+}
+
 wait_for_android_runtime() {
   local attempt
   "$ADB_BIN" wait-for-device
@@ -27,6 +33,31 @@ wait_for_android_runtime() {
   fail "Android emulator package service did not become ready"
 }
 
+# Run readiness in its own bounded process: even adb wait-for-device or a
+# nominally read-only package/settings query can hang before the retry loop.
+if [[ "${1:-}" == --wait-for-runtime && $# == 1 ]]; then
+  wait_for_android_runtime
+  exit 0
+fi
+[[ $# == 0 ]] || fail 'unsupported instrumentation gate arguments'
+require_command python3
+
+capture_failure() {
+  local status=$?
+  # Capture only the synthetic hosted emulator, never a developer's phone.
+  if (( status != 0 )) && [[ "$instrumentation_profile" == aosp-atd-api35 &&
+                            "${ANDROID_SERIAL:-}" =~ ^emulator-[0-9]+$ ]]; then
+    mkdir -p "$(dirname "$phase_report")"
+    {
+      run_phase diagnostic-device-state 10 "$ADB_BIN" get-state || true
+      run_phase diagnostic-boot-state 10 "$ADB_BIN" shell getprop sys.boot_completed || true
+      run_phase diagnostic-package-service 10 "$ADB_BIN" shell service check package || true
+    } > "$(dirname "$phase_report")/runtime-failure.txt" 2>&1
+  fi
+  exit "$status"
+}
+trap capture_failure EXIT
+
 results_contain() {
   local root="$1"
   local expected="$2"
@@ -36,13 +67,13 @@ results_contain() {
 if [[ "$instrumentation_profile" == "aosp-atd-api35" ]]; then
   # Run the isolated fixture on the freshly booted hosted emulator. Connected
   # suites can leave a system-app ANR overlay, while rebooting afterward has
-  # repeatedly left ADB install/shell stalled on software-only runners.
-  # The workflow prebuilds this APK before starting the software-only emulator.
+  # repeatedly left ADB install/shell stalled on hosted runners.
+  # The workflow prebuilds this APK before starting the emulator.
   # Re-running Gradle after boot adds load while Android services are settling.
   [[ -f "$ANDROID_PROJECT/app/build/outputs/apk/smoke/app-x86_64-smoke.apk" ]] \
     || fail "prebuilt Android x86_64 smoke fixture APK is missing"
-  wait_for_android_runtime
-  "$ORBIT_ROOT/scripts/security/run_android_smoke_fixtures.sh"
+  run_phase runtime-before-smoke 180 bash "$SECURITY_SCRIPT_DIR/check_android_instrumentation_gates.sh" --wait-for-runtime
+  run_phase smoke-fixtures 600 bash "$ORBIT_ROOT/scripts/security/run_android_smoke_fixtures.sh"
 fi
 section "Android connected instrumentation tests"
 (
@@ -51,22 +82,22 @@ section "Android connected instrumentation tests"
     standard)
       ;;
     aosp-atd-api35)
-      # The hosted Ubuntu runner has no hardware acceleration. Preserve memory,
-      # liveness, ANR, semantics, and renderer-specific visual gates while the
-      # 8-second operation/frame SLA remains enforced on normal local devices.
+      # KVM accelerates the CPU; the shared runner still uses the audited
+      # SwiftShader graphics profile. Preserve memory/liveness/ANR/visual
+      # gates; strict operation/frame SLA remains a normal-device requirement.
       ;;
     *)
       fail "unsupported Android instrumentation profile: ${ORBITTERM_ANDROID_TEST_PROFILE}"
       ;;
   esac
   for module in core feature app; do
-    wait_for_android_runtime
+    run_phase "runtime-before-$module" 180 bash "$SECURITY_SCRIPT_DIR/check_android_instrumentation_gates.sh" --wait-for-runtime
     if [[ "$instrumentation_profile" == "aosp-atd-api35" ]]; then
-      ./gradlew --no-daemon ":${module}:connectedDebugAndroidTest" \
+      run_phase "connected-$module" 900 ./gradlew --no-daemon ":${module}:connectedDebugAndroidTest" \
         -Pandroid.testInstrumentationRunnerArguments.strictPerformance=false \
         -Pandroid.testInstrumentationRunnerArguments.visualBaselineProfile=aosp-atd-api35
     else
-      ./gradlew --no-daemon ":${module}:connectedDebugAndroidTest"
+      run_phase "connected-$module" 900 ./gradlew --no-daemon ":${module}:connectedDebugAndroidTest"
     fi
   done
 )
