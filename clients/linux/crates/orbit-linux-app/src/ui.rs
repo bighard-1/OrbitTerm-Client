@@ -950,7 +950,42 @@ struct SessionRegistry {
     sessions: BTreeMap<Uuid, SessionRuntime>,
 }
 
+/// A dialog authorizes one rendered directory on one checked SSH/SFTP session.
+/// Asset identity alone is insufficient: reconnecting the same asset replaces
+/// its core handles, and a pending directory request invalidates the old view.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SftpActionContext {
+    workspace_id: Uuid,
+    base_session_id: u64,
+    sftp_session_id: u64,
+    directory: String,
+    view_revision: u64,
+}
+
+impl SftpActionContext {
+    fn authorize<T>(
+        &self,
+        current: Option<&Self>,
+        operation: impl FnOnce(u64, &str) -> T,
+    ) -> Option<T> {
+        (current == Some(self)).then(|| operation(self.sftp_session_id, &self.directory))
+    }
+}
+
 impl SessionRegistry {
+    fn owns_sftp_context(&self, target: &SftpActionContext) -> bool {
+        self.active_workspace_id == Some(target.workspace_id)
+            && self
+                .sessions
+                .get(&target.workspace_id)
+                .is_some_and(|runtime| {
+                    runtime.transport == Transport::Ssh
+                        && runtime.phase == WorkspacePhase::Connected
+                        && runtime.base_session_id == Some(target.base_session_id)
+                        && runtime.sftp_session_id == Some(target.sftp_session_id)
+                })
+    }
+
     fn owns_input(&self, workspace_id: Uuid) -> bool {
         self.active_workspace_id == Some(workspace_id)
     }
@@ -1088,6 +1123,8 @@ struct ToolsWidgets {
     sftp_transfer_summary: gtk::Label,
     sftp_transfer_detail: gtk::Label,
     sftp_entries: Rc<RefCell<Vec<SftpEntry>>>,
+    sftp_view_revision: Rc<Cell<u64>>,
+    sftp_listing_context: Rc<RefCell<Option<SftpActionContext>>>,
     docker_refresh: gtk::Button,
     docker_list: gtk::ListBox,
     docker_status: gtk::Label,
@@ -4238,6 +4275,8 @@ fn build_tools(snippet_repository: SnippetRepository) -> ToolsWidgets {
         sftp_transfer_summary,
         sftp_transfer_detail,
         sftp_entries: Rc::new(RefCell::new(Vec::new())),
+        sftp_view_revision: Rc::new(Cell::new(0)),
+        sftp_listing_context: Rc::new(RefCell::new(None)),
         docker_refresh,
         docker_list,
         docker_status,
@@ -11552,7 +11591,7 @@ fn confirm_remote_process_action(
 
 fn begin_sftp_list(context: UiContext, path: String) {
     let requested_path = path.trim().to_owned();
-    let (base_id, sftp_id) = {
+    let (workspace_id, base_id, sftp_id) = {
         let registry = context.session.borrow();
         let Some(runtime) = registry.active() else {
             context.tools.sftp_status.set_label("请先连接服务器。");
@@ -11562,12 +11601,26 @@ fn begin_sftp_list(context: UiContext, path: String) {
             context.tools.sftp_status.set_label("此协议不提供 SFTP。");
             return;
         }
-        (runtime.base_session_id, runtime.sftp_session_id)
+        if runtime.phase != WorkspacePhase::Connected {
+            context.tools.sftp_status.set_label("请先连接服务器。");
+            return;
+        }
+        (
+            runtime.asset_id,
+            runtime.base_session_id,
+            runtime.sftp_session_id,
+        )
     };
     let Some(base_id) = base_id else {
         context.tools.sftp_status.set_label("请先连接服务器。");
         return;
     };
+    let revision = context.tools.sftp_view_revision.get().wrapping_add(1);
+    context.tools.sftp_view_revision.set(revision);
+    context.tools.sftp_listing_context.replace(None);
+    context.tools.sftp_upload.set_sensitive(false);
+    context.tools.sftp_new_directory.set_sensitive(false);
+    context.tools.sftp_new_file.set_sensitive(false);
     context.tools.sftp_refresh.set_sensitive(false);
     context.tools.sftp_status.set_label("正在读取远程目录…");
     let (sender, receiver) = mpsc::channel();
@@ -11587,33 +11640,60 @@ fn begin_sftp_list(context: UiContext, path: String) {
                 } else {
                     normalize_remote_path(&requested_path)
                 };
-            let listing = core.list_sftp_directory(session_id, &worker_path)?;
+            let listing = match core.list_sftp_directory(session_id, &worker_path) {
+                Ok(listing) => listing,
+                Err(error) => {
+                    if sftp_id.is_none() {
+                        let _ = core.close_sftp(session_id);
+                    }
+                    return Err(error);
+                }
+            };
             Ok::<_, BridgeError>((session_id, listing))
         })();
         let _ = sender.send(result);
     });
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
-        match receiver.try_recv() {
-            Ok(Ok((session_id, listing))) => {
-                let active_id = context.session.borrow().active_workspace_id;
-                let owns_session = active_id.and_then(|id| {
-                    context
-                        .session
-                        .borrow()
-                        .sessions
-                        .get(&id)
-                        .map(|runtime| runtime.base_session_id == Some(base_id))
-                }) == Some(true);
-                if owns_session {
-                    if let Some(runtime) = context.session.borrow_mut().active_mut() {
-                        runtime.sftp_session_id = Some(session_id);
-                    }
-                    render_sftp_listing(&context, listing);
+        let result = receiver.try_recv();
+        if matches!(result, Err(mpsc::TryRecvError::Empty)) {
+            return gtk::glib::ControlFlow::Continue;
+        }
+        let owns_request = context.tools.sftp_view_revision.get() == revision
+            && context.session.borrow().active().is_some_and(|runtime| {
+                runtime.asset_id == workspace_id
+                    && runtime.phase == WorkspacePhase::Connected
+                    && runtime.base_session_id == Some(base_id)
+            });
+        if !owns_request {
+            if let Ok(Ok((id, _))) = result {
+                if sftp_id.is_none() {
+                    std::thread::spawn(move || {
+                        let _ = CheckedCoreClient::new().close_sftp(id);
+                    });
                 }
+            }
+            return gtk::glib::ControlFlow::Break;
+        }
+        match result {
+            Ok(Ok((session_id, listing))) => {
+                if let Some(runtime) = context.session.borrow_mut().active_mut() {
+                    runtime.sftp_session_id = Some(session_id);
+                }
+                context
+                    .tools
+                    .sftp_listing_context
+                    .replace(Some(SftpActionContext {
+                        workspace_id,
+                        base_session_id: base_id,
+                        sftp_session_id: session_id,
+                        directory: normalize_remote_path(&listing.path),
+                        view_revision: revision,
+                    }));
+                render_sftp_listing(&context, listing);
                 context.tools.sftp_refresh.set_sensitive(true);
-                context.tools.sftp_upload.set_sensitive(owns_session);
-                context.tools.sftp_new_directory.set_sensitive(owns_session);
-                context.tools.sftp_new_file.set_sensitive(owns_session);
+                context.tools.sftp_upload.set_sensitive(true);
+                context.tools.sftp_new_directory.set_sensitive(true);
+                context.tools.sftp_new_file.set_sensitive(true);
                 gtk::glib::ControlFlow::Break
             }
             Ok(Err(error)) => {
@@ -11811,25 +11891,21 @@ fn present_sftp_context_menu(context: UiContext, row: &gtk::ListBoxRow, x: f64, 
 }
 
 fn activate_sftp_row(context: UiContext, index: i32) {
+    let Some(target) = capture_sftp_context(&context) else {
+        return;
+    };
     let Some(entry) = usize::try_from(index)
         .ok()
         .and_then(|index| context.tools.sftp_entries.borrow().get(index).cloned())
     else {
         return;
     };
-    let path = join_remote_path(context.tools.sftp_path.text().as_str(), &entry.name);
+    let path = join_remote_path(&target.directory, &entry.name);
     if entry.is_directory() {
         begin_sftp_list(context, path);
         return;
     }
-    let Some(sftp_id) = context
-        .session
-        .borrow()
-        .active()
-        .and_then(|runtime| runtime.sftp_session_id)
-    else {
-        return;
-    };
+    let sftp_id = target.sftp_session_id;
     context.tools.sftp_status.set_label("正在读取文本预览…");
     let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || {
@@ -11839,12 +11915,21 @@ fn activate_sftp_row(context: UiContext, index: i32) {
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
         match receiver.try_recv() {
             Ok(Ok(file)) => {
+                if authorize_sftp_context(&context, &target).is_none() {
+                    return gtk::glib::ControlFlow::Break;
+                }
                 context.tools.sftp_status.set_label(&format!(
                     "{} · {}",
                     file.path,
                     format_byte_count(file.byte_length)
                 ));
-                present_sftp_editor(context.clone(), entry.clone(), file.path, file.content);
+                present_sftp_editor(
+                    context.clone(),
+                    target.clone(),
+                    entry.clone(),
+                    file.path,
+                    file.content,
+                );
                 gtk::glib::ControlFlow::Break
             }
             Ok(Err(error)) => {
@@ -11861,6 +11946,9 @@ fn activate_sftp_row(context: UiContext, index: i32) {
 }
 
 fn selected_sftp_entries(context: &UiContext) -> Vec<(SftpEntry, String)> {
+    let Some(target) = current_sftp_context(context) else {
+        return Vec::new();
+    };
     let entries = context.tools.sftp_entries.borrow();
     context
         .tools
@@ -11870,7 +11958,7 @@ fn selected_sftp_entries(context: &UiContext) -> Vec<(SftpEntry, String)> {
         .filter_map(|row| {
             let index = usize::try_from(row.index()).ok()?;
             let entry = entries.get(index)?.clone();
-            let path = join_remote_path(context.tools.sftp_path.text().as_str(), &entry.name);
+            let path = join_remote_path(&target.directory, &entry.name);
             Some((entry, path))
         })
         .collect()
@@ -11908,41 +11996,75 @@ fn sftp_batch_actions_visible(selected_count: usize) -> bool {
     selected_count > 1
 }
 
-fn active_sftp_session(context: &UiContext) -> Option<u64> {
+fn current_sftp_context(context: &UiContext) -> Option<SftpActionContext> {
     context
-        .session
+        .tools
+        .sftp_listing_context
         .borrow()
-        .active()
-        .filter(|runtime| {
-            runtime.transport == Transport::Ssh && runtime.phase == WorkspacePhase::Connected
+        .clone()
+        .filter(|target| {
+            context.session.borrow().owns_sftp_context(target)
+                && context.tools.sftp_view_revision.get() == target.view_revision
+                && normalize_remote_path(context.tools.sftp_path.text().as_str())
+                    == target.directory
         })
-        .and_then(|runtime| runtime.sftp_session_id)
 }
 
-fn run_sftp_mutation<F>(context: UiContext, progress: &'static str, operation: F)
-where
-    F: FnOnce(&CheckedCoreClient, u64) -> Result<(), BridgeError> + Send + 'static,
-{
-    run_sftp_operation(context, progress, None, operation);
+fn capture_sftp_context(context: &UiContext) -> Option<SftpActionContext> {
+    let target = current_sftp_context(context);
+    if target.is_none() {
+        context
+            .tools
+            .sftp_status
+            .set_label("SFTP 会话或目录尚未就绪，请刷新目录后重新操作。");
+    }
+    target
 }
 
-fn run_sftp_transfer<F>(context: UiContext, progress: &'static str, task: String, operation: F)
-where
+fn authorize_sftp_context(context: &UiContext, target: &SftpActionContext) -> Option<u64> {
+    let id = target.authorize(current_sftp_context(context).as_ref(), |id, _| id);
+    if id.is_none() {
+        context
+            .tools
+            .sftp_status
+            .set_label("SFTP 会话或目录已变化，本次操作未开始；请在目标目录重新发起操作。");
+    }
+    id
+}
+
+fn run_sftp_mutation<F>(
+    context: UiContext,
+    target: SftpActionContext,
+    progress: &'static str,
+    operation: F,
+) where
     F: FnOnce(&CheckedCoreClient, u64) -> Result<(), BridgeError> + Send + 'static,
 {
-    run_sftp_operation(context, progress, Some(task), operation);
+    run_sftp_operation(context, target, progress, None, operation);
+}
+
+fn run_sftp_transfer<F>(
+    context: UiContext,
+    target: SftpActionContext,
+    progress: &'static str,
+    task: String,
+    operation: F,
+) where
+    F: FnOnce(&CheckedCoreClient, u64) -> Result<(), BridgeError> + Send + 'static,
+{
+    run_sftp_operation(context, target, progress, Some(task), operation);
 }
 
 fn run_sftp_operation<F>(
     context: UiContext,
+    target: SftpActionContext,
     progress: &'static str,
     transfer_task: Option<String>,
     operation: F,
 ) where
     F: FnOnce(&CheckedCoreClient, u64) -> Result<(), BridgeError> + Send + 'static,
 {
-    let Some(sftp_id) = active_sftp_session(&context) else {
-        context.tools.sftp_status.set_label("SFTP 会话尚未就绪。");
+    let Some(sftp_id) = authorize_sftp_context(&context, &target) else {
         return;
     };
     context.tools.sftp_status.set_label(progress);
@@ -11962,6 +12084,11 @@ fn run_sftp_operation<F>(
         let _ = sender.send(result);
     });
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
+        if !context.session.borrow().owns_sftp_context(&target) {
+            // Never attribute an old operation's result to another workspace
+            // or to a replacement connection of the same asset.
+            return gtk::glib::ControlFlow::Break;
+        }
         match receiver.try_recv() {
             Ok(Ok(())) => {
                 if let Some(task) = transfer_task.as_ref() {
@@ -11974,12 +12101,13 @@ fn run_sftp_operation<F>(
                         .sftp_transfer_detail
                         .set_label(&format!("{task} · 已完成"));
                 }
-                let path = context.tools.sftp_path.text().to_string();
-                context
-                    .tools
-                    .sftp_status
-                    .set_label("操作完成，正在刷新目录…");
-                begin_sftp_list(context.clone(), path);
+                if current_sftp_context(&context).as_ref() == Some(&target) {
+                    context
+                        .tools
+                        .sftp_status
+                        .set_label("操作完成，正在刷新目录…");
+                    begin_sftp_list(context.clone(), target.directory.clone());
+                }
                 gtk::glib::ControlFlow::Break
             }
             Ok(Err(error)) => {
@@ -12082,8 +12210,11 @@ fn prompt_sftp_text<F>(
     confirm_label: &str,
     action: F,
 ) where
-    F: FnOnce(UiContext, String) + 'static,
+    F: FnOnce(UiContext, String, SftpActionContext) + 'static,
 {
+    let Some(target) = capture_sftp_context(&context) else {
+        return;
+    };
     let entry = gtk::Entry::builder()
         .text(initial)
         .activates_default(true)
@@ -12105,7 +12236,7 @@ fn prompt_sftp_text<F>(
             return;
         }
         let value = entry.text().trim().to_owned();
-        action(context, value);
+        action(context, value, target);
     });
 }
 
@@ -12125,23 +12256,29 @@ fn prompt_sftp_create(context: UiContext, directory: bool) {
     } else {
         "新建文件"
     };
-    prompt_sftp_text(context, title, "", "创建", move |context, name| {
-        if !valid_sftp_name(&name) {
-            context
-                .tools
-                .sftp_status
-                .set_label("名称无效：不能包含路径分隔符或控制字符。");
-            return;
-        }
-        let path = join_remote_path(context.tools.sftp_path.text().as_str(), &name);
-        run_sftp_mutation(context, "正在创建…", move |core, sftp_id| {
-            if directory {
-                core.create_sftp_directory(sftp_id, &path)
-            } else {
-                core.create_sftp_file(sftp_id, &path)
+    prompt_sftp_text(
+        context,
+        title,
+        "",
+        "创建",
+        move |context, name, target| {
+            if !valid_sftp_name(&name) {
+                context
+                    .tools
+                    .sftp_status
+                    .set_label("名称无效：不能包含路径分隔符或控制字符。");
+                return;
             }
-        });
-    });
+            let path = join_remote_path(&target.directory, &name);
+            run_sftp_mutation(context, target, "正在创建…", move |core, sftp_id| {
+                if directory {
+                    core.create_sftp_directory(sftp_id, &path)
+                } else {
+                    core.create_sftp_file(sftp_id, &path)
+                }
+            });
+        },
+    );
 }
 
 fn prompt_sftp_rename(context: UiContext) {
@@ -12154,7 +12291,7 @@ fn prompt_sftp_rename(context: UiContext) {
         "重命名",
         &initial,
         "重命名",
-        move |context, name| {
+        move |context, name, target| {
             if !valid_sftp_name(&name) {
                 context
                     .tools
@@ -12162,10 +12299,11 @@ fn prompt_sftp_rename(context: UiContext) {
                     .set_label("名称无效：不能包含路径分隔符或控制字符。");
                 return;
             }
-            let new_path = join_remote_path(context.tools.sftp_path.text().as_str(), &name);
+            let new_path = join_remote_path(&target.directory, &name);
             let snapshot = SftpEntrySnapshot::from(&entry);
             run_sftp_mutation(
                 context,
+                target,
                 "正在核对快照并重命名…",
                 move |core, sftp_id| {
                     core.rename_sftp_entry(sftp_id, &old_path, &new_path, &snapshot)
@@ -12185,7 +12323,7 @@ fn prompt_sftp_chmod(context: UiContext) {
         "修改权限",
         &initial,
         "应用",
-        move |context, mode| {
+        move |context, mode, target| {
             let Ok(mode) = u32::from_str_radix(mode.trim(), 8) else {
                 context
                     .tools
@@ -12203,6 +12341,7 @@ fn prompt_sftp_chmod(context: UiContext) {
             let snapshot = SftpEntrySnapshot::from(&entry);
             run_sftp_mutation(
                 context,
+                target,
                 "正在核对快照并修改权限…",
                 move |core, sftp_id| core.chmod_sftp_entry(sftp_id, &path, mode, &snapshot),
             );
@@ -12211,6 +12350,9 @@ fn prompt_sftp_chmod(context: UiContext) {
 }
 
 fn confirm_sftp_delete(context: UiContext) {
+    let Some(target) = capture_sftp_context(&context) else {
+        return;
+    };
     let selected = selected_sftp_entries(&context);
     let Some((entry, _)) = selected.first() else {
         return;
@@ -12243,18 +12385,22 @@ fn confirm_sftp_delete(context: UiContext) {
             let snapshot = SftpEntrySnapshot::from(&entry);
             run_sftp_mutation(
                 context,
+                target,
                 "正在核对快照并删除…",
                 move |core, sftp_id| core.remove_sftp_entry(sftp_id, &path, &snapshot),
             );
         } else {
-            run_sftp_batch_delete(context, selected);
+            run_sftp_batch_delete(context, target, selected);
         }
     });
 }
 
-fn run_sftp_batch_delete(context: UiContext, selected: Vec<(SftpEntry, String)>) {
-    let Some(sftp_id) = active_sftp_session(&context) else {
-        context.tools.sftp_status.set_label("SFTP 会话尚未就绪。");
+fn run_sftp_batch_delete(
+    context: UiContext,
+    target: SftpActionContext,
+    selected: Vec<(SftpEntry, String)>,
+) {
+    let Some(sftp_id) = authorize_sftp_context(&context, &target) else {
         return;
     };
     let total = selected.len();
@@ -12279,6 +12425,9 @@ fn run_sftp_batch_delete(context: UiContext, selected: Vec<(SftpEntry, String)>)
         let _ = sender.send((succeeded, failures));
     });
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
+        if !context.session.borrow().owns_sftp_context(&target) {
+            return gtk::glib::ControlFlow::Break;
+        }
         match receiver.try_recv() {
             Ok((succeeded, failures)) => {
                 let failed = failures.len();
@@ -12288,8 +12437,9 @@ fn run_sftp_batch_delete(context: UiContext, selected: Vec<(SftpEntry, String)>)
                 context.tools.sftp_status.set_label(&format!(
                     "批量删除完成：成功 {succeeded}/{total}，失败 {failed}{detail}"
                 ));
-                let path = context.tools.sftp_path.text().to_string();
-                begin_sftp_list(context.clone(), path);
+                if current_sftp_context(&context).as_ref() == Some(&target) {
+                    begin_sftp_list(context.clone(), target.directory.clone());
+                }
                 gtk::glib::ControlFlow::Break
             }
             Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
@@ -12305,6 +12455,9 @@ fn run_sftp_batch_delete(context: UiContext, selected: Vec<(SftpEntry, String)>)
 }
 
 fn begin_sftp_upload(context: UiContext) {
+    let Some(target) = capture_sftp_context(&context) else {
+        return;
+    };
     let dialog = gtk::FileDialog::builder().title("选择要上传的文件").build();
     gtk::glib::spawn_future_local(async move {
         let Ok(file) = dialog.open_future(Some(&context.window)).await else {
@@ -12329,9 +12482,10 @@ fn begin_sftp_upload(context: UiContext) {
             return;
         }
         let local = path.to_string_lossy().into_owned();
-        let remote = join_remote_path(context.tools.sftp_path.text().as_str(), name);
+        let remote = join_remote_path(&target.directory, name);
         run_sftp_transfer(
             context,
+            target,
             "正在安全上传文件…",
             format!("上传 {name}"),
             move |core, sftp_id| core.upload_sftp_file(sftp_id, &local, &remote),
@@ -12340,9 +12494,12 @@ fn begin_sftp_upload(context: UiContext) {
 }
 
 fn begin_sftp_download(context: UiContext) {
+    let Some(target) = capture_sftp_context(&context) else {
+        return;
+    };
     let selected = selected_sftp_entries(&context);
     if selected.len() > 1 {
-        begin_sftp_batch_download(context, selected);
+        begin_sftp_batch_download(context, target, selected);
         return;
     }
     let Some((entry, remote)) = selected.into_iter().next() else {
@@ -12377,6 +12534,7 @@ fn begin_sftp_download(context: UiContext) {
         let local = path.to_string_lossy().into_owned();
         run_sftp_transfer(
             context,
+            target,
             "正在安全下载文件…",
             format!("下载 {}", entry.name),
             move |core, sftp_id| core.download_sftp_file(sftp_id, &remote, &local),
@@ -12384,7 +12542,11 @@ fn begin_sftp_download(context: UiContext) {
     });
 }
 
-fn begin_sftp_batch_download(context: UiContext, selected: Vec<(SftpEntry, String)>) {
+fn begin_sftp_batch_download(
+    context: UiContext,
+    target: SftpActionContext,
+    selected: Vec<(SftpEntry, String)>,
+) {
     let downloadable = selected
         .into_iter()
         .filter(|(entry, _)| !entry.is_directory())
@@ -12408,8 +12570,7 @@ fn begin_sftp_batch_download(context: UiContext, selected: Vec<(SftpEntry, Strin
                 .set_label("无法访问所选下载目录。");
             return;
         };
-        let Some(sftp_id) = active_sftp_session(&context) else {
-            context.tools.sftp_status.set_label("SFTP 会话尚未就绪。");
+        let Some(sftp_id) = authorize_sftp_context(&context, &target) else {
             return;
         };
         let total = downloadable.len();
@@ -12434,6 +12595,9 @@ fn begin_sftp_batch_download(context: UiContext, selected: Vec<(SftpEntry, Strin
             let _ = sender.send((succeeded, failures));
         });
         gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
+            if !context.session.borrow().owns_sftp_context(&target) {
+                return gtk::glib::ControlFlow::Break;
+            }
             match receiver.try_recv() {
                 Ok((succeeded, failures)) => {
                     let failed = failures.len();
@@ -12443,7 +12607,9 @@ fn begin_sftp_batch_download(context: UiContext, selected: Vec<(SftpEntry, Strin
                     context.tools.sftp_status.set_label(&format!(
                         "批量下载完成：成功 {succeeded}/{total}，失败 {failed}{detail}"
                     ));
-                    context.tools.sftp_list.unselect_all();
+                    if current_sftp_context(&context).as_ref() == Some(&target) {
+                        context.tools.sftp_list.unselect_all();
+                    }
                     gtk::glib::ControlFlow::Break
                 }
                 Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
@@ -12483,7 +12649,13 @@ fn unique_local_sftp_download_path(directory: &std::path::Path, file_name: &str)
     directory.join(format!("{stem}-{}", current_unix_ms().unwrap_or(0)))
 }
 
-fn present_sftp_editor(context: UiContext, entry: SftpEntry, path: String, content: String) {
+fn present_sftp_editor(
+    context: UiContext,
+    target: SftpActionContext,
+    entry: SftpEntry,
+    path: String,
+    content: String,
+) {
     let original_content = content.clone();
     let window = gtk::Window::builder()
         .title(format!("编辑 {}", entry.name))
@@ -12557,8 +12729,8 @@ fn present_sftp_editor(context: UiContext, entry: SftpEntry, path: String, conte
             status.set_label("文件必须是不超过 2 MiB 且不含 NUL 的 UTF-8 文本。");
             return;
         }
-        let Some(sftp_id) = active_sftp_session(&save_context) else {
-            status.set_label("SFTP 会话已经关闭，请取消后重新打开文件。");
+        let Some(sftp_id) = authorize_sftp_context(&save_context, &target) else {
+            status.set_label("SFTP 会话或目录已变化，请取消后重新打开文件。");
             return;
         };
         button.set_sensitive(false);
@@ -12575,12 +12747,19 @@ fn present_sftp_editor(context: UiContext, entry: SftpEntry, path: String, conte
         let completion_window = save_window.clone();
         let completion_status = status.clone();
         let completion_button = button.clone();
+        let completion_target = target.clone();
         gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
             match receiver.try_recv() {
                 Ok(Ok(())) => {
-                    let current = completion_context.tools.sftp_path.text().to_string();
                     completion_window.close();
-                    begin_sftp_list(completion_context.clone(), current);
+                    if current_sftp_context(&completion_context).as_ref()
+                        == Some(&completion_target)
+                    {
+                        begin_sftp_list(
+                            completion_context.clone(),
+                            completion_target.directory.clone(),
+                        );
+                    }
                     gtk::glib::ControlFlow::Break
                 }
                 Ok(Err(error)) => {
@@ -20380,6 +20559,93 @@ fn fatal_state(message: &str) -> adw::StatusPage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sftp_dialog_target() -> SftpActionContext {
+        SftpActionContext {
+            workspace_id: Uuid::new_v4(),
+            base_session_id: 11,
+            sftp_session_id: 23,
+            directory: "/original".into(),
+            view_revision: 7,
+        }
+    }
+
+    #[test]
+    fn sftp_dialog_dispatch_uses_the_original_session_and_directory() {
+        let target = sftp_dialog_target();
+        let mut dispatched = Vec::new();
+        let result = target.authorize(Some(&target.clone()), |id, directory| {
+            dispatched.push((id, join_remote_path(directory, "selected.bin")));
+        });
+        assert_eq!(result, Some(()));
+        assert_eq!(dispatched, vec![(23, "/original/selected.bin".into())]);
+    }
+
+    #[test]
+    fn sftp_dialog_context_changes_dispatch_no_io() {
+        let target = sftp_dialog_target();
+        let mut changed = vec![None];
+        for field in 0..5 {
+            let mut current = target.clone();
+            match field {
+                0 => current.workspace_id = Uuid::new_v4(),
+                1 => current.base_session_id += 1,
+                2 => current.sftp_session_id += 1,
+                3 => current.directory = "/other".into(),
+                // Also reject leaving and returning to the same directory.
+                _ => current.view_revision += 1,
+            }
+            changed.push(Some(current));
+        }
+        let mut io_calls = Vec::new();
+        for current in changed {
+            assert_eq!(
+                target.authorize(current.as_ref(), |id, directory| {
+                    io_calls.push((id, directory.to_owned()));
+                }),
+                None
+            );
+        }
+        assert!(io_calls.is_empty());
+    }
+
+    #[test]
+    fn sftp_context_rejects_disconnected_or_replaced_runtime_of_the_same_asset() {
+        let asset = ServerAsset::new("virtual", "test.invalid", "qa");
+        let mut target = sftp_dialog_target();
+        target.workspace_id = asset.id;
+        let mut runtime = SessionRuntime::new(&asset);
+        runtime.phase = WorkspacePhase::Connected;
+        runtime.base_session_id = Some(target.base_session_id);
+        runtime.sftp_session_id = Some(target.sftp_session_id);
+        let mut registry = SessionRegistry {
+            active_workspace_id: Some(asset.id),
+            sessions: [(asset.id, runtime)].into(),
+            ..Default::default()
+        };
+        assert!(registry.owns_sftp_context(&target));
+        for phase in [
+            WorkspacePhase::Starting,
+            WorkspacePhase::Authenticating,
+            WorkspacePhase::AwaitingUserDecision,
+            WorkspacePhase::Reconnecting,
+            WorkspacePhase::Disconnected,
+            WorkspacePhase::Failed,
+            WorkspacePhase::Closed,
+        ] {
+            registry.sessions.get_mut(&asset.id).unwrap().phase = phase;
+            assert!(!registry.owns_sftp_context(&target));
+        }
+        let runtime = registry.sessions.get_mut(&asset.id).unwrap();
+        runtime.phase = WorkspacePhase::Connected;
+        runtime.base_session_id = Some(target.base_session_id + 1);
+        runtime.sftp_session_id = Some(target.sftp_session_id + 1);
+        assert!(!registry.owns_sftp_context(&target));
+        let runtime = registry.sessions.get_mut(&asset.id).unwrap();
+        runtime.base_session_id = Some(target.base_session_id);
+        runtime.sftp_session_id = None;
+        assert!(!registry.owns_sftp_context(&target));
+    }
 
     #[test]
     fn terminal_font_uses_system_monospace_family_at_selected_size() {
