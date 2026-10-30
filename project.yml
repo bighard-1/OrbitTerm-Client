@@ -126,6 +126,7 @@ targets:
           - Core/FileSizeFormatter.swift
           - Features/Home/SFTPBrowserBatchState.swift
           - Features/Home/SFTPBatchDownloadController.swift
+          - Features/Home/SFTPUploadSelectionContext.swift
           - Features/Home/SFTPBatchOperationFormatter.swift
           - Core/DevicePerformanceSLO.swift
           - Core/PerformanceSignpost.swift

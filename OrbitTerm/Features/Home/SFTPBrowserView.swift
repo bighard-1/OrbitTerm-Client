@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
 #endif
@@ -22,6 +23,11 @@ struct SFTPBrowserView: View {
 #if os(iOS)
     @State private var shareURLs: [URL] = []
     @State private var showingShareSheet = false
+    @State private var showingUploadImporter = false
+    @State private var uploadSelection: SFTPUploadSelectionContext?
+    @State private var uploadManager: SFTPManager?
+    @State private var uploadOwner = OperationOwner()
+    @State private var uploadTask: Task<Void, Never>?
 #else
     @State private var revealInFinderURL: URL?
 #endif
@@ -85,13 +91,26 @@ struct SFTPBrowserView: View {
         .onDisappear {
             cancelBatchDownload()
             cancelDocumentOperation()
+            #if os(iOS)
+            cancelFileUpload()
+            #endif
         }
         .onChange(of: sessionManager.activeTabID) { _, _ in
             // A transfer belongs to the session that started it. Do not let a
             // hidden/previous tab keep publishing progress into this shared UI.
             cancelBatchDownload()
             cancelDocumentOperation()
+            #if os(iOS)
+            cancelFileUpload()
+            #endif
         }
+        #if os(iOS)
+        .onChange(of: effectiveManager.activeSessionID) { _, _ in cancelFileUpload() }
+        .onChange(of: effectiveManager.currentPath) { _, _ in cancelFileUpload() }
+        .fileImporter(isPresented: $showingUploadImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) {
+            handleSelectedUploadFiles($0)
+        }
+        #endif
         .alert("重命名", isPresented: Binding(
             get: { editState.isRenaming },
             set: { editState.isRenaming = $0 }
@@ -285,6 +304,19 @@ struct SFTPBrowserView: View {
                     }
                 }
             }
+            #if os(iOS)
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Button("选择文件上传…", systemImage: "arrow.up.doc") { beginFileUpload() }
+                        .disabled(uploadTask != nil || batchState.isRunning)
+                    Button("新建目录", systemImage: "folder.badge.plus") { editState.beginCreateFolder() }
+                    Button("新建文件", systemImage: "doc.badge.plus") { editState.beginCreateFile() }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityLabel("SFTP 文件操作")
+            }
+            #else
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     editState.beginCreateFolder()
@@ -299,6 +331,7 @@ struct SFTPBrowserView: View {
                     Image(systemName: "doc.badge.plus")
                 }
             }
+            #endif
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     Task {
@@ -353,6 +386,65 @@ struct SFTPBrowserView: View {
             }
         )
     }
+
+#if os(iOS)
+    private func beginFileUpload() {
+        let target = effectiveManager
+        guard target.isConnected, uploadTask == nil, !batchState.isRunning,
+              let context = SFTPUploadSelectionContext(
+                workspaceID: sessionManager.activeTabID,
+                sessionID: target.activeSessionID, directory: target.currentPath
+              ) else { return }
+        uploadManager = target
+        uploadSelection = context
+        showingUploadImporter = true
+    }
+
+    private func handleSelectedUploadFiles(_ result: Result<[URL], Error>) {
+        guard let target = uploadManager, let context = uploadSelection else { return }
+        uploadManager = nil
+        uploadSelection = nil
+        guard target === effectiveManager, target.isConnected,
+              context.matches(workspaceID: sessionManager.activeTabID,
+                              sessionID: target.activeSessionID, directory: target.currentPath) else { return }
+        let urls: [URL]
+        switch result {
+        case let .success(selected): urls = selected
+        case let .failure(error):
+            let cocoaError = error as NSError
+            if cocoaError.domain == NSCocoaErrorDomain && cocoaError.code == NSUserCancelledError { return }
+            target.statusText = "上传失败: 无法读取所选文件，请重新选择"
+            return
+        }
+        let lease = uploadOwner.begin()
+        uploadTask = Task {
+            for url in urls {
+                guard !Task.isCancelled, uploadOwner.owns(lease), target === effectiveManager,
+                      context.matches(workspaceID: sessionManager.activeTabID,
+                                      sessionID: target.activeSessionID, directory: target.currentPath) else { break }
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
+                      let remotePath = context.remotePath(fileName: url.lastPathComponent) else {
+                    target.statusText = "上传失败: 请选择可读取的普通文件，暂不支持文件夹"
+                    continue
+                }
+                await target.upload(localURL: url, remotePath: remotePath)
+            }
+            guard uploadOwner.owns(lease) else { return }
+            uploadTask = nil
+        }
+    }
+
+    private func cancelFileUpload() {
+        uploadOwner.invalidate()
+        uploadTask?.cancel()
+        uploadTask = nil
+        uploadManager = nil
+        uploadSelection = nil
+        showingUploadImporter = false
+    }
+#endif
 
     private var breadcrumbBar: some View {
         SFTPBreadcrumbBar(crumbs: pathCrumbs) { crumb in

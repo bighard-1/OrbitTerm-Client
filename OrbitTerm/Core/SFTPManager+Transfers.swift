@@ -21,6 +21,12 @@ extension SFTPManager {
         guard let operation = beginTransferOperation() else { return }
         defer { finishTransferOperation(operation) }
 
+        // Each attempt, including a task-history retry, must reacquire the
+        // file-picker grant. The original import callback may already have
+        // released its access by the time the user retries this URL.
+        let hasSecurityScope = localURL.startAccessingSecurityScopedResource()
+        defer { if hasSecurityScope { localURL.stopAccessingSecurityScopedResource() } }
+
         let task = TransferTaskItem(
             fileName: localURL.lastPathComponent,
             direction: .upload,
