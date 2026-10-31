@@ -41,7 +41,14 @@ class CheckedSshNativeClient @Inject constructor(
         asset: ServerAsset,
         credentials: ServerCredentials,
         jumpHostCredentials: ServerCredentials? = null,
+        oneTimeCode: String = "",
+        jumpOneTimeCode: String = "",
     ): CheckedSshConnectResult {
+        if (listOf(oneTimeCode, jumpOneTimeCode).any { code ->
+                code.toByteArray(Charsets.UTF_8).size > 128 || code.any { Character.isISOControl(it) }
+            }) {
+            return CheckedSshConnectResult.Failure("invalid_request", retryable = false, detailCode = "invalid_second_factor")
+        }
         if (!OrbitCoreBridge.isNativeLibraryAvailable) {
             return CheckedSshConnectResult.Failure("native_bridge_unavailable", retryable = false)
         }
@@ -60,6 +67,7 @@ class CheckedSshNativeClient @Inject constructor(
                     privateKeyPassphrase = effectiveCredentials.privateKeyPassphrase,
                     allowPasswordFallback = asset.allowPasswordFallback,
                     knownHostsPath = knownHostsFile().absolutePath, requestId = requestId,
+                    oneTimeCode = oneTimeCode,
                 )
             } else {
                 OrbitCoreBridge.orbitCheckedSshConnectViaJump(
@@ -73,6 +81,7 @@ class CheckedSshNativeClient @Inject constructor(
                     jumpPrivateKeyPassphrase = effectiveJumpCredentials.privateKeyPassphrase,
                     jumpAllowPasswordFallback = jump.allowPasswordFallback,
                     knownHostsPath = knownHostsFile().absolutePath, requestId = requestId,
+                    oneTimeCode = oneTimeCode, jumpOneTimeCode = jumpOneTimeCode,
                 )
             }
         }.getOrElse {

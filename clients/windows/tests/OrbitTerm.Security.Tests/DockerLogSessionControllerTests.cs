@@ -94,7 +94,10 @@ public sealed class DockerLogSessionControllerTests
 
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        // Hosted Windows runners execute the full security suite in parallel.
+        // Keep the assertion event-driven but leave enough scheduling headroom
+        // for a temporarily saturated worker pool.
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         while (!condition())
         {
             timeout.Token.ThrowIfCancellationRequested();

@@ -33,6 +33,7 @@ struct WorkstationSFTPDialogs: ViewModifier {
     @ObservedObject var sessionManager: SessionManager
     @Environment(\.appThemePalette) private var palette
     @State private var fileEditContent: String = ""
+    @State private var fileEditOriginalContent: String = ""
     @State private var fileEditStatus: String = ""
     @State private var fileEditLoading = false
     @State private var fileEditSaving = false
@@ -144,12 +145,23 @@ struct WorkstationSFTPDialogs: ViewModifier {
                                 pendingFileEdit = nil
                             }
                             .buttonStyle(.bordered)
+                            Button("还原") {
+                                fileEditContent = fileEditOriginalContent
+                                fileEditStatus = "已还原为远端读取时的内容"
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(fileEditLoading || fileEditSaving || fileEditContent == fileEditOriginalContent)
+                            Button("复制") {
+                                copyFileEditContent()
+                                fileEditStatus = "内容已复制到剪贴板"
+                            }
+                            .buttonStyle(.bordered)
                             Spacer()
                             Button("保存") {
                                 Task { await saveFileEdit() }
                             }
                             .buttonStyle(.borderedProminent)
-                            .disabled(fileEditLoading || fileEditSaving)
+                            .disabled(fileEditLoading || fileEditSaving || fileEditContent == fileEditOriginalContent)
                         }
                     }
                     .padding(14)
@@ -174,12 +186,14 @@ struct WorkstationSFTPDialogs: ViewModifier {
         }
 
         fileEditContent = ""
+        fileEditOriginalContent = ""
         fileEditStatus = "正在读取文件..."
         fileEditLoading = true
         defer { fileEditLoading = false }
 
         do {
             fileEditContent = try await session.sftpManager.readTextFile(item: edit.item)
+            fileEditOriginalContent = fileEditContent
             fileEditStatus = "读取成功"
         } catch {
             fileEditStatus = "读取失败：\(error.localizedDescription)"
@@ -194,13 +208,19 @@ struct WorkstationSFTPDialogs: ViewModifier {
         }
 
         fileEditSaving = true
+        fileEditStatus = "正在核对远程文件并保存..."
         defer { fileEditSaving = false }
 
         do {
             try await session.sftpManager.writeTextFile(item: edit.item, content: fileEditContent)
+            fileEditOriginalContent = fileEditContent
             fileEditStatus = "保存成功"
         } catch {
             fileEditStatus = "保存失败：\(error.localizedDescription)"
         }
+    }
+
+    private func copyFileEditContent() {
+        _ = SecureClipboard.copy(fileEditContent, kind: .ordinaryText)
     }
 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
 #endif
@@ -22,6 +23,10 @@ struct SFTPBrowserView: View {
 #if os(iOS)
     @State private var shareURLs: [URL] = []
     @State private var showingShareSheet = false
+    @State private var showingUploadImporter = false
+    @State private var uploadSelection: SFTPUploadSelectionContext?
+    @State private var uploadManager: SFTPManager?
+    @StateObject private var uploadQueue = SFTPUploadQueueController()
 #else
     @State private var revealInFinderURL: URL?
 #endif
@@ -85,13 +90,26 @@ struct SFTPBrowserView: View {
         .onDisappear {
             cancelBatchDownload()
             cancelDocumentOperation()
+            #if os(iOS)
+            cancelFileUpload()
+            #endif
         }
         .onChange(of: sessionManager.activeTabID) { _, _ in
             // A transfer belongs to the session that started it. Do not let a
             // hidden/previous tab keep publishing progress into this shared UI.
             cancelBatchDownload()
             cancelDocumentOperation()
+            #if os(iOS)
+            cancelFileUpload()
+            #endif
         }
+        #if os(iOS)
+        .onChange(of: effectiveManager.activeSessionID) { _, _ in cancelFileUpload() }
+        .onChange(of: effectiveManager.currentPath) { _, _ in cancelFileUpload() }
+        .fileImporter(isPresented: $showingUploadImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) {
+            handleSelectedUploadFiles($0)
+        }
+        #endif
         .alert("重命名", isPresented: Binding(
             get: { editState.isRenaming },
             set: { editState.isRenaming = $0 }
@@ -236,6 +254,18 @@ struct SFTPBrowserView: View {
                             revealInFinderURL = nil
                     }
                 }
+#else
+                if !batchState.isResultPresented, !batchState.completedDownloadURLs.isEmpty {
+                    SFTPBatchExportToolbar(
+                        completedCount: batchState.completedDownloadURLs.count,
+                        onExport: {
+                            shareURLs = batchState.takeCompletedDownloads()
+                            showingShareSheet = !shareURLs.isEmpty
+                        },
+                        onDismiss: { _ = batchState.takeCompletedDownloads() }
+                    )
+                    .padding(.horizontal, 12)
+                }
 #endif
 
                 if batchState.hasSelection {
@@ -243,7 +273,8 @@ struct SFTPBrowserView: View {
                         selectedCount: batchState.selectedIDs.count,
                         progress: batchState.progress,
                         isRunning: batchState.isRunning,
-                        onCancel: { cancelBatchDownload() },
+                        isCancelling: batchState.isCancelling,
+                        onCancel: { requestBatchCancellation() },
                         onDownload: { startBatchDownload() },
                         onDelete: { batchState.requestDeleteConfirmation() }
                     )
@@ -272,6 +303,19 @@ struct SFTPBrowserView: View {
                     }
                 }
             }
+            #if os(iOS)
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Button("选择文件上传…", systemImage: "arrow.up.doc") { beginFileUpload() }
+                        .disabled(uploadQueue.isRunning || batchState.isRunning)
+                    Button("新建目录", systemImage: "folder.badge.plus") { editState.beginCreateFolder() }
+                    Button("新建文件", systemImage: "doc.badge.plus") { editState.beginCreateFile() }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityLabel("SFTP 文件操作")
+            }
+            #else
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     editState.beginCreateFolder()
@@ -286,6 +330,7 @@ struct SFTPBrowserView: View {
                     Image(systemName: "doc.badge.plus")
                 }
             }
+            #endif
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     Task {
@@ -340,6 +385,59 @@ struct SFTPBrowserView: View {
             }
         )
     }
+
+#if os(iOS)
+    private func beginFileUpload() {
+        let target = effectiveManager
+        guard target.isConnected, !uploadQueue.isRunning, !batchState.isRunning,
+              let context = SFTPUploadSelectionContext(
+                workspaceID: sessionManager.activeTabID,
+                sessionID: target.activeSessionID, directory: target.currentPath
+              ) else { return }
+        uploadManager = target
+        uploadSelection = context
+        showingUploadImporter = true
+    }
+
+    private func handleSelectedUploadFiles(_ result: Result<[URL], Error>) {
+        guard let target = uploadManager, let context = uploadSelection else { return }
+        uploadManager = nil
+        uploadSelection = nil
+        guard target === effectiveManager, target.isConnected,
+              context.matches(workspaceID: sessionManager.activeTabID,
+                              sessionID: target.activeSessionID, directory: target.currentPath) else { return }
+        let urls: [URL]
+        switch result {
+        case let .success(selected): urls = selected
+        case let .failure(error):
+            let cocoaError = error as NSError
+            if cocoaError.domain == NSCocoaErrorDomain && cocoaError.code == NSUserCancelledError { return }
+            target.statusText = "上传失败: 无法读取所选文件，请重新选择"
+            return
+        }
+        uploadQueue.start(urls: urls, canContinue: {
+            target === effectiveManager && target.isConnected &&
+                context.matches(workspaceID: sessionManager.activeTabID,
+                                sessionID: target.activeSessionID, directory: target.currentPath)
+        }, operation: { url in
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
+                  let remotePath = context.remotePath(fileName: url.lastPathComponent) else {
+                target.statusText = "上传失败: 请选择可读取的普通文件，暂不支持文件夹"
+                return
+            }
+            await target.upload(localURL: url, remotePath: remotePath)
+        })
+    }
+
+    private func cancelFileUpload() {
+        uploadQueue.abandon()
+        uploadManager = nil
+        uploadSelection = nil
+        showingUploadImporter = false
+    }
+#endif
 
     private var breadcrumbBar: some View {
         SFTPBreadcrumbBar(crumbs: pathCrumbs) { crumb in
@@ -438,28 +536,42 @@ struct SFTPBrowserView: View {
 
     private func startBatchDownload() {
         guard batchDownloadTask == nil else { return }
+        let targets = SFTPBatchOperationFormatter.downloadableItems(from: selectedItems)
+        guard !targets.isEmpty else {
+            batchState.showResult(SFTPBatchOperationFormatter.noDownloadableFilesMessage)
+            return
+        }
         let generation = UUID()
         let transferManager = effectiveManager
         batchDownloadGeneration = generation
+        batchState.beginDownload(total: targets.count)
         batchDownloadTask = Task {
             await performBatchDownload(
                 generation: generation,
-                manager: transferManager
+                manager: transferManager,
+                targets: targets
             )
             guard batchDownloadGeneration == generation else { return }
             batchDownloadTask = nil
         }
     }
 
+    private func requestBatchCancellation() {
+        guard let task = batchDownloadTask else {
+            batchState.clearSelection()
+            return
+        }
+        batchState.requestCancellation()
+        task.cancel()
+    }
+
     private func cancelBatchDownload() {
+        // Page/session abandonment revokes presentation ownership. Explicit
+        // toolbar cancellation instead keeps ownership until cleanup returns.
         batchDownloadGeneration = UUID()
         batchDownloadTask?.cancel()
         batchDownloadTask = nil
-        if batchState.isRunning {
-            batchState.cancelBatch()
-        } else {
-            batchState.clearSelection()
-        }
+        batchState.cancelBatch()
     }
 
     private func openDocument(_ item: FileItem) async {
@@ -605,16 +717,9 @@ struct SFTPBrowserView: View {
 
     private func performBatchDownload(
         generation: UUID,
-        manager: SFTPManager
+        manager: SFTPManager,
+        targets: [FileItem]
     ) async {
-        let targets = SFTPBatchOperationFormatter.downloadableItems(from: selectedItems)
-        guard !targets.isEmpty else {
-            batchState.showResult(SFTPBatchOperationFormatter.noDownloadableFilesMessage)
-            return
-        }
-
-        batchState.beginDownload(total: targets.count)
-
         let base = SFTPBrowserPathHelper.batchDownloadDirectory()
 
         let result = await manager.batchDownload(
@@ -628,20 +733,25 @@ struct SFTPBrowserView: View {
             }
         }
 
-        guard !Task.isCancelled, batchDownloadGeneration == generation else {
+        guard batchDownloadGeneration == generation else {
             return
         }
 
-        batchState.finishBatch(message: SFTPBatchOperationFormatter.downloadResultMessage(for: result.summary))
+        let wasCancelled = Task.isCancelled || batchState.isCancelling
+        batchState.finishBatch(
+            message: SFTPBatchOperationFormatter.downloadResultMessage(
+                for: result.summary, wasCancelled: wasCancelled
+            ),
+            downloadedURLs: result.downloadedURLs,
+            wasCancelled: wasCancelled
+        )
+        // Cancellation never opens a share sheet or Finder, including when
+        // some entries finished before the user stopped the batch.
+        guard !wasCancelled else { return }
 
 #if os(macOS)
         if let first = result.downloadedURLs.first {
             revealInFinderURL = first
-        }
-#else
-        if !result.downloadedURLs.isEmpty {
-            shareURLs = result.downloadedURLs
-            showingShareSheet = true
         }
 #endif
     }

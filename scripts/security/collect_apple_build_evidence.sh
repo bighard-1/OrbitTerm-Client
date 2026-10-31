@@ -41,7 +41,7 @@ libraries=(
     # separate ABI gate performs linker-level symbol verification.
     symbols_file="$OUT_DIR/symbols-${suffix//\//-}.txt"
     strings "$library" | rg '^_?orbit_[A-Za-z0-9_]+$' | sort -u > "$symbols_file"
-    for symbol in orbit_ssh_connect_checked_v2 orbit_terminal_open_checked_v1 orbit_sftp_open_checked_v1 orbit_exec_checked_v1; do
+    for symbol in orbit_ssh_connect_checked_v2 orbit_ssh_connect_checked_v3 orbit_terminal_open_checked_v1 orbit_sftp_open_checked_v1 orbit_exec_checked_v1; do
       grep -qx "_$symbol\|$symbol" "$symbols_file" || {
         echo "missing checked symbol in $suffix: $symbol" >&2
         exit 1

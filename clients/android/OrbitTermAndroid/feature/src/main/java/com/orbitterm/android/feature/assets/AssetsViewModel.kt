@@ -8,6 +8,8 @@ import com.orbitterm.android.domain.auth.ActiveAccountScopeProvider
 import com.orbitterm.android.domain.assets.AssetRepository
 import com.orbitterm.android.domain.assets.NetworkDeviceProfile
 import com.orbitterm.android.domain.assets.ServerAsset
+import com.orbitterm.android.domain.assets.AssetStorageScope
+import com.orbitterm.android.domain.assets.LOCAL_ASSET_PARTITION
 import com.orbitterm.android.domain.assets.ServerAuthMethod
 import com.orbitterm.android.domain.assets.ServerCredentials
 import com.orbitterm.android.domain.assets.JumpHostConfiguration
@@ -30,7 +32,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -45,6 +49,7 @@ data class AssetsUiState(
     val editor: AssetEditorUiState? = null,
     val connection: AssetConnectionUiState? = null,
     val operationError: String? = null,
+    val operationNotice: String? = null,
     val activeAssetIds: Set<String> = emptySet(),
     /** Mirrors iOS: groups are collapsed until the user explicitly expands them. */
     val expandedGroups: Set<String> = emptySet(),
@@ -65,6 +70,7 @@ data class AssetConnectionUiState(
     val hostKeyChallenge: CheckedSshConnectResult.HostKeyChallenge? = null,
     val baseSessionId: Long? = null,
     val transport: ServerTransportProtocol = ServerTransportProtocol.ssh,
+    val secondFactorForJump: Boolean? = null,
 )
 
 data class AssetEditorUiState(
@@ -82,6 +88,10 @@ data class AssetEditorUiState(
     val transport: ServerTransportProtocol = ServerTransportProtocol.ssh,
     val networkDeviceProfile: NetworkDeviceProfile = NetworkDeviceProfile.auto,
     val allowPasswordFallback: Boolean = false,
+    val storageScope: AssetStorageScope = AssetStorageScope.LOCAL_ONLY,
+    /** The persisted scope must not change when the unsaved editor selection changes. */
+    val persistedStorageScope: AssetStorageScope = AssetStorageScope.LOCAL_ONLY,
+    val isAccountSignedIn: Boolean = false,
     val password: String = "",
     val privateKeyContent: String = "",
     val privateKeyPassphrase: String = "",
@@ -116,13 +126,34 @@ class AssetsViewModel @Inject constructor(
     private val editor = MutableStateFlow<AssetEditorUiState?>(null)
     private val connection = MutableStateFlow<AssetConnectionUiState?>(null)
     private val operationError = MutableStateFlow<String?>(null)
+    private val operationNotice = MutableStateFlow<String?>(null)
     private val expandedGroups = MutableStateFlow<Set<String>>(emptySet())
     private val bulkImport = MutableStateFlow(AssetBulkImportUiState())
+    // Process-local only; never written to assets, credentials, saved state, or sync.
+    private val pendingSecondFactors = mutableMapOf<String, Pair<String, String>>()
+    private val pendingEditorSecondFactors = mutableMapOf<String, Pair<String, String>>()
+    private var pendingSecondFactorResume: PendingSecondFactorResumeIntent? = null
+    init {
+        viewModelScope.launch {
+            accountScopeController.scope.map { it?.storageId }.distinctUntilChanged().drop(1).collect {
+                pendingSecondFactorResume = null
+                dismissConnectionPrompt()
+                dismissEditorConnectionTest()
+                pendingSecondFactors.clear()
+                pendingEditorSecondFactors.clear()
+            }
+        }
+    }
     private val activeAssetIds = terminalSessionController.activeSessions
-        .map { sessions -> sessions.mapTo(linkedSetOf()) { it.assetId } }
+        .map { sessions -> connectedAssetIds(sessions.map { it.assetId to it.connectionState }) }
         .distinctUntilChanged()
-    private val listPresentation = combine(activeAssetIds, expandedGroups, bulkImport) { activeIds, expanded, bulk ->
-        AssetListPresentation(activeIds, expanded, bulk)
+    private val listPresentation = combine(activeAssetIds, expandedGroups, bulkImport, operationNotice) {
+            activeIds,
+            expanded,
+            bulk,
+            notice,
+        ->
+        AssetListPresentation(activeIds, expanded, bulk, notice)
     }
 
     val uiState: StateFlow<AssetsUiState> = combine(
@@ -139,6 +170,7 @@ class AssetsViewModel @Inject constructor(
             editor = editorState,
             connection = connectionState,
             operationError = operationError,
+            operationNotice = presentation.operationNotice,
             activeAssetIds = presentation.activeAssetIds,
             expandedGroups = presentation.expandedGroups,
             bulkImport = presentation.bulkImport,
@@ -150,20 +182,24 @@ class AssetsViewModel @Inject constructor(
     )
 
     fun createAsset() {
-        val scope = accountScopeController.scope.value ?: return
+        pendingEditorSecondFactors.clear()
+        val scope = accountScopeController.scope.value
+        val partition = scope?.storageId ?: LOCAL_ASSET_PARTITION
         val id = UUID.randomUUID().toString()
         editor.value = AssetEditorUiState(
             id = id,
-            credentialID = "${scope.storageId}:$id",
-            jumpCredentialID = "${scope.storageId}:$id:jump",
+            credentialID = "$partition:$id",
+            jumpCredentialID = "$partition:$id:jump",
             isNew = true,
             createdAtUnix = System.currentTimeMillis() / 1_000,
+            storageScope = if (scope == null) AssetStorageScope.LOCAL_ONLY else AssetStorageScope.ACCOUNT_SYNCED,
+            isAccountSignedIn = scope != null,
         )
     }
 
     /** A link can only prefill an editor; the user still reviews and saves it. */
     fun openDeepLink(link: ServerDeepLink, onReviewReady: () -> Unit) {
-        val scope = accountScopeController.scope.value ?: return
+        val scope = accountScopeController.scope.value
         val existing = uiState.value.assets.firstOrNull {
             it.host == link.host && it.port == link.port && it.username == link.username
         }
@@ -171,17 +207,20 @@ class AssetsViewModel @Inject constructor(
             loadAssetEditor(existing.id, onReviewReady)
             return
         }
+        pendingEditorSecondFactors.clear()
         val id = UUID.randomUUID().toString()
         editor.value = AssetEditorUiState(
             id = id,
-            credentialID = "${scope.storageId}:$id",
-            jumpCredentialID = "${scope.storageId}:$id:jump",
+            credentialID = "${scope?.storageId ?: LOCAL_ASSET_PARTITION}:$id",
+            jumpCredentialID = "${scope?.storageId ?: LOCAL_ASSET_PARTITION}:$id:jump",
             isNew = true,
             createdAtUnix = System.currentTimeMillis() / 1_000,
             name = link.suggestedName,
             host = link.host,
             port = link.port.toString(),
             username = link.username,
+            storageScope = if (scope == null) AssetStorageScope.LOCAL_ONLY else AssetStorageScope.ACCOUNT_SYNCED,
+            isAccountSignedIn = scope != null,
         )
         onReviewReady()
     }
@@ -199,12 +238,16 @@ class AssetsViewModel @Inject constructor(
             val jumpCredentials = asset.jumpHost?.let { jump ->
                 withContext(Dispatchers.IO) { credentialStore.read(jump.credentialID) ?: ServerCredentials() }
             }
-            editor.value = asset.toEditorState(credentials, jumpCredentials)
+            pendingEditorSecondFactors.clear()
+            editor.value = asset.toEditorState(credentials, jumpCredentials).copy(
+                isAccountSignedIn = accountScopeController.scope.value != null,
+            )
             onReady()
         }
     }
 
     fun updateEditor(transform: (AssetEditorUiState) -> AssetEditorUiState) {
+        editor.value?.let { pendingEditorSecondFactors.remove(it.id) }
         editor.value = editor.value?.let(transform)?.copy(connectionTest = null)
     }
 
@@ -237,6 +280,7 @@ class AssetsViewModel @Inject constructor(
     }
 
     fun cancelEditor() {
+        editor.value?.let { pendingEditorSecondFactors.remove(it.id) }
         editor.value?.connectionTest?.hostKeyChallenge?.let { challenge ->
             viewModelScope.launch(Dispatchers.IO) { checkedSshNativeClient.rejectChallenge(challenge.challengeId) }
         }
@@ -257,6 +301,7 @@ class AssetsViewModel @Inject constructor(
             validationError = null,
             connectionTest = AssetConnectionUiState(draft.id, ConnectionPhase.Connecting),
         )
+        val codes = pendingEditorSecondFactors[draft.id] ?: ("" to "")
         viewModelScope.launch {
             val result = if (draft.transport == ServerTransportProtocol.telnet) {
                 withContext(Dispatchers.IO) {
@@ -278,13 +323,16 @@ class AssetsViewModel @Inject constructor(
                     draft.toAsset(),
                     draft.toCredentials(),
                     draft.toJumpHostCredentials(),
+                    oneTimeCode = codes.first,
+                    jumpOneTimeCode = codes.second,
                 ).also { connected ->
                     if (connected is CheckedSshConnectResult.Connected) {
                         checkedSshNativeClient.disconnect(connected.baseSessionId)
                     }
-                }.toConnectionUiState(draft.id)
+                }.toConnectionUiState(draft.id).rejectRepeatedSecondFactor(codes)
             }
             if (!operations.isCurrent(operation) || editor.value?.id != draft.id) return@launch
+            if (result.secondFactorForJump == null && result.hostKeyChallenge == null) pendingEditorSecondFactors.remove(draft.id)
             editor.value = editor.value?.copy(connectionTest = result)
         }
     }
@@ -308,6 +356,7 @@ class AssetsViewModel @Inject constructor(
 
     fun dismissEditorConnectionTest() {
         val draft = editor.value ?: return
+        pendingEditorSecondFactors.remove(draft.id)
         operations.invalidate("asset_editor_test", draft.id)
         draft.connectionTest?.hostKeyChallenge?.let { challenge ->
             viewModelScope.launch(Dispatchers.IO) { checkedSshNativeClient.rejectChallenge(challenge.challengeId) }
@@ -317,6 +366,10 @@ class AssetsViewModel @Inject constructor(
 
     fun dismissOperationError() {
         operationError.value = null
+    }
+
+    fun dismissOperationNotice() {
+        operationNotice.value = null
     }
 
     fun showBulkImport() {
@@ -406,6 +459,8 @@ class AssetsViewModel @Inject constructor(
 
     fun connectAsset(id: String, telnetEnabled: Boolean = false) {
         if (connection.value?.phase is ConnectionPhase.Connecting) return
+        connection.value?.let { operations.invalidate("terminal_open", it.assetId) }
+        connection.value?.takeIf { it.assetId != id }?.let { pendingSecondFactors.remove(it.assetId) }
         val operation = operations.begin("ssh_connect", id) ?: return
         viewModelScope.launch {
             val asset = withContext(Dispatchers.IO) { assetRepository.findAsset(id) } ?: return@launch
@@ -432,11 +487,41 @@ class AssetsViewModel @Inject constructor(
             }
             if (!operations.isCurrent(operation)) return@launch
             connection.value = AssetConnectionUiState(id, ConnectionPhase.Connecting)
+            val codes = pendingSecondFactors[id] ?: ("" to "")
             val result = withContext(Dispatchers.IO) {
-                checkedSshNativeClient.connect(asset, credentials, jumpCredentials)
+                checkedSshNativeClient.connect(
+                    asset, credentials, jumpCredentials,
+                    oneTimeCode = codes.first,
+                    jumpOneTimeCode = codes.second,
+                )
             }
-            if (operations.isCurrent(operation)) connection.value = result.toConnectionUiState(id)
+            if (operations.isCurrent(operation)) {
+                val state = result.toConnectionUiState(id).rejectRepeatedSecondFactor(codes)
+                if (state.secondFactorForJump == null && state.hostKeyChallenge == null) pendingSecondFactors.remove(id)
+                connection.value = state
+            } else {
+                // A lock, dismissal or newer request won the race. Never retain a late native lease/challenge.
+                when (result) {
+                    is CheckedSshConnectResult.Connected -> withContext(Dispatchers.IO) {
+                        checkedSshNativeClient.disconnect(result.baseSessionId)
+                    }
+                    is CheckedSshConnectResult.HostKeyChallenge -> withContext(Dispatchers.IO) {
+                        checkedSshNativeClient.rejectChallenge(result.challengeId)
+                    }
+                    else -> Unit
+                }
+            }
         }
+    }
+
+    fun submitSecondFactor(code: String, editorTest: Boolean = false) {
+        val current = if (editorTest) editor.value?.connectionTest else connection.value
+        val forJump = current?.secondFactorForJump ?: return
+        if (code.isEmpty() || code.toByteArray(Charsets.UTF_8).size > 128 || code.any { Character.isISOControl(it) }) return
+        val codesForFlow = if (editorTest) pendingEditorSecondFactors else pendingSecondFactors
+        val existing = codesForFlow[current.assetId] ?: ("" to "")
+        codesForFlow[current.assetId] = if (forJump) existing.first to code else code to existing.second
+        if (editorTest) testEditorConnection() else connectAsset(current.assetId)
     }
 
     fun trustHostKeyAndReconnect() {
@@ -457,7 +542,12 @@ class AssetsViewModel @Inject constructor(
 
     fun dismissConnectionPrompt() {
         val current = connection.value
-        current?.let { operations.invalidate("ssh_connect", it.assetId); operations.invalidate("host_key", it.assetId) }
+        current?.let { pendingSecondFactors.remove(it.assetId) }
+        current?.let {
+            operations.invalidate("ssh_connect", it.assetId)
+            operations.invalidate("host_key", it.assetId)
+            operations.invalidate("terminal_open", it.assetId)
+        }
         connection.value = null
         when {
             current?.hostKeyChallenge != null -> viewModelScope.launch(Dispatchers.IO) {
@@ -469,10 +559,39 @@ class AssetsViewModel @Inject constructor(
         }
     }
 
+    /** Called before the master-password gate closes, while the current account is still known. */
+    fun onSecurityLock(allowSecondFactorResume: Boolean, nowMillis: Long = System.currentTimeMillis()) {
+        val current = connection.value
+        val scopeId = accountScopeController.scope.value?.storageId
+        pendingSecondFactorResume = if (allowSecondFactorResume) {
+            MobileSecondFactorResumePolicy.capture(current, scopeId, nowMillis)
+        } else null
+        dismissConnectionPrompt()
+        dismissEditorConnectionTest()
+        pendingSecondFactors.clear()
+        pendingEditorSecondFactors.clear()
+    }
+
+    /** One-shot: the old challenge is gone; a fresh checked connection must ask again. */
+    fun resumeSecondFactorAfterUnlock(nowMillis: Long = System.currentTimeMillis()): Boolean {
+        val intent = pendingSecondFactorResume ?: return false
+        pendingSecondFactorResume = null
+        if (!MobileSecondFactorResumePolicy.canResume(
+                intent, accountScopeController.scope.value?.storageId, nowMillis,
+            ) || uiState.value.assets.none { it.id == intent.assetId }
+        ) return false
+        connectAsset(intent.assetId)
+        return true
+    }
+
     fun openTerminal(onOpened: () -> Unit) {
         val current = connection.value ?: return
+        if (current.phase != ConnectionPhase.Connected) return
         val asset = uiState.value.assets.firstOrNull { it.id == current.assetId } ?: return
+        if (asset.transport == ServerTransportProtocol.ssh.name && !current.shouldAutoOpenVerifiedSsh()) return
         val operation = operations.begin("terminal_open", asset.id) ?: return
+        val opening = current.copy(phase = ConnectionPhase.Connecting)
+        connection.value = opening
         viewModelScope.launch {
             val opened = if (asset.transport == ServerTransportProtocol.telnet.name) {
                 val credentials = withContext(Dispatchers.IO) {
@@ -485,19 +604,24 @@ class AssetsViewModel @Inject constructor(
                     assetId = asset.id,
                     displayName = asset.name,
                     baseSessionId = baseSessionId,
-                    shouldAttach = { operations.isCurrent(operation) },
+                    shouldAttach = { operations.isCurrent(operation) && connection.value == opening },
                 )
             }
             if (!operations.isCurrent(operation)) return@launch
+            if (connection.value != opening) return@launch
             if (opened) {
                 connection.value = null
                 onOpened()
             } else {
+                current.baseSessionId?.let { baseSessionId ->
+                    withContext(Dispatchers.IO) { checkedSshNativeClient.disconnect(baseSessionId) }
+                }
                 connection.value = current.copy(
                     phase = ConnectionPhase.Failed(
                         error = ConnectionError.Unknown,
                         retryable = true,
                     ),
+                    baseSessionId = null,
                 )
             }
         }
@@ -522,16 +646,23 @@ class AssetsViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    assetMutations.delete(draft.toAsset())
+                    val persisted = requireNotNull(assetRepository.findAsset(draft.id)) {
+                        "asset is no longer present"
+                    }
+                    assetMutations.delete(persisted)
+                    persisted
                 }
-            }.onSuccess {
+            }.onSuccess { deleted ->
+                pendingEditorSecondFactors.remove(draft.id)
                 editor.value = null
-                syncRequests.requestSync()
+                val scopes = listOf(deleted.storageScope)
+                operationNotice.value = assetDeletionNotice(scopes)
+                if (requiresCloudDeletionSync(scopes)) syncRequests.requestSync()
             }.onFailure {
                 editor.value = draft.copy(
                     isDeleting = false,
                     deleteConfirmationVisible = false,
-                    validationError = "删除失败，请稍后重试。",
+                    validationError = "删除未确认完成，请先核对资产列表与同步状态；“仅此设备”资产一旦移除无法在应用内恢复。",
                 )
             }
         }
@@ -548,8 +679,12 @@ class AssetsViewModel @Inject constructor(
                         assetMutations.delete(asset)
                     }
                 }
-            }.onSuccess { syncRequests.requestSync() }
-                .onFailure { operationError.value = "批量删除失败，请稍后重试。" }
+            }.onSuccess {
+                val scopes = targets.map { it.storageScope }
+                operationNotice.value = assetDeletionNotice(scopes)
+                if (requiresCloudDeletionSync(scopes)) syncRequests.requestSync()
+            }
+                .onFailure { operationError.value = "批量删除未全部完成，请先核对资产列表与同步状态；已移除的“仅此设备”资产无法在应用内恢复。" }
         }
     }
 
@@ -580,8 +715,12 @@ class AssetsViewModel @Inject constructor(
                         assetMutations.delete(asset)
                     }
                 }
-            }.onSuccess { syncRequests.requestSync() }
-                .onFailure { operationError.value = "删除分组失败，请稍后重试。" }
+            }.onSuccess {
+                val scopes = targets.map { it.storageScope }
+                operationNotice.value = assetDeletionNotice(scopes)
+                if (requiresCloudDeletionSync(scopes)) syncRequests.requestSync()
+            }
+                .onFailure { operationError.value = "删除分组未全部完成，请先核对资产列表与同步状态；已移除的“仅此设备”资产无法在应用内恢复。" }
         }
     }
 
@@ -600,6 +739,7 @@ class AssetsViewModel @Inject constructor(
                     assetMutations.save(draft.toAsset(), draft.toCredentials(), draft.toJumpHostCredentials())
                 }
             }.onSuccess {
+                pendingEditorSecondFactors.remove(draft.id)
                 editor.value = null
                 syncRequests.requestSync()
             }.onFailure {
@@ -616,6 +756,7 @@ private data class AssetListPresentation(
     val activeAssetIds: Set<String>,
     val expandedGroups: Set<String>,
     val bulkImport: AssetBulkImportUiState,
+    val operationNotice: String?,
 )
 
 private fun ServerAsset.toEditorState(
@@ -636,6 +777,8 @@ private fun ServerAsset.toEditorState(
     transport = enumValueOrDefault(transport, ServerTransportProtocol.ssh),
     networkDeviceProfile = enumValueOrDefault(networkDeviceProfile, NetworkDeviceProfile.auto),
     allowPasswordFallback = allowPasswordFallback,
+    storageScope = storageScope,
+    persistedStorageScope = storageScope,
     password = credentials.password,
     privateKeyContent = credentials.privateKeyContent,
     privateKeyPassphrase = credentials.privateKeyPassphrase,
@@ -664,6 +807,7 @@ private fun AssetEditorUiState.toAsset(): ServerAsset = ServerAsset(
     transport = transport.name,
     networkDeviceProfile = networkDeviceProfile.name,
     allowPasswordFallback = allowPasswordFallback,
+    storageScope = storageScope,
     jumpHost = toJumpHostConfiguration(),
     createdAtUnix = createdAtUnix,
 )
@@ -749,6 +893,22 @@ private fun String.normalizedAssetTags(): List<String> = split(',', '，')
 private fun ServerAsset.endpointImportKey(): String =
     "${username.lowercase()}@${host.lowercase()}:$port"
 
+private fun AssetConnectionUiState.rejectRepeatedSecondFactor(codes: Pair<String, String>): AssetConnectionUiState {
+    val alreadySubmitted = when (secondFactorForJump) {
+        true -> codes.second.isNotEmpty()
+        false -> codes.first.isNotEmpty()
+        null -> false
+    }
+    return if (alreadySubmitted) copy(
+        phase = ConnectionPhase.Failed(
+            ConnectionError.AuthenticationFailed,
+            retryable = false,
+            diagnosticCode = "ssh_second_factor_rejected",
+        ),
+        secondFactorForJump = null,
+    ) else this
+}
+
 private fun CheckedSshConnectResult.toConnectionUiState(assetId: String): AssetConnectionUiState = when (this) {
     is CheckedSshConnectResult.Connected -> AssetConnectionUiState(
         assetId = assetId,
@@ -787,5 +947,8 @@ private fun CheckedSshConnectResult.toConnectionUiState(assetId: String): AssetC
             retryable = retryable,
             diagnosticCode = orbitNativeError(code, retryable, detailCode).diagnosticCode,
         ),
+        secondFactorForJump = if (code == "ssh_second_factor_required") {
+            detailCode == "jump_verification_code_required"
+        } else null,
     )
 }

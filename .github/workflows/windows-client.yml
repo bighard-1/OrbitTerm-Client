@@ -1,0 +1,75 @@
+name: Windows Client
+
+on:
+  pull_request:
+    paths:
+      - "clients/windows/**"
+      - "orbit-core/**"
+      - ".github/workflows/windows-client.yml"
+  push:
+    branches: [main]
+    paths:
+      - "clients/windows/**"
+      - "orbit-core/**"
+      - ".github/workflows/windows-client.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  native-windows-x64:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 9.0.x
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: orbit-core
+      - name: Verify Windows static and release gates
+        shell: pwsh
+        run: clients/windows/scripts/check_windows_static.ps1
+      - name: Build orbit-core for Windows x64
+        shell: pwsh
+        run: clients/windows/scripts/build_windows_core.ps1
+      - name: Run Windows tests and build WinUI x64 Release
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "orbitterm-windows-validation.log"
+          & pwsh -NoProfile -File clients/windows/scripts/validate_current_windows_build.ps1 *>&1 |
+            Tee-Object -FilePath $log
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            $summary = (Get-Content -LiteralPath $log -Tail 24) -join "`n"
+            $summary = $summary.Replace('%', '%25').Replace("`r", '').Replace("`n", '%0A')
+            Write-Output "::error title=Windows tests or WinUI build failed::$summary"
+            exit $exitCode
+          }
+      - name: Build signed internal-test MSIX
+        shell: pwsh
+        run: |
+          $output = Join-Path $env:RUNNER_TEMP "OrbitTerm-Windows11-Test"
+          $log = Join-Path $env:RUNNER_TEMP "orbitterm-windows-package.log"
+          & pwsh -NoProfile -File clients/windows/scripts/build_windows_test_msix.ps1 `
+            -DesktopOutput $output `
+            -Dotnet (Get-Command dotnet).Source *>&1 |
+            Tee-Object -FilePath $log
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            $summary = (Get-Content -LiteralPath $log -Tail 40) -join "`n"
+            $summary = $summary.Replace('%', '%25').Replace("`r", '').Replace("`n", '%0A')
+            Write-Output "::error title=Windows test package build failed::$summary"
+            exit $exitCode
+          }
+      - name: Upload signed internal-test MSIX
+        uses: actions/upload-artifact@v7
+        with:
+          name: OrbitTerm-Windows-x64-Test-${{ github.sha }}
+          path: ${{ runner.temp }}\OrbitTerm-Windows11-Test
+          if-no-files-found: error
+          retention-days: 7

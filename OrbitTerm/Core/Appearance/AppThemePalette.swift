@@ -45,6 +45,9 @@ struct AppThemePalette: Hashable {
 
     static func make(theme: AppThemeID, colorScheme: ColorScheme) -> AppThemePalette {
         let isDark = colorScheme == .dark
+#if os(macOS)
+        return desktopPalette(theme: theme, isDark: isDark)
+#else
         let decorations: (ThemeColor, ThemeColor, ThemeColor, ThemeColor) = {
             switch theme {
             case .skyCandy: (.init(0.07, 0.38, 0.76), .init(0.22, 0.64, 0.87), .init(0.38, 0.73, 1, opacity: 0.32), .init(0.76, 0.45, 0.95, opacity: 0.22))
@@ -122,7 +125,108 @@ struct AppThemePalette: Hashable {
             borderGlass: blended(0.16, 0.22, 0.34, with: decorations.0, amount: lightValues.5, opacity: lightValues.6),
             divider: blended(0.16, 0.22, 0.34, with: decorations.0, amount: lightValues.7, opacity: lightValues.8)
         )
+#endif
     }
+
+#if os(macOS)
+    private static func desktopPalette(theme: AppThemeID, isDark: Bool) -> AppThemePalette {
+        typealias Core = (
+            accent: ThemeColor,
+            workbench: ThemeColor,
+            chrome: ThemeColor,
+            panel: ThemeColor,
+            metric: ThemeColor,
+            stroke: ThemeColor,
+            dialog: ThemeColor,
+            accentSoft: ThemeColor
+        )
+
+        func rgb(_ red: Int, _ green: Int, _ blue: Int, opacity: Double = 1) -> ThemeColor {
+            ThemeColor(
+                Double(red) / 255,
+                Double(green) / 255,
+                Double(blue) / 255,
+                opacity: opacity
+            )
+        }
+
+        let core: Core = switch (theme, isDark) {
+        case (.skyCandy, false): (
+            rgb(18, 97, 194), rgb(226, 239, 252), rgb(207, 228, 249), rgb(241, 248, 255),
+            rgb(218, 235, 251), rgb(147, 185, 222), rgb(244, 250, 255), rgb(202, 225, 248)
+        )
+        case (.skyCandy, true): (
+            rgb(108, 182, 255), rgb(10, 22, 31), rgb(14, 34, 47), rgb(20, 42, 56),
+            rgb(26, 51, 66), rgb(49, 81, 101), rgb(24, 47, 61), rgb(28, 59, 78)
+        )
+        case (.peachDawn, false): (
+            rgb(156, 51, 51), rgb(252, 231, 219), rgb(247, 214, 197), rgb(255, 244, 237),
+            rgb(249, 222, 208), rgb(214, 164, 141), rgb(255, 246, 240), rgb(244, 211, 196)
+        )
+        case (.peachDawn, true): (
+            rgb(242, 160, 122), rgb(27, 19, 16), rgb(42, 28, 23), rgb(51, 35, 29),
+            rgb(61, 43, 35), rgb(100, 67, 54), rgb(55, 37, 30), rgb(70, 45, 36)
+        )
+        case (.lavenderMist, false): (
+            rgb(97, 56, 148), rgb(237, 229, 248), rgb(224, 211, 243), rgb(249, 244, 254),
+            rgb(229, 218, 246), rgb(184, 159, 215), rgb(250, 246, 254), rgb(220, 204, 242)
+        )
+        case (.lavenderMist, true): (
+            rgb(180, 154, 235), rgb(23, 18, 32), rgb(35, 27, 49), rgb(44, 35, 62),
+            rgb(53, 43, 73), rgb(84, 70, 108), rgb(48, 38, 66), rgb(62, 47, 85)
+        )
+        case (.glacierMint, false): (
+            rgb(5, 99, 115), rgb(224, 241, 244), rgb(205, 231, 235), rgb(240, 249, 250),
+            rgb(214, 236, 239), rgb(143, 190, 197), rgb(243, 250, 251), rgb(198, 230, 234)
+        )
+        case (.glacierMint, true): (
+            rgb(98, 196, 210), rgb(10, 23, 26), rgb(15, 37, 42), rgb(22, 47, 53),
+            rgb(28, 57, 64), rgb(52, 88, 95), rgb(26, 52, 58), rgb(30, 67, 74)
+        )
+        case (.emeraldFlow, true): (
+            rgb(95, 208, 154), rgb(11, 24, 18), rgb(16, 38, 27), rgb(23, 47, 35),
+            rgb(29, 57, 42), rgb(53, 91, 69), rgb(27, 52, 39), rgb(31, 69, 49)
+        )
+        default: (
+            rgb(8, 102, 77), rgb(226, 242, 233), rgb(208, 232, 218), rgb(242, 250, 246),
+            rgb(217, 238, 225), rgb(147, 192, 166), rgb(245, 251, 247), rgb(202, 233, 216)
+        )
+        }
+
+        let textPrimary = isDark ? rgb(245, 247, 250) : rgb(18, 26, 41)
+        let textSecondary = isDark ? rgb(201, 212, 227) : rgb(66, 79, 102)
+        let textDisabled = isDark ? rgb(156, 168, 189) : rgb(99, 112, 135)
+        return .init(
+            pageBackground: core.workbench,
+            backgroundGlowPrimary: rgb(
+                Int((core.accent.red * 255).rounded()),
+                Int((core.accent.green * 255).rounded()),
+                Int((core.accent.blue * 255).rounded()),
+                opacity: 0.18
+            ),
+            backgroundGlowSecondary: rgb(
+                Int((core.accentSoft.red * 255).rounded()),
+                Int((core.accentSoft.green * 255).rounded()),
+                Int((core.accentSoft.blue * 255).rounded()),
+                opacity: 0.14
+            ),
+            surfaceGlass: core.chrome,
+            surfaceGlassStrong: core.panel,
+            surfaceReadable: core.dialog,
+            surfaceCritical: isDark ? rgb(64, 28, 32) : rgb(255, 240, 240),
+            surfaceInput: core.metric,
+            textPrimary: textPrimary,
+            textSecondary: textSecondary,
+            textDisabled: textDisabled,
+            textOnAccent: isDark ? rgb(11, 18, 15) : rgb(255, 255, 255),
+            accentPrimary: core.accent,
+            accentSecondary: core.accentSoft,
+            focusRing: core.accent,
+            borderGlass: core.stroke,
+            divider: core.stroke
+        )
+    }
+#endif
 
     static let fallback = make(theme: .defaultTheme, colorScheme: .light)
 }

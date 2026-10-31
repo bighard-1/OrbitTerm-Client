@@ -4,6 +4,8 @@ public interface ICheckedOrbitCoreClient
 {
     event EventHandler<TerminalDataReceivedEventArgs>? TerminalDataReceived;
 
+    event EventHandler<ConnectionEventReceivedEventArgs>? ConnectionEventReceived;
+
     event EventHandler<SftpTransferProgressEventArgs>? SftpTransferProgress;
 
     CheckedConnectOutcome Connect(CheckedConnectionRequest request, HostKeyRequestId requestId);

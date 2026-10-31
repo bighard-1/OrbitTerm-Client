@@ -32,9 +32,15 @@ public sealed class SessionOrchestrator
         this.sessionRegistry = sessionRegistry ?? new VerifiedSessionRegistry();
         this.terminalRegistry = terminalRegistry ?? new TerminalSessionRegistry();
         this.coreClient.TerminalDataReceived += OnTerminalDataReceived;
+        this.coreClient.ConnectionEventReceived += OnConnectionEventReceived;
     }
 
     public event EventHandler<TerminalOutputReceivedEventArgs>? TerminalOutputReceived;
+
+    public event EventHandler<SessionConnectionEventArgs>? SessionConnectionEventReceived;
+
+    public ulong GetVerifiedBaseSessionId(Guid workspaceId, Guid serverId) =>
+        sessionRegistry.TryGet(workspaceId, serverId, out var lease) ? lease.BaseSessionId : 0;
 
     public async ValueTask<TerminalOpenResult> ConnectTelnetAsync(
         Guid workspaceId,
@@ -108,14 +114,21 @@ public sealed class SessionOrchestrator
     public async ValueTask<ConnectResult> ConnectAsync(
         Guid workspaceId,
         ServerAsset asset,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string oneTimeCode = "",
+        string jumpOneTimeCode = "",
+        Action<ConnectionSetupStage>? reportStage = null)
     {
         if (asset.Transport != ServerTransport.Ssh)
         {
             throw new NotSupportedException("Only SSH can enter the checked session flow.");
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        ReportConnectionStage(reportStage, ConnectionSetupStage.CredentialReadStarted);
         var credential = await credentialVault.ReadAsync(asset.CredentialId, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        ReportConnectionStage(reportStage, ConnectionSetupStage.CredentialReadCompleted);
         credential = CredentialMaterialPolicy.NormalizeSshCredential(credential);
         if (credential.IsEmpty)
         {
@@ -126,7 +139,10 @@ public sealed class SessionOrchestrator
             workspaceId,
             asset,
             credential,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            oneTimeCode,
+            jumpOneTimeCode,
+            reportStage).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -138,13 +154,17 @@ public sealed class SessionOrchestrator
         Guid workspaceId,
         ServerAsset asset,
         CredentialMaterial credential,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string oneTimeCode = "",
+        string jumpOneTimeCode = "",
+        Action<ConnectionSetupStage>? reportStage = null)
     {
         if (asset.Transport != ServerTransport.Ssh)
         {
             throw new NotSupportedException("Only SSH can enter the checked session flow.");
         }
         ArgumentNullException.ThrowIfNull(credential);
+        cancellationToken.ThrowIfCancellationRequested();
         credential = CredentialMaterialPolicy.NormalizeSshCredential(credential);
         if (credential.IsEmpty)
         {
@@ -154,7 +174,10 @@ public sealed class SessionOrchestrator
         CheckedJumpHostRequest? jumpRequest = null;
         if (asset.JumpHost is { } jump)
         {
+            ReportConnectionStage(reportStage, ConnectionSetupStage.JumpCredentialReadStarted);
             var jumpCredential = await credentialVault.ReadAsync(jump.CredentialId, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            ReportConnectionStage(reportStage, ConnectionSetupStage.JumpCredentialReadCompleted);
             jumpCredential = CredentialMaterialPolicy.NormalizeSshCredential(jumpCredential);
             if (jumpCredential.IsEmpty)
             {
@@ -176,9 +199,14 @@ public sealed class SessionOrchestrator
             credential.PrivateKeyPassphrase,
             asset.AllowPasswordFallback,
             knownHostsPathProvider.GetKnownHostsPath(),
-            jumpRequest);
+            jumpRequest,
+            oneTimeCode,
+            jumpOneTimeCode);
 
+        ReportConnectionStage(reportStage, ConnectionSetupStage.NativeConnectStarted);
+        cancellationToken.ThrowIfCancellationRequested();
         var outcome = coreClient.Connect(request, requestId);
+        ReportConnectionStage(reportStage, ConnectionSetupStage.NativeConnectCompleted);
         var result = ConnectResult.FromNative(workspaceId, asset.Id, outcome);
         if (result is ConnectResult.Connected connected)
         {
@@ -186,6 +214,12 @@ public sealed class SessionOrchestrator
         }
 
         return result;
+    }
+
+    private static void ReportConnectionStage(Action<ConnectionSetupStage>? reportStage, ConnectionSetupStage stage)
+    {
+        try { reportStage?.Invoke(stage); }
+        catch (Exception) { /* Best-effort diagnostics must not alter authentication. */ }
     }
 
     public ValueTask<TerminalOpenResult> OpenTerminalAsync(
@@ -899,6 +933,39 @@ public sealed class SessionOrchestrator
         }
 
         PublishTerminalData(lease, e.Data);
+    }
+
+    private void OnConnectionEventReceived(object? sender, ConnectionEventReceivedEventArgs e)
+    {
+        if (e.Kind == OrbitConnectionEventKind.ConnectionLost)
+        {
+            if (!sessionRegistry.TryGetByBaseSessionId(e.SessionOrChannelId, out var session))
+            {
+                return;
+            }
+
+            AbandonSession(session.WorkspaceId, session.ServerId);
+            SessionConnectionEventReceived?.Invoke(this, new SessionConnectionEventArgs(
+                session.WorkspaceId, session.ServerId, e.SessionOrChannelId,
+                SessionConnectionEventKind.ConnectionLost));
+            return;
+        }
+
+        if (e.Kind != OrbitConnectionEventKind.TerminalClosed ||
+            !terminalRegistry.TryGetByChannelId(e.SessionOrChannelId, out var terminal) ||
+            !terminalRegistry.Remove(terminal))
+        {
+            return;
+        }
+
+        lock (terminalBacklogGate)
+        {
+            terminalBacklogs.Remove(terminal.TerminalChannelId);
+            terminalScreens.Remove(terminal.TerminalChannelId);
+        }
+        SessionConnectionEventReceived?.Invoke(this, new SessionConnectionEventArgs(
+            terminal.WorkspaceId, terminal.ServerId, e.SessionOrChannelId,
+            SessionConnectionEventKind.TerminalClosed));
     }
 
     private void PublishTerminalData(TerminalSessionLease lease, ReadOnlySpan<byte> data)

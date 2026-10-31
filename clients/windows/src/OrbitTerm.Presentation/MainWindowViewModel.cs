@@ -50,6 +50,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private readonly Func<string, int, CancellationToken, Task<TcpLatencyProbeResult>> tcpLatencyProbe;
     private readonly object terminalUiUpdateGate = new();
     private readonly SemaphoreSlim remoteInspectionGate = new(1, 1);
+    private readonly SemaphoreSlim encryptedConfigSyncGate = new(1, 1);
     private readonly Dictionary<ulong, TerminalOutputReceivedEventArgs> pendingTerminalUiUpdates = [];
     private readonly Dictionary<ulong, BatchContinuousSessionViewModel> batchContinuousSessionsByChannel = [];
     private readonly Dictionary<Guid, BatchContinuousRuntime> batchContinuousRuntimes = [];
@@ -87,6 +88,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private string jumpPrivateKeyPassphrase = string.Empty;
     private bool jumpAllowPasswordFallback = true;
     private string status = "待命";
+    private string connectionFailureMessage = string.Empty;
     private string securityStatus = "尚未建立已验证会话";
     private string commandText = string.Empty;
     private string pasteSafetyStatus = "粘贴安全检查已就绪";
@@ -162,6 +164,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private string sftpPreviewOriginalText = string.Empty;
     private string? sftpPreviewPath;
     private SftpMutationSnapshot? sftpPreviewSnapshot;
+    private bool isSftpPreviewSaving;
     private string diagnosticsStatus = "诊断信息已就绪";
     private string credentialHealthStatus = "尚未执行本机凭据健康检查。";
     private SftpDirectoryEntryViewModel? selectedSftpEntry;
@@ -177,6 +180,11 @@ public sealed class MainWindowViewModel : ObservableObject
     private int hiddenTerminalLineCount;
     private bool isConnected;
     private bool hasHostKeyChallenge;
+    private bool hasSecondFactorChallenge;
+    private bool secondFactorForJump;
+    private Guid? secondFactorWorkspaceId;
+    private string pendingOneTimeCode = string.Empty;
+    private string pendingJumpOneTimeCode = string.Empty;
     private bool isOpeningVerifiedWorkspace;
     private bool isAutoScrollEnabled = true;
     private bool isRestoringWorkspaceTab;
@@ -220,6 +228,7 @@ public sealed class MainWindowViewModel : ObservableObject
         // own frame timer made interactive typing visibly trail the keyboard.
         this.terminalUiFrameInterval = terminalUiFrameInterval ?? TimeSpan.FromMilliseconds(8);
         this.orchestrator.TerminalOutputReceived += OnTerminalOutputReceived;
+        this.orchestrator.SessionConnectionEventReceived += OnSessionConnectionEventReceived;
 
         LoadAssetsCommand = new AsyncRelayCommand(LoadAssetsAsync);
         LoadAccountSessionCommand = new AsyncRelayCommand(LoadAccountSessionAsync);
@@ -341,7 +350,7 @@ public sealed class MainWindowViewModel : ObservableObject
         new("disk", "磁盘", snapshot => snapshot.DiskUsedPercent, MonitorSampleMetrics.Disk),
         new("download", "下载", snapshot => snapshot.ReceiveRateKilobitsPerSecond, MonitorSampleMetrics.Download),
         new("upload", "上传", snapshot => snapshot.TransmitRateKilobitsPerSecond, MonitorSampleMetrics.Upload),
-        new("latency", "TCP 延迟", snapshot => snapshot.PingLatencyMilliseconds, MonitorSampleMetrics.Latency),
+        new("latency", "TCP", snapshot => snapshot.PingLatencyMilliseconds, MonitorSampleMetrics.Latency),
     ];
 
     public MonitorTrendMetricViewModel CpuMonitorTrend => MonitorTrendMetrics[0];
@@ -391,10 +400,10 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public bool HasAssetSearchResults => AssetGroups.Count != 0;
 
-    public string AssetEmptyStateTitle => Assets.Count == 0 ? "尚未保存服务器资产" : "未找到匹配的服务器";
+    public string AssetEmptyStateTitle => Assets.Count == 0 ? "还没有服务器" : "未找到匹配的服务器";
 
     public string AssetEmptyStateDescription => Assets.Count == 0
-        ? "选择“新建服务器”添加第一台本地资产。"
+        ? "添加服务器后，即可从这里安全地发起连接。"
         : "请调整关键词或分组筛选条件。";
 
     public string AssetStorageStatus => string.Concat("仅本地保存 · ", AssetEditorStatus);
@@ -453,7 +462,10 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public bool IsAccountLocked => AccountLockState == OrbitTerm.Application.Accounts.AccountLockState.SignedInLocked;
 
-    public bool IsAccountUnlocked => AccountLockState == OrbitTerm.Application.Accounts.AccountLockState.SignedInUnlocked;
+    public bool IsAccountUnlocked => AccountLockState == OrbitTerm.Application.Accounts.AccountLockState.SignedInUnlocked && !MustChangeAccountPassword;
+
+    public bool MustChangeAccountPassword => accountUnlockController?.MustChangePassword == true;
+    public bool LastAccountLogoutRevocationFailed => accountUnlockController?.LastLogoutRevocationFailed == true;
 
     public string AccountUsername => accountUnlockController?.Username ?? string.Empty;
 
@@ -568,11 +580,19 @@ public sealed class MainWindowViewModel : ObservableObject
         }
     }
 
-    public string SftpTransferQueueSummary => SftpTransferTasks.Count == 0
+    public string SftpTransferQueueTitle => SftpTransferTasks.Count == 0
         ? "暂无传输任务"
         : string.Create(
             System.Globalization.CultureInfo.InvariantCulture,
-            $"传输任务 {SftpTransferTasks.Count} 项 · 当前队列 {ActiveSftpTransferTasks.Count} 项 · 已完成 {CompletedSftpTransferTasks.Count} 项");
+            $"传输任务 {SftpTransferTasks.Count} 项");
+
+    public string SftpTransferQueueCounts => string.Create(
+        System.Globalization.CultureInfo.InvariantCulture,
+        $"未完成 {ActiveSftpTransferTasks.Count} 项 · 已完成 {CompletedSftpTransferTasks.Count} 项");
+
+    public string SftpTransferQueueSummary => SftpTransferTasks.Count == 0
+        ? SftpTransferQueueTitle
+        : $"{SftpTransferQueueTitle} · {SftpTransferQueueCounts}";
 
     public string CompletedSftpTransferSummary => string.Create(
         System.Globalization.CultureInfo.InvariantCulture,
@@ -580,7 +600,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public string ActiveSftpTransferSummary => string.Create(
         System.Globalization.CultureInfo.InvariantCulture,
-        $"进行中（{ActiveSftpTransferTasks.Count}）");
+        $"未完成（{ActiveSftpTransferTasks.Count}）");
 
     public int ActiveSftpTransferCount => SftpTransferTasks.Count(static task => task.State is SftpTransferTaskState.Running or SftpTransferTaskState.Paused);
 
@@ -665,6 +685,7 @@ public sealed class MainWindowViewModel : ObservableObject
                     if (previousAssetId != value.Id)
                     {
                         Password = PrivateKey = PrivateKeyPassphrase = string.Empty;
+                        ConnectionFailureMessage = string.Empty;
                     }
 
                     AssetEditorStatus = "已选择服务器资产";
@@ -1025,6 +1046,18 @@ public sealed class MainWindowViewModel : ObservableObject
         private set => SetProperty(ref securityStatus, value);
     }
 
+    public string ConnectionFailureMessage
+    {
+        get => connectionFailureMessage;
+        private set
+        {
+            if (SetProperty(ref connectionFailureMessage, value)) NotifyTerminalStateChanged();
+        }
+    }
+
+    public bool CanRetryConnectionFromEmptyState =>
+        !string.IsNullOrEmpty(ConnectionFailureMessage) && !IsConnecting && !IsConnected;
+
     public string CommandText
     {
         get => commandText;
@@ -1078,7 +1111,7 @@ public sealed class MainWindowViewModel : ObservableObject
             if (SetProperty(ref isOpeningVerifiedWorkspace, value))
             {
                 OnPropertyChanged(nameof(ConnectionProgressText));
-                RefreshCommands();
+                NotifyTerminalStateChanged();
             }
         }
     }
@@ -1099,6 +1132,36 @@ public sealed class MainWindowViewModel : ObservableObject
                 NotifyTerminalStateChanged();
             }
         }
+    }
+
+    public bool HasSecondFactorChallenge
+    {
+        get => hasSecondFactorChallenge;
+        private set => SetProperty(ref hasSecondFactorChallenge, value);
+    }
+
+    public bool SecondFactorForJump => secondFactorForJump;
+
+    public async Task SubmitSecondFactorAsync(string code)
+    {
+        if (!HasSecondFactorChallenge || secondFactorWorkspaceId != CurrentWorkspaceId ||
+            string.IsNullOrEmpty(code) || System.Text.Encoding.UTF8.GetByteCount(code) > 128 ||
+            code.Any(char.IsControl))
+        {
+            return;
+        }
+        if (secondFactorForJump) pendingJumpOneTimeCode = code;
+        else pendingOneTimeCode = code;
+        HasSecondFactorChallenge = false;
+        await ConnectAsync(CancellationToken.None).ConfigureAwait(true);
+    }
+
+    public void CancelSecondFactor()
+    {
+        HasSecondFactorChallenge = false;
+        pendingOneTimeCode = string.Empty;
+        pendingJumpOneTimeCode = string.Empty;
+        secondFactorWorkspaceId = null;
     }
 
     public string HostKeySummary => pendingChallenge is null
@@ -1190,12 +1253,14 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public string TerminalEmptyStateLabel => HasHostKeyChallenge
         ? "等待主机密钥确认"
-        : IsConnected ? "已准备就绪" : "尚未建立连接";
+        : IsConnected ? "已准备就绪"
+        : !string.IsNullOrEmpty(ConnectionFailureMessage) ? "连接未完成" : "暂无会话";
 
     public string TerminalEmptyStateDescription => HasHostKeyChallenge
         ? "确认主机密钥后，才能为此服务器打开终端。"
         : IsConnected ? "此服务器已完成验证。打开终端后即可运行命令。"
-        : "先从左侧选择服务器并建立连接。";
+        : !string.IsNullOrEmpty(ConnectionFailureMessage) ? ConnectionFailureMessage
+        : "从左侧选择服务器，然后建立连接。";
 
     public string ActivitySummary => TerminalLines.Count == 0
         ? "暂无终端活动"
@@ -1294,7 +1359,13 @@ public sealed class MainWindowViewModel : ObservableObject
     public string SftpBrowserStatus
     {
         get => sftpBrowserStatus;
-        private set => SetProperty(ref sftpBrowserStatus, value);
+        private set
+        {
+            if (SetProperty(ref sftpBrowserStatus, value))
+            {
+                OnPropertyChanged(nameof(SftpListingSummary));
+            }
+        }
     }
 
     public string SftpOperationStatus
@@ -1385,10 +1456,22 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public bool IsSftpPreviewReadOnly => !CanEditSftpPreview;
 
+    public bool IsSftpPreviewSaving
+    {
+        get => isSftpPreviewSaving;
+        private set
+        {
+            if (SetProperty(ref isSftpPreviewSaving, value))
+            {
+                OnPropertyChanged(nameof(CanSaveSftpPreview));
+            }
+        }
+    }
+
     public bool IsSftpPreviewDirty =>
         CanEditSftpPreview && !string.Equals(SftpPreviewText, sftpPreviewOriginalText, StringComparison.Ordinal);
 
-    public bool CanSaveSftpPreview => IsSftpPreviewDirty &&
+    public bool CanSaveSftpPreview => !IsSftpPreviewSaving && IsSftpPreviewDirty &&
         System.Text.Encoding.UTF8.GetByteCount(SftpPreviewText) <= 2 * 1024 * 1024 &&
         !SftpPreviewText.Contains('\0');
 
@@ -1486,6 +1569,18 @@ public sealed class MainWindowViewModel : ObservableObject
         }
     }
 
+    public void CloseSftpPreview()
+    {
+        if (IsSftpPreviewSaving)
+        {
+            return;
+        }
+
+        ResetSftpEditor();
+        SftpPreviewStatus = "No SFTP text preview";
+        RefreshCommands();
+    }
+
     public string SftpListingSummary
     {
         get
@@ -1493,6 +1588,16 @@ public sealed class MainWindowViewModel : ObservableObject
             if (sftpLease is null)
             {
                 return "尚未打开 SFTP";
+            }
+
+            if (SftpBrowserStatus.StartsWith("Listing ", StringComparison.Ordinal))
+            {
+                return "正在读取目录…";
+            }
+
+            if (SftpBrowserStatus is "目录读取失败，请刷新或重新连接" or "远端目录响应超时")
+            {
+                return SftpBrowserStatus;
             }
 
             return SftpEntries.Count == 0
@@ -2583,9 +2688,19 @@ public sealed class MainWindowViewModel : ObservableObject
             return false;
         }
 
-        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+        if (string.IsNullOrWhiteSpace(username))
         {
-            AccountStatus = "请输入账户名和密码。";
+            AccountStatus = "请输入邮箱账号。";
+            return false;
+        }
+        if (!IsRegistrationEmail(username.Trim()))
+        {
+            AccountStatus = "请输入有效的邮箱账号，例如 name@example.com。";
+            return false;
+        }
+        if (string.IsNullOrEmpty(password))
+        {
+            AccountStatus = "请输入账户密码。";
             return false;
         }
 
@@ -2746,7 +2861,9 @@ public sealed class MainWindowViewModel : ObservableObject
     private static bool IsRegistrationEmail(string value)
     {
         var parts = value.Split('@', StringSplitOptions.None);
-        return parts.Length == 2 && parts[0].Length > 0 && parts[1].Length > 0;
+        return parts.Length == 2 && parts[0].Length > 0 && parts[1].Length > 0 &&
+            parts[1].Contains('.') && !parts[1].StartsWith('.') && !parts[1].EndsWith('.') &&
+            !value.Any(char.IsWhiteSpace);
     }
 
     private static bool IsStrongAccountPassword(string value) =>
@@ -2786,7 +2903,9 @@ public sealed class MainWindowViewModel : ObservableObject
             AccountUnlockResult.InvalidMasterPassword => "主密码不正确，数据仍保持锁定。",
             AccountUnlockResult.VerificationRequiresEncryptedConfig => "账户尚无可验证的加密配置，数据保持锁定。",
             AccountUnlockResult.NetworkUnavailable => "无法连接同步服务，请检查网络后重试。",
-            _ => "同步服务暂时无法完成验证，数据仍保持锁定。",
+            _ => string.IsNullOrEmpty(accountUnlockController.LastUnlockDiagnosticCode)
+                ? "同步服务暂时无法完成验证，数据仍保持锁定。"
+                : $"同步服务暂时无法完成验证，数据仍保持锁定。诊断码：{accountUnlockController.LastUnlockDiagnosticCode}",
         };
         NotifyAccountStateChanged();
         return result;
@@ -2829,6 +2948,22 @@ public sealed class MainWindowViewModel : ObservableObject
         string masterPassword,
         CancellationToken cancellationToken,
         bool forceCompleteReconciliation = false)
+    {
+        // Keep download, local apply, and queued upload in one ordered transaction
+        // from the UI's perspective; otherwise another click can reread old state.
+        await encryptedConfigSyncGate.WaitAsync(cancellationToken).ConfigureAwait(true);
+        try
+        {
+            return await SynchronizeEncryptedConfigsCoreAsync(
+                masterPassword, cancellationToken, forceCompleteReconciliation).ConfigureAwait(true);
+        }
+        finally { encryptedConfigSyncGate.Release(); }
+    }
+
+    private async Task<EncryptedConfigSynchronizationResult?> SynchronizeEncryptedConfigsCoreAsync(
+        string masterPassword,
+        CancellationToken cancellationToken,
+        bool forceCompleteReconciliation)
     {
         if (accountUnlockController is null || encryptedConfigSynchronizer is null || !IsAccountUnlocked)
         {
@@ -2910,6 +3045,12 @@ public sealed class MainWindowViewModel : ObservableObject
         catch (HttpRequestException exception)
         {
             WriteSynchronizationDiagnostic("network_failure", exception, remoteChangesConfirmed);
+            if (exception is AccountProtocolException { Code: "PASSWORD_CHANGE_REQUIRED" })
+            {
+                ApplyAccountState(accountUnlockController.State);
+                AccountStatus = "服务端要求先更新登录密码；本机待同步变更已保留。";
+                return null;
+            }
             if (remoteChangesConfirmed)
             {
                 AccountStatus = "云端变更已确认；网络或同步服务暂时不可用，本机待上传队列已保留并将在下次同步重试。";
@@ -2984,8 +3125,14 @@ public sealed class MainWindowViewModel : ObservableObject
                         break;
                 }
             }
-            catch (HttpRequestException)
+            catch (HttpRequestException exception)
             {
+                if (exception is AccountProtocolException { Code: "PASSWORD_CHANGE_REQUIRED" })
+                {
+                    ApplyAccountState(accountUnlockController.State);
+                    AccountStatus = "服务端要求先更新登录密码；剩余资产未上传且本地变更已保留。";
+                    return;
+                }
                 AccountStatus = $"已发布 {published} 项；网络或服务异常，剩余资产未上传。";
                 return;
             }
@@ -3219,6 +3366,8 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             await accountUnlockController.SignOutAsync(cancellationToken).ConfigureAwait(true);
             ApplyAccountState(accountUnlockController.State);
+            if (LastAccountLogoutRevocationFailed)
+                AccountStatus = "已退出本机；服务端会话撤销未确认。联网后请重新登录并检查账户安全。";
         }
     }
 
@@ -3256,7 +3405,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private void ApplyAccountState(AccountLockState state)
     {
         AccountLockState = state;
-        AccountStatus = state switch
+        AccountStatus = MustChangeAccountPassword ? "请先更新登录密码，再解锁或同步资产。" : state switch
         {
             OrbitTerm.Application.Accounts.AccountLockState.SignedOut => "尚未登录。不会自动联网。",
             OrbitTerm.Application.Accounts.AccountLockState.SignedInLocked => "已登录，本机加密同步数据等待解锁。",
@@ -3277,6 +3426,8 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(AccountEntryLabel));
         OnPropertyChanged(nameof(IsAccountLocked));
         OnPropertyChanged(nameof(IsAccountUnlocked));
+        OnPropertyChanged(nameof(MustChangeAccountPassword));
+        OnPropertyChanged(nameof(LastAccountLogoutRevocationFailed));
         OnPropertyChanged(nameof(AccountUsername));
         OnPropertyChanged(nameof(AssetSynchronizationStatus));
     }
@@ -3317,11 +3468,19 @@ public sealed class MainWindowViewModel : ObservableObject
                     System.Globalization.CultureInfo.InvariantCulture,
                     $"{jsonException.Path ?? "unknown"}:{jsonException.LineNumber?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "?"}:{jsonException.BytePositionInLine?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "?"}")
                 : "none";
+            var reason = exception switch
+            {
+                AccountSessionChangedException { DiagnosticCode: "controller_session_changed" } => "controller_session_changed",
+                AccountSessionChangedException { DiagnosticCode: "persist_store_changed" } => "persist_store_changed",
+                AccountSessionChangedException { DiagnosticCode: "refresh_store_changed" } => "refresh_store_changed",
+                AccountSessionChangedException { DiagnosticCode: "stored_session_replaced" } => "stored_session_replaced",
+                _ => "unspecified",
+            };
             File.AppendAllText(
                 Path.Combine(directory, "sync.log"),
                 string.Create(
                     System.Globalization.CultureInfo.InvariantCulture,
-                    $"{DateTimeOffset.UtcNow:O} stage={stage}; type={exception.GetType().FullName}; hresult=0x{exception.HResult:X8}; status={statusCode}; json_location={jsonLocation}; remote_confirmed={remoteChangesConfirmed}{Environment.NewLine}"));
+                    $"{DateTimeOffset.UtcNow:O} stage={stage}; reason={reason}; type={exception.GetType().FullName}; hresult=0x{exception.HResult:X8}; status={statusCode}; json_location={jsonLocation}; remote_confirmed={remoteChangesConfirmed}{Environment.NewLine}"));
         }
         catch (IOException)
         {
@@ -3425,6 +3584,10 @@ public sealed class MainWindowViewModel : ObservableObject
         }
         if (WorkspaceTabs.Count == 0)
         {
+            // The last session becomes a fresh draft. Clear the asset selection
+            // too, so selecting the same saved asset reapplies its connection
+            // fields instead of being ignored as an unchanged selection.
+            SelectedAsset = null;
             ResetDraftAsset();
             var replacement = CreateWorkspaceTabFromDraft();
             WorkspaceTabs.Add(replacement);
@@ -3944,6 +4107,12 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private async Task ConnectAsync(CancellationToken cancellationToken)
     {
+        var attemptId = Guid.NewGuid().ToString("N");
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        void Trace(string phase) => WriteConnectionDiagnostic(string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"{phase};attempt={attemptId};elapsed_ms={elapsed.ElapsedMilliseconds}"));
+        if (secondFactorWorkspaceId != CurrentWorkspaceId) CancelSecondFactor();
         if (AssetTransport == ServerTransport.RemoteDesktop)
         {
             Status = "请从资产列表打开远程桌面";
@@ -3987,13 +4156,17 @@ public sealed class MainWindowViewModel : ObservableObject
 
         if (IsConnected || terminalLease is not null || sftpLease is not null)
         {
+            Trace("previous_session_end_started");
             await EndSessionCoreAsync(cancellationToken, "Previous session ended before reconnect").ConfigureAwait(true);
+            Trace("previous_session_end_completed");
         }
 
+        SelectedWorkspaceTab?.MarkSessionStarted();
         Status = AssetTransport == ServerTransport.Telnet ? "正在建立 Telnet 明文连接" : "正在连接";
         SessionActionSummary = AssetTransport == ServerTransport.Telnet ? "正在连接已确认的 Telnet 目标" : "正在验证服务器身份";
         SecurityStatus = AssetTransport == ServerTransport.Telnet ? "无加密 · 无服务器身份验证" : "正在检查主机密钥";
-        WriteConnectionDiagnostic("command_started");
+        Trace("command_started");
+        ConnectionFailureMessage = string.Empty;
         pendingChallenge = null;
         HasHostKeyChallenge = false;
         OnPropertyChanged(nameof(HostKeySummary));
@@ -4021,10 +4194,12 @@ public sealed class MainWindowViewModel : ObservableObject
             {
                 var credential = CredentialMaterialPolicy.NormalizeSshCredential(
                     new CredentialMaterial(Password, PrivateKey, PrivateKeyPassphrase));
+                Trace("credential_save_started");
                 await credentialVault.SaveAsync(
                     draftCredentialId,
                     credential,
                     cancellationToken).ConfigureAwait(true);
+                Trace("credential_save_completed");
                 credentialAvailabilityById[draftCredentialId] = CredentialAvailability.Available;
                 NotifyCredentialAvailabilityChanged();
             }
@@ -4033,10 +4208,12 @@ public sealed class MainWindowViewModel : ObservableObject
             {
                 var jumpCredential = CredentialMaterialPolicy.NormalizeSshCredential(
                     new CredentialMaterial(JumpPassword, JumpPrivateKey, JumpPrivateKeyPassphrase));
+                Trace("jump_credential_save_started");
                 await credentialVault.SaveAsync(
                     draftJumpCredentialId,
                     jumpCredential,
                     cancellationToken).ConfigureAwait(true);
+                Trace("jump_credential_save_completed");
             }
 
             if (asset.Transport == ServerTransport.Telnet)
@@ -4064,6 +4241,7 @@ public sealed class MainWindowViewModel : ObservableObject
                         break;
                     case TerminalOpenResult.Failed failed:
                         Status = failed.MessageKey;
+                        ConnectionFailureMessage = "Telnet 连接未完成，请检查地址、端口和网络后重试。";
                         SecurityStatus = "Telnet 连接未建立";
                         SessionActionSummary = failed.Code;
                         break;
@@ -4075,44 +4253,69 @@ public sealed class MainWindowViewModel : ObservableObject
             // The checked native SSH handshake performs network I/O synchronously.
             // Keep it off the WinUI dispatcher; applying its result stays on the
             // UI context below.
+            var workspaceId = CurrentWorkspaceId;
+            var oneTimeCode = pendingOneTimeCode;
+            var jumpOneTimeCode = pendingJumpOneTimeCode;
             var result = await Task.Run(
                     async () => await orchestrator
-                        .ConnectAsync(CurrentWorkspaceId, asset, cancellationToken)
+                        .ConnectAsync(workspaceId, asset, cancellationToken,
+                            oneTimeCode, jumpOneTimeCode, stage => Trace(stage.ToString()))
                         .ConfigureAwait(false),
                     cancellationToken)
                 .ConfigureAwait(true);
-            WriteConnectionDiagnostic($"native_result={result.GetType().Name}");
+            Trace($"native_result={result.GetType().Name}");
+            if (result is ConnectResult.Failed { Code: "ssh_timeout" } timeout)
+            {
+                // Log only the closed set of timeout details, never native text.
+                var stage = timeout.DetailCode is "connect_timeout" or "authentication_timeout" or
+                    "session_pool_lookup_timeout" or "session_pool_creation_timeout" or "session_pool_exact_lookup_timeout"
+                    ? timeout.DetailCode : "other";
+                Trace(string.Concat("timeout_stage=", stage));
+            }
             ApplyConnectResult(result);
+            if (result is not ConnectResult.RequiresSecondFactor and not ConnectResult.RequiresHostKeyTrust)
+            {
+                CancelSecondFactor();
+            }
             if (IsConnected)
             {
                 // A verified SSH connection is immediately usable. Opening the
                 // terminal here removes the redundant second action while keeping
                 // the explicit command available as a recoverable retry path.
+                Trace("terminal_open_started");
                 await OpenTerminalAsync(cancellationToken).ConfigureAwait(true);
+                Trace("terminal_open_completed");
                 // SFTP is part of a verified workstation session, not a second
                 // connection the user has to remember to open. Each workspace tab
                 // owns its lease and listing, so switching tabs restores the matching
                 // asset view without touching another connection.
+                Trace("sftp_open_started");
                 await OpenSftpAsync(cancellationToken).ConfigureAwait(true);
+                Trace("sftp_open_completed");
                 if (sftpLease is not null)
                 {
+                    Trace("sftp_list_started");
                     await PrepareSftpBrowseAsync(cancellationToken).ConfigureAwait(true);
+                    Trace("sftp_list_completed");
                 }
                 // Docker belongs to the same verified workstation context. Load the
                 // current asset's containers immediately so the inspector never
                 // starts as an empty manual-refresh view.
+                Trace("docker_initialization_started");
                 await RefreshDockerContainersAsync(cancellationToken).ConfigureAwait(true);
                 await RefreshDockerStatsCoreAsync(cancellationToken, publishFeedback: false).ConfigureAwait(true);
+                Trace("docker_initialization_completed");
             }
             SaveRuntimeStateToSelectedWorkspaceTab();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            Trace("cancellation_observed");
             throw;
         }
         catch (Exception exception)
         {
-            WriteConnectionDiagnostic(string.Concat(
+            Trace(string.Concat(
                 "connection_exception=",
                 exception.GetType().Name,
                 ";hresult=0x",
@@ -4120,12 +4323,14 @@ public sealed class MainWindowViewModel : ObservableObject
                 ";inner=",
                 exception.InnerException?.GetType().Name ?? "none"));
             Status = "连接未完成，请检查网络、凭据或服务器状态后重试";
+            if (!IsConnected) ConnectionFailureMessage = Status;
             SecurityStatus = "connection_failed";
             SessionActionSummary = "未建立已验证会话";
             SaveRuntimeStateToSelectedWorkspaceTab();
         }
         finally
         {
+            Trace("command_finished");
             IsConnecting = false;
             RefreshCommands();
         }
@@ -4516,31 +4721,109 @@ public sealed class MainWindowViewModel : ObservableObject
             return;
         }
 
+        var activeLease = sftpLease!;
         var savedPath = sftpPreviewPath;
-        var result = await orchestrator.WriteSftpTextFileAsync(
-            sftpLease,
-            savedPath,
-            SftpPreviewText,
-            sftpPreviewSnapshot,
-            cancellationToken).ConfigureAwait(true);
-        switch (result)
+        var savedText = SftpPreviewText;
+        var expectedSnapshot = sftpPreviewSnapshot!;
+        IsSftpPreviewSaving = true;
+        PublishSftpFeedback(SftpFeedbackKind.InProgress, "正在保存", savedPath);
+        try
         {
-            case SftpMutationResult.Completed:
-                sftpPreviewOriginalText = SftpPreviewText;
-                sftpPreviewSnapshot = null;
-                SftpOperationStatus = string.Concat("Saved ", savedPath);
-                SftpPreviewStatus = string.Create(
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    $"Saved {System.Text.Encoding.UTF8.GetByteCount(SftpPreviewText)} B to {savedPath}");
-                NotifySftpEditorStateChanged();
-                break;
-            case SftpMutationResult.Failed failed:
-                SftpOperationStatus = FormatSftpMutationFailure(failed);
-                break;
+            var result = await Task.Run(
+                async () => await orchestrator.WriteSftpTextFileAsync(
+                    activeLease,
+                    savedPath,
+                    savedText,
+                    expectedSnapshot,
+                    cancellationToken).ConfigureAwait(false),
+                CancellationToken.None).ConfigureAwait(true);
+            switch (result)
+            {
+                case SftpMutationResult.Completed:
+                    sftpPreviewOriginalText = savedText;
+                    SftpPreviewText = savedText;
+                    sftpPreviewSnapshot = await RefreshSavedSftpPreviewSnapshotAsync(
+                        activeLease,
+                        savedPath,
+                        cancellationToken).ConfigureAwait(true);
+                    SftpOperationStatus = string.Concat("Saved ", savedPath);
+                    SftpPreviewStatus = sftpPreviewSnapshot is null
+                        ? "保存成功，但未能刷新远端修订；请重新打开文件后继续编辑。"
+                        : string.Create(
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            $"保存成功：已写入 {System.Text.Encoding.UTF8.GetByteCount(savedText)} B，可继续编辑。");
+                    PublishSftpFeedback(
+                        sftpPreviewSnapshot is null ? SftpFeedbackKind.Warning : SftpFeedbackKind.Success,
+                        sftpPreviewSnapshot is null ? "已保存，等待刷新" : "保存完成",
+                        SftpPreviewStatus);
+                    break;
+                case SftpMutationResult.Failed failed:
+                    SftpOperationStatus = FormatSftpMutationFailure(failed);
+                    SftpPreviewStatus = string.Concat("保存失败：", SftpOperationStatus);
+                    PublishSftpFeedback(SftpFeedbackKind.Error, "保存失败", SftpOperationStatus);
+                    break;
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            SftpOperationStatus = "SFTP text save cancelled";
+            SftpPreviewStatus = "保存已取消，编辑内容仍保留。";
+            PublishSftpFeedback(SftpFeedbackKind.Warning, "保存已取消", savedPath);
+        }
+        catch (Exception error)
+        {
+            SftpOperationStatus = error.Message;
+            SftpPreviewStatus = "保存失败：连接或本机组件发生异常，编辑内容仍保留，可重试。";
+            PublishSftpFeedback(SftpFeedbackKind.Error, "保存失败", SftpPreviewStatus);
+        }
+        finally
+        {
+            IsSftpPreviewSaving = false;
+            NotifySftpEditorStateChanged();
         }
 
         SaveRuntimeStateToSelectedWorkspaceTab();
         RefreshCommands();
+    }
+
+    private async Task<SftpMutationSnapshot?> RefreshSavedSftpPreviewSnapshotAsync(
+        SftpSessionLease lease,
+        string savedPath,
+        CancellationToken cancellationToken)
+    {
+        var parentPath = GetSftpParentPath(savedPath);
+        var result = await Task.Run(
+            async () => await orchestrator.ListSftpDirectoryAsync(
+                lease,
+                parentPath,
+                cancellationToken).ConfigureAwait(false),
+            CancellationToken.None).ConfigureAwait(true);
+        if (result is not SftpDirectoryListResult.Listed listed)
+        {
+            return null;
+        }
+
+        var refreshed = listed.Entries
+            .Select(entry => ToSftpEntryViewModel(listed.Path, entry))
+            .FirstOrDefault(entry => entry is not null &&
+                string.Equals(entry.Path, savedPath, StringComparison.Ordinal));
+        if (refreshed is null)
+        {
+            return null;
+        }
+
+        var visibleEntry = SftpEntries.FirstOrDefault(entry =>
+            string.Equals(entry.Path, savedPath, StringComparison.Ordinal));
+        if (visibleEntry is not null)
+        {
+            var visibleIndex = SftpEntries.IndexOf(visibleEntry);
+            SftpEntries[visibleIndex] = refreshed;
+            SelectedSftpEntry = refreshed;
+            SetSelectedSftpEntries([refreshed]);
+            NotifySftpListingChanged();
+        }
+
+        return ToSftpMutationSnapshot(refreshed);
     }
 
     public string PrepareSftpPreviewCopy()
@@ -4560,6 +4843,8 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             case SftpOpenResult.Opened opened:
                 sftpLease = opened.Lease;
+                SftpPathText = opened.Lease.HomePath;
+                RebuildSftpBreadcrumbs(SftpPathText);
                 var transferContext = GetCurrentSftpTransferContext();
                 SftpStatus = "SFTP channel open";
                 SftpBrowserStatus = "SFTP browser ready";
@@ -4568,6 +4853,14 @@ public sealed class MainWindowViewModel : ObservableObject
                 if (transferContext.LastTransferRetry is not null || transferContext.LastBatchRetry is not null)
                 {
                     SetSftpTransferStatus(transferContext, "连接已恢复，可点击“重试”继续未完成的传输任务");
+                }
+                else if (transferContext.Tasks.Any(static task => task.State == SftpTransferTaskState.Cancelled))
+                {
+                    SetSftpTransferStatus(transferContext, "连接已恢复；上次传输已中断，请重新选择文件下载");
+                }
+                else if (transferContext.Tasks.Count > 0)
+                {
+                    SetSftpTransferStatus(transferContext, "连接已恢复；先前传输记录已保留");
                 }
                 NotifySftpStateChanged();
                 OnPropertyChanged(nameof(CanRetryLastSftpTransfer));
@@ -4629,6 +4922,7 @@ public sealed class MainWindowViewModel : ObservableObject
         var serverId = draftAssetId;
         var monitoredHost = Host.Trim();
         var monitoredPort = ParsedPort;
+        Task<TcpLatencyProbeResult>? latencyTask = null;
         try
         {
             // The checked native monitor call performs a remote SSH exec before
@@ -4636,7 +4930,7 @@ public sealed class MainWindowViewModel : ObservableObject
             // an overloaded host or a slow network would otherwise freeze
             // terminal input, rendering, and window activation while auto-
             // refresh is on.
-            var latencyTask = tcpLatencyProbe(
+            latencyTask = tcpLatencyProbe(
                 monitoredHost,
                 monitoredPort,
                 cancellationToken);
@@ -4688,7 +4982,10 @@ public sealed class MainWindowViewModel : ObservableObject
                     MonitorSummary = FormatMonitorFailure(failed.Code);
                     SessionActionSummary = "监控刷新失败";
                     SaveMonitorRuntimeStateToSelectedWorkspaceTab();
-                    if (consecutiveMonitorFailures >= 3)
+                    // An SSH exec policy may reject monitor commands while the
+                    // terminal and SFTP channels remain healthy. Only an
+                    // independently unreachable host can invalidate the session.
+                    if (consecutiveMonitorFailures >= 3 && !tcpLatency.Connected)
                     {
                         MarkCurrentConnectionLost("远端资产已失去响应，请重新连接");
                     }
@@ -4701,12 +4998,33 @@ public sealed class MainWindowViewModel : ObservableObject
         }
         catch (Exception)
         {
+            bool? tcpConnected = null;
+            if (latencyTask is not null)
+            {
+                try
+                {
+                    tcpConnected = (await latencyTask.ConfigureAwait(true)).Connected;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception)
+                {
+                    // An inconclusive probe must not tear down a live SSH or
+                    // SFTP session; its own transport callbacks detect closure.
+                }
+            }
+            if (!IsConnected || CurrentWorkspaceId != workspaceId || draftAssetId != serverId)
+            {
+                return;
+            }
             consecutiveMonitorFailures++;
             MonitorStatus = "监控刷新失败";
             MonitorSummary = "暂时无法读取远端监控，请检查连接后重试。";
             SessionActionSummary = "监控刷新失败";
             SaveMonitorRuntimeStateToSelectedWorkspaceTab();
-            if (consecutiveMonitorFailures >= 3)
+            if (consecutiveMonitorFailures >= 3 && tcpConnected is false)
             {
                 MarkCurrentConnectionLost("远端资产已失去响应，请重新连接");
             }
@@ -6407,11 +6725,27 @@ public sealed class MainWindowViewModel : ObservableObject
 
                 SftpBrowserStatus = string.Concat("已列出 ", listed.Path);
                 SftpOperationStatus = "目录已刷新：文件夹优先，再按名称排序。";
+                if (sftpFeedbackKind == SftpFeedbackKind.Error && SftpFeedbackTitle == "目录读取超时")
+                {
+                    ClearSftpFeedback();
+                }
                 break;
             case SftpDirectoryListResult.Failed failed:
                 SftpEntries.Clear();
-                SftpBrowserStatus = failed.MessageKey;
-                SftpOperationStatus = failed.Code;
+                // An empty list must never stand in for a failed checked read.
+                // Only the checked, fixed timeout detail selects specialized
+                // guidance. Never show arbitrary server error text here.
+                if (failed.Code == "sftp_list_failed" && failed.DetailCode == "sftp_list_timeout")
+                {
+                    SftpBrowserStatus = "远端目录响应超时";
+                    SftpOperationStatus = "请刷新重试；若持续失败，请重新连接该资产。";
+                    PublishSftpFeedback(SftpFeedbackKind.Error, "目录读取超时", SftpOperationStatus);
+                }
+                else
+                {
+                    SftpBrowserStatus = "目录读取失败，请刷新或重新连接";
+                    SftpOperationStatus = failed.Code;
+                }
                 break;
         }
 
@@ -6497,6 +6831,20 @@ public sealed class MainWindowViewModel : ObservableObject
         }
 
         return SelectedSftpEntry is null ? [] : [SelectedSftpEntry];
+    }
+
+    // FolderPicker can clear ListView selection while it owns focus. Capture the
+    // exact source session and entries before opening it, then validate both
+    // again when the user chooses a destination.
+    public SftpDownloadSelectionSnapshot? CaptureSftpDownloadSelection()
+    {
+        if (sftpLease is null || SelectedWorkspaceTab is null || IsSftpBatchRunning)
+            return null;
+
+        var entries = GetEffectiveSftpSelection().ToArray();
+        return entries.Length == 0
+            ? null
+            : new SftpDownloadSelectionSnapshot(SelectedWorkspaceTab.Id, sftpLease, entries);
     }
 
     private SftpTransferQueueContext GetCurrentSftpTransferContext() =>
@@ -6654,6 +7002,8 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private void NotifySftpTransferQueueChanged()
     {
+        OnPropertyChanged(nameof(SftpTransferQueueTitle));
+        OnPropertyChanged(nameof(SftpTransferQueueCounts));
         OnPropertyChanged(nameof(SftpTransferQueueSummary));
         OnPropertyChanged(nameof(ActiveSftpTransferSummary));
         OnPropertyChanged(nameof(CompletedSftpTransferSummary));
@@ -6767,7 +7117,11 @@ public sealed class MainWindowViewModel : ObservableObject
                 break;
             case SftpDownloadResult.Failed failed:
                 SetSftpOperationStatusForOwner(owner, failed.Code);
-                var failedStatus = string.Concat("下载失败：", selected.Name, "。请确认连接状态；如已断线，重新连接原资产后重试。");
+                var failedStatus = string.Concat(
+                    "下载失败：",
+                    selected.Name,
+                    "。",
+                    FormatSftpTransferFailure(failed.DetailCode, isUpload: false));
                 SetSftpTransferStatus(transferContext, failedStatus);
                 SetSftpTransferRetries(transferContext, SftpTransferRetryRequest.ForDownload(selected, localPath), null);
                 PublishSftpFeedbackForContext(transferContext, SftpFeedbackKind.Error, "下载失败", failedStatus);
@@ -6782,16 +7136,30 @@ public sealed class MainWindowViewModel : ObservableObject
         RefreshCommands();
     }
 
-    public async Task DownloadSelectedSftpEntriesAsync(string localDirectory, CancellationToken cancellationToken)
+    public Task DownloadSelectedSftpEntriesAsync(string localDirectory, CancellationToken cancellationToken) =>
+        DownloadCapturedSftpEntriesAsync(CaptureSftpDownloadSelection(), localDirectory, cancellationToken);
+
+    public async Task DownloadCapturedSftpEntriesAsync(
+        SftpDownloadSelectionSnapshot? selection,
+        string localDirectory,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var selectedEntries = GetEffectiveSftpSelection().ToList();
-        if (sftpLease is null || selectedEntries.Count == 0 || !Path.IsPathFullyQualified(localDirectory) || !Directory.Exists(localDirectory))
+        if (selection is null || sftpLease is null || !ReferenceEquals(sftpLease, selection.Lease) ||
+            SelectedWorkspaceTab?.Id != selection.WorkspaceId || IsSftpBatchRunning ||
+            selection.Entries.Count == 0 || selection.Entries.Any(entry => !SftpEntries.Contains(entry)))
         {
-            SftpOperationStatus = "请选择文件或文件夹，并指定有效的本地下载目录";
+            SftpOperationStatus = "所选远程文件或会话已变化，请重新选择下载目标";
             PublishSftpFeedback(SftpFeedbackKind.Error, "无法批量下载", SftpOperationStatus);
             return;
         }
+        if (!Path.IsPathFullyQualified(localDirectory) || !Directory.Exists(localDirectory))
+        {
+            SftpOperationStatus = "本地下载目录不可用，请重新选择";
+            PublishSftpFeedback(SftpFeedbackKind.Error, "无法批量下载", SftpOperationStatus);
+            return;
+        }
+        var selectedEntries = selection.Entries.ToList();
         var operationLease = sftpLease;
         var owner = SelectedWorkspaceTab!;
         var transferContext = GetOrCreateSftpTransferContext(owner);
@@ -6817,6 +7185,10 @@ public sealed class MainWindowViewModel : ObservableObject
 
             if (entry.IsDirectory)
             {
+                if (depth == 0 && Directory.Exists(localPath))
+                {
+                    localPath = CreateUniqueLocalDownloadPath(localPath, directory: true);
+                }
                 if (depth >= MaximumSftpBatchDownloadDepth)
                 {
                     SftpOperationStatus = string.Concat("文件夹层级超过安全限制：", entry.Path);
@@ -6874,7 +7246,11 @@ public sealed class MainWindowViewModel : ObservableObject
                 continue;
             }
 
-            plannedFiles.Add((entry, localPath));
+            plannedFiles.Add((
+                entry,
+                File.Exists(localPath)
+                    ? CreateUniqueLocalDownloadPath(localPath, directory: false)
+                    : localPath));
         }
 
         if (plannedFiles.Count == 0)
@@ -6930,14 +7306,6 @@ public sealed class MainWindowViewModel : ObservableObject
                     System.Globalization.CultureInfo.InvariantCulture,
                     $"批量下载 {index + 1}/{pending.Count}：{item.Entry.Name}"));
 
-                if (File.Exists(item.LocalPath))
-                {
-                    failed.Add(item);
-                    item.Task.MarkFailed("本地存在同名文件");
-                    processed++;
-                    continue;
-                }
-
                 var normalized = NormalizeSftpPath(item.Entry.Path);
                 if (normalized is null)
                 {
@@ -6974,24 +7342,33 @@ public sealed class MainWindowViewModel : ObservableObject
                     processed++;
                     continue;
                 }
+                // Only the checked cancellation result confirms cleanup. A
+                // concurrent cancel request must not hide a real cleanup error.
+                if (result is SftpDownloadResult.Failed cancelledDownload &&
+                    (cancelledDownload.DetailCode ?? cancelledDownload.Code) == "sftp_transfer_cancelled" &&
+                    linkedCancellation.IsCancellationRequested)
+                {
+                    throw new OperationCanceledException(linkedCancellation.Token);
+                }
                 if (result is SftpDownloadResult.Downloaded)
                 {
                     completed++;
                     item.Task.MarkCompleted("下载完成");
                     ArchiveCompletedSftpTransfer(transferContext, item.Task);
                 }
-                else
+                else if (result is SftpDownloadResult.Failed failedResult)
                 {
                     failed.Add(item);
-                    item.Task.MarkFailed("下载失败，确认连接后可重试");
+                    item.Task.MarkFailed(FormatSftpTransferFailure(failedResult.DetailCode, isUpload: false));
                 }
                 NotifySftpTransferQueueChanged(transferContext);
                 processed++;
             }
 
+            var firstFailure = failed.FirstOrDefault()?.Task.StatusText;
             var completionStatus = failed.Count == 0
                 ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"批量下载完成：成功 {completed}/{pending.Count}")
-                : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"批量下载中断：成功 {completed}/{pending.Count}，失败 {failed.Count}；确认连接或重新连接原资产后可重试");
+                : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"批量下载中断：成功 {completed}/{pending.Count}，失败 {failed.Count}；{firstFailure ?? "请查看失败任务详情"}");
             SetSftpTransferStatus(transferContext, completionStatus);
             SetSftpOperationStatusForOwner(owner, completionStatus);
             SetSftpTransferRetries(transferContext, null, failed.Count == 0 ? null : SftpBatchRetryRequest.ForDownloads(failed));
@@ -7008,11 +7385,14 @@ public sealed class MainWindowViewModel : ObservableObject
             {
                 item.Task.MarkCancelled("已取消");
             }
-            var cancellationStatus = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"批量下载已取消：已完成 {completed}/{pending.Count}，可重试未完成项");
+            var cancellationStatus = string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"批量下载已取消：已完成 {completed}/{pending.Count}，取消 {pending.Count - processed}，失败 {failed.Count}；{failed.FirstOrDefault()?.Task.StatusText ?? "可重试未完成项"}");
             SetSftpTransferRetries(transferContext, null, remaining.Count == 0 ? null : SftpBatchRetryRequest.ForDownloads(remaining));
             SetSftpTransferStatus(transferContext, cancellationStatus);
             SetSftpOperationStatusForOwner(owner, cancellationStatus);
-            PublishSftpFeedbackForContext(transferContext, SftpFeedbackKind.Warning, "批量下载已取消", cancellationStatus);
+            PublishSftpFeedbackForContext(transferContext,
+                failed.Count == 0 ? SftpFeedbackKind.Warning : SftpFeedbackKind.Error,
+                failed.Count == 0 ? "批量下载已取消" : "批量下载已取消（含失败）", cancellationStatus);
         }
         finally
         {
@@ -7166,7 +7546,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 catch (Exception exception)
                 {
                     WriteSftpTransferDiagnostic("upload", exception);
-                    outcome = new SftpUploadItemOutcome(false, "上传异常，确认连接后可重试");
+                    outcome = new SftpUploadItemOutcome(false, "本地文件读取或传输发生异常，请重新选择文件后重试");
                 }
                 if (outcome.Succeeded)
                 {
@@ -7183,9 +7563,10 @@ public sealed class MainWindowViewModel : ObservableObject
                 NotifySftpTransferQueueChanged(transferContext);
             }
 
+            var firstFailure = failed.FirstOrDefault()?.Task.StatusText;
             var completionStatus = failed.Count == 0
                 ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"批量上传完成：成功 {completed}/{pending.Count}")
-                : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"批量上传中断：成功 {completed}/{pending.Count}，失败 {failed.Count}；确认连接或重新连接原资产后可重试");
+                : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"批量上传中断：成功 {completed}/{pending.Count}，失败 {failed.Count}；{firstFailure ?? "请查看失败任务详情"}");
             SetSftpTransferStatus(transferContext, completionStatus);
             SetSftpOperationStatusForOwner(owner, completionStatus);
             SetSftpTransferRetries(transferContext, null, failed.Count == 0 ? null : SftpBatchRetryRequest.ForUploads(failed));
@@ -7202,11 +7583,14 @@ public sealed class MainWindowViewModel : ObservableObject
             {
                 item.Task.MarkCancelled("已取消");
             }
-            var cancellationStatus = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"批量上传已取消：已完成 {completed}/{pending.Count}，可重试未完成项");
+            var cancellationStatus = string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"批量上传已取消：已完成 {completed}/{pending.Count}，取消 {pending.Count - processed}，失败 {failed.Count}；{failed.FirstOrDefault()?.Task.StatusText ?? "可重试未完成项"}");
             SetSftpTransferRetries(transferContext, null, remaining.Count == 0 ? null : SftpBatchRetryRequest.ForUploads(remaining));
             SetSftpTransferStatus(transferContext, cancellationStatus);
             SetSftpOperationStatusForOwner(owner, cancellationStatus);
-            PublishSftpFeedbackForContext(transferContext, SftpFeedbackKind.Warning, "批量上传已取消", cancellationStatus);
+            PublishSftpFeedbackForContext(transferContext,
+                failed.Count == 0 ? SftpFeedbackKind.Warning : SftpFeedbackKind.Error,
+                failed.Count == 0 ? "批量上传已取消" : "批量上传已取消（含失败）", cancellationStatus);
         }
         finally
         {
@@ -7249,9 +7633,19 @@ public sealed class MainWindowViewModel : ObservableObject
                     progress,
                     item.Task.TransferControl).ConfigureAwait(false),
                 CancellationToken.None).ConfigureAwait(true);
-            return result is SftpUploadResult.Uploaded uploaded
-                ? new SftpUploadItemOutcome(true, string.Create(System.Globalization.CultureInfo.InvariantCulture, $"上传完成 · {uploaded.ByteLength} B"))
-                : new SftpUploadItemOutcome(false, "上传失败，确认连接后可重试");
+            return result switch
+            {
+                SftpUploadResult.Uploaded uploaded => new SftpUploadItemOutcome(
+                    true,
+                    string.Create(System.Globalization.CultureInfo.InvariantCulture, $"上传完成 · {uploaded.ByteLength} B")),
+                SftpUploadResult.Failed failed when
+                    (failed.DetailCode ?? failed.Code) == "sftp_transfer_cancelled" && cancellationToken.IsCancellationRequested
+                    => throw new OperationCanceledException(cancellationToken),
+                SftpUploadResult.Failed failed => new SftpUploadItemOutcome(
+                    false,
+                    FormatSftpTransferFailure(failed.DetailCode, isUpload: true)),
+                _ => new SftpUploadItemOutcome(false, "上传未完成，请查看最近操作详情"),
+            };
         }
 
         return await ReplaceSftpFileSafelyAsync(item, batchLease, transferContext, cancellationToken).ConfigureAwait(true);
@@ -7286,6 +7680,16 @@ public sealed class MainWindowViewModel : ObservableObject
                 progress,
                 item.Task.TransferControl).ConfigureAwait(false),
             CancellationToken.None).ConfigureAwait(true);
+        if (upload is SftpUploadResult.Failed failedUpload)
+        {
+            if ((failedUpload.DetailCode ?? failedUpload.Code) == "sftp_transfer_cancelled" && cancellationToken.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(cancellationToken);
+            }
+            return new SftpUploadItemOutcome(
+                false,
+                string.Concat(FormatSftpTransferFailure(failedUpload.DetailCode, isUpload: true), "；原文件未修改"));
+        }
         if (upload is not SftpUploadResult.Uploaded)
         {
             return new SftpUploadItemOutcome(false, "临时文件上传失败，原文件未修改");
@@ -7404,7 +7808,11 @@ public sealed class MainWindowViewModel : ObservableObject
                 break;
             case SftpUploadResult.Failed failed:
                 SetSftpOperationStatusForOwner(owner, failed.Code);
-                var failedStatus = string.Concat("上传失败：", localFileName, "。请确认网络和连接状态；如已断线，重新连接原资产后重试。");
+                var failedStatus = string.Concat(
+                    "上传失败：",
+                    localFileName,
+                    "。",
+                    FormatSftpTransferFailure(failed.DetailCode, isUpload: true));
                 SetSftpTransferStatus(transferContext, failedStatus);
                 SetSftpTransferRetries(transferContext, SftpTransferRetryRequest.ForUpload(localPath, remotePath), null);
                 PublishSftpFeedbackForContext(transferContext, SftpFeedbackKind.Error, "上传失败", failedStatus);
@@ -7601,6 +8009,7 @@ public sealed class MainWindowViewModel : ObservableObject
         if (sftpLease is null)
         {
             SftpOperationStatus = "Open SFTP before creating a directory";
+            PublishSftpFeedback(SftpFeedbackKind.Error, "无法新建文件夹", "请先建立 SFTP 会话");
             return;
         }
 
@@ -7608,10 +8017,12 @@ public sealed class MainWindowViewModel : ObservableObject
         if (remotePath is null)
         {
             SftpOperationStatus = "Directory name rejected";
+            PublishSftpFeedback(SftpFeedbackKind.Error, "无法新建文件夹", "名称不能包含路径分隔符、控制字符或上级目录引用");
             return;
         }
 
         SftpOperationStatus = string.Concat("Creating ", remotePath);
+        PublishSftpFeedback(SftpFeedbackKind.InProgress, "正在新建文件夹", remotePath);
         var result = await orchestrator.CreateSftpDirectoryAsync(
             sftpLease,
             remotePath,
@@ -7621,9 +8032,11 @@ public sealed class MainWindowViewModel : ObservableObject
             case SftpMutationResult.Completed completed:
                 await PrepareSftpBrowseAsync(cancellationToken).ConfigureAwait(true);
                 SftpOperationStatus = string.Concat("Created folder ", completed.Path);
+                PublishSftpFeedback(SftpFeedbackKind.Success, "文件夹已创建", completed.Path);
                 break;
             case SftpMutationResult.Failed failed:
                 SftpOperationStatus = FormatSftpMutationFailure(failed);
+                PublishSftpFeedback(SftpFeedbackKind.Error, "新建文件夹失败", SftpOperationStatus);
                 break;
         }
 
@@ -7637,6 +8050,7 @@ public sealed class MainWindowViewModel : ObservableObject
         if (sftpLease is null)
         {
             SftpOperationStatus = "Open SFTP before creating a file";
+            PublishSftpFeedback(SftpFeedbackKind.Error, "无法新建文件", "请先建立 SFTP 会话");
             return;
         }
 
@@ -7644,10 +8058,12 @@ public sealed class MainWindowViewModel : ObservableObject
         if (remotePath is null)
         {
             SftpOperationStatus = "File name rejected";
+            PublishSftpFeedback(SftpFeedbackKind.Error, "无法新建文件", "名称不能包含路径分隔符、控制字符或上级目录引用");
             return;
         }
 
         SftpOperationStatus = string.Concat("Creating ", remotePath);
+        PublishSftpFeedback(SftpFeedbackKind.InProgress, "正在新建文件", remotePath);
         var result = await orchestrator.CreateSftpFileAsync(
             sftpLease,
             remotePath,
@@ -7657,9 +8073,11 @@ public sealed class MainWindowViewModel : ObservableObject
             case SftpMutationResult.Completed completed:
                 await PrepareSftpBrowseAsync(cancellationToken).ConfigureAwait(true);
                 SftpOperationStatus = string.Concat("Created file ", completed.Path);
+                PublishSftpFeedback(SftpFeedbackKind.Success, "文件已创建", completed.Path);
                 break;
             case SftpMutationResult.Failed failed:
                 SftpOperationStatus = FormatSftpMutationFailure(failed);
+                PublishSftpFeedback(SftpFeedbackKind.Error, "新建文件失败", SftpOperationStatus);
                 break;
         }
 
@@ -8078,6 +8496,7 @@ public sealed class MainWindowViewModel : ObservableObject
         CancelAutomaticReconnect();
         var transferContext = GetCurrentSftpTransferContext();
         var preserveSftpRecovery = HasActiveSftpTransfersForCurrentContext ||
+            transferContext.Tasks.Count > 0 ||
             transferContext.LastTransferRetry is not null ||
             transferContext.LastBatchRetry is not null;
         if (HasActiveSftpTransfersForCurrentContext)
@@ -8398,6 +8817,7 @@ public sealed class MainWindowViewModel : ObservableObject
         switch (result)
         {
             case ConnectResult.Connected connected:
+                ConnectionFailureMessage = string.Empty;
                 IsConnected = true;
                 if (SelectedWorkspaceTab is not null)
                 {
@@ -8421,14 +8841,55 @@ public sealed class MainWindowViewModel : ObservableObject
                 break;
             case ConnectResult.Blocked blocked:
                 IsConnected = false;
+                ConnectionFailureMessage = "服务器身份校验未通过，连接已停止。请先核对主机密钥。";
                 Status = blocked.Block.MessageKey;
                 SecurityStatus = blocked.Block.ReasonCode;
                 SessionActionSummary = blocked.Block.ReasonCode;
                 NotifyWorkbenchStateChanged();
                 break;
+            case ConnectResult.RequiresSecondFactor secondFactor:
+                IsConnected = false;
+                if (!string.IsNullOrEmpty(secondFactor.ForJump
+                        ? pendingJumpOneTimeCode : pendingOneTimeCode))
+                {
+                    CancelSecondFactor();
+                    Status = "SSH 二次验证失败，请检查验证码后重试连接";
+                    ConnectionFailureMessage = Status;
+                    SecurityStatus = "二次验证失败";
+                    SessionActionSummary = "验证码未保存";
+                    NotifyWorkbenchStateChanged();
+                    break;
+                }
+                secondFactorForJump = secondFactor.ForJump;
+                secondFactorWorkspaceId = CurrentWorkspaceId;
+                OnPropertyChanged(nameof(SecondFactorForJump));
+                HasSecondFactorChallenge = true;
+                Status = "等待 SSH 一次性验证码";
+                SecurityStatus = secondFactor.ForJump ? "跳板机二次验证" : "目标服务器二次验证";
+                SessionActionSummary = "验证码仅用于本次连接";
+                NotifyWorkbenchStateChanged();
+                break;
             case ConnectResult.Failed failed:
                 IsConnected = false;
-                Status = failed.MessageKey;
+                Status = failed.Code == "ssh_timeout"
+                    ? failed.DetailCode switch
+                    {
+                        "connect_timeout" => "连接服务器超时，请检查地址和网络后重试",
+                        "authentication_timeout" => "SSH 认证等待超时，请重新连接",
+                        "session_pool_lookup_timeout" or "session_pool_creation_timeout" or "session_pool_exact_lookup_timeout"
+                            => "现有会话暂未就绪，请稍后重试连接",
+                        _ => "SSH 连接超时，请检查网络后重试",
+                    }
+                    : failed.MessageKey;
+                ConnectionFailureMessage = failed.Code switch
+                {
+                    "ssh_timeout" => Status,
+                    "ssh_auth_failed" => "SSH 认证失败，请检查凭据或验证码后重试。",
+                    "ssh_connect_failed" => "无法连接服务器，请检查地址、端口和网络后重试。",
+                    "invalid_request" when failed.DetailCode == "missing_credentials"
+                        => "缺少此资产的本机凭据，请编辑凭据后重新连接。",
+                    _ => "连接未完成，请检查网络、凭据或服务器状态后重试。",
+                };
                 SecurityStatus = failed.Code;
                 SessionActionSummary = failed.Code;
                 NotifyWorkbenchStateChanged();
@@ -8443,6 +8904,115 @@ public sealed class MainWindowViewModel : ObservableObject
                 target.IsSelected = true;
                 RefreshBatchTargetSelection();
             }
+        }
+    }
+
+    private void OnSessionConnectionEventReceived(object? sender, SessionConnectionEventArgs e)
+    {
+        // Native callbacks arrive off the dispatcher. Never mutate WinUI-bound
+        // workspace or transfer state on the core callback thread.
+        dispatch(() => ApplySessionConnectionEvent(e));
+    }
+
+    private void ApplySessionConnectionEvent(SessionConnectionEventArgs e)
+    {
+        var owner = WorkspaceTabs.FirstOrDefault(tab =>
+            tab.WorkspaceId == e.WorkspaceId && tab.AssetId == e.ServerId);
+        if (owner is null)
+        {
+            return;
+        }
+
+        if (e.Kind == SessionConnectionEventKind.ConnectionLost)
+        {
+            var visibleBaseId = owner.TerminalLease?.BaseSessionId ??
+                owner.SftpLease?.BaseSessionId ??
+                orchestrator.GetVerifiedBaseSessionId(e.WorkspaceId, e.ServerId);
+            if (!owner.IsConnected || (visibleBaseId != 0 && visibleBaseId != e.SessionOrChannelId))
+            {
+                return;
+            }
+
+            if (ReferenceEquals(owner, SelectedWorkspaceTab))
+            {
+                MarkCurrentConnectionLost("远端连接已断开，请重新连接");
+            }
+            else
+            {
+                owner.IsConnected = false;
+                owner.TerminalLease = null;
+                owner.SftpLease = null;
+                owner.TerminalSplitPanes.Clear();
+                owner.Status = "远端连接已断开，请重新连接";
+                owner.SessionActionSummary = "连接已断开";
+                if (sftpTransferContexts.TryGetValue(owner.Id, out var context))
+                {
+                    context.BatchCancellation?.Cancel();
+                    foreach (var task in context.Tasks.Where(static task =>
+                        task.State is SftpTransferTaskState.Running or SftpTransferTaskState.Paused))
+                    {
+                        task.MarkCancelled("连接已断开，请重新选择文件");
+                    }
+                    context.TransferStatus = "连接已断开；重新连接后请核对未完成任务";
+                    NotifySftpTransferQueueChanged(context);
+                }
+                RefreshBatchAssetTargets();
+            }
+            return;
+        }
+
+        if (e.Kind != SessionConnectionEventKind.TerminalClosed)
+        {
+            return;
+        }
+
+        var primaryClosed = owner.TerminalLease?.TerminalChannelId == e.SessionOrChannelId;
+        if (primaryClosed)
+        {
+            if (owner.TerminalSplitPanes.FirstOrDefault() is { } replacement)
+            {
+                owner.TerminalSplitPanes.Remove(replacement);
+                owner.TerminalLease = replacement.Lease;
+                owner.TerminalLines.Clear();
+                owner.TerminalLines.AddRange(replacement.Lines);
+                RenumberTerminalSplitPanes(owner);
+            }
+            else
+            {
+                owner.TerminalLease = null;
+            }
+        }
+        else if (owner.TerminalSplitPanes.FirstOrDefault(pane =>
+            pane.Lease.TerminalChannelId == e.SessionOrChannelId) is { } closedPane)
+        {
+            owner.TerminalSplitPanes.Remove(closedPane);
+            RenumberTerminalSplitPanes(owner);
+        }
+        else
+        {
+            return; // Stale callback from a tab or channel already closed locally.
+        }
+
+        owner.Status = "远端终端已关闭；已验证连接和 SFTP 仍可用";
+        owner.SessionActionSummary = "终端已关闭";
+        if (ReferenceEquals(owner, SelectedWorkspaceTab))
+        {
+            terminalLease = owner.TerminalLease;
+            if (primaryClosed)
+            {
+                TerminalLines.Clear();
+                foreach (var line in owner.TerminalLines)
+                {
+                    TerminalLines.Add(line);
+                }
+            }
+            SetActiveTerminalPane(null);
+            Status = owner.Status;
+            SessionActionSummary = owner.SessionActionSummary;
+            NotifyTerminalSplitStateChanged();
+            NotifyTerminalStateChanged();
+            SaveRuntimeStateToSelectedWorkspaceTab();
+            RefreshCommands();
         }
     }
 
@@ -8872,6 +9442,7 @@ public sealed class MainWindowViewModel : ObservableObject
         SelectedWorkspaceTab.LastSuccessfulMonitorRefreshAt = lastSuccessfulMonitorRefreshAt;
         SelectedWorkspaceTab.CommandText = CommandText;
         SelectedWorkspaceTab.Status = Status;
+        SelectedWorkspaceTab.ConnectionFailureMessage = ConnectionFailureMessage;
         SelectedWorkspaceTab.SecurityStatus = SecurityStatus;
         SelectedWorkspaceTab.PasteSafetyStatus = PasteSafetyStatus;
         SelectedWorkspaceTab.SessionActionSummary = SessionActionSummary;
@@ -9068,6 +9639,7 @@ public sealed class MainWindowViewModel : ObservableObject
         hiddenTerminalLineCount = tab.HiddenTerminalLineCount;
         CommandText = tab.CommandText;
         Status = tab.Status;
+        ConnectionFailureMessage = tab.ConnectionFailureMessage;
         SecurityStatus = tab.SecurityStatus;
         PasteSafetyStatus = tab.PasteSafetyStatus;
         SessionActionSummary = tab.SessionActionSummary;
@@ -9178,6 +9750,9 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(TerminalStateLabel));
         OnPropertyChanged(nameof(TerminalTitle));
         OnPropertyChanged(nameof(TerminalSubtitle));
+        OnPropertyChanged(nameof(TerminalEmptyStateLabel));
+        OnPropertyChanged(nameof(TerminalEmptyStateDescription));
+        OnPropertyChanged(nameof(CanRetryConnectionFromEmptyState));
         OnPropertyChanged(nameof(ActivitySummary));
         OnPropertyChanged(nameof(HasTerminalOutput));
         OnPropertyChanged(nameof(TerminalOutputSummary));
@@ -9224,11 +9799,17 @@ public sealed class MainWindowViewModel : ObservableObject
         }
         else
         {
+            var interrupted = false;
             foreach (var task in transferContext.Tasks.Where(static task => task.State is SftpTransferTaskState.Running or SftpTransferTaskState.Paused))
             {
-                task.MarkCancelled("连接已断开，可重新连接后重试");
+                task.MarkCancelled("连接已断开，请重新连接后核对目标");
+                interrupted = true;
             }
-            SetSftpTransferStatus(transferContext, "连接已断开；重新连接原资产后可重试未完成的传输任务");
+            SetSftpTransferStatus(transferContext, "连接已断开；重新连接原资产后请核对未完成的传输任务");
+            if (interrupted || IsSftpFeedbackInProgress)
+            {
+                PublishSftpFeedback(SftpFeedbackKind.Warning, "传输已中断", "连接已断开；请先核对保存目标，再决定是否重试");
+            }
         }
         SetSftpTransferRetries(transferContext, transferContext.LastTransferRetry, transferContext.LastBatchRetry);
         SynchronizeVisibleSftpTransferContext(transferContext);
@@ -9259,6 +9840,7 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(CanEditSftpPreview));
         OnPropertyChanged(nameof(IsSftpPreviewReadOnly));
         OnPropertyChanged(nameof(IsSftpPreviewDirty));
+        OnPropertyChanged(nameof(IsSftpPreviewSaving));
         OnPropertyChanged(nameof(CanSaveSftpPreview));
     }
 
@@ -9917,11 +10499,45 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private static string FormatSftpMutationFailure(SftpMutationResult.Failed failed)
     {
-        return failed.Code switch
+        return failed.DetailCode switch
         {
-            "sftp_entry_changed" => "Entry changed on the server; refresh before retrying",
-            "sftp_target_exists" => "A destination or OrbitTerm recovery file already exists",
-            _ => failed.Code,
+            "permission_denied" or "sftp_permission_denied" =>
+                "远程目录或文件权限不足，请选择可写目录或调整权限后重试。",
+            "sftp_target_exists" or "sftp_destination_exists" =>
+                "远程已存在同名项目，请更换名称后重试。",
+            "sftp_entry_changed" => "远程项目已变更，请刷新目录并重新打开后重试。",
+            "sftp_session_unavailable" or "sftp_connection_closed" or "sftp_generation_mismatch" =>
+                "SFTP 会话已中断，请重新连接该资产后重试。",
+            _ => failed.Code switch
+            {
+                "sftp_entry_changed" => "远程项目已变更，请刷新后重试。",
+                "sftp_target_exists" => "远程已存在同名项目，请更名后重试。",
+                _ => "远程操作未完成，请检查会话和目标权限后重试。",
+            },
+        };
+    }
+
+    private static string FormatSftpTransferFailure(string? detailCode, bool isUpload)
+    {
+        return detailCode switch
+        {
+            "sftp_permission_denied" => isUpload
+                ? "当前远程目录不可写，请返回登录主目录或选择有写入权限的目录。"
+                : "远端拒绝读取该文件，请检查文件权限。",
+            "sftp_destination_exists" => isUpload
+                ? "远端已存在同名文件；为防止覆盖，请改名后重试。"
+                : "本地目标已存在，请选择其他文件名。",
+            "sftp_no_space_left" => isUpload
+                ? "远端存储空间不足。"
+                : "本地存储空间不足。",
+            "sftp_source_not_found" => "源文件已移动或删除，请刷新目录后重试。",
+            "sftp_connection_closed" or "sftp_generation_mismatch" =>
+                "SFTP 会话已中断，请重新连接该资产后重试。",
+            "sftp_local_io_failed" => "本地文件或目标目录不可访问；请检查是否留有部分文件，再重新选择位置。",
+            "sftp_local_cleanup_failed" => "下载目标清理失败；恢复保存位置后，请检查并删除本次部分文件，再重新下载。",
+            "sftp_remote_cleanup_failed" => "远端临时上传文件清理失败；请重新连接后检查远端临时文件，再重试。",
+            "sftp_transfer_cancelled" => "传输已取消。",
+            _ => "请检查连接与目标目录权限；可在“最近操作”中查看完整提示后重试。",
         };
     }
 
@@ -10154,6 +10770,27 @@ public sealed class MainWindowViewModel : ObservableObject
         }
     }
 
+    private static string CreateUniqueLocalDownloadPath(string requestedPath, bool directory)
+    {
+        var parent = Path.GetDirectoryName(requestedPath)
+            ?? throw new ArgumentException("A local download parent directory is required.", nameof(requestedPath));
+        var fileName = Path.GetFileName(requestedPath);
+        var extension = directory ? string.Empty : Path.GetExtension(fileName);
+        var stem = extension.Length == 0 ? fileName : fileName[..^extension.Length];
+        for (var index = 1; index <= 9999; index++)
+        {
+            var candidate = Path.Combine(parent, string.Concat(stem, " (", index, ")", extension));
+            if (!File.Exists(candidate) && !Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return Path.Combine(
+            parent,
+            string.Concat(stem, "-", Guid.NewGuid().ToString("N"), extension));
+    }
+
     private static bool IsSafeSftpChildName(string name) =>
         !string.IsNullOrWhiteSpace(name) &&
         name is not "." and not ".." &&
@@ -10242,6 +10879,11 @@ public sealed class MainWindowViewModel : ObservableObject
         SftpDirectoryEntryViewModel Entry,
         string LocalPath,
         SftpTransferTaskViewModel Task);
+
+    public sealed record SftpDownloadSelectionSnapshot(
+        Guid WorkspaceId,
+        SftpSessionLease Lease,
+        IReadOnlyList<SftpDirectoryEntryViewModel> Entries);
 
     private sealed record SftpBatchDeleteItem(
         SftpDirectoryEntryViewModel Entry,

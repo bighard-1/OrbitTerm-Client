@@ -11,6 +11,7 @@ public sealed class WindowsAccountSessionStore : IAccountSessionStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly string path;
+    private readonly SemaphoreSlim mutationGate = new(1, 1);
 
     public WindowsAccountSessionStore()
         : this(Path.Combine(
@@ -29,6 +30,13 @@ public sealed class WindowsAccountSessionStore : IAccountSessionStore
     }
 
     public async ValueTask<AccountSessionRecord?> ReadAsync(CancellationToken cancellationToken)
+    {
+        await mutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try { return await ReadCoreAsync(cancellationToken).ConfigureAwait(false); }
+        finally { mutationGate.Release(); }
+    }
+
+    private async ValueTask<AccountSessionRecord?> ReadCoreAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!File.Exists(path))
@@ -55,6 +63,25 @@ public sealed class WindowsAccountSessionStore : IAccountSessionStore
     }
 
     public async ValueTask SaveAsync(AccountSessionRecord session, CancellationToken cancellationToken)
+    {
+        await mutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try { await SaveCoreAsync(session, cancellationToken).ConfigureAwait(false); }
+        finally { mutationGate.Release(); }
+    }
+
+    public async ValueTask<bool> TryReplaceAsync(AccountSessionRecord expected, AccountSessionRecord replacement, CancellationToken cancellationToken)
+    {
+        await mutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (await ReadCoreAsync(cancellationToken).ConfigureAwait(false) != expected) return false;
+            await SaveCoreAsync(replacement, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        finally { mutationGate.Release(); }
+    }
+
+    private async ValueTask SaveCoreAsync(AccountSessionRecord session, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(session);
         cancellationToken.ThrowIfCancellationRequested();
@@ -89,15 +116,14 @@ public sealed class WindowsAccountSessionStore : IAccountSessionStore
         }
     }
 
-    public ValueTask ClearAsync(CancellationToken cancellationToken)
+    public async ValueTask ClearAsync(CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        if (File.Exists(path))
+        await mutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            File.Delete(path);
+            if (File.Exists(path)) File.Delete(path);
         }
-
-        return ValueTask.CompletedTask;
+        finally { mutationGate.Release(); }
     }
 
     private static bool IsValid(AccountSessionRecord? session) =>

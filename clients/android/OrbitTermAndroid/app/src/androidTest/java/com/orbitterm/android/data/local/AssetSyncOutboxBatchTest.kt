@@ -13,6 +13,32 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AssetSyncOutboxBatchTest {
     @Test
+    fun deleteRequestClockIsDurableAndCannotBeStampedOntoNewerIntent() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val database = Room.inMemoryDatabaseBuilder(context, OrbitTermDatabase::class.java).build()
+        try {
+            val dao = database.assetSyncOutboxDao()
+            val original = AssetSyncOutboxEntity(
+                accountScope = ACCOUNT_SCOPE,
+                assetId = "test-asset",
+                operation = AssetSyncOperation.MOVE_TO_TRASH.name,
+                operationId = "first-operation",
+                enqueuedAtUnix = 1,
+            )
+            dao.upsert(original)
+            assertEquals(1, dao.rememberDeleteRequestClock(ACCOUNT_SCOPE, original.assetId, original.operationId, "{\"android\":1}"))
+            assertEquals(0, dao.rememberDeleteRequestClock(ACCOUNT_SCOPE, original.assetId, original.operationId, "{\"android\":2}"))
+            assertEquals("{\"android\":1}", dao.find(ACCOUNT_SCOPE, original.assetId)?.requestVectorClock)
+
+            dao.upsert(original.copy(operationId = "new-operation", requestVectorClock = null))
+            assertEquals(0, dao.rememberDeleteRequestClock(ACCOUNT_SCOPE, original.assetId, original.operationId, "{\"android\":3}"))
+            assertEquals(null, dao.find(ACCOUNT_SCOPE, original.assetId)?.requestVectorClock)
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
     fun backlogReadsOneStableBoundedFifoPageWithoutDeletingRemainder() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val database = Room.inMemoryDatabaseBuilder(context, OrbitTermDatabase::class.java)

@@ -194,7 +194,7 @@ class CheckedSftpNativeClient @Inject constructor() {
         val bytes = envelope.data.long("byte_length")
         return if (envelope.kind == "sftp_upload_completed" || envelope.kind == "sftp_download_completed") {
             CheckedSftpTransferResult.Completed(bytes ?: 0)
-        } else CheckedSftpTransferResult.Failure(envelope.error?.string("code") ?: "native_operation_failed")
+        } else CheckedSftpTransferResult.Failure(checkedSftpTransferFailureCode(envelope.error))
     }
 
     private fun parseEnvelope(raw: String, expectedRequestId: String): NativeEnvelope? = runCatching {
@@ -232,11 +232,26 @@ class CheckedSftpNativeClient @Inject constructor() {
         )
 
         fun listFailure() = CheckedSftpListResult.Failure(
-            code = error?.string("code") ?: "native_operation_failed",
+            code = checkedSftpListFailureCode(error),
             retryable = error?.string("retryable")?.toBooleanStrictOrNull() ?: false,
         )
     }
 }
+
+/** Promote only fixed transfer details, never server messages or arbitrary tokens. */
+internal fun checkedSftpTransferFailureCode(error: JsonObject?): String =
+    when (val detail = error?.string("detail_code")) {
+        "sftp_transfer_cancelled", "sftp_remote_cleanup_failed" -> detail
+        else -> error?.string("code") ?: "native_operation_failed"
+    }
+
+/** Promote only the fixed timeout detail; never expose arbitrary server text. */
+internal fun checkedSftpListFailureCode(error: JsonObject?): String =
+    if (error?.string("code") == "sftp_list_failed" && error.string("detail_code") == "sftp_list_timeout") {
+        "sftp_list_timeout"
+    } else {
+        error?.string("code") ?: "native_operation_failed"
+    }
 
 private fun JsonObject.string(key: String): String? = get(key)?.jsonPrimitive?.content
 

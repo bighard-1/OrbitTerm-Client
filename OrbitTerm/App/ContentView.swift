@@ -51,6 +51,9 @@ struct ContentView: View {
             } else if !session.isAuthenticated {
                 AuthView()
                     .accessibilityIdentifier("orbit.root.auth")
+            } else if session.mustChangePassword {
+                ForcedPasswordChangeView()
+                    .accessibilityIdentifier("orbit.root.password-change-required")
             } else if !session.isUnlocked {
                 MasterPasswordGateView()
                     .accessibilityIdentifier("orbit.root.locked")
@@ -65,6 +68,14 @@ struct ContentView: View {
                 } else if AppUITestLaunchState.current == .accountSecurityStates {
                     AccountSecurityStateUITestHarnessView()
                         .accessibilityIdentifier("orbit.root.account-security-states")
+                } else if AppUITestLaunchState.current == .captureShieldStates {
+                    #if os(iOS)
+                    CaptureShieldUITestHarnessView()
+                        .accessibilityIdentifier("orbit.root.capture-shield-states")
+                    #else
+                    MainShellView()
+                        .accessibilityIdentifier("orbit.root.workspace")
+                    #endif
                 } else {
                     MainShellView()
                         .accessibilityIdentifier("orbit.root.workspace")
@@ -86,6 +97,9 @@ struct ContentView: View {
         .task(id: autoSyncTaskKey) {
             guard !isIsolatedUITestLaunch else { return }
             applyOperationLifecycle(event(for: scenePhase))
+            #if os(iOS)
+            resumeInterruptedSecondFactorIfPossible()
+            #endif
             // 每次鉴权/解锁/token变更后都允许重试拉取，避免“仅首轮触发”导致不再同步。
             #if os(iOS)
             scheduleAutoSync(after: 700_000_000)
@@ -110,12 +124,18 @@ struct ContentView: View {
                 return
             }
             applyOperationLifecycle(.becameActive)
+            #if os(iOS)
+            resumeInterruptedSecondFactorIfPossible()
+            #endif
             scheduleAutoSync(after: 0)
         }
         .onChange(of: session.isUnlocked) { _, isUnlocked in
             guard !isIsolatedUITestLaunch else { return }
             if isUnlocked {
                 applyOperationLifecycle(event(for: scenePhase))
+                #if os(iOS)
+                resumeInterruptedSecondFactorIfPossible()
+                #endif
             } else if session.isAuthenticated {
                 cancelAutoSync()
                 applyOperationLifecycle(.accountLocked)
@@ -125,6 +145,9 @@ struct ContentView: View {
             guard !isIsolatedUITestLaunch else { return }
             guard !isAuthenticated else { return }
             cancelAutoSync()
+            #if os(iOS)
+            sessionManager.clearPendingSecondFactorResume()
+            #endif
             applyOperationLifecycle(.accountSignedOut)
         }
         .onDisappear {
@@ -144,7 +167,8 @@ struct ContentView: View {
         }
         #endif
         #if os(macOS)
-        .frame(minWidth: 980, minHeight: 700)
+        .frame(minWidth: 820, minHeight: 560)
+        .background(WorkstationWindowGeometryInstaller())
         #endif
         .alert(
             SyncConflictPresentation.title,
@@ -179,7 +203,7 @@ struct ContentView: View {
 
     private var autoSyncTaskKey: String {
         // 触发键只使用内存态，避免 SwiftUI 刷新时反复读取 Keychain 造成首屏卡顿。
-        "\(session.isAuthenticated)-\(session.isUnlocked)-\(session.authRevision)"
+        "\(session.isAuthenticated)-\(session.isUnlocked)-\(session.mustChangePassword)-\(session.authRevision)"
     }
 
     private func applyOperationLifecycle(_ event: ApplicationOperationLifecycleEvent) {
@@ -190,6 +214,23 @@ struct ContentView: View {
             sessionManager: sessionManager
         )
     }
+
+    #if os(iOS)
+    private func resumeInterruptedSecondFactorIfPossible() {
+        guard scenePhase == .active,
+              session.isAuthenticated,
+              session.isUnlocked,
+              !session.mustChangePassword,
+              sessionManager.hasPendingSecondFactorResume else { return }
+        configureAccountScope()
+        sessionManager.resumeSecondFactorAfterUnlock(
+            accountID: session.username,
+            isAuthenticated: session.isAuthenticated,
+            isUnlocked: session.isUnlocked,
+            store: serverStore
+        )
+    }
+    #endif
 
     private func event(for phase: ScenePhase) -> ApplicationOperationLifecycleEvent {
         switch phase {
@@ -209,7 +250,7 @@ struct ContentView: View {
     /// foreground activation from publishing a late result.
     private func scheduleAutoSync(after delayNanoseconds: UInt64) {
         cancelAutoSync()
-        guard session.isAuthenticated, session.isUnlocked else { return }
+        guard session.isAuthenticated, session.isUnlocked, !session.mustChangePassword else { return }
 
         let generation = UUID()
         let expectedRevision = session.authRevision
@@ -350,6 +391,7 @@ struct ContentView: View {
             session.authRevision == expectedRevision &&
             session.isAuthenticated &&
             session.isUnlocked &&
+            !session.mustChangePassword &&
             session.username == expectedAccountID
     }
 
@@ -372,6 +414,28 @@ struct ContentView: View {
         try? PortForwardProfileStore.shared.activate(username: session.username)
     }
 }
+
+#if os(iOS) && !ORBITTERM_PUBLIC_RELEASE
+/// A sheet fixture with no account data. The button activates the same
+/// UIWindow-level shield used when a real capture grant expires.
+private struct CaptureShieldUITestHarnessView: View {
+    @State private var showsSheet = false
+
+    var body: some View {
+        Text("捕获遮挡层级测试")
+            .onAppear { showsSheet = true }
+            .sheet(isPresented: $showsSheet) {
+                VStack(spacing: 20) {
+                    Text("测试弹层内容")
+                    Button("模拟授权到期") {
+                        CaptureWindowShieldUITestHook.coverPresentedWindow()
+                    }
+                }
+                .presentationDetents([.medium])
+            }
+    }
+}
+#endif
 
 private struct LocalStorageCheckingView: View {
     var body: some View {
@@ -601,7 +665,7 @@ private struct SyncRecoveryStateUITestHarnessView: View {
 }
 
 private struct AccountSecurityStateUITestHarnessView: View {
-    @State private var showsLoginSuccess = true
+    @State private var showsLoginSuccess = false
     @State private var showsLogoutConfirmation = false
 
     private let loginSuccess = SecurityOperationFeedback(
@@ -621,6 +685,10 @@ private struct AccountSecurityStateUITestHarnessView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    Button("模拟登录密码更新成功") {
+                        showsLoginSuccess = true
+                    }
+                    .buttonStyle(.bordered)
                     if showsLoginSuccess {
                         feedback(loginSuccess)
                     }
@@ -650,7 +718,8 @@ private struct AccountSecurityStateUITestHarnessView: View {
         } message: {
             Text(SecurityOperationPresentation.logoutMessage)
         }
-        .task {
+        .task(id: showsLoginSuccess) {
+            guard showsLoginSuccess else { return }
             guard let delay = loginSuccess.autoDismissAfterNanoseconds else { return }
             try? await Task.sleep(nanoseconds: delay)
             guard !Task.isCancelled else { return }
@@ -757,6 +826,9 @@ private struct MainShellView: View {
             // software keyboard. Other shell pages continue to use the normal
             // SwiftUI dismiss action without competing for that same region.
             .applyKeyboardDismissToolbar(enabled: selectedTab != .session)
+            .onChange(of: sessionManager.mobileSessionFocusRequestID) { _, _ in
+                focusConnectedSessionIfRequested()
+            }
             #endif
         }
         .sheet(isPresented: $showingDeepLinkAddServer, onDismiss: finishDeepLinkReview) {
@@ -796,7 +868,13 @@ private struct MainShellView: View {
                 onRetrySave: {
                     Task { await sessionManager.retryCheckedHostKeySave() }
                 },
-                onClose: sessionManager.closeCheckedHostKeyPresentation
+                onSubmitSecondFactor: { code in
+                    Task { await sessionManager.submitCheckedSecondFactor(code) }
+                },
+                onClose: sessionManager.closeCheckedHostKeyPresentation,
+                onRemovePreviousTrust: { block in
+                    await sessionManager.removePreviousHostKeyTrustAndReconnect(block)
+                }
             )
             #if os(macOS)
             .frame(minWidth: 520, minHeight: 420)
@@ -825,11 +903,21 @@ private struct MainShellView: View {
         }
         .onAppear {
             processDeepLinkIfNeeded()
+            #if os(iOS)
+            focusConnectedSessionIfRequested()
+            #endif
         }
         .onChange(of: deepLinkManager.pendingIntent?.id) { _, _ in
             processDeepLinkIfNeeded()
         }
     }
+
+    #if os(iOS)
+    private func focusConnectedSessionIfRequested() {
+        guard sessionManager.consumeMobileSessionFocusRequest() else { return }
+        selectedTab = .session
+    }
+    #endif
 
     private var shouldShowSyncBanner: Bool {
         syncService.lastRecoveryPresentation != nil
@@ -899,7 +987,7 @@ private struct MainShellView: View {
     }
 
     private func processDeepLinkIfNeeded() {
-        guard session.isAuthenticated, session.isUnlocked else { return }
+        guard session.isAuthenticated, session.isUnlocked, !session.mustChangePassword else { return }
         guard let intent = deepLinkManager.pendingIntent else { return }
         guard !showingDeepLinkAddServer else { return }
 
@@ -936,6 +1024,106 @@ private struct MainShellView: View {
         processDeepLinkIfNeeded()
     }
 
+}
+
+private struct ForcedPasswordChangeView: View {
+    @EnvironmentObject private var session: AppSession
+    @EnvironmentObject private var serverStore: ServerStore
+    @State private var currentPassword = ""
+    @State private var newPassword = ""
+    @State private var confirmation = ""
+    @State private var errorMessage: String?
+    @State private var isSubmitting = false
+    @State private var requestTask: Task<Void, Never>?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("需要更新登录密码")
+                    .font(.title2.weight(.semibold))
+                Text("管理员已重置此账户的登录密码。完成更改前，资产和同步功能将保持锁定。")
+                    .foregroundStyle(.secondary)
+                SecureField("当前临时密码", text: $currentPassword)
+                    .textContentType(.password)
+                SecureField("新登录密码", text: $newPassword)
+                    .textContentType(.newPassword)
+                SecureField("确认新登录密码", text: $confirmation)
+                    .textContentType(.newPassword)
+                Text("新密码至少 12 位，并包含大小写字母、数字和特殊字符。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                if let errorMessage {
+                    Text(errorMessage)
+                        .foregroundStyle(.red)
+                        .accessibilityIdentifier("orbit.password-change-required.error")
+                }
+                Button(isSubmitting ? "更新中…" : "更新密码并继续") {
+                    submit()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isSubmitting || currentPassword.isEmpty || newPassword.isEmpty || confirmation.isEmpty)
+                Button("退出登录", role: .destructive) {
+                    requestTask?.cancel()
+                    AccountSessionActions.leaveCurrentAccount(session: session, serverStore: serverStore)
+                }
+                .disabled(isSubmitting)
+            }
+            .frame(maxWidth: 440, alignment: .leading)
+            .padding(24)
+            .frame(maxWidth: .infinity)
+        }
+        .onDisappear { requestTask?.cancel() }
+    }
+
+    private func submit() {
+        guard !isSubmitting else { return }
+        guard newPassword == confirmation else {
+            errorMessage = "两次输入的新密码不一致。"
+            return
+        }
+        guard newPassword.count >= 12,
+              newPassword.rangeOfCharacter(from: .uppercaseLetters) != nil,
+              newPassword.rangeOfCharacter(from: .lowercaseLetters) != nil,
+              newPassword.rangeOfCharacter(from: .decimalDigits) != nil,
+              newPassword.unicodeScalars.contains(where: { !CharacterSet.alphanumerics.contains($0) && !CharacterSet.whitespacesAndNewlines.contains($0) }) else {
+            errorMessage = "新密码至少 12 位，并包含大小写字母、数字和特殊字符。"
+            return
+        }
+        let account = session.username
+        let revision = session.authRevision
+        let oldPassword = currentPassword
+        let nextPassword = newPassword
+        isSubmitting = true
+        errorMessage = nil
+        requestTask = Task {
+            defer { isSubmitting = false; requestTask = nil }
+            do {
+                let result = try await NetworkService.shared.changePassword(
+                    currentPassword: oldPassword,
+                    newPassword: nextPassword
+                )
+                guard !Task.isCancelled, session.isAuthenticated,
+                      session.username == account, session.authRevision == revision else { return }
+                guard !result.accessTokenValue.isEmpty,
+                      let refresh = result.refreshTokenValue, !refresh.isEmpty else {
+                    errorMessage = "服务未返回有效会话，请重新登录。"
+                    return
+                }
+                try session.persistLogin(
+                    accessToken: result.accessTokenValue,
+                    refreshToken: refresh,
+                    username: account,
+                    mustChangePassword: false
+                )
+                currentPassword = ""
+                newPassword = ""
+                confirmation = ""
+            } catch {
+                guard !Task.isCancelled else { return }
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
 }
 
 #if os(iOS)

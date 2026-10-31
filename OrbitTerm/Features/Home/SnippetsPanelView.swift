@@ -48,6 +48,10 @@ struct SnippetsPanelView: View {
                 .buttonStyle(.borderless)
             }
 
+            Text("跨资产管理；连接 SSH 会话后可插入或执行")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             TextField("搜索标题 / 命令 / 分类", text: $query)
                 .textFieldStyle(.roundedBorder)
 
@@ -150,10 +154,6 @@ struct SnippetsPanelView: View {
                 Text(snippet.title)
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
-                Spacer()
-                Text(snippet.updatedAt, style: .time)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
             }
 
             ShellSyntaxHighlightedText(snippet.command, lineLimit: 3)
@@ -189,6 +189,10 @@ struct SnippetsPanelView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .accessibilityLabel("此命令片段仅可用于 \(snippet.assetScope.assetIDs.count) 台指定资产")
+                } else {
+                    Text("全部资产")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
         }

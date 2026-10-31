@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.test.platform.app.InstrumentationRegistry
 import com.orbitterm.android.domain.settings.AppColorTheme
 import com.orbitterm.android.ui.theme.OrbitTheme
 import java.nio.ByteBuffer
@@ -46,13 +47,21 @@ class OrbitDesignScreenshotBaselineTest {
     @Test
     fun lightStatusAndTerminalSwatchMatchBaseline() {
         compose.setContent { FixedBaselineCanvas { OrbitDesignRegressionPanel(darkTheme = false, destructiveDialog = false) } }
-        assertEquals(LIGHT_BASELINE, captureContentFingerprint())
+        assertEquals(expectedBaseline(LIGHT_BASELINE, ATD_LIGHT_BASELINE), captureContentFingerprint())
     }
 
     @Test
     fun darkDangerConfirmationMatchesBaseline() {
         compose.setContent { FixedBaselineCanvas { OrbitDesignRegressionPanel(darkTheme = true, destructiveDialog = true) } }
-        assertEquals(DARK_DANGER_BASELINE, captureContentFingerprint())
+        assertEquals(expectedBaseline(DARK_DANGER_BASELINE, ATD_DARK_DANGER_BASELINE), captureContentFingerprint())
+    }
+
+    private fun expectedBaseline(standard: String, atd: String): String = when (
+        InstrumentationRegistry.getArguments().getString("visualBaselineProfile")
+    ) {
+        null, "standard" -> standard
+        ATD_PROFILE -> atd
+        else -> error("Unknown visualBaselineProfile")
     }
 
     private fun captureContentFingerprint(): String {
@@ -76,6 +85,12 @@ class OrbitDesignScreenshotBaselineTest {
         // Re-record only after a reviewed visual change on the fixed baseline canvas.
         private const val LIGHT_BASELINE = "320x640:15b0518786781f6fcdf1e7e07b7e57054b415039d2e636684c25436c01824b55"
         private const val DARK_DANGER_BASELINE = "320x640:31fe7ecc1fb6b11778b0c160b75ab9bdf74bd2a5985519d7698b4bc42e4194a8"
+        // API 35 aosp_atd uses a software rendering stack with different glyph
+        // rasterization. It has its own runner-specific fingerprint; the standard
+        // hardware-accelerated baseline remains unchanged for local devices.
+        private const val ATD_PROFILE = "aosp-atd-api35"
+        private const val ATD_LIGHT_BASELINE = "320x640:265f11f6f938da6ae30415aece72e345e96b062644f55228f78355773a817e45"
+        private const val ATD_DARK_DANGER_BASELINE = "320x640:737ba33dbe4f214accd5549be82adb55a5bb06aadae2e63656b6d8f4de4223d6"
     }
 }
 

@@ -12,6 +12,7 @@ public sealed class WorkspaceTabViewModel : ObservableObject
     private bool isConnected;
     private bool hasHostKeyChallenge;
     private bool isBatchTargetSelected;
+    private bool isSessionTabVisible;
 
     public WorkspaceTabViewModel(
         Guid id,
@@ -69,6 +70,8 @@ public sealed class WorkspaceTabViewModel : ObservableObject
     public string CommandText { get; set; } = string.Empty;
 
     public string Status { get; set; } = "待命";
+
+    public string ConnectionFailureMessage { get; set; } = string.Empty;
 
     public string SecurityStatus { get; set; } = "尚未建立已验证会话";
 
@@ -158,6 +161,19 @@ public sealed class WorkspaceTabViewModel : ObservableObject
         set => SetProperty(ref isBatchTargetSelected, value);
     }
 
+    /// <summary>
+    /// The view model keeps one internal draft workspace so editing and command
+    /// state always have an owner. That draft is not a user session and must not
+    /// appear in the connected-session tab strip until a connection is started.
+    /// </summary>
+    public bool IsSessionTabVisible
+    {
+        get => isSessionTabVisible;
+        private set => SetProperty(ref isSessionTabVisible, value);
+    }
+
+    public void MarkSessionStarted() => IsSessionTabVisible = true;
+
     public string ConnectionStateLabel => IsConnected
         ? "已连接"
         : HasHostKeyChallenge ? "待确认" : "未连接";
@@ -226,6 +242,10 @@ public sealed class WorkspaceTabViewModel : ObservableObject
 
     private void NotifyConnectionStateChanged()
     {
+        if (IsConnected || HasHostKeyChallenge)
+        {
+            IsSessionTabVisible = true;
+        }
         OnPropertyChanged(nameof(ConnectionStateLabel));
         OnPropertyChanged(nameof(ConnectionStateGlyph));
     }

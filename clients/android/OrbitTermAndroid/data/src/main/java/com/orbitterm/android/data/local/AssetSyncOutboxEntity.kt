@@ -18,6 +18,8 @@ data class AssetSyncOutboxEntity(
     val attemptCount: Int = 0,
     /** Earliest server-authorized retry time; zero means no server delay. */
     val nextAttemptAtUnix: Long = 0,
+    /** Exact delete request clock, stable across retry and process restart. */
+    val requestVectorClock: String? = null,
 )
 
 enum class AssetSyncOperation { UPSERT, MOVE_TO_TRASH, RESTORE_FROM_TRASH, PURGE_FROM_TRASH }

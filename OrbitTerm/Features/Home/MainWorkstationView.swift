@@ -5,7 +5,6 @@ import AppKit
 
 struct MainWorkstationView: View {
     @Environment(\.appThemePalette) private var palette
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var serverStore: ServerStore
     #if os(macOS)
@@ -28,16 +27,25 @@ struct MainWorkstationView: View {
     @State private var showingBatchCommand = false
     @State private var showingKeyManagement = false
     @State private var showingPortForwarding = false
+    @State private var showingSnippets = false
     @State private var leftSearchText = ""
-    // The workstation sidebars open by default. Individual asset groups own
-    // their own collapsed state in WorkstationAssetSidebarView.
+    // The asset library is persistent chrome. Session tools are contextual:
+    // they start collapsed and open only after a live SSH workspace exists.
     @State private var isLeftPanelCollapsed = false
-    @State private var isRightPanelCollapsed = false
+    @State private var isRightPanelCollapsed = true
+    @State private var leftPanelAutomaticallyCollapsed = false
+    @State private var rightPanelAutomaticallyCollapsed = false
+    @State private var rightPanelManualVisibility: Bool?
+    @State private var currentWorkbenchWidth: CGFloat = 1280
     @State private var isTerminalFullscreen = false
-    @AppStorage("orbitterm.workstation.left.width") private var preferredLeftPanelWidth: Double = 260
-    @AppStorage("orbitterm.workstation.right.width") private var preferredRightPanelWidth: Double = 340
+    @AppStorage("orbitterm.workstation.left.width") private var preferredLeftPanelWidth: Double = 220
+    @AppStorage("orbitterm.workstation.right.width") private var preferredRightPanelWidth: Double = 280
+    @AppStorage("orbitterm.workstation.pane-width-schema") private var paneWidthSchema: Int = 0
     @State private var leftResizeOrigin: CGFloat?
     @State private var rightResizeOrigin: CGFloat?
+    @State private var hoveredWorkspaceSplitter: WorkspaceSplitterSide?
+    @State private var hoveredRestoreEdge: WorkspaceSplitterSide?
+    @FocusState private var focusedRestoreEdge: WorkspaceSplitterSide?
     @State private var selectedRightPanelTab: WorkstationRightPanelTab = .sftp
     @State private var showingMonitorDetailPanelID: UUID?
     @State private var pendingSFTPRename: PendingSFTPRename?
@@ -69,7 +77,7 @@ struct MainWorkstationView: View {
                 VStack(spacing: 0) {
 #if os(macOS)
                     if !isTerminalFullscreen {
-                        workstationTopChrome(widths: widths)
+                        workstationTopChrome()
                     }
 #endif
                     HStack(spacing: 0) {
@@ -77,31 +85,23 @@ struct MainWorkstationView: View {
                             middleColumn
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         } else {
-                            if isLeftPanelCollapsed {
-                                collapsedLeftRail
-                                    .frame(width: widths.left)
-                            } else {
+                            if !isLeftPanelCollapsed {
                                 leftColumn
                                     .frame(width: widths.left)
+                                workspaceSplitter(
+                                    side: .left,
+                                    currentWidth: widths.left
+                                )
                             }
-
-                            workspaceSplitter(
-                                side: .left,
-                                currentWidth: widths.left
-                            )
 
                             middleColumn
                                 .frame(width: widths.middle)
 
-                            workspaceSplitter(
-                                side: .right,
-                                currentWidth: widths.right
-                            )
-
-                            if isRightPanelCollapsed {
-                                collapsedRail
-                                    .frame(width: widths.right)
-                            } else {
+                            if !isRightPanelCollapsed {
+                                workspaceSplitter(
+                                    side: .right,
+                                    currentWidth: widths.right
+                                )
                                 rightColumn
                                     .frame(width: widths.right)
                             }
@@ -112,6 +112,29 @@ struct MainWorkstationView: View {
                     // workstation or squeeze the terminal pre-input bar and
                     // independent synchronization status bar out of view.
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .overlay(alignment: .leading) {
+                        if !isTerminalFullscreen, isLeftPanelCollapsed {
+                            workstationEdgeRestoreTrigger(
+                                side: .left,
+                                label: "展开服务器侧栏"
+                            ) {
+                                isLeftPanelCollapsed = false
+                                leftPanelAutomaticallyCollapsed = false
+                            }
+                        }
+                    }
+                    .overlay(alignment: .trailing) {
+                        if !isTerminalFullscreen, isRightPanelCollapsed {
+                            workstationEdgeRestoreTrigger(
+                                side: .right,
+                                label: "展开会话工具"
+                            ) {
+                                isRightPanelCollapsed = false
+                                rightPanelAutomaticallyCollapsed = false
+                                rightPanelManualVisibility = true
+                            }
+                        }
+                    }
                     if !isTerminalFullscreen {
                         WorkstationPersistentSyncStatusView(
                             serverStore: serverStore,
@@ -121,7 +144,19 @@ struct MainWorkstationView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .animation(reduceMotion ? nil : .interactiveSpring(response: 0.35, dampingFraction: 0.85), value: isRightPanelCollapsed)
+            .onChange(of: proxy.size.width, initial: true) { _, width in
+                currentWorkbenchWidth = width
+                updateResponsivePanels(for: width)
+            }
+            .onAppear {
+                guard paneWidthSchema < 2 else { return }
+                preferredLeftPanelWidth = 220
+                preferredRightPanelWidth = 280
+                paneWidthSchema = 2
+            }
+            .onChange(of: sessionToolContextKey, initial: true) { _, _ in
+                updateSessionToolVisibility()
+            }
         }
 #if os(macOS)
         .navigationTitle("OrbitTerm")
@@ -161,6 +196,27 @@ struct MainWorkstationView: View {
             chmodText: $pendingSFTPChmodText,
             pendingFileEdit: $pendingSFTPFileEdit
         ))
+        .sheet(isPresented: $showingSnippets) {
+            NavigationStack {
+                SnippetsPanelView(
+                    snippetStore: snippetStore,
+                    session: sessionManager.activeSession,
+                    onInsertCommand: { command, executeImmediately in
+                        guard let active = sessionManager.activeSession else { return }
+                        Task {
+                            await sessionManager.dispatchSnippetCommand(
+                                session: active,
+                                command: command,
+                                executeImmediately: executeImmediately
+                            )
+                        }
+                    }
+                )
+                .padding(16)
+                .navigationTitle("Snippets")
+            }
+            .frame(minWidth: 560, minHeight: 600)
+        }
         #if os(macOS)
         .modifier(MacManagementSheetsModifier(
             store: serverStore,
@@ -266,7 +322,6 @@ struct MainWorkstationView: View {
                 switch selectedRightPanelTab {
                 case .sftp: canUseSFTP
                 case .docker: canRefreshDocker
-                case .snippets: false
                 }
             }(),
             refreshMonitor: {
@@ -298,8 +353,6 @@ struct MainWorkstationView: View {
             Task { try? await active.sftpManager.refresh() }
         case .docker:
             Task { try? await active.dockerService.refreshNow() }
-        case .snippets:
-            break
         }
     }
 
@@ -319,9 +372,7 @@ struct MainWorkstationView: View {
         }
     }
 
-    private func workstationTopChrome(
-        widths: (left: CGFloat, middle: CGFloat, right: CGFloat)
-    ) -> some View {
+    private func workstationTopChrome() -> some View {
         // The hidden-title-bar scene still reserves a native traffic-light safe
         // area. Lift this chrome as one unit so the endpoint and workspace
         // actions share that visual baseline without putting interactive views
@@ -336,10 +387,10 @@ struct MainWorkstationView: View {
                 showingAssetManager: $showingAssetManager,
                 showingSettings: $showingSettings,
                 showingBatchCommand: $showingBatchCommand,
+                showingSnippets: $showingSnippets,
                 showingAccountSecurity: $showingAccountSecurity
             )
             WorkstationOverviewBand(
-                sidebarWidth: widths.left,
                 activeSession: sessionManager.activeSession,
                 monitorService: sessionManager.monitorService,
                 showingDetailPanelID: $showingMonitorDetailPanelID,
@@ -368,9 +419,8 @@ struct MainWorkstationView: View {
                 #endif
             }(),
             onCollapse: {
-                withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {
-                    isLeftPanelCollapsed = true
-                }
+                isLeftPanelCollapsed = true
+                leftPanelAutomaticallyCollapsed = false
             },
             onAddServer: { showingAddServer = true },
             onEditServer: { server in editingServer = server },
@@ -385,14 +435,6 @@ struct MainWorkstationView: View {
         sessionManager.openTab(for: server, autoConnect: true)
     }
 
-    private var collapsedLeftRail: some View {
-        WorkstationLeftRailView {
-            withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {
-                isLeftPanelCollapsed = false
-            }
-        }
-    }
-
     private var middleColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
             TabBarView(
@@ -400,12 +442,6 @@ struct MainWorkstationView: View {
                 activeTabID: sessionManager.activeTabID,
                 onSelect: { tab in sessionManager.activateTab(tab.id) },
                 onClose: { tab in sessionManager.closeTab(tab) },
-                onNew: {
-                    if let selected = serverStore.selectedServer {
-                        sessionManager.quickOpenServer = selected
-                    }
-                    sessionManager.openQuickTabFromSelection()
-                },
                 onDetach: { tab in
                     openWindow(value: tab.id)
                 },
@@ -456,7 +492,7 @@ struct MainWorkstationView: View {
                 ContentUnavailableView(
                     "暂无会话",
                     systemImage: "terminal",
-                    description: Text("从左侧选择服务器并点击 + 打开新标签")
+                    description: Text("从左侧选择服务器，然后建立连接。")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -466,7 +502,6 @@ struct MainWorkstationView: View {
     private var rightColumn: some View {
         WorkstationRightPanelView(
             sessionManager: sessionManager,
-            snippetStore: snippetStore,
             selectedTab: $selectedRightPanelTab,
             sftpPathFocusRequest: {
                 #if os(macOS)
@@ -476,9 +511,9 @@ struct MainWorkstationView: View {
                 #endif
             }(),
             onCollapse: {
-                withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {
-                    isRightPanelCollapsed = true
-                }
+                isRightPanelCollapsed = true
+                rightPanelAutomaticallyCollapsed = false
+                rightPanelManualVisibility = false
             },
             onCreateSFTPItem: { sessionID, kind in
                 pendingSFTPCreate = PendingSFTPCreate(sessionID: sessionID, kind: kind)
@@ -507,15 +542,41 @@ struct MainWorkstationView: View {
     private func toggleTerminalFullscreen() { }
 #endif
 
-    private var collapsedRail: some View {
-        WorkstationRightRailView {
-            withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85)) {
-                isRightPanelCollapsed = false
+    private func workstationEdgeRestoreTrigger(
+        side: WorkspaceSplitterSide,
+        label: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        let active = hoveredRestoreEdge == side || focusedRestoreEdge == side
+        return Button(action: action) {
+            Rectangle()
+                .fill(active ? palette.accentPrimary.color : palette.textSecondary.color)
+                .frame(width: 2, height: 40)
+                .opacity(active ? 0.92 : 0.18)
+                .frame(width: 10)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(width: 10)
+        .frame(maxHeight: .infinity)
+        .background {
+            if active {
+                palette.accentPrimary.color.opacity(0.08)
+            } else {
+                Color.clear
             }
         }
+        .focused($focusedRestoreEdge, equals: side)
+        .onHover { hovering in
+            hoveredRestoreEdge = hovering ? side : (hoveredRestoreEdge == side ? nil : hoveredRestoreEdge)
+        }
+        .accessibilityLabel(label)
+        .accessibilityHint("点击展开，不会自动打开")
+        .help(label)
     }
 
-    private enum WorkspaceSplitterSide { case left, right }
+    private enum WorkspaceSplitterSide: Hashable { case left, right }
 
     @ViewBuilder
     private func workspaceSplitter(
@@ -524,16 +585,28 @@ struct MainWorkstationView: View {
     ) -> some View {
 #if os(macOS)
         Rectangle()
-            .fill(palette.divider.color)
+            .fill(Color.clear)
             .frame(width: 6)
             .overlay {
                 Rectangle()
-                    .fill(palette.accentPrimary.color.opacity(0.45))
+                    .fill(
+                        hoveredWorkspaceSplitter == side
+                            ? palette.accentPrimary.color.opacity(0.72)
+                            : palette.divider.color
+                    )
                     .frame(width: 1)
             }
             .contentShape(Rectangle())
             .onHover { hovering in
-                if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                if hovering {
+                    hoveredWorkspaceSplitter = side
+                    NSCursor.resizeLeftRight.push()
+                } else {
+                    if hoveredWorkspaceSplitter == side {
+                        hoveredWorkspaceSplitter = nil
+                    }
+                    NSCursor.pop()
+                }
             }
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -563,6 +636,41 @@ struct MainWorkstationView: View {
 #else
         ThemedDivider()
 #endif
+    }
+
+    private func updateResponsivePanels(for width: CGFloat) {
+        if width < 1_180, !isRightPanelCollapsed {
+            isRightPanelCollapsed = true
+            rightPanelAutomaticallyCollapsed = true
+        } else if width >= 1_180, rightPanelAutomaticallyCollapsed {
+            isRightPanelCollapsed = !(rightPanelManualVisibility ?? hasLiveSSHToolContext)
+            rightPanelAutomaticallyCollapsed = false
+        }
+
+        if width < 980, !isLeftPanelCollapsed {
+            isLeftPanelCollapsed = true
+            leftPanelAutomaticallyCollapsed = true
+        } else if width >= 980, leftPanelAutomaticallyCollapsed {
+            isLeftPanelCollapsed = false
+            leftPanelAutomaticallyCollapsed = false
+        }
+    }
+
+    private var hasLiveSSHToolContext: Bool {
+        sessionManager.activeSession?.isConnected == true &&
+            sessionManager.activeSession?.server.transport == .ssh
+    }
+
+    private var sessionToolContextKey: String {
+        let active = sessionManager.activeSession
+        return "\(active?.id.uuidString ?? "none")|\(active?.isConnected == true)|\(active?.server.transport.rawValue ?? "none")"
+    }
+
+    private func updateSessionToolVisibility() {
+        guard rightPanelManualVisibility == nil else { return }
+        let canFitTools = currentWorkbenchWidth >= 1_180
+        isRightPanelCollapsed = !hasLiveSSHToolContext || !canFitTools
+        rightPanelAutomaticallyCollapsed = hasLiveSSHToolContext && !canFitTools
     }
 
     private func deleteServer(_ server: ServerEntry) {

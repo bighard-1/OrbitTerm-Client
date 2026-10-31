@@ -4,7 +4,6 @@ import UniformTypeIdentifiers
 enum WorkstationRightPanelTab: String, CaseIterable, Identifiable {
     case sftp
     case docker
-    case snippets
 
     var id: Self { self }
 
@@ -12,7 +11,6 @@ enum WorkstationRightPanelTab: String, CaseIterable, Identifiable {
         switch self {
         case .sftp: "SFTP"
         case .docker: "Docker"
-        case .snippets: "Snippets"
         }
     }
 
@@ -20,7 +18,6 @@ enum WorkstationRightPanelTab: String, CaseIterable, Identifiable {
         switch self {
         case .sftp: "folder"
         case .docker: "shippingbox"
-        case .snippets: "text.badge.plus"
         }
     }
 }
@@ -28,11 +25,13 @@ enum WorkstationRightPanelTab: String, CaseIterable, Identifiable {
 struct WorkstationRightPanelView: View {
     @Environment(\.appThemePalette) private var palette
     @ObservedObject var sessionManager: SessionManager
-    @ObservedObject var snippetStore: SnippetStore
 
     @Binding var selectedTab: WorkstationRightPanelTab
     @Binding var sftpPathFocusRequest: Int
     @State private var showingSFTPUploadImporter = false
+    @State private var uploadSelection: SFTPUploadSelectionContext?
+    @State private var uploadManager: SFTPManager?
+    @StateObject private var uploadQueue = SFTPUploadQueueController()
 
     let onCollapse: () -> Void
     let onCreateSFTPItem: (UUID, SFTPCreateKind) -> Void
@@ -64,14 +63,11 @@ struct WorkstationRightPanelView: View {
             isPresented: $showingSFTPUploadImporter,
             allowedContentTypes: [.item],
             allowsMultipleSelection: true
-        ) { result in
-            guard case let .success(urls) = result,
-                  let active = sessionManager.activeSession else {
-                return
-            }
-            Task {
-                await uploadSelectedSFTPFiles(urls, to: active.sftpManager)
-            }
+        ) { handleSelectedSFTPFiles($0) }
+        .onDisappear { cancelFileUpload() }
+        .onChange(of: sessionManager.activeTabID) { _, _ in cancelFileUpload() }
+        .onChange(of: selectedTab) { _, tab in
+            if tab != .sftp { cancelFileUpload() }
         }
     }
 
@@ -115,6 +111,7 @@ struct WorkstationRightPanelView: View {
             sftpSection(active)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 12)
+                .accessibilityElement(children: .contain)
                 .accessibilityLabel("SFTP 工具内容")
         case .docker:
             ScrollView(.vertical, showsIndicators: true) {
@@ -122,14 +119,8 @@ struct WorkstationRightPanelView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 12)
             }
+            .accessibilityElement(children: .contain)
             .accessibilityLabel("Docker 工具内容")
-        case .snippets:
-            ScrollView(.vertical, showsIndicators: true) {
-                snippetsSection(active)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
-            }
-            .accessibilityLabel("Snippets 工具内容")
         }
     }
 
@@ -140,12 +131,14 @@ struct WorkstationRightPanelView: View {
         } else {
             WorkstationSFTPCardView(
                 sftpManager: active.sftpManager,
+                isUploadRunning: uploadQueue.isRunning,
                 onRefresh: {
                     Task { try? await active.sftpManager.refresh() }
                 },
                 onUpload: {
-                    showingSFTPUploadImporter = true
+                    beginFileUpload(active)
                 },
+                onUploadContextInvalidated: { cancelFileUpload() },
                 onCreateDirectory: {
                     onCreateSFTPItem(active.id, .directory)
                 },
@@ -181,6 +174,13 @@ struct WorkstationRightPanelView: View {
                         await active.sftpManager.download(item: item, to: dst)
                     }
                 },
+                onBatchDownload: { items in
+                    await active.sftpManager.batchDownload(
+                        items: items,
+                        destinationDirectory: SFTPBrowserPathHelper.batchDownloadDirectory(),
+                        maxConcurrent: OperationResourceBudget.sftpMaximumConcurrentTransfers
+                    )
+                },
                 onRename: { item in
                     onRenameSFTPItem(active.id, item)
                 },
@@ -192,8 +192,16 @@ struct WorkstationRightPanelView: View {
                 },
                 onDelete: { item in
                     Task { await active.sftpManager.delete(item: item) }
+                },
+                onBatchDelete: { items in
+                    let paths = SFTPBatchOperationFormatter.remotePaths(
+                        for: items,
+                        currentPath: active.sftpManager.currentPath
+                    )
+                    _ = await active.sftpManager.batchDelete(paths: paths)
                 }
             )
+            .id(active.id)
         }
     }
 
@@ -208,25 +216,8 @@ struct WorkstationRightPanelView: View {
         )
     }
 
-    @ViewBuilder
-    private func snippetsSection(_ active: WorkspaceSession) -> some View {
-        WorkstationSnippetsCardView(
-            active: active,
-            snippetStore: snippetStore,
-            onInsertCommand: { command, executeImmediately in
-                Task {
-                    await sessionManager.dispatchSnippetCommand(
-                        session: active,
-                        command: command,
-                        executeImmediately: executeImmediately
-                    )
-                }
-            }
-        )
-    }
-
     private var emptyState: some View {
-        Text("连接终端后自动展示监控与 SFTP")
+        Text("连接会话后自动显示 SFTP 与 Docker")
             .font(.caption)
             .foregroundStyle(palette.textSecondary.color)
             .padding(10)
@@ -259,21 +250,53 @@ struct WorkstationRightPanelView: View {
 #endif
     }
 
-    private func uploadSelectedSFTPFiles(_ urls: [URL], to manager: SFTPManager) async {
-        for url in urls {
-            let hasSecurityScope = url.startAccessingSecurityScopedResource()
-            defer {
-                if hasSecurityScope {
-                    url.stopAccessingSecurityScopedResource()
-                }
-            }
+    private func beginFileUpload(_ active: WorkspaceSession) {
+        let target = active.sftpManager
+        guard target.isConnected, !uploadQueue.isRunning,
+              let context = SFTPUploadSelectionContext(
+                workspaceID: active.id, sessionID: target.activeSessionID, directory: target.currentPath
+              ) else { return }
+        uploadManager = target
+        uploadSelection = context
+        showingSFTPUploadImporter = true
+    }
 
-            let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
-            guard values?.isDirectory != true else {
-                manager.statusText = "上传失败: 暂不支持直接上传文件夹"
-                continue
-            }
-            await manager.upload(localURL: url)
+    private func handleSelectedSFTPFiles(_ result: Result<[URL], Error>) {
+        guard let target = uploadManager, let context = uploadSelection else { return }
+        uploadManager = nil
+        uploadSelection = nil
+        guard target === sessionManager.activeSession?.sftpManager, target.isConnected,
+              context.matches(workspaceID: sessionManager.activeTabID,
+                              sessionID: target.activeSessionID, directory: target.currentPath) else { return }
+        let urls: [URL]
+        switch result {
+        case let .success(selected): urls = selected
+        case let .failure(error):
+            let cocoaError = error as NSError
+            if cocoaError.domain == NSCocoaErrorDomain && cocoaError.code == NSUserCancelledError { return }
+            target.statusText = "上传失败: 无法读取所选文件，请重新选择"
+            return
         }
+        uploadQueue.start(urls: urls, canContinue: {
+            target === sessionManager.activeSession?.sftpManager && target.isConnected &&
+                context.matches(workspaceID: sessionManager.activeTabID,
+                                sessionID: target.activeSessionID, directory: target.currentPath)
+        }, operation: { url in
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
+                  let remotePath = context.remotePath(fileName: url.lastPathComponent) else {
+                target.statusText = "上传失败: 请选择可读取的普通文件，暂不支持文件夹"
+                return
+            }
+            await target.upload(localURL: url, remotePath: remotePath)
+        })
+    }
+
+    private func cancelFileUpload() {
+        uploadQueue.abandon()
+        uploadManager = nil
+        uploadSelection = nil
+        showingSFTPUploadImporter = false
     }
 }

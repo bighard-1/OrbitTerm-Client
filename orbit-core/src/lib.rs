@@ -75,6 +75,8 @@ pub enum OrbitCoreError {
     DecryptFailed,
     #[error("SSH 连接失败: {0}")]
     SshFailed(String),
+    #[error("SSH 需要一次性验证码")]
+    SshSecondFactorRequired,
     #[error("SFTP 错误: {0}")]
     SftpFailed(String),
     #[error("SFTP 传输已取消")]
@@ -83,6 +85,8 @@ pub enum OrbitCoreError {
     Internal(String),
     #[error("legacy_network_disabled")]
     LegacyNetworkDisabled,
+    #[error("SFTP 请求超时")]
+    SftpTimedOut,
 }
 
 impl From<legacy_network::LegacyNetworkDisabled> for OrbitCoreError {
@@ -163,6 +167,7 @@ pub async fn test_ssh_connection(
             &private_key_content,
             &private_key_passphrase,
             allow_password_fallback,
+            None,
         )
         .await?;
 

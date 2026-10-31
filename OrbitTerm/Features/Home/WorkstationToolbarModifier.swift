@@ -95,6 +95,7 @@ struct WorkstationTopBar: View {
     @Binding var showingAssetManager: Bool
     @Binding var showingSettings: Bool
     @Binding var showingBatchCommand: Bool
+    @Binding var showingSnippets: Bool
     @Binding var showingAccountSecurity: Bool
 
     var body: some View {
@@ -114,7 +115,13 @@ struct WorkstationTopBar: View {
                     .help("网络重试中")
             }
 
-            Spacer(minLength: 8)
+            WorkstationWindowDragRegion()
+                // A drag surface must participate only in the toolbar's own
+                // height. An unbounded NSViewRepresentable greedily consumes
+                // the workstation's vertical remainder in SwiftUI.
+                .frame(minWidth: 8, maxWidth: .infinity)
+                .frame(height: 28)
+                .accessibilityHidden(true)
 
             HStack(spacing: 8) {
                 Button("添加服务器") { showingAddServer = true }
@@ -137,6 +144,8 @@ struct WorkstationTopBar: View {
                 .buttonStyle(WorkstationTopBarButtonStyle(isPrimary: false))
                 Button("批量命令") { showingBatchCommand = true }
                     .buttonStyle(WorkstationTopBarButtonStyle(isPrimary: false))
+                Button("Snippets") { showingSnippets = true }
+                    .buttonStyle(WorkstationTopBarButtonStyle(isPrimary: false))
                 Button("设置") { showingSettings = true }
                     .buttonStyle(WorkstationTopBarButtonStyle(isPrimary: false))
                 AccountToolbarMenu(
@@ -156,6 +165,28 @@ struct WorkstationTopBar: View {
         .background(palette.surfaceGlassStrong.color)
     }
 
+}
+
+struct WorkstationWindowDragRegion: NSViewRepresentable {
+    final class DragSurface: NSView {
+        override var mouseDownCanMoveWindow: Bool { true }
+        override var intrinsicContentSize: NSSize { NSSize(width: -1, height: 0) }
+
+        override func mouseDown(with event: NSEvent) {
+            // Explicit native dragging is more deterministic than relying on
+            // mouseDownCanMoveWindow alone when SwiftUI rebuilds the top or
+            // footer bar during live status updates.
+            window?.performDrag(with: event)
+        }
+    }
+
+    func makeNSView(context: Context) -> DragSurface {
+        let view = DragSurface()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }
+
+    func updateNSView(_ nsView: DragSurface, context: Context) {}
 }
 
 struct WorkstationBrandOverview: View {
@@ -192,7 +223,6 @@ struct WorkstationBrandOverview: View {
 }
 
 struct WorkstationOverviewBand: View {
-    let sidebarWidth: CGFloat
     let activeSession: WorkspaceSession?
     @ObservedObject var monitorService: MonitorService
     @Binding var showingDetailPanelID: UUID?
@@ -200,14 +230,8 @@ struct WorkstationOverviewBand: View {
     @Environment(\.appThemePalette) private var palette
 
     var body: some View {
-        HStack(spacing: 8) {
-            RemoteEndpointMonitorCard(
-                host: activeSession?.isConnected == true ? activeSession?.server.host : nil
-            )
-            .frame(width: 176)
-
-            Group {
-                if let activeSession {
+        Group {
+            if let activeSession {
                 WorkstationMonitorOverviewStrip(
                     active: activeSession,
                     monitorService: monitorService,
@@ -217,20 +241,96 @@ struct WorkstationOverviewBand: View {
                     onStartCheckedMonitoring: onStartCheckedMonitoring
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Label("连接服务器后显示系统概览", systemImage: "waveform.path.ecg")
-                        .font(.caption)
-                        .foregroundStyle(palette.textSecondary.color)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .accessibilityLabel("系统概览，连接服务器后可用")
-                }
+            } else {
+                WorkstationMonitorPlaceholderStrip()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.leading, 12)
         .padding(.trailing, 12)
-        .frame(height: 60)
+        .frame(height: 40)
         .background(palette.surfaceGlassStrong.color)
+    }
+}
+
+struct WorkstationMonitorPlaceholderStrip: View {
+    let host: String?
+    let actionTitle: String
+    let action: (() -> Void)?
+    @Environment(\.appThemePalette) private var palette
+
+    init(host: String? = nil, actionTitle: String = "详情", action: (() -> Void)? = nil) {
+        self.host = host
+        self.actionTitle = actionTitle
+        self.action = action
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let detailWidth: CGFloat = 54
+            let spacing: CGFloat = 6
+            let cardCount: CGFloat = 7
+            let metricWidth = max(
+                0,
+                floor((proxy.size.width - detailWidth - spacing * cardCount) / cardCount)
+            )
+
+            HStack(spacing: spacing) {
+                placeholderCard(title: "当前资产 IP", value: host ?? "尚未选择", monospaced: true)
+                    .frame(width: metricWidth)
+
+                ForEach(["CPU", "内存", "磁盘", "下载", "上传", "延迟"], id: \.self) { title in
+                    placeholderCard(title: title, value: "—")
+                        .frame(width: metricWidth)
+                }
+
+                Button(actionTitle) { action?() }
+                    .buttonStyle(.borderless)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(action == nil ? palette.textSecondary.color : palette.textOnAccent.color)
+                    .frame(width: detailWidth, height: 32)
+                    .background(
+                        action == nil ? palette.surfaceGlass.color : palette.accentPrimary.color,
+                        in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(palette.borderGlass.color, lineWidth: action == nil ? 1 : 0)
+                    }
+                    .disabled(action == nil)
+            }
+            .frame(width: proxy.size.width, alignment: .leading)
+        }
+        .frame(height: 34)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(host == nil ? "尚未选择资产，监控指标不可用" : "已选择资产，等待开始安全监控")
+    }
+
+    private func placeholderCard(title: String, value: String, monospaced: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                Text(title)
+                    .lineLimit(1)
+                Spacer(minLength: 2)
+                Text(value)
+                    .fontDesign(monospaced ? .monospaced : .default)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(palette.textSecondary.color)
+            }
+            Capsule()
+                .fill(palette.borderGlass.color.opacity(0.72))
+                .frame(maxWidth: .infinity, minHeight: 2, maxHeight: 2)
+        }
+        .font(.caption2)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34, alignment: .leading)
+        .background(palette.surfaceGlass.color, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(palette.borderGlass.color, lineWidth: 1)
+        }
     }
 }
 
@@ -255,7 +355,7 @@ struct WorkstationTopStatusBuffer: View {
                 .padding(.horizontal, 12)
             }
         }
-        .frame(height: message.isEmpty ? 14 : 24)
+        .frame(height: message.isEmpty ? 0 : 24)
         .background(palette.surfaceGlassStrong.color)
         .accessibilityElement(children: message.isEmpty ? .ignore : .combine)
         .accessibilityLabel(message)
@@ -263,15 +363,18 @@ struct WorkstationTopStatusBuffer: View {
 }
 
 private struct WorkstationTopBarButtonStyle: ButtonStyle {
+    private let commandWidth: CGFloat = 82
+    private let commandHeight: CGFloat = 28
     let isPrimary: Bool
     @Environment(\.appThemePalette) private var palette
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.caption.weight(.semibold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
             .foregroundStyle(isPrimary ? palette.textOnAccent.color : palette.textPrimary.color)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .frame(width: commandWidth, height: commandHeight)
             .background(
                 isPrimary
                     ? palette.accentPrimary.color.opacity(configuration.isPressed ? 0.78 : 1)
@@ -340,6 +443,7 @@ private struct RemoteEndpointMonitorCard: View {
 
 #endif
 
+#if os(macOS)
 private struct AccountToolbarMenu: View {
     enum PendingAction: Hashable, Identifiable {
         case switchAccount
@@ -360,45 +464,56 @@ private struct AccountToolbarMenu: View {
         }
     }
 
-    @Environment(\.appThemePalette) private var palette
     let username: String
     let openAccountSecurity: () -> Void
     let leaveAccount: () -> Void
     @State private var pendingAction: PendingAction?
+    @State private var isShowingMenu = false
 
     var body: some View {
-        Menu {
-            Section {
-                Label(username.isEmpty ? "当前账号" : username, systemImage: "person.crop.circle")
-            }
-            Button {
-                openAccountSecurity()
-            } label: {
-                Label("管理个人信息", systemImage: "person.text.rectangle")
-            }
-            Divider()
-            Button {
-                pendingAction = .switchAccount
-            } label: {
-                Label("切换账号", systemImage: "person.crop.circle.badge.arrow.counterclockwise")
-            }
-            Button(role: .destructive) {
-                pendingAction = .logout
-            } label: {
-                Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
-            }
+        Button {
+            isShowingMenu.toggle()
         } label: {
-            Label("个人中心", systemImage: "person.crop.circle.fill")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(palette.textPrimary.color)
-                .padding(.horizontal, 9)
-                .frame(height: 30)
-                .background(palette.surfaceGlass.color, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay { RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(palette.borderGlass.color) }
+            HStack(spacing: 6) {
+                Image(systemName: "person.crop.circle.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                Text("个人中心")
+            }
+            .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
+        .buttonStyle(WorkstationTopBarButtonStyle(isPrimary: false))
         .accessibilityLabel(username.isEmpty ? "账户菜单" : "账户菜单，当前账号 \(username)")
         .help(username.isEmpty ? "账户菜单" : "当前账号：\(username)")
+        .popover(isPresented: $isShowingMenu, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 8) {
+                Label(username.isEmpty ? "当前账号" : username, systemImage: "person.crop.circle")
+                    .font(.headline)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 4)
+
+                accountAction("管理个人信息", systemImage: "person.text.rectangle") {
+                    isShowingMenu = false
+                    openAccountSecurity()
+                }
+                Divider()
+                accountAction("切换账号", systemImage: "person.crop.circle.badge.arrow.counterclockwise") {
+                    isShowingMenu = false
+                    pendingAction = .switchAccount
+                }
+                accountAction(
+                    "退出登录",
+                    systemImage: "rectangle.portrait.and.arrow.right",
+                    role: .destructive
+                ) {
+                    isShowingMenu = false
+                    pendingAction = .logout
+                }
+            }
+            .padding(12)
+            .frame(width: 272)
+        }
         .confirmationDialog(
             pendingAction?.title ?? "",
             isPresented: Binding(
@@ -416,7 +531,24 @@ private struct AccountToolbarMenu: View {
             Text("将断开当前所有会话并返回登录页。本机资产、片段和待同步操作会继续按原账号隔离保存，不会交给下一个账号。")
         }
     }
+
+    private func accountAction(
+        _ title: String,
+        systemImage: String,
+        role: ButtonRole? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(role: role, action: action) {
+            Label(title, systemImage: systemImage)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
+        .frame(height: 32)
+    }
 }
+#endif
 
 extension Notification.Name {
     static let orbitTermOpenKeyManagement = Notification.Name("orbitTerm.openKeyManagement")

@@ -670,7 +670,7 @@ final class SnippetStore: ObservableObject {
             ?? FileManager.default.temporaryDirectory
         let fileName = scope?.databaseFileName("snippets", pathExtension: "sqlite") ?? "snippets-signed-out.sqlite"
         return base
-            .appendingPathComponent("OrbitTerm", isDirectory: true)
+            .appendingPathComponent(MacQARuntimeIsolation.applicationDirectoryName, isDirectory: true)
             .appendingPathComponent(fileName, isDirectory: false)
     }
 

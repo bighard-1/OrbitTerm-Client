@@ -473,7 +473,9 @@ struct AccountSecurityView: View {
                 )
             }
             guard accepts(lease, scope: scope) else { return }
-            guard !result.accessTokenValue.isEmpty else {
+            guard !result.accessTokenValue.isEmpty,
+                  let rotatedRefresh = result.refreshTokenValue,
+                  !rotatedRefresh.isEmpty else {
                 setLoginPasswordFeedback(
                     .init(kind: .recoveryRequired, message: "服务未返回有效登录令牌，请重新登录。")
                 )
@@ -481,7 +483,7 @@ struct AccountSecurityView: View {
             }
             try session.persistLogin(
                 accessToken: result.accessTokenValue,
-                refreshToken: result.refreshTokenValue,
+                refreshToken: rotatedRefresh,
                 username: session.username
             )
             currentPassword = ""

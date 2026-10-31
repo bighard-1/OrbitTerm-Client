@@ -11,6 +11,7 @@ struct AddServerDraftInput {
     let transport: ServerTransportProtocol
     let networkDeviceProfile: NetworkDeviceProfile
     let allowPasswordFallback: Bool
+    let storageScope: ServerAssetStorageScope
     let password: String
     let privateKeyContent: String
     let privateKeyPassphrase: String
@@ -58,6 +59,7 @@ enum AddServerDraftBuilder {
                 transport: input.transport,
                 networkDeviceProfile: input.networkDeviceProfile,
                 allowPasswordFallback: normalizedFallback,
+                storageScope: input.storageScope,
                 credentialID: existing.credentialID,
                 jumpHost: input.transport == .ssh ? input.jumpHost : nil,
                 createdAt: existing.createdAt
@@ -75,6 +77,7 @@ enum AddServerDraftBuilder {
             transport: input.transport,
             networkDeviceProfile: input.networkDeviceProfile,
             allowPasswordFallback: normalizedFallback,
+            storageScope: input.storageScope,
             jumpHost: input.transport == .ssh ? input.jumpHost : nil
         )
     }

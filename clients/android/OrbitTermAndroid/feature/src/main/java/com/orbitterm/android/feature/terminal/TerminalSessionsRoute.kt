@@ -346,6 +346,9 @@ class TerminalSessionsViewModel @Inject constructor(
                 )
                 is CheckedSshConnectResult.Failure -> if (operations.isCurrent(operation)) reconnectState.value = ReconnectState(
                     error = run {
+                        if (connected.code == "ssh_second_factor_required") {
+                            return@run "此 SSH 会话需要一次性验证码。请从服务器页重新连接并输入验证码；原会话未受影响。"
+                        }
                         val error = com.orbitterm.android.domain.error.orbitNativeError(
                             connected.code,
                             connected.retryable,
