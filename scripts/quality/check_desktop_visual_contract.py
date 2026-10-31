@@ -421,6 +421,21 @@ if "onToggleSelection" in mac_sftp_components:
     raise SystemExit("desktop visual contract failed: macOS SFTP regained permanent row checkboxes")
 require(windows_xaml, 'SelectionMode="Extended"', "Windows standard SFTP multi-selection")
 require(windows_xaml, 'x:Name="SftpSelectionBar"', "Windows contextual SFTP action bar")
+windows_transfer_header = between(
+    windows_xaml,
+    '<Expander Grid.Row="4"',
+    "</Expander.Header>",
+    "Windows narrow SFTP queue header",
+)
+for fragment in (
+    'Text="{Binding SftpTransferQueueTitle}"',
+    'Text="{Binding SftpTransferQueueCounts}"',
+    'RowDefinitions="Auto,Auto"',
+    'TextWrapping="Wrap"',
+    'AutomationProperties.HelpText="{Binding SftpTransferQueueSummary}"',
+):
+    require(windows_transfer_header, fragment, "Windows narrow SFTP queue header")
+reject(windows_transfer_header, 'TextTrimming="CharacterEllipsis"', "Windows narrow SFTP queue counts")
 require(linux_ui, "gtk::SelectionMode::Multiple", "Linux SFTP multi-selection")
 require(linux_ui, 'add_css_class("sftp-selection-bar")', "Linux contextual SFTP action bar")
 require(mac_sftp_browser + read("OrbitTerm/Features/Home/WorkstationSFTPCardView.swift"), "selectedItemIDs.count > 1", "macOS deliberate SFTP batch actions")

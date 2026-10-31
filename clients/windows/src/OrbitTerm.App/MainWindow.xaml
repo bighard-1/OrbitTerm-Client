@@ -1612,11 +1612,16 @@
                         </ListView.ItemTemplate>
                     </ListView>
                     <Expander Grid.Row="4" IsExpanded="False" MaxHeight="250"
-                              AutomationProperties.Name="SFTP 传输任务队列">
+                              AutomationProperties.Name="SFTP 传输任务队列"
+                              AutomationProperties.HelpText="{Binding SftpTransferQueueSummary}"
+                              ToolTipService.ToolTip="{Binding SftpTransferQueueSummary}">
                         <Expander.Header>
-                            <Grid MinWidth="210">
-                                <TextBlock Text="{Binding SftpTransferQueueSummary}"
-                                           FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                            <Grid MinWidth="0" RowDefinitions="Auto,Auto" RowSpacing="3">
+                                <TextBlock Text="{Binding SftpTransferQueueTitle}"
+                                           FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <TextBlock Grid.Row="1" Text="{Binding SftpTransferQueueCounts}"
+                                           FontSize="12" TextWrapping="Wrap"
+                                           Foreground="{StaticResource OrbitMutedTextBrush}" />
                             </Grid>
                         </Expander.Header>
                         <Grid RowDefinitions="Auto,*" MaxHeight="190" RowSpacing="4"

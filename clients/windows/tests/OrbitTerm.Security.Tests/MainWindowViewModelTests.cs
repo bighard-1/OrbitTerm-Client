@@ -2227,6 +2227,10 @@ public sealed class MainWindowViewModelTests
     {
         var coreClient = new FakeCheckedCoreClient();
         var viewModel = CreateViewModel(coreClient);
+        Assert.Equal("暂无传输任务", viewModel.SftpTransferQueueTitle);
+        Assert.Equal("未完成 0 项 · 已完成 0 项", viewModel.SftpTransferQueueCounts);
+        var queueChanges = new HashSet<string?>();
+        viewModel.PropertyChanged += (_, args) => queueChanges.Add(args.PropertyName);
         viewModel.Password = "secret";
         await viewModel.ConnectCommand.ExecuteAsync(null);
         Assert.True(viewModel.IsSftpOpen);
@@ -2245,6 +2249,10 @@ public sealed class MainWindowViewModelTests
             var completed = Assert.Single(viewModel.SftpTransferTasks);
             Assert.Equal(SftpTransferTaskState.Completed, completed.State);
             Assert.False(viewModel.CanRetryLastSftpTransfer);
+            Assert.Equal("传输任务 1 项", viewModel.SftpTransferQueueTitle);
+            Assert.Equal("未完成 0 项 · 已完成 1 项", viewModel.SftpTransferQueueCounts);
+            Assert.Contains(nameof(viewModel.SftpTransferQueueTitle), queueChanges);
+            Assert.Contains(nameof(viewModel.SftpTransferQueueCounts), queueChanges);
 
             // Double-clicking the same asset invokes ConnectCommand, not the
             // explicit ReconnectSelectedWorkspaceAsync helper.
@@ -2255,6 +2263,14 @@ public sealed class MainWindowViewModelTests
             Assert.Same(completed, Assert.Single(viewModel.SftpTransferTasks));
             Assert.Same(completed, Assert.Single(viewModel.CompletedSftpTransferTasks));
             Assert.Contains("传输记录已保留", viewModel.SftpTransferStatus, StringComparison.Ordinal);
+            Assert.Equal("传输任务 1 项 · 未完成 0 项 · 已完成 1 项", viewModel.SftpTransferQueueSummary);
+
+            queueChanges.Clear();
+            viewModel.ClearCompletedSftpTransfersCommand.Execute(null);
+            Assert.Equal("暂无传输任务", viewModel.SftpTransferQueueTitle);
+            Assert.Equal("未完成 0 项 · 已完成 0 项", viewModel.SftpTransferQueueCounts);
+            Assert.Contains(nameof(viewModel.SftpTransferQueueTitle), queueChanges);
+            Assert.Contains(nameof(viewModel.SftpTransferQueueCounts), queueChanges);
         }
         finally
         {

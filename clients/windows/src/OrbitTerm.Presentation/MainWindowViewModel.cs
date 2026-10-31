@@ -580,11 +580,19 @@ public sealed class MainWindowViewModel : ObservableObject
         }
     }
 
-    public string SftpTransferQueueSummary => SftpTransferTasks.Count == 0
+    public string SftpTransferQueueTitle => SftpTransferTasks.Count == 0
         ? "暂无传输任务"
         : string.Create(
             System.Globalization.CultureInfo.InvariantCulture,
-            $"传输任务 {SftpTransferTasks.Count} 项 · 未完成 {ActiveSftpTransferTasks.Count} 项 · 已完成 {CompletedSftpTransferTasks.Count} 项");
+            $"传输任务 {SftpTransferTasks.Count} 项");
+
+    public string SftpTransferQueueCounts => string.Create(
+        System.Globalization.CultureInfo.InvariantCulture,
+        $"未完成 {ActiveSftpTransferTasks.Count} 项 · 已完成 {CompletedSftpTransferTasks.Count} 项");
+
+    public string SftpTransferQueueSummary => SftpTransferTasks.Count == 0
+        ? SftpTransferQueueTitle
+        : $"{SftpTransferQueueTitle} · {SftpTransferQueueCounts}";
 
     public string CompletedSftpTransferSummary => string.Create(
         System.Globalization.CultureInfo.InvariantCulture,
@@ -6994,6 +7002,8 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private void NotifySftpTransferQueueChanged()
     {
+        OnPropertyChanged(nameof(SftpTransferQueueTitle));
+        OnPropertyChanged(nameof(SftpTransferQueueCounts));
         OnPropertyChanged(nameof(SftpTransferQueueSummary));
         OnPropertyChanged(nameof(ActiveSftpTransferSummary));
         OnPropertyChanged(nameof(CompletedSftpTransferSummary));
