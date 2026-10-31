@@ -4083,6 +4083,11 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private async Task ConnectAsync(CancellationToken cancellationToken)
     {
+        var attemptId = Guid.NewGuid().ToString("N");
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        void Trace(string phase) => WriteConnectionDiagnostic(string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"{phase};attempt={attemptId};elapsed_ms={elapsed.ElapsedMilliseconds}"));
         if (secondFactorWorkspaceId != CurrentWorkspaceId) CancelSecondFactor();
         if (AssetTransport == ServerTransport.RemoteDesktop)
         {
@@ -4127,14 +4132,16 @@ public sealed class MainWindowViewModel : ObservableObject
 
         if (IsConnected || terminalLease is not null || sftpLease is not null)
         {
+            Trace("previous_session_end_started");
             await EndSessionCoreAsync(cancellationToken, "Previous session ended before reconnect").ConfigureAwait(true);
+            Trace("previous_session_end_completed");
         }
 
         SelectedWorkspaceTab?.MarkSessionStarted();
         Status = AssetTransport == ServerTransport.Telnet ? "正在建立 Telnet 明文连接" : "正在连接";
         SessionActionSummary = AssetTransport == ServerTransport.Telnet ? "正在连接已确认的 Telnet 目标" : "正在验证服务器身份";
         SecurityStatus = AssetTransport == ServerTransport.Telnet ? "无加密 · 无服务器身份验证" : "正在检查主机密钥";
-        WriteConnectionDiagnostic("command_started");
+        Trace("command_started");
         pendingChallenge = null;
         HasHostKeyChallenge = false;
         OnPropertyChanged(nameof(HostKeySummary));
@@ -4162,10 +4169,12 @@ public sealed class MainWindowViewModel : ObservableObject
             {
                 var credential = CredentialMaterialPolicy.NormalizeSshCredential(
                     new CredentialMaterial(Password, PrivateKey, PrivateKeyPassphrase));
+                Trace("credential_save_started");
                 await credentialVault.SaveAsync(
                     draftCredentialId,
                     credential,
                     cancellationToken).ConfigureAwait(true);
+                Trace("credential_save_completed");
                 credentialAvailabilityById[draftCredentialId] = CredentialAvailability.Available;
                 NotifyCredentialAvailabilityChanged();
             }
@@ -4174,10 +4183,12 @@ public sealed class MainWindowViewModel : ObservableObject
             {
                 var jumpCredential = CredentialMaterialPolicy.NormalizeSshCredential(
                     new CredentialMaterial(JumpPassword, JumpPrivateKey, JumpPrivateKeyPassphrase));
+                Trace("jump_credential_save_started");
                 await credentialVault.SaveAsync(
                     draftJumpCredentialId,
                     jumpCredential,
                     cancellationToken).ConfigureAwait(true);
+                Trace("jump_credential_save_completed");
             }
 
             if (asset.Transport == ServerTransport.Telnet)
@@ -4216,14 +4227,25 @@ public sealed class MainWindowViewModel : ObservableObject
             // The checked native SSH handshake performs network I/O synchronously.
             // Keep it off the WinUI dispatcher; applying its result stays on the
             // UI context below.
+            var workspaceId = CurrentWorkspaceId;
+            var oneTimeCode = pendingOneTimeCode;
+            var jumpOneTimeCode = pendingJumpOneTimeCode;
             var result = await Task.Run(
                     async () => await orchestrator
-                        .ConnectAsync(CurrentWorkspaceId, asset, cancellationToken,
-                            pendingOneTimeCode, pendingJumpOneTimeCode)
+                        .ConnectAsync(workspaceId, asset, cancellationToken,
+                            oneTimeCode, jumpOneTimeCode, stage => Trace(stage.ToString()))
                         .ConfigureAwait(false),
                     cancellationToken)
                 .ConfigureAwait(true);
-            WriteConnectionDiagnostic($"native_result={result.GetType().Name}");
+            Trace($"native_result={result.GetType().Name}");
+            if (result is ConnectResult.Failed { Code: "ssh_timeout" } timeout)
+            {
+                // Log only the closed set of timeout details, never native text.
+                var stage = timeout.DetailCode is "connect_timeout" or "authentication_timeout" or
+                    "session_pool_lookup_timeout" or "session_pool_creation_timeout" or "session_pool_exact_lookup_timeout"
+                    ? timeout.DetailCode : "other";
+                Trace(string.Concat("timeout_stage=", stage));
+            }
             ApplyConnectResult(result);
             if (result is not ConnectResult.RequiresSecondFactor and not ConnectResult.RequiresHostKeyTrust)
             {
@@ -4234,31 +4256,40 @@ public sealed class MainWindowViewModel : ObservableObject
                 // A verified SSH connection is immediately usable. Opening the
                 // terminal here removes the redundant second action while keeping
                 // the explicit command available as a recoverable retry path.
+                Trace("terminal_open_started");
                 await OpenTerminalAsync(cancellationToken).ConfigureAwait(true);
+                Trace("terminal_open_completed");
                 // SFTP is part of a verified workstation session, not a second
                 // connection the user has to remember to open. Each workspace tab
                 // owns its lease and listing, so switching tabs restores the matching
                 // asset view without touching another connection.
+                Trace("sftp_open_started");
                 await OpenSftpAsync(cancellationToken).ConfigureAwait(true);
+                Trace("sftp_open_completed");
                 if (sftpLease is not null)
                 {
+                    Trace("sftp_list_started");
                     await PrepareSftpBrowseAsync(cancellationToken).ConfigureAwait(true);
+                    Trace("sftp_list_completed");
                 }
                 // Docker belongs to the same verified workstation context. Load the
                 // current asset's containers immediately so the inspector never
                 // starts as an empty manual-refresh view.
+                Trace("docker_initialization_started");
                 await RefreshDockerContainersAsync(cancellationToken).ConfigureAwait(true);
                 await RefreshDockerStatsCoreAsync(cancellationToken, publishFeedback: false).ConfigureAwait(true);
+                Trace("docker_initialization_completed");
             }
             SaveRuntimeStateToSelectedWorkspaceTab();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            Trace("cancellation_observed");
             throw;
         }
         catch (Exception exception)
         {
-            WriteConnectionDiagnostic(string.Concat(
+            Trace(string.Concat(
                 "connection_exception=",
                 exception.GetType().Name,
                 ";hresult=0x",
@@ -4272,6 +4303,7 @@ public sealed class MainWindowViewModel : ObservableObject
         }
         finally
         {
+            Trace("command_finished");
             IsConnecting = false;
             RefreshCommands();
         }
@@ -8807,7 +8839,16 @@ public sealed class MainWindowViewModel : ObservableObject
                 break;
             case ConnectResult.Failed failed:
                 IsConnected = false;
-                Status = failed.MessageKey;
+                Status = failed.Code == "ssh_timeout"
+                    ? failed.DetailCode switch
+                    {
+                        "connect_timeout" => "连接服务器超时，请检查地址和网络后重试",
+                        "authentication_timeout" => "SSH 认证等待超时，请重新连接",
+                        "session_pool_lookup_timeout" or "session_pool_creation_timeout" or "session_pool_exact_lookup_timeout"
+                            => "现有会话暂未就绪，请稍后重试连接",
+                        _ => "SSH 连接超时，请检查网络后重试",
+                    }
+                    : failed.MessageKey;
                 SecurityStatus = failed.Code;
                 SessionActionSummary = failed.Code;
                 NotifyWorkbenchStateChanged();

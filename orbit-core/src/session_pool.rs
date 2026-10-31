@@ -806,9 +806,22 @@ pub(crate) fn insert_synthetic_base_session_for_tests(
 }
 
 #[cfg(test)]
+pub(crate) fn index_synthetic_base_session_for_tests(session: &OrbitBaseSession) {
+    // Existing synthetic fixtures deliberately avoid the shared reuse index.
+    // Only unique-key contention fixtures opt into the production lookup path.
+    lock_base_key_index()
+        .unwrap()
+        .insert(session.key.clone(), session.id);
+}
+
+#[cfg(test)]
 pub(crate) fn remove_synthetic_base_session_for_tests(base_session_id: u64) {
     if let Ok(mut sessions) = BASE_SESSIONS.lock() {
-        sessions.remove(&base_session_id);
+        if let Some(session) = sessions.remove(&base_session_id) {
+            if let Ok(mut index) = lock_base_key_index() {
+                index.remove_if_matches(&session.key, session.id);
+            }
+        }
     }
 }
 

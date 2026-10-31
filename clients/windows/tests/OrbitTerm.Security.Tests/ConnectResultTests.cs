@@ -7,6 +7,18 @@ namespace OrbitTerm.Security.Tests;
 public sealed class ConnectResultTests
 {
     [Fact]
+    public void NativeTimeoutRetainsTheStageForSafeFeedback()
+    {
+        var result = ConnectResult.FromNative(Guid.NewGuid(), Guid.NewGuid(),
+            new CheckedConnectOutcome.Failed(new CheckedErrorPayload(
+                "ssh_timeout", "error.ssh.timeout", "request-1", "session_pool_lookup_timeout")));
+
+        var failed = Assert.IsType<ConnectResult.Failed>(result);
+        Assert.Equal("ssh_timeout", failed.Code);
+        Assert.Equal("session_pool_lookup_timeout", failed.DetailCode);
+    }
+
+    [Fact]
     public void NativeConnectedOutcomeMapsToVerifiedLease()
     {
         var outcome = new CheckedConnectOutcome.Connected(new ConnectedPayload(

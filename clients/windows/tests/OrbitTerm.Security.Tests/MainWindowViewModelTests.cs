@@ -212,6 +212,41 @@ public sealed class MainWindowViewModelTests
         Assert.Contains("确认明文传输风险", viewModel.Status, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("connect_timeout", "连接服务器超时")]
+    [InlineData("authentication_timeout", "SSH 认证等待超时")]
+    [InlineData("session_pool_lookup_timeout", "现有会话暂未就绪")]
+    [InlineData("session_pool_creation_timeout", "现有会话暂未就绪")]
+    [InlineData("session_pool_exact_lookup_timeout", "现有会话暂未就绪")]
+    [InlineData("unrecognized-private-native-text", "SSH 连接超时")]
+    public async Task ConnectionTimeoutReturnsToRetryableStateWithoutOpeningChannels(string detail, string message)
+    {
+        var coreClient = new FakeCheckedCoreClient
+        {
+            ConnectFailure = new CheckedErrorPayload("ssh_timeout", "error.ssh.timeout", "request", detail),
+        };
+        var viewModel = CreateViewModel(coreClient);
+        viewModel.Password = "secret";
+
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+
+        Assert.Contains(message, viewModel.Status, StringComparison.Ordinal);
+        Assert.DoesNotContain("unrecognized-private-native-text", viewModel.Status, StringComparison.Ordinal);
+        Assert.False(viewModel.IsConnected);
+        Assert.False(viewModel.IsConnecting);
+        Assert.False(viewModel.IsTerminalOpen);
+        Assert.False(viewModel.IsSftpOpen);
+        Assert.Equal(0UL, coreClient.LastOpenedTerminalChannelId);
+        Assert.Equal(0, coreClient.OpenSftpCallCount);
+        Assert.True(viewModel.ConnectCommand.CanExecute(null));
+
+        coreClient.ConnectFailure = null;
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        Assert.True(viewModel.IsConnected);
+        Assert.True(viewModel.IsTerminalOpen);
+        Assert.Equal(2, coreClient.ConnectCallCount);
+    }
+
     [Fact]
     public async Task VerifiedConnectionOpensTerminalWithoutASecondUserAction()
     {
@@ -3694,6 +3729,7 @@ public sealed class MainWindowViewModelTests
         private int execCallCount;
         public int ExecCallCount => Volatile.Read(ref execCallCount);
         public int ConnectCallCount { get; private set; }
+        public CheckedErrorPayload? ConnectFailure { get; set; }
         public List<string> ExecutedCommands { get; } = [];
         public int DockerListCallCount { get; private set; }
         public int DockerStatsCallCount { get; private set; }
@@ -3730,6 +3766,7 @@ public sealed class MainWindowViewModelTests
         public CheckedConnectOutcome Connect(CheckedConnectionRequest request, HostKeyRequestId requestId)
         {
             ConnectCallCount++;
+            if (ConnectFailure is { } failure) return new CheckedConnectOutcome.Failed(failure);
             return new CheckedConnectOutcome.Connected(new ConnectedPayload(
                 9UL,
                 request.Host,

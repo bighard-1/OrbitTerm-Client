@@ -17,7 +17,7 @@ public abstract record ConnectResult
 
     public sealed record RequiresSecondFactor(bool ForJump) : ConnectResult;
 
-    public sealed record Failed(string Code, string MessageKey) : ConnectResult;
+    public sealed record Failed(string Code, string MessageKey, string? DetailCode = null) : ConnectResult;
 
     public static ConnectResult FromNative(Guid workspaceId, Guid serverId, CheckedConnectOutcome outcome)
     {
@@ -28,7 +28,7 @@ public abstract record ConnectResult
             CheckedConnectOutcome.Blocked blocked => FromBlocked(blocked.Payload),
             CheckedConnectOutcome.Failed failed when failed.Error.Code == "ssh_second_factor_required" =>
                 new RequiresSecondFactor(failed.Error.DetailCode == "jump_verification_code_required"),
-            CheckedConnectOutcome.Failed failed => new Failed(failed.Error.Code, failed.Error.MessageKey),
+            CheckedConnectOutcome.Failed failed => new Failed(failed.Error.Code, failed.Error.MessageKey, failed.Error.DetailCode),
             _ => throw new InvalidOperationException("Unknown checked connection outcome."),
         };
     }

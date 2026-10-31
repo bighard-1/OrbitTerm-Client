@@ -218,6 +218,17 @@ fn connect_error_payload(
 ) -> HostKeyFfiErrorPayload {
     match error {
         CheckedSshConnectError::Connection(error) => connection_error_payload(error, request_id),
+        CheckedSshConnectError::SessionPoolTimeout { stage } => HostKeyFfiErrorPayload::new(
+            HostKeyFfiErrorCode::SshTimeout,
+            Some(match stage {
+                CheckedSessionPoolStage::CandidateLookup => "session_pool_lookup_timeout",
+                CheckedSessionPoolStage::CreationGate => "session_pool_creation_timeout",
+                CheckedSessionPoolStage::ExactLookup => "session_pool_exact_lookup_timeout",
+                CheckedSessionPoolStage::Insert => "session_pool_insert_timeout",
+            }),
+            request_id,
+            None,
+        ),
         CheckedSshConnectError::SessionPool { stage } => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SessionPoolFailed,
             Some(match stage {

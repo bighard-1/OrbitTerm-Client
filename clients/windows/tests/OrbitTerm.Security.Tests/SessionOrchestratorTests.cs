@@ -11,6 +11,64 @@ namespace OrbitTerm.Security.Tests;
 
 public sealed class SessionOrchestratorTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConnectionStagesDistinguishCredentialReadsFromNativeWork(bool withJump)
+    {
+        var orchestrator = CreateConnectedOrchestrator(out _);
+        var asset = CreateAsset(Guid.NewGuid(), Guid.NewGuid());
+        if (withJump)
+            asset = asset with { JumpHost = new JumpHostConfiguration(Guid.NewGuid(), "jump.example", 22, "qa", true) };
+        var stages = new List<ConnectionSetupStage>();
+
+        var result = await orchestrator.ConnectAsync(Guid.NewGuid(), asset, CancellationToken.None, reportStage: stages.Add);
+
+        Assert.IsType<ConnectResult.Connected>(result);
+        var expected = new List<ConnectionSetupStage>
+        {
+            ConnectionSetupStage.CredentialReadStarted,
+            ConnectionSetupStage.CredentialReadCompleted,
+        };
+        if (withJump)
+            expected.AddRange([ConnectionSetupStage.JumpCredentialReadStarted, ConnectionSetupStage.JumpCredentialReadCompleted]);
+        expected.AddRange([ConnectionSetupStage.NativeConnectStarted, ConnectionSetupStage.NativeConnectCompleted]);
+        Assert.Equal(expected, stages);
+    }
+
+    [Theory]
+    [InlineData(ConnectionSetupStage.CredentialReadCompleted)]
+    [InlineData(ConnectionSetupStage.JumpCredentialReadCompleted)]
+    [InlineData(ConnectionSetupStage.NativeConnectStarted)]
+    public async Task CancellationBeforeNativeWorkNeverStartsAnAuthentication(ConnectionSetupStage cancelAt)
+    {
+        var orchestrator = CreateConnectedOrchestrator(out var core);
+        using var cancellation = new CancellationTokenSource();
+        var asset = CreateAsset(Guid.NewGuid(), Guid.NewGuid()) with
+        {
+            JumpHost = new JumpHostConfiguration(Guid.NewGuid(), "jump.example", 22, "qa", true),
+        };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await orchestrator.ConnectAsync(Guid.NewGuid(), asset, cancellation.Token, reportStage: stage =>
+            {
+                if (stage == cancelAt) cancellation.Cancel();
+            }));
+
+        Assert.Null(core.LastConnectRequest);
+    }
+
+    [Fact]
+    public async Task BrokenDiagnosticSinkDoesNotBreakAuthentication()
+    {
+        var orchestrator = CreateConnectedOrchestrator(out var core);
+        var result = await orchestrator.ConnectAsync(Guid.NewGuid(), CreateAsset(Guid.NewGuid(), Guid.NewGuid()),
+            CancellationToken.None, reportStage: _ => throw new IOException("diagnostic unavailable"));
+
+        Assert.IsType<ConnectResult.Connected>(result);
+        Assert.NotNull(core.LastConnectRequest);
+    }
+
     [Fact]
     public async Task ConnectRegistersVerifiedLeaseAndAllowsTerminalOpen()
     {

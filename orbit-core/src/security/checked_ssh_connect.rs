@@ -1,5 +1,7 @@
 use std::fmt;
+use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 
 use thiserror::Error;
 use tokio::time::timeout;
@@ -9,7 +11,7 @@ use super::checked_test_connection::{
     authenticate_checked_session, best_effort_disconnect, load_checked_trust_store_generation,
     prepare_checked_connection, prepare_checked_connection_over_stream,
     CheckedConnectionPreparationOutcome, CheckedTestConnectionError, CheckedTestConnectionRequest,
-    CheckedTestTimeoutStage, CHECKED_AUTH_TIMEOUT,
+    CheckedTestTimeoutStage, CHECKED_AUTH_TIMEOUT, CHECKED_CONNECT_TIMEOUT,
 };
 use super::host_key_challenge_registry::RegisteredHostKeyChallenge;
 use super::host_key_verifier::{HostKeyBlock, SessionSecurityGeneration};
@@ -29,6 +31,8 @@ pub(crate) enum CheckedSshConnectError {
     Connection(#[source] CheckedTestConnectionError),
     #[error("checked SSH session pool operation failed")]
     SessionPool { stage: CheckedSessionPoolStage },
+    #[error("checked SSH session pool wait timed out")]
+    SessionPoolTimeout { stage: CheckedSessionPoolStage },
 }
 
 pub(crate) struct CheckedSshConnected {
@@ -74,13 +78,21 @@ pub(crate) async fn run_checked_ssh_connect(
         Ok(value) => value,
         Err(error) => return connection_error(error),
     };
-    match session_pool::lookup_verified_session_for_store(
-        request.host_identity(),
-        request.username(),
-        &initial_generation,
+    let candidate = match wait_for_session_pool(
+        session_pool::lookup_verified_session_for_store(
+            request.host_identity(),
+            request.username(),
+            &initial_generation,
+        ),
+        CheckedSessionPoolStage::CandidateLookup,
+        CHECKED_CONNECT_TIMEOUT,
     )
     .await
     {
+        Ok(value) => value,
+        Err(error) => return CheckedSshConnectOutcome::Error(error),
+    };
+    match candidate {
         Ok(Some(base)) => {
             return CheckedSshConnectOutcome::Connected(CheckedSshConnected {
                 security_generation: base.metadata.security_generation().clone(),
@@ -239,14 +251,36 @@ async fn finish_prepared_connection(
             return pool_error(CheckedSessionPoolStage::CreationGate);
         }
     };
-    let _guard = gate.lock().await;
-
-    match session_pool::try_reuse_checked_base_session(
-        request.username(),
-        security_generation.clone(),
+    let _guard = match wait_for_session_pool(
+        gate.lock(),
+        CheckedSessionPoolStage::CreationGate,
+        CHECKED_CONNECT_TIMEOUT,
     )
     .await
     {
+        Ok(value) => value,
+        Err(error) => {
+            best_effort_disconnect(&session, "session creation wait timed out").await;
+            return CheckedSshConnectOutcome::Error(error);
+        }
+    };
+    let reusable = match wait_for_session_pool(
+        session_pool::try_reuse_checked_base_session(
+            request.username(),
+            security_generation.clone(),
+        ),
+        CheckedSessionPoolStage::ExactLookup,
+        CHECKED_CONNECT_TIMEOUT,
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(error) => {
+            best_effort_disconnect(&session, "session reuse wait timed out").await;
+            return CheckedSshConnectOutcome::Error(error);
+        }
+    };
+    match reusable {
         Ok(Some(base)) => {
             best_effort_disconnect(&session, "verified session already pooled").await;
             return CheckedSshConnectOutcome::Connected(CheckedSshConnected {
@@ -323,14 +357,39 @@ async fn finish_prepared_connection_via_jump(
             return pool_error(CheckedSessionPoolStage::CreationGate);
         }
     };
-    let _guard = gate.lock().await;
-    match session_pool::try_reuse_checked_base_session_with_route(
-        request.username(),
-        security_generation.clone(),
-        route_identity.clone(),
+    let _guard = match wait_for_session_pool(
+        gate.lock(),
+        CheckedSessionPoolStage::CreationGate,
+        CHECKED_CONNECT_TIMEOUT,
     )
     .await
     {
+        Ok(value) => value,
+        Err(error) => {
+            best_effort_disconnect(&target_session, "session creation wait timed out").await;
+            best_effort_disconnect(&jump_session, "session creation wait timed out").await;
+            return CheckedSshConnectOutcome::Error(error);
+        }
+    };
+    let reusable = match wait_for_session_pool(
+        session_pool::try_reuse_checked_base_session_with_route(
+            request.username(),
+            security_generation.clone(),
+            route_identity.clone(),
+        ),
+        CheckedSessionPoolStage::ExactLookup,
+        CHECKED_CONNECT_TIMEOUT,
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(error) => {
+            best_effort_disconnect(&target_session, "session reuse wait timed out").await;
+            best_effort_disconnect(&jump_session, "session reuse wait timed out").await;
+            return CheckedSshConnectOutcome::Error(error);
+        }
+    };
+    match reusable {
         Ok(Some(base)) => {
             best_effort_disconnect(&target_session, "verified jump session already pooled").await;
             best_effort_disconnect(&jump_session, "verified jump session already pooled").await;
@@ -381,6 +440,19 @@ async fn finish_prepared_connection_via_jump(
         }),
         Err(_) => pool_error(CheckedSessionPoolStage::Insert),
     }
+}
+
+pub(crate) async fn wait_for_session_pool<F: Future>(
+    operation: F,
+    stage: CheckedSessionPoolStage,
+    budget: Duration,
+) -> Result<F::Output, CheckedSshConnectError> {
+    // Dropping a timed-out lock waiter neither acquires a session reference nor
+    // closes another workspace's authenticated connection. Never detach a
+    // background connection task and later publish its result after timeout.
+    timeout(budget, operation)
+        .await
+        .map_err(|_| CheckedSshConnectError::SessionPoolTimeout { stage })
 }
 
 fn connection_error(error: CheckedTestConnectionError) -> CheckedSshConnectOutcome {
