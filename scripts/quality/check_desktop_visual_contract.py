@@ -303,6 +303,26 @@ for text, label in (
     for fragment in empty_copy:
         require(text, fragment, label)
 
+windows_connection_empty_state = between(
+    windows_xaml,
+    '<StackPanel x:Name="TerminalEmptyState"',
+    '<Border x:Name="TerminalSearchPanel"',
+    "Windows connection failure surface",
+)
+for fragment in (
+    'Text="{Binding TerminalEmptyStateDescription}"',
+    'TextWrapping="Wrap"',
+    'x:Name="RetryConnectionEmptyButton"',
+    'Command="{Binding ConnectCommand}"',
+    'AutomationProperties.LiveSetting="Polite"',
+):
+    require(windows_connection_empty_state, fragment, "Windows visible connection failure and retry")
+require(
+    windows_main,
+    "RetryConnectionEmptyButton.Visibility = ViewModel.CanRetryConnectionFromEmptyState",
+    "Windows state-driven connection retry visibility",
+)
+
 tool_tabs = ["SFTP", "Docker"]
 require_ordered(mac_right, [f'case .{name.lower()}: "{name}"' for name in tool_tabs], "macOS tool tabs")
 require_ordered(

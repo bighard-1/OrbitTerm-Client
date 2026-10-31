@@ -71,6 +71,8 @@ public sealed class WorkspaceTabViewModel : ObservableObject
 
     public string Status { get; set; } = "待命";
 
+    public string ConnectionFailureMessage { get; set; } = string.Empty;
+
     public string SecurityStatus { get; set; } = "尚未建立已验证会话";
 
     public string PasteSafetyStatus { get; set; } = "粘贴安全检查已就绪";

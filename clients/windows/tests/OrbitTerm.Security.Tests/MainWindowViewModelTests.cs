@@ -227,10 +227,18 @@ public sealed class MainWindowViewModelTests
         };
         var viewModel = CreateViewModel(coreClient);
         viewModel.Password = "secret";
+        var changed = new HashSet<string?>();
+        viewModel.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
 
         await viewModel.ConnectCommand.ExecuteAsync(null);
 
         Assert.Contains(message, viewModel.Status, StringComparison.Ordinal);
+        Assert.Equal("连接未完成", viewModel.TerminalEmptyStateLabel);
+        Assert.Contains(message, viewModel.TerminalEmptyStateDescription, StringComparison.Ordinal);
+        Assert.Contains(nameof(MainWindowViewModel.TerminalEmptyStateLabel), changed);
+        Assert.Contains(nameof(MainWindowViewModel.TerminalEmptyStateDescription), changed);
+        Assert.Contains(nameof(MainWindowViewModel.CanRetryConnectionFromEmptyState), changed);
+        Assert.True(viewModel.CanRetryConnectionFromEmptyState);
         Assert.DoesNotContain("unrecognized-private-native-text", viewModel.Status, StringComparison.Ordinal);
         Assert.False(viewModel.IsConnected);
         Assert.False(viewModel.IsConnecting);
@@ -245,6 +253,53 @@ public sealed class MainWindowViewModelTests
         Assert.True(viewModel.IsConnected);
         Assert.True(viewModel.IsTerminalOpen);
         Assert.Equal(2, coreClient.ConnectCallCount);
+        Assert.False(viewModel.CanRetryConnectionFromEmptyState);
+        Assert.Empty(viewModel.ConnectionFailureMessage);
+    }
+
+    [Fact]
+    public async Task ConnectionFailureStaysWithItsWorkspaceAndDoesNotPolluteANewDraft()
+    {
+        var core = new FakeCheckedCoreClient
+        {
+            ConnectFailure = new CheckedErrorPayload("ssh_timeout", "error.ssh.timeout", "request", "connect_timeout"),
+        };
+        var viewModel = CreateViewModel(core);
+        viewModel.Password = "secret";
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        var failedTab = viewModel.SelectedWorkspaceTab;
+        var failure = viewModel.TerminalEmptyStateDescription;
+
+        viewModel.OpenWorkspaceTabCommand.Execute(null);
+        Assert.Equal("暂无会话", viewModel.TerminalEmptyStateLabel);
+        Assert.Empty(viewModel.ConnectionFailureMessage);
+        Assert.False(viewModel.CanRetryConnectionFromEmptyState);
+
+        viewModel.SelectedWorkspaceTab = failedTab;
+        Assert.Equal(failure, viewModel.TerminalEmptyStateDescription);
+        Assert.True(viewModel.CanRetryConnectionFromEmptyState);
+        Assert.Equal(1, core.ConnectCallCount);
+    }
+
+    [Theory]
+    [InlineData("ssh_auth_failed", "认证失败", "private detail")]
+    [InlineData("ssh_connect_failed", "无法连接服务器", "private detail")]
+    [InlineData("invalid_request", "缺少此资产的本机凭据", "missing_credentials")]
+    [InlineData("unrecognized_failure", "连接未完成", "private detail")]
+    public async Task ConnectionFailureEmptyStateDoesNotDisplayNativeFreeText(string code, string message, string detail)
+    {
+        var core = new FakeCheckedCoreClient
+        {
+            ConnectFailure = new CheckedErrorPayload(code, "private native text", "request", detail),
+        };
+        var viewModel = CreateViewModel(core);
+        viewModel.Password = "secret";
+
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+
+        Assert.Contains(message, viewModel.TerminalEmptyStateDescription, StringComparison.Ordinal);
+        Assert.DoesNotContain("private", viewModel.TerminalEmptyStateDescription, StringComparison.Ordinal);
+        Assert.True(viewModel.CanRetryConnectionFromEmptyState);
     }
 
     [Fact]

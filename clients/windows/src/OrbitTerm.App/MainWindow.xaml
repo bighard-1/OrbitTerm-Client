@@ -844,6 +844,7 @@
                         </StackPanel>
                     </Border>
                     <StackPanel x:Name="TerminalEmptyState"
+                                AutomationProperties.LiveSetting="Polite"
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
                                 Width="300"
@@ -870,6 +871,12 @@
                                 <TextBlock Text="打开终端" />
                             </StackPanel>
                         </Button>
+                        <Button x:Name="RetryConnectionEmptyButton"
+                                Visibility="Collapsed"
+                                Content="重新连接"
+                                Command="{Binding ConnectCommand}"
+                                HorizontalAlignment="Center"
+                                AutomationProperties.Name="重新连接当前服务器" />
                     </StackPanel>
                     <Border x:Name="TerminalSearchPanel"
                             Canvas.ZIndex="20"

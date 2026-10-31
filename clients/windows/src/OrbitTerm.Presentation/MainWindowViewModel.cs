@@ -88,6 +88,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private string jumpPrivateKeyPassphrase = string.Empty;
     private bool jumpAllowPasswordFallback = true;
     private string status = "待命";
+    private string connectionFailureMessage = string.Empty;
     private string securityStatus = "尚未建立已验证会话";
     private string commandText = string.Empty;
     private string pasteSafetyStatus = "粘贴安全检查已就绪";
@@ -676,6 +677,7 @@ public sealed class MainWindowViewModel : ObservableObject
                     if (previousAssetId != value.Id)
                     {
                         Password = PrivateKey = PrivateKeyPassphrase = string.Empty;
+                        ConnectionFailureMessage = string.Empty;
                     }
 
                     AssetEditorStatus = "已选择服务器资产";
@@ -1036,6 +1038,18 @@ public sealed class MainWindowViewModel : ObservableObject
         private set => SetProperty(ref securityStatus, value);
     }
 
+    public string ConnectionFailureMessage
+    {
+        get => connectionFailureMessage;
+        private set
+        {
+            if (SetProperty(ref connectionFailureMessage, value)) NotifyTerminalStateChanged();
+        }
+    }
+
+    public bool CanRetryConnectionFromEmptyState =>
+        !string.IsNullOrEmpty(ConnectionFailureMessage) && !IsConnecting && !IsConnected;
+
     public string CommandText
     {
         get => commandText;
@@ -1089,7 +1103,7 @@ public sealed class MainWindowViewModel : ObservableObject
             if (SetProperty(ref isOpeningVerifiedWorkspace, value))
             {
                 OnPropertyChanged(nameof(ConnectionProgressText));
-                RefreshCommands();
+                NotifyTerminalStateChanged();
             }
         }
     }
@@ -1231,11 +1245,13 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public string TerminalEmptyStateLabel => HasHostKeyChallenge
         ? "等待主机密钥确认"
-        : IsConnected ? "已准备就绪" : "暂无会话";
+        : IsConnected ? "已准备就绪"
+        : !string.IsNullOrEmpty(ConnectionFailureMessage) ? "连接未完成" : "暂无会话";
 
     public string TerminalEmptyStateDescription => HasHostKeyChallenge
         ? "确认主机密钥后，才能为此服务器打开终端。"
         : IsConnected ? "此服务器已完成验证。打开终端后即可运行命令。"
+        : !string.IsNullOrEmpty(ConnectionFailureMessage) ? ConnectionFailureMessage
         : "从左侧选择服务器，然后建立连接。";
 
     public string ActivitySummary => TerminalLines.Count == 0
@@ -4142,6 +4158,7 @@ public sealed class MainWindowViewModel : ObservableObject
         SessionActionSummary = AssetTransport == ServerTransport.Telnet ? "正在连接已确认的 Telnet 目标" : "正在验证服务器身份";
         SecurityStatus = AssetTransport == ServerTransport.Telnet ? "无加密 · 无服务器身份验证" : "正在检查主机密钥";
         Trace("command_started");
+        ConnectionFailureMessage = string.Empty;
         pendingChallenge = null;
         HasHostKeyChallenge = false;
         OnPropertyChanged(nameof(HostKeySummary));
@@ -4216,6 +4233,7 @@ public sealed class MainWindowViewModel : ObservableObject
                         break;
                     case TerminalOpenResult.Failed failed:
                         Status = failed.MessageKey;
+                        ConnectionFailureMessage = "Telnet 连接未完成，请检查地址、端口和网络后重试。";
                         SecurityStatus = "Telnet 连接未建立";
                         SessionActionSummary = failed.Code;
                         break;
@@ -4297,6 +4315,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 ";inner=",
                 exception.InnerException?.GetType().Name ?? "none"));
             Status = "连接未完成，请检查网络、凭据或服务器状态后重试";
+            if (!IsConnected) ConnectionFailureMessage = Status;
             SecurityStatus = "connection_failed";
             SessionActionSummary = "未建立已验证会话";
             SaveRuntimeStateToSelectedWorkspaceTab();
@@ -8788,6 +8807,7 @@ public sealed class MainWindowViewModel : ObservableObject
         switch (result)
         {
             case ConnectResult.Connected connected:
+                ConnectionFailureMessage = string.Empty;
                 IsConnected = true;
                 if (SelectedWorkspaceTab is not null)
                 {
@@ -8811,6 +8831,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 break;
             case ConnectResult.Blocked blocked:
                 IsConnected = false;
+                ConnectionFailureMessage = "服务器身份校验未通过，连接已停止。请先核对主机密钥。";
                 Status = blocked.Block.MessageKey;
                 SecurityStatus = blocked.Block.ReasonCode;
                 SessionActionSummary = blocked.Block.ReasonCode;
@@ -8823,6 +8844,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 {
                     CancelSecondFactor();
                     Status = "SSH 二次验证失败，请检查验证码后重试连接";
+                    ConnectionFailureMessage = Status;
                     SecurityStatus = "二次验证失败";
                     SessionActionSummary = "验证码未保存";
                     NotifyWorkbenchStateChanged();
@@ -8849,6 +8871,15 @@ public sealed class MainWindowViewModel : ObservableObject
                         _ => "SSH 连接超时，请检查网络后重试",
                     }
                     : failed.MessageKey;
+                ConnectionFailureMessage = failed.Code switch
+                {
+                    "ssh_timeout" => Status,
+                    "ssh_auth_failed" => "SSH 认证失败，请检查凭据或验证码后重试。",
+                    "ssh_connect_failed" => "无法连接服务器，请检查地址、端口和网络后重试。",
+                    "invalid_request" when failed.DetailCode == "missing_credentials"
+                        => "缺少此资产的本机凭据，请编辑凭据后重新连接。",
+                    _ => "连接未完成，请检查网络、凭据或服务器状态后重试。",
+                };
                 SecurityStatus = failed.Code;
                 SessionActionSummary = failed.Code;
                 NotifyWorkbenchStateChanged();
@@ -9401,6 +9432,7 @@ public sealed class MainWindowViewModel : ObservableObject
         SelectedWorkspaceTab.LastSuccessfulMonitorRefreshAt = lastSuccessfulMonitorRefreshAt;
         SelectedWorkspaceTab.CommandText = CommandText;
         SelectedWorkspaceTab.Status = Status;
+        SelectedWorkspaceTab.ConnectionFailureMessage = ConnectionFailureMessage;
         SelectedWorkspaceTab.SecurityStatus = SecurityStatus;
         SelectedWorkspaceTab.PasteSafetyStatus = PasteSafetyStatus;
         SelectedWorkspaceTab.SessionActionSummary = SessionActionSummary;
@@ -9597,6 +9629,7 @@ public sealed class MainWindowViewModel : ObservableObject
         hiddenTerminalLineCount = tab.HiddenTerminalLineCount;
         CommandText = tab.CommandText;
         Status = tab.Status;
+        ConnectionFailureMessage = tab.ConnectionFailureMessage;
         SecurityStatus = tab.SecurityStatus;
         PasteSafetyStatus = tab.PasteSafetyStatus;
         SessionActionSummary = tab.SessionActionSummary;
@@ -9707,6 +9740,9 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(TerminalStateLabel));
         OnPropertyChanged(nameof(TerminalTitle));
         OnPropertyChanged(nameof(TerminalSubtitle));
+        OnPropertyChanged(nameof(TerminalEmptyStateLabel));
+        OnPropertyChanged(nameof(TerminalEmptyStateDescription));
+        OnPropertyChanged(nameof(CanRetryConnectionFromEmptyState));
         OnPropertyChanged(nameof(ActivitySummary));
         OnPropertyChanged(nameof(HasTerminalOutput));
         OnPropertyChanged(nameof(TerminalOutputSummary));

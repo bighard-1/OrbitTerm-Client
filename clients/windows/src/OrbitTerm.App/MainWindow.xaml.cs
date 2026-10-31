@@ -3900,6 +3900,11 @@ public sealed partial class MainWindow : Window
                 : Visibility.Collapsed;
         }
 
+        if (e.PropertyName == nameof(MainWindowViewModel.CanRetryConnectionFromEmptyState))
+        {
+            UpdateTerminalEmptyState();
+        }
+
         if (e.PropertyName == nameof(MainWindowViewModel.ActivitySummary))
         {
             RequestTerminalScrollToEnd();
@@ -7389,6 +7394,9 @@ public sealed partial class MainWindow : Window
             ? Visibility.Collapsed
             : Visibility.Visible;
         OpenTerminalEmptyButton.Visibility = ViewModel.IsConnected
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        RetryConnectionEmptyButton.Visibility = ViewModel.CanRetryConnectionFromEmptyState
             ? Visibility.Visible
             : Visibility.Collapsed;
         NativeTerminalView.IsInputEnabled = ViewModel.IsTerminalOpen;
