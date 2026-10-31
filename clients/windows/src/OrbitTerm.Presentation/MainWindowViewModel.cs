@@ -3560,6 +3560,10 @@ public sealed class MainWindowViewModel : ObservableObject
         }
         if (WorkspaceTabs.Count == 0)
         {
+            // The last session becomes a fresh draft. Clear the asset selection
+            // too, so selecting the same saved asset reapplies its connection
+            // fields instead of being ignored as an unchanged selection.
+            SelectedAsset = null;
             ResetDraftAsset();
             var replacement = CreateWorkspaceTabFromDraft();
             WorkspaceTabs.Add(replacement);

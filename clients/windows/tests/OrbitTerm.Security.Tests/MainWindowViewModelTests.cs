@@ -804,6 +804,34 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task ClosingLastSessionClearsAssetSelectionSoSameAssetCanReconnect()
+    {
+        var coreClient = new FakeCheckedCoreClient();
+        var viewModel = CreateViewModel(coreClient);
+        var savedAsset = Assert.IsType<AssetViewModel>(viewModel.SelectedAsset);
+        viewModel.Password = "secret";
+        viewModel.ConnectCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.IsConnected && !viewModel.ConnectCommand.IsRunning);
+
+        viewModel.DisconnectAndCloseWorkspaceTabCommand.Execute(null);
+        await WaitUntilAsync(() => !viewModel.DisconnectAndCloseWorkspaceTabCommand.IsRunning);
+
+        Assert.Null(viewModel.SelectedAsset);
+        Assert.Empty(viewModel.Host);
+        Assert.False(viewModel.ConnectCommand.CanExecute(null));
+
+        viewModel.SelectedAsset = savedAsset;
+        Assert.Equal(savedAsset.Host, viewModel.Host);
+        Assert.Equal(savedAsset.Username, viewModel.Username);
+        Assert.True(viewModel.ConnectCommand.CanExecute(null));
+        Assert.Equal(1, coreClient.ConnectCallCount);
+        viewModel.ConnectCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.IsConnected && !viewModel.ConnectCommand.IsRunning);
+        Assert.Equal(2, coreClient.ConnectCallCount);
+        Assert.Equal(savedAsset.Id, viewModel.SelectedWorkspaceTab!.AssetId);
+    }
+
+    [Fact]
     public async Task WorkspaceTabsRestoreTerminalHistoryAndSftpDraftState()
     {
         var coreClient = new FakeCheckedCoreClient();
