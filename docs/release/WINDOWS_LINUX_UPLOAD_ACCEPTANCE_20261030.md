@@ -186,3 +186,19 @@ Mac 控制恢复后，精确 ELF `0f8e3d463ecac258dd5389e8e4ad9085b2912fc51c8e13
 **自动化首次失败保留**：新增行为回归在修复前实际执行 **1 失败／0 通过**，失败点是关闭后仍有旧资产选择；修复后完整 `MainWindowViewModelTests` **107 通过／0 失败／0 跳过**，覆盖新断开关闭→空草稿→重选同资产→实际假客户端重连，并包含原多标签恢复、传输反馈等测试。首次 --no-restore 构建因已有 assets 文件指向另一环境的 NuGet 根而报缺 xunit.analyzers，未执行测试；本机 locked restore 后修正，保留首次失败。测试构建使用已验 MSIX 中提取的真实原生 DLL 供项目产物检查，但此子集使用受控假 core，**不是 macOS 加载 Windows DLL，也不是 Windows 原生完整安全测试**。额外按不存在的 SFTP 任务类名筛选得到 0 项，不作为通过证据。桌面视觉契约与差异检查通过。
 
 本节是基于 `57bc217` 的新 Windows 源码候选；固定提交／新 CI／重新签名安装及 GUI 的关闭重开结果待后继回执，当前真机仍为旧包，不以源码和假客户端单测冒充设备修复已通过。Android 后续对照关闭最后会话后同资产一键重开、原凭据可用、无多余连接／上传；Windows 新包还须重点复测原长等待与暂停按钮，另补最窄标题计数。五端完整验收和既有提供方／Flatpak／墓碑开放项仍未关闭。
+
+## 3b12e66 固定 CI 与安装检查点
+
+**固定源码及自动化**：关闭最后标签的修复已提交、推送为 `3b12e66d72f2c43525542ff334c6ae07ae2ae609`。该提交的 [Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41152903940) 和 [Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41152903903) 均 **completed／success**；Windows 完整原生测试实际 **346 通过／0 失败／0 跳过**，随后 WinUI Release 和测试 MSIX 构建成功。本机视图模型 107 项仍是另一个假 core 子集，不与 346 相加为独立覆盖。[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41152903954) 当前仍运行，不能套用前一 `4851bff` 的全绿。
+
+官方安装 artifact 的名称含合并预览 `b0911f3a4b2c6733ba783239da38fa28c8ed16d5`；通过 GitHub commit 元数据和本地 Git 证明它以本候选为父提交，完整源码树均为 `a2c335f33ad675606db4a06efe70e9e10e3fde61`，不是仅凭文件名认定同源码。外层归档 SHA-256 `84ae1e22bf10db09179fe84d8e25d32794d2c1cc7456ccecf009b225ad64f0d1` 与 GitHub artifact 摘要一致；MSIX SHA-256 `736074b161173673d487bb4db014ad7d35ba9655c97ab0ed15779a1b46b340fc` 与包内清单、Mac、SMB 完整回读和 Windows Get-FileHash 一致；附带 CER SHA-256 `46287831800cbd98b91072aab3650ef4c7d2883e1aaf9ffc9b78b81204f4e53e`，签名者为 `CD22B21DCD61F7DB91C86F19877290207909EAD0`，Publisher 仍为 `CN=OrbitTerm Development`。
+
+**安装及数据**：先由 GUI 确认“暂无会话”并正常退出，Windows 本机 QA 进程为 0；在加密外置盘另做本轮静止备份，27 文件／135,047 字节／0 读取错误，安装前再次回读 25 个应用数据文件，均与该备份相同。按既有专用测试机 QA 更新授权，仅轮换此项目 LocalMachine／TrustedPeople 的测试叶证书；未更改其他信任库或全局执行策略。信任前 MSIX 状态 UnknownError，签名者与附带 CER 一致；导入后系统签名 **Valid**，才执行同身份、同版本 QA 的当前用户重新注册，使用在线系统应用卷。安装结果 **Success／Status Ok**；EXE SHA-256 `2984bb71c0ddd7b3c0ee9b23c38659d60243416bc75212478ed43b03cd012b86`，Presentation DLL SHA-256 `bc1019050a8751cef1a0450f27203b3de848dbfcedb62d84e4a66646c5ee031b`，均与 MSIX payload 相同。安装后 25 个应用数据文件再次全部匹配备份。
+
+旧 `7A87…A81B` 测试证书已导出公共证书备查，**仍保留受信以供回退**；必须等新版 GUI 解锁、原资产核对完成后才精确清理。当前不能记为旧证书清理已完成。
+
+**辅助失败保留**：浏览器点击下载在新标签页跳转到官方归档，原标签的 download 事件等待超时；改用界面已给出的原始归档地址下载并核对完整摘要，未以点击当完成。首次 Windows 哈希预检误在 SMB 传输结束前启动，文件占用导致检查拒绝，没有导入／安装；完整传输和回读结束后再检查成功。首次辅助取证选错 Python 环境而缺 Impacket；改用既有私有解释器恢复。脚本文件执行被测试机现有执行策略拒绝，未修改策略；完整非交互命令又超过包装器长度限制，只读预检未返回，精确停止本机该辅助进程后改为短命令分段完成，未停止测试机、RDP、RustDesk 或其他 Python 进程。以上不是产品自动化／GUI 失败，不删改原始检查点。
+
+**GUI 阻点与下一步**：尝试进入 Windows 桌面时，控制工具明确报告 Mac 已锁屏且自动解锁失败，要求用户本人解锁；已停止桌面输入并请求手动解锁 Mac、保持既有 Windows App 测试桌面可见。本包尚未启动／解锁、未核对新 GUI 原资产，也未完成关闭最后标签→直接双击／菜单重开、连接等待及暂停取消。8 MiB 合成源与受限夹具只在加密盘准备，**没有启动服务或临时监听**；K60／iPhone／Mac QA 安装包与线上服务未改。
+
+收到 Mac 解锁回复后，优先独立解锁新 Windows QA、核对既有资产，再清理旧测试证书并复测上述新包用例；安全门禁需按本候选继续收尾。Android 后续对照关闭最后会话的重选入口、选择本身零网络请求、暂停／取消与迟到清理风险；最窄标题、长连接等待、真实提供方、Flatpak 和五端完整矩阵仍开放。此次回执先本地保存／提交，不推送打断运行中的固定 Security Gates。
