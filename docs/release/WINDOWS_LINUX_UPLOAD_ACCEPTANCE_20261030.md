@@ -221,6 +221,18 @@ Mac 控制恢复后，精确 ELF `0f8e3d463ecac258dd5389e8e4ad9085b2912fc51c8e13
 
 **收尾与下一步**：GUI 已关闭唯一虚构会话至“暂无会话”，精确停止限时服务、核对监听关闭，远端回到原校验文件基线；虚构本地源、测试资产、备份保留。K60／Apple 包、RustDesk 与线上服务没有改动。新修复提交／推送后先收固定 Windows／Linux／Security Gates，再用该修复新包重跑普通上传和安全替换的暂停取消、清理失败与混合结果，确认顶部／任务／远端证据一致；当前仍未安装修复新包。Android 后续对照取消与失败分计、清理失败不可伪报已取消、原文件保持、原任务显式重试及无自动重传。最窄标题计数、长等待、真实文件提供方／Flatpak 及五端完整墓碑矩阵继续开放。
 
+## 41a28b9 Windows 超时可见反馈与按钮重连真机验收（2026-10-31）
+
+**固定候选／自动化**：可见反馈修复已提交／推送为 `41a28b981e5282c48e2c941f103c01272c50c13d`。[Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41179413017) 和 [Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41179413061) success；Windows 完整原生 **372 通过／0 失败／0 跳过**，WinUI Release 零警告／错误，签名包成功。372 包含本轮新增测试，不与本机假 core 158 项或旧候选 367 项累计。新 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41179413103) 仍须单独收尾，不把 Windows 成功当作完整安全门禁通过。上一候选 `1aca719` 的安全门禁因本次实际 UI 源码修复推送触发并发规则而最终 **cancelled**：五项常规 success、Apple checked-path cancelled、两条件 skipped；未完成结果保留，不将其标绿或抹为通过。
+
+**来源、安装、证书**：artifact `13033958832` 为合并预览 `b6db431`，父提交包含本候选、完整树均为 `6e1f3b8a258014880ae8cc820508e296ea2ab0a4`。归档 SHA-256 `4dc1ac1eeebeb96d00edca9c64db5e56f0088bbcdb41e6d130a4acf98c2de8fd` 与官方摘要／Mac／SMB 完整回读／Windows 本机一致；MSIX `201bf38ee8e7b1a3f63ddc35e32ced014851655f5d345a027db10bd53d12bbe0` 与包内清单／本机一致，CER `8e13533025c991657f426994f675cd460404718dc63691224eff8053fc3ac53b`，签名者 `47A116A07B489F0A9FBA4CBB163835E08A65F417`。再次正常退出旧包、进程 0 后，加密盘静止备份 **27 文件／298,955 字节／0 错误**；25 个账户文件安装前后均匹配备份。同身份同版本重新注册后包 Ok／签名 Valid，运行 EXE 及 EXE／Presentation／核心三 payload 均与已核验 MSIX 一致。系统屏幕键盘一次独立解锁、原 **5 组／7 资产**保持后，才精确清除已导出副本的旧 `F376…D815` 项目测试叶证书；随后验签仍 Valid。仍为 `OrbitTerm.Client` 测试身份，不证明独立并装。
+
+**真实 Windows GUI 结果**：保持同一虚构资产及受信夹具密钥；20 分钟上限、来源白名单、只读虚构目录、禁执行命令。TCP 接收但不回 SSH banner，原生开始在本次命令 48 ms、返回 15,093 ms，分类 Failed／connect_timeout，命令 15,104 ms 结束。GUI 真实显示 **“连接未完成”／“连接服务器超时，请检查地址和网络后重试”／“重新连接”按钮**，进度覆盖消失、终端与 SFTP 未建立。此项通过，不再仅有日志或“暂无会话”；上一节旧包失败仍保留。
+
+恢复同一只读服务后先独立确认尚无认证，没有自动连接；仅点击错误页中央的 **“重新连接”**，未双击资产或使用标签菜单代替。新关联尝试 Connected，终端虚构说明、SFTP 原 27 字节校验文件可见；诊断含终端／SFTP／列目录／后置初始化完整阶段，整次命令 **287 ms** 结束。旧错误及重试按钮消失。未上传／下载或创建传输任务，不能据此签收其他 SFTP 重试用例。随后关闭唯一标签，回到“暂无会话”且没有错误残留，确认新草稿清理路径；其他标签切回的失败归属本轮仍以自动化为证，没有冒充多标签 GUI。
+
+**清理与验收边界**：夹具模式 stop 后进程自行退出／记录 STOPPED、监听关闭，无需强制终止；仅原 27 字节文件，摘要 `d7e0317c9429a76779b262f78fc5d747bf5ea47a8f62e1b1d0bb4e0243234724` 不变，无残片。上一节旧夹具虽监听已关闭，等待未结束客户端时进程仍在，已核实 PID／脚本后精确 TERM；这个辅助清理问题保留，后继夹具增加显式关闭连接，本轮实际自然退出。未停止 RustDesk／RDP、修改其他证书或真实资产；K60／Apple／Linux QA 与线上服务未改。以上仅签收**握手无响应超时、用户可见失败、显式按钮重连和结束后清旧反馈**；共享池锁等待仍是 `238` 的自动化证据，原偶发等待唯一根因、认证超时 GUI、同步 FFI 即时取消、跨标签 GUI、最窄面板、Linux 同候选 GUI及五端完整矩阵继续开放。下一步先收新固定安全门禁，再补 Linux 连接／上传负向对照和 Windows 窄面板；Android 重点对照超时可见、重试不自动、错误归属及旧会话保持。设备回执先本地提交，避免纯文档推送取消当前固定安全门禁。
+
 ## 1aca719 Windows 连接负向真机与可见反馈补修（2026-10-31）
 
 **固定门禁与产物**：`1aca719535ccc3c6f490d3e3a24c6f5ab543bf9e` 的 [Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41177449437)／[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41177449425) 均 success；Windows 原生 **367 通过／0 失败／0 跳过**，WinUI Release 零警告／错误及测试包构建成功。[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41177449431) 此次检查为五项常规成功、Apple checked-path 仍在运行，两条件任务 skipped；**未记为整门禁通过**。官方 artifact `13034030101` 为合并预览 `4b1de2d`，父提交含候选且完整源码树均为 `de7b1e80227ede6027bad09bf92187d8815dae04`。外层归档 SHA-256 `e83c6c03f5cc1578815ba22d13f7365dae425e09ea369b2003409738e7862bbd` 与官方摘要、Mac、SMB 完整回读、Windows 本机一致；MSIX SHA-256 `0e03102605ca75e2c85b5e5d5ec8f7e04fba50295c9a8d5fe331f98d09cccd6f` 与包内清单及 Windows 本机相同。CER SHA-256 `1381b069dc0fab60193cbbb2294d0111c028f2ef711891eecfe98a65d90934f1`，签名者 `F3764DE92911CBB66CF4840D2591267826A2D815`。
