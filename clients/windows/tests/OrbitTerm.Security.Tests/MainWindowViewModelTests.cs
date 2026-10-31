@@ -1710,6 +1710,177 @@ public sealed class MainWindowViewModelTests
         Assert.DoesNotContain("部分失败", viewModel.SftpTransferStatus, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false, "sftp_transfer_cancelled")]
+    [InlineData(true, "sftp_transfer_cancelled")]
+    [InlineData(false, "sftp_remote_cleanup_failed")]
+    [InlineData(true, "sftp_remote_cleanup_failed")]
+    public async Task LastUploadCancellationPreservesTheCheckedCleanupOutcome(bool replace, string detailCode)
+    {
+        using var releaseGate = new ManualResetEventSlim(false);
+        var coreClient = new FakeCheckedCoreClient
+        {
+            SftpUploadReleaseGate = releaseGate,
+            SftpUploadFailuresRemaining = 1,
+            SftpUploadFailureDetailCode = detailCode,
+        };
+        var viewModel = CreateViewModel(coreClient);
+        viewModel.Password = "secret";
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        viewModel.SftpPathText = "/replace";
+        await viewModel.PrepareSftpBrowseCommand.ExecuteAsync(null);
+        var directory = Path.Combine(Path.GetTempPath(), $"orbitterm-upload-final-cancel-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var name = replace ? "same.txt" : "virtual.txt";
+        var source = Path.Combine(directory, name);
+        await File.WriteAllTextAsync(source, "virtual");
+        Task? operation = null;
+        try
+        {
+            operation = viewModel.UploadSftpFilesAsync(
+                [new SftpUploadSource(source, name, 7)],
+                SftpUploadConflictPolicy.Replace, CancellationToken.None);
+            await WaitUntilAsync(() => coreClient.SftpUploadInFlight == 1);
+            var task = Assert.Single(viewModel.SftpTransferTasks);
+            viewModel.PauseSftpTransfer(task);
+            viewModel.CancelSftpTransfer(task);
+            Assert.False(operation.IsCompleted); // Wait for the checked cleanup result.
+            releaseGate.Set();
+            await operation;
+
+            var cancelled = detailCode == "sftp_transfer_cancelled";
+            Assert.Equal(cancelled ? SftpTransferTaskState.Cancelled : SftpTransferTaskState.Failed, task.State);
+            Assert.Equal(cancelled, viewModel.IsSftpFeedbackWarning);
+            Assert.Equal(!cancelled, viewModel.IsSftpFeedbackError);
+            Assert.Contains(cancelled ? "批量上传已取消" : "远端临时上传文件清理失败", viewModel.SftpTransferStatus, StringComparison.Ordinal);
+            Assert.False(viewModel.HasActiveSftpTransfers);
+            Assert.True(viewModel.CanRetryLastSftpTransfer);
+            Assert.Equal(1, coreClient.UploadSftpFileCallCount);
+            Assert.Equal(0, coreClient.RemoveSftpEntryCallCount); // Never replace the original after cancellation/failure.
+            Assert.Empty(viewModel.CompletedSftpTransferTasks);
+        }
+        finally
+        {
+            releaseGate.Set();
+            if (operation is not null) await operation;
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("sftp_transfer_cancelled")]
+    [InlineData("sftp_local_cleanup_failed")]
+    public async Task LastDownloadCancellationPreservesTheCheckedCleanupOutcome(string detailCode)
+    {
+        using var enteredGate = new ManualResetEventSlim(false);
+        using var releaseGate = new ManualResetEventSlim(false);
+        var coreClient = new FakeCheckedCoreClient
+        {
+            SftpDownloadEnteredGate = enteredGate,
+            SftpDownloadReleaseGate = releaseGate,
+            SftpDownloadFailureDetailCode = detailCode,
+        };
+        var viewModel = CreateViewModel(coreClient);
+        viewModel.Password = "secret";
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        viewModel.SftpPathText = "/batch";
+        await viewModel.PrepareSftpBrowseCommand.ExecuteAsync(null);
+        viewModel.SetSelectedSftpEntries(viewModel.SftpEntries.Where(static entry => !entry.IsDirectory).Take(1));
+        var directory = Path.Combine(Path.GetTempPath(), $"orbitterm-download-final-cancel-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        Task? operation = null;
+        try
+        {
+            operation = viewModel.DownloadSelectedSftpEntriesAsync(directory, CancellationToken.None);
+            await WaitUntilAsync(() => enteredGate.IsSet);
+            var task = Assert.Single(viewModel.SftpTransferTasks);
+            viewModel.PauseSftpTransfer(task);
+            viewModel.CancelSftpTransfer(task);
+            Assert.False(operation.IsCompleted);
+            releaseGate.Set();
+            await operation;
+
+            var cancelled = detailCode == "sftp_transfer_cancelled";
+            Assert.Equal(cancelled ? SftpTransferTaskState.Cancelled : SftpTransferTaskState.Failed, task.State);
+            Assert.Equal(cancelled, viewModel.IsSftpFeedbackWarning);
+            Assert.Equal(!cancelled, viewModel.IsSftpFeedbackError);
+            Assert.Contains(cancelled ? "批量下载已取消" : "下载目标清理失败", viewModel.SftpTransferStatus, StringComparison.Ordinal);
+            Assert.False(viewModel.HasActiveSftpTransfers);
+            Assert.True(viewModel.CanRetryLastSftpTransfer);
+            Assert.Equal(1, coreClient.DownloadSftpFileCallCount);
+            Assert.Empty(viewModel.CompletedSftpTransferTasks);
+        }
+        finally
+        {
+            releaseGate.Set();
+            if (operation is not null) await operation;
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancellingTheRemainingBatchDoesNotHideAnEarlierCleanupFailure(bool upload)
+    {
+        using var enteredGate = new ManualResetEventSlim(false);
+        using var releaseGate = new ManualResetEventSlim(false);
+        var coreClient = new FakeCheckedCoreClient
+        {
+            SftpUploadReleaseGate = releaseGate,
+            SftpUploadFailuresRemaining = 1,
+            SftpUploadFailureDetailCode = "sftp_remote_cleanup_failed",
+            SftpDownloadEnteredGate = enteredGate,
+            SftpDownloadReleaseGate = releaseGate,
+            SftpDownloadFailureDetailCode = "sftp_local_cleanup_failed",
+        };
+        var viewModel = CreateViewModel(coreClient);
+        viewModel.Password = "secret";
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        viewModel.SftpPathText = "/batch";
+        await viewModel.PrepareSftpBrowseCommand.ExecuteAsync(null);
+        viewModel.SetSelectedSftpEntries(viewModel.SftpEntries.Where(static entry => !entry.IsDirectory));
+        var directory = Path.Combine(Path.GetTempPath(), $"orbitterm-batch-failure-cancel-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var firstPath = Path.Combine(directory, "first.txt");
+        var secondPath = Path.Combine(directory, "second.txt");
+        await File.WriteAllTextAsync(firstPath, "virtual");
+        await File.WriteAllTextAsync(secondPath, "virtual");
+        Task? operation = null;
+        try
+        {
+            operation = upload
+                ? viewModel.UploadSftpFilesAsync(
+                    [new SftpUploadSource(firstPath, "first.txt", 7), new SftpUploadSource(secondPath, "second.txt", 7)],
+                    SftpUploadConflictPolicy.Skip, CancellationToken.None)
+                : viewModel.DownloadSelectedSftpEntriesAsync(directory, CancellationToken.None);
+            await WaitUntilAsync(() => upload ? coreClient.SftpUploadInFlight == 1 : enteredGate.IsSet);
+            var first = Assert.Single(viewModel.SftpTransferTasks, task => task.State == SftpTransferTaskState.Running);
+            first.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(SftpTransferTaskViewModel.State) && first.State == SftpTransferTaskState.Failed)
+                    viewModel.CancelSftpBatchCommand.Execute(null);
+            };
+            releaseGate.Set();
+            await operation;
+
+            Assert.Equal(SftpTransferTaskState.Failed, first.State);
+            Assert.Single(viewModel.SftpTransferTasks, task => task.State == SftpTransferTaskState.Cancelled);
+            Assert.True(viewModel.IsSftpFeedbackError);
+            Assert.Contains("失败 1", viewModel.SftpTransferStatus, StringComparison.Ordinal);
+            Assert.Contains(upload ? "远端临时上传文件清理失败" : "下载目标清理失败", viewModel.SftpTransferStatus, StringComparison.Ordinal);
+            Assert.Equal(1, upload ? coreClient.UploadSftpFileCallCount : coreClient.DownloadSftpFileCallCount);
+            Assert.True(viewModel.CanRetryLastSftpTransfer);
+            Assert.False(viewModel.HasActiveSftpTransfers);
+        }
+        finally
+        {
+            releaseGate.Set();
+            if (operation is not null) await operation;
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task SftpQueuesRunConcurrentlyAndRemainIsolatedPerWorkspace()
     {
@@ -2007,11 +2178,10 @@ public sealed class MainWindowViewModelTests
         var coreClient = new FakeCheckedCoreClient();
         var viewModel = CreateViewModel(coreClient);
         viewModel.Password = "secret";
-        viewModel.ConnectCommand.Execute(null);
-        await WaitUntilAsync(() => !viewModel.ConnectCommand.IsRunning && viewModel.IsSftpOpen);
+        await viewModel.ConnectCommand.ExecuteAsync(null);
         viewModel.SftpPathText = "/replace";
-        viewModel.PrepareSftpBrowseCommand.Execute(null);
-        await WaitUntilAsync(() => viewModel.SftpEntries.Any(entry => entry.Name == "same.txt"));
+        await viewModel.PrepareSftpBrowseCommand.ExecuteAsync(null);
+        Assert.Contains(viewModel.SftpEntries, entry => entry.Name == "same.txt");
 
         var localDirectory = Path.Combine(Path.GetTempPath(), $"orbitterm-sftp-upload-{Guid.NewGuid():N}");
         Directory.CreateDirectory(localDirectory);

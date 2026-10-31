@@ -7281,10 +7281,11 @@ public sealed class MainWindowViewModel : ObservableObject
                     processed++;
                     continue;
                 }
-                // The checked core reports a cancelled transfer as a failed
-                // envelope, not an OperationCanceledException. Keep the user-
-                // requested cancellation distinct from a transfer failure.
-                if (result is SftpDownloadResult.Failed && linkedCancellation.IsCancellationRequested)
+                // Only the checked cancellation result confirms cleanup. A
+                // concurrent cancel request must not hide a real cleanup error.
+                if (result is SftpDownloadResult.Failed cancelledDownload &&
+                    (cancelledDownload.DetailCode ?? cancelledDownload.Code) == "sftp_transfer_cancelled" &&
+                    linkedCancellation.IsCancellationRequested)
                 {
                     throw new OperationCanceledException(linkedCancellation.Token);
                 }
@@ -7323,11 +7324,14 @@ public sealed class MainWindowViewModel : ObservableObject
             {
                 item.Task.MarkCancelled("已取消");
             }
-            var cancellationStatus = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"批量下载已取消：已完成 {completed}/{pending.Count}，可重试未完成项");
+            var cancellationStatus = string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"批量下载已取消：已完成 {completed}/{pending.Count}，取消 {pending.Count - processed}，失败 {failed.Count}；{failed.FirstOrDefault()?.Task.StatusText ?? "可重试未完成项"}");
             SetSftpTransferRetries(transferContext, null, remaining.Count == 0 ? null : SftpBatchRetryRequest.ForDownloads(remaining));
             SetSftpTransferStatus(transferContext, cancellationStatus);
             SetSftpOperationStatusForOwner(owner, cancellationStatus);
-            PublishSftpFeedbackForContext(transferContext, SftpFeedbackKind.Warning, "批量下载已取消", cancellationStatus);
+            PublishSftpFeedbackForContext(transferContext,
+                failed.Count == 0 ? SftpFeedbackKind.Warning : SftpFeedbackKind.Error,
+                failed.Count == 0 ? "批量下载已取消" : "批量下载已取消（含失败）", cancellationStatus);
         }
         finally
         {
@@ -7518,11 +7522,14 @@ public sealed class MainWindowViewModel : ObservableObject
             {
                 item.Task.MarkCancelled("已取消");
             }
-            var cancellationStatus = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"批量上传已取消：已完成 {completed}/{pending.Count}，可重试未完成项");
+            var cancellationStatus = string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"批量上传已取消：已完成 {completed}/{pending.Count}，取消 {pending.Count - processed}，失败 {failed.Count}；{failed.FirstOrDefault()?.Task.StatusText ?? "可重试未完成项"}");
             SetSftpTransferRetries(transferContext, null, remaining.Count == 0 ? null : SftpBatchRetryRequest.ForUploads(remaining));
             SetSftpTransferStatus(transferContext, cancellationStatus);
             SetSftpOperationStatusForOwner(owner, cancellationStatus);
-            PublishSftpFeedbackForContext(transferContext, SftpFeedbackKind.Warning, "批量上传已取消", cancellationStatus);
+            PublishSftpFeedbackForContext(transferContext,
+                failed.Count == 0 ? SftpFeedbackKind.Warning : SftpFeedbackKind.Error,
+                failed.Count == 0 ? "批量上传已取消" : "批量上传已取消（含失败）", cancellationStatus);
         }
         finally
         {
@@ -7570,6 +7577,9 @@ public sealed class MainWindowViewModel : ObservableObject
                 SftpUploadResult.Uploaded uploaded => new SftpUploadItemOutcome(
                     true,
                     string.Create(System.Globalization.CultureInfo.InvariantCulture, $"上传完成 · {uploaded.ByteLength} B")),
+                SftpUploadResult.Failed failed when
+                    (failed.DetailCode ?? failed.Code) == "sftp_transfer_cancelled" && cancellationToken.IsCancellationRequested
+                    => throw new OperationCanceledException(cancellationToken),
                 SftpUploadResult.Failed failed => new SftpUploadItemOutcome(
                     false,
                     FormatSftpTransferFailure(failed.DetailCode, isUpload: true)),
@@ -7609,6 +7619,16 @@ public sealed class MainWindowViewModel : ObservableObject
                 progress,
                 item.Task.TransferControl).ConfigureAwait(false),
             CancellationToken.None).ConfigureAwait(true);
+        if (upload is SftpUploadResult.Failed failedUpload)
+        {
+            if ((failedUpload.DetailCode ?? failedUpload.Code) == "sftp_transfer_cancelled" && cancellationToken.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(cancellationToken);
+            }
+            return new SftpUploadItemOutcome(
+                false,
+                string.Concat(FormatSftpTransferFailure(failedUpload.DetailCode, isUpload: true), "；原文件未修改"));
+        }
         if (upload is not SftpUploadResult.Uploaded)
         {
             return new SftpUploadItemOutcome(false, "临时文件上传失败，原文件未修改");
