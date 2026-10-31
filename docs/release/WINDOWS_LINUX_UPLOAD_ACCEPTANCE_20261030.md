@@ -237,6 +237,8 @@ Windows 保留原生 timeout detail，区分服务器连接、认证和旧会话
 
 **下一步与跨端**：固定提交并收三类 CI；新 Windows 原生包验签后，以虚构夹具复测正常连接、握手无响应超时、失败后显式重连及阶段日志，再补最窄面板计数、Linux 同候选 GUI。Android／Windows 对照旧会话繁忙不永久卡住、超时提示、旧会话不误断、无迟到在线／自动重传及可再次连接；Android／Apple／Linux 须重建原生库才能取得共享核心修复，旧包不借源码签收。五端完整验收、下载目标拒删 GUI、完整替换发布及真实提供方仍未完成，不放行发布。
 
+**固定提交后回执**：上述源码已提交／推送为 `1aca719535ccc3c6f490d3e3a24c6f5ab543bf9e`。补充本机 Release `--all-targets`：库 **334 通过／0 失败／2 忽略**，另一 target **2 通过／0 失败**，与 Debug 分开，不重复累计覆盖。新固定 [Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41177449437)／[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41177449425) 正在运行，[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41177449431) 等待常规作业；两项发布条件任务已 skipped，不算通过。尚无最终 CI、可验新包或新 GUI 结果。本回执先本地提交，等待此固定门禁结束再推送，避免文档同步触发 `cancel-in-progress` 而取消它。
+
 ## 9ecf45f 固定门禁与 Windows 取消结果真机验收
 
 **源码／候选**：本轮没有新增产品源码，验收固定为 `9ecf45f1cc7f5e9f4f5e0f49b7f374249052b720`。[Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41172713456)、[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41172713478) 和 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41172713451) 最终均 **completed／success**；Windows 完整原生测试 **354 通过／0 失败／0 跳过**，随后 WinUI Release、签名 MSIX 成功。安全门禁六项常规作业成功，专用签名 macOS UI／OpenSSH 两项条件 skipped，不计通过。未重新运行本机假 core 测试，不把上轮 115 项与原生 354 项相加为独立覆盖；本轮 Linux 仅收 CI，没有新 Linux GUI 验收。
