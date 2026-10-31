@@ -266,6 +266,8 @@ Mac 控制恢复后，精确 ELF `0f8e3d463ecac258dd5389e8e4ad9085b2912fc51c8e13
 
 **后续对照**：优先用新原生候选签收窄面板，再补关闭最后标签后的旧终端内容清理与 Linux 提示／窗口交互。Android 对照紧凑宽度任务计数和关闭会话后的旧内容归属；Windows 对照普通断开应保留所属标签历史，关闭标签／新草稿不得显示已关闭标签内容。五端同版完整矩阵、真实提供方与原偶发长等待根因仍未闭环，不放行发布。
 
+**固定提交回执**：窄面板修复及 `241／242` 记录已提交并推送为 `55469608a5cac4aca3430a5c727509b6f88c4065`；上一设备回执 `8083a74` 一并推送。[Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41209055861)、[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41209055838) 和 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41209055839) 已启动、当前均仍运行；安全门禁桌面契约／依赖检查已成功，两条件 skipped，其余待最终结果。没有新包安装或新布局 GUI 签收。本段回执仅本地提交，避免文档推送取消固定运行。两个既有未提交 Android JNI 二进制未纳入提交／推送。
+
 ## 1aca719 Windows 连接负向真机与可见反馈补修（2026-10-31）
 
 **固定门禁与产物**：`1aca719535ccc3c6f490d3e3a24c6f5ab543bf9e` 的 [Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41177449437)／[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41177449425) 均 success；Windows 原生 **367 通过／0 失败／0 跳过**，WinUI Release 零警告／错误及测试包构建成功。[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41177449431) 此次检查为五项常规成功、Apple checked-path 仍在运行，两条件任务 skipped；**未记为整门禁通过**。官方 artifact `13034030101` 为合并预览 `4b1de2d`，父提交含候选且完整源码树均为 `de7b1e80227ede6027bad09bf92187d8815dae04`。外层归档 SHA-256 `e83c6c03f5cc1578815ba22d13f7365dae425e09ea369b2003409738e7862bbd` 与官方摘要、Mac、SMB 完整回读、Windows 本机一致；MSIX SHA-256 `0e03102605ca75e2c85b5e5d5ec8f7e04fba50295c9a8d5fe331f98d09cccd6f` 与包内清单及 Windows 本机相同。CER SHA-256 `1381b069dc0fab60193cbbb2294d0111c028f2ef711891eecfe98a65d90934f1`，签名者 `F3764DE92911CBB66CF4840D2591267826A2D815`。
