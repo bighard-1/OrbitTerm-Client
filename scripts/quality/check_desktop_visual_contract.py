@@ -322,6 +322,24 @@ require(
     "RetryConnectionEmptyButton.Visibility = ViewModel.CanRetryConnectionFromEmptyState",
     "Windows state-driven connection retry visibility",
 )
+require(
+    windows_main,
+    "TerminalScrollViewer.Visibility = ViewModel.IsTerminalOpen || ViewModel.HasTerminalOutput",
+    "Windows transcript visibility belongs to the current workspace",
+)
+require(
+    windows_main,
+    "nameof(MainWindowViewModel.HasTerminalOutput)",
+    "Windows empty-transcript refresh notification",
+)
+windows_terminal_loaded = between(
+    read("clients/windows/src/OrbitTerm.App/Controls/NativeTerminalView.cs"),
+    "Loaded +=",
+    "Unloaded +=",
+    "Windows reattached terminal surface",
+)
+require(windows_terminal_loaded, "QueueRender();", "Windows current-source terminal redraw")
+reject(windows_terminal_loaded, "if (renderQueued)", "Windows unconditionally redrawn terminal attachment")
 
 tool_tabs = ["SFTP", "Docker"]
 require_ordered(mac_right, [f'case .{name.lower()}: "{name}"' for name in tool_tabs], "macOS tool tabs")

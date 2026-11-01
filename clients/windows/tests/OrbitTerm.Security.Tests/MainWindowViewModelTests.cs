@@ -880,17 +880,48 @@ public sealed class MainWindowViewModelTests
     {
         var viewModel = CreateViewModel();
         viewModel.Password = "secret";
-        viewModel.ConnectCommand.Execute(null);
-        await WaitUntilAsync(() => viewModel.IsConnected);
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        Assert.True(viewModel.IsConnected);
+        Assert.NotEmpty(viewModel.TerminalLines);
 
-        viewModel.DisconnectAndCloseWorkspaceTabCommand.Execute(null);
-        await WaitUntilAsync(() => viewModel.WorkspaceTabs.Count == 1 && !viewModel.IsConnected);
+        await viewModel.DisconnectAndCloseWorkspaceTabCommand.ExecuteAsync(null);
 
+        Assert.Single(viewModel.WorkspaceTabs);
+        Assert.False(viewModel.IsConnected);
+        Assert.Empty(viewModel.TerminalLines);
+        Assert.Empty(viewModel.SelectedWorkspaceTab!.TerminalLines);
+        Assert.False(viewModel.HasTerminalOutput);
         Assert.Equal("新建服务器草稿", viewModel.AssetName);
         Assert.Equal(string.Empty, viewModel.Host);
         Assert.Equal("22", viewModel.PortText);
         Assert.Equal("Workspace tab reset", viewModel.Status);
         Assert.Equal("1 个会话标签", viewModel.WorkspaceTabSummary);
+    }
+
+    [Fact]
+    public async Task DisconnectedTabKeepsItsTranscriptUntilTheTabIsClosed()
+    {
+        var coreClient = new FakeCheckedCoreClient();
+        var viewModel = CreateViewModel(coreClient);
+        viewModel.Password = "secret";
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        var owner = viewModel.SelectedWorkspaceTab!;
+        coreClient.EmitTerminalData(coreClient.LastOpenedTerminalChannelId, "owned-test-transcript");
+        await WaitUntilAsync(() => viewModel.TerminalLines.Any(line => line.Text == "owned-test-transcript"));
+
+        await viewModel.EndSessionCommand.ExecuteAsync(null);
+
+        Assert.False(viewModel.IsTerminalOpen);
+        Assert.True(viewModel.HasTerminalOutput);
+        Assert.Contains(viewModel.TerminalLines, line => line.Text == "owned-test-transcript");
+        Assert.Contains(owner.TerminalLines, line => line.Text == "owned-test-transcript");
+
+        await viewModel.CloseWorkspaceTabCommand.ExecuteAsync(null);
+
+        Assert.NotSame(owner, viewModel.SelectedWorkspaceTab);
+        Assert.False(viewModel.HasTerminalOutput);
+        Assert.Empty(viewModel.TerminalLines);
+        Assert.Empty(viewModel.SelectedWorkspaceTab!.TerminalLines);
     }
 
     [Fact]

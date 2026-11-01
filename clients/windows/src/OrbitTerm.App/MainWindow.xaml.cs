@@ -3888,7 +3888,8 @@ public sealed partial class MainWindow : Window
 
     private void ViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(MainWindowViewModel.IsTerminalOpen))
+        if (e.PropertyName is nameof(MainWindowViewModel.IsTerminalOpen) or
+            nameof(MainWindowViewModel.HasTerminalOutput))
         {
             UpdateTerminalEmptyState();
         }
@@ -7399,6 +7400,17 @@ public sealed partial class MainWindow : Window
         RetryConnectionEmptyButton.Visibility = ViewModel.CanRetryConnectionFromEmptyState
             ? Visibility.Visible
             : Visibility.Collapsed;
+        // A fresh draft has no transcript. Hide the drawing surface as soon
+        // as the model is cleared, even if a deferred canvas render is pending.
+        // An explicitly disconnected tab still owns and can show its history.
+        TerminalScrollViewer.Visibility = ViewModel.IsTerminalOpen || ViewModel.HasTerminalOutput
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        NativeTerminalView.Bind(ViewModel.TerminalLines);
+        if (!ViewModel.HasTerminalOutput)
+        {
+            NativeTerminalView.ClearSelection();
+        }
         NativeTerminalView.IsInputEnabled = ViewModel.IsTerminalOpen;
 
         // Focus only for the closed -> open transition. Re-running a generic

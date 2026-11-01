@@ -268,6 +268,20 @@ Mac 控制恢复后，精确 ELF `0f8e3d463ecac258dd5389e8e4ad9085b2912fc51c8e13
 
 **固定提交回执**：窄面板修复及 `241／242` 记录已提交并推送为 `55469608a5cac4aca3430a5c727509b6f88c4065`；上一设备回执 `8083a74` 一并推送。[Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41209055861)、[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41209055838) 和 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41209055839) 已启动、当前均仍运行；安全门禁桌面契约／依赖检查已成功，两条件 skipped，其余待最终结果。没有新包安装或新布局 GUI 签收。本段回执仅本地提交，避免文档推送取消固定运行。两个既有未提交 Android JNI 二进制未纳入提交／推送。
 
+## Windows 关闭最后标签后的终端显示修复候选（2026-10-31）
+
+**前置固定门禁**：`55469608a5cac4aca3430a5c727509b6f88c4065` 的 [Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41209055861)、[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41209055838) 与 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41209055839) 最终均 completed／success。Security 六常规成功，两发布条件 skipped；不把跳过记为通过。官方 Windows artifact `13045597469` 为合并预览 `6f6096585cefca70c58c9d79849d111908484f3c`，父提交含本候选、完整树同为 `e727eb9f78a0a05faf6330792a047ba6b7b72692`。上述只证明窄面板候选的自动化，不属于本节新显示修复的远端门禁。
+
+**真实失败与定位范围**：再次只读 Windows `41a28b9`，没有活动标签／输入不可用，空态仍显示旧虚构终端说明与“Terminal closed”，旧失败持续可见。增强“断开并关闭最后标签”测试，等待命令真正结束后断言总输出、替代草稿输出均为空，结果 **1 通过**；因此本轮假 core 的数据层没有复现输出残留，不能把已有“清空集合”当作 GUI 修复，也尚不认定实际设备的唯一根因。
+
+**源码候选**：本条所在提交。终端控件重新 Loaded 时无条件按当前数据源安排重画，覆盖脱离可视树期间不订阅集合通知的情况；主窗口在 `HasTerminalOutput` 变化时也刷新空态，空草稿同时关闭终端滚动／绘制层显示，重新绑定当前数据源并清除旧选择。仍在线的空终端保持可见；普通断开但属于原标签的历史保持可见，关闭最后标签后的新草稿不得显示旧绘制内容。没有清除其他标签历史、自动连接或改动凭据／同步。
+
+**自动化与边界**：新增普通断开保留所属历史→关闭标签后清空的回归；本机假 checked core 相关 C# 子集 **159 通过／0 失败／0 跳过**，包含增强后的最后标签数据断言。桌面契约增加当前工作区输出决定绘制层显示、输出变更通知和 Loaded 无条件重画约束；差异检查通过。首项单测已通过说明它是数据边界保护，**不是旧 GUI 的失败复现或新 GUI 的通过证据**。新 WinUI 原生编译、旧文字消失／断开历史保留、切标签与重新连接 GUI 均待新候选。
+
+**更新准备与辅助失败**：Windows 旧 QA 已正常退出，本机进程数 0、包 Ok；新的静止加密备份 **27 文件／313,349 字节／0 读取错误**。浏览器下载事件仍因新标签跳转而超时，采用页面实际给出的官方归档地址；首份 Mac 入站文件仅收到部分字节、完整 SHA-256 不匹配而被拒绝，未解包／传输／安装，部分文件单独保留。尝试由原 Linux 开发机读取同一已授权归档，SSH 包装器 90 秒到时但文件写入仍在继续，暂不把包装器退出认作下载完成，须另核对完整长度及官方摘要。首次辅助 WMI 导入路径错误、尚未发出远程动作，改用既有模块后备份成功。这些是辅助流程失败，不覆盖产品结果。
+
+**下一步**：先完成官方归档完整校验并签收窄面板，再收本显示修复的固定原生包，验证清空后不存在旧字、普通断开保留所属历史、其他标签不串内容、失败后重连及最窄计数。Linux 技术性提示／普通窗口与 Flatpak、真实提供方、原长等待根因及五端完整墓碑矩阵仍开放。Android／Windows 后续重点核对断开与关闭的不同内容归属、后台／升级后不误显示旧输出；本轮 K60 仅只读在线锁屏，不需手机配合。
+
 ## 1aca719 Windows 连接负向真机与可见反馈补修（2026-10-31）
 
 **固定门禁与产物**：`1aca719535ccc3c6f490d3e3a24c6f5ab543bf9e` 的 [Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41177449437)／[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41177449425) 均 success；Windows 原生 **367 通过／0 失败／0 跳过**，WinUI Release 零警告／错误及测试包构建成功。[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41177449431) 此次检查为五项常规成功、Apple checked-path 仍在运行，两条件任务 skipped；**未记为整门禁通过**。官方 artifact `13034030101` 为合并预览 `4b1de2d`，父提交含候选且完整源码树均为 `de7b1e80227ede6027bad09bf92187d8815dae04`。外层归档 SHA-256 `e83c6c03f5cc1578815ba22d13f7365dae425e09ea369b2003409738e7862bbd` 与官方摘要、Mac、SMB 完整回读、Windows 本机一致；MSIX SHA-256 `0e03102605ca75e2c85b5e5d5ec8f7e04fba50295c9a8d5fe331f98d09cccd6f` 与包内清单及 Windows 本机相同。CER SHA-256 `1381b069dc0fab60193cbbb2294d0111c028f2ef711891eecfe98a65d90934f1`，签名者 `F3764DE92911CBB66CF4840D2591267826A2D815`。
