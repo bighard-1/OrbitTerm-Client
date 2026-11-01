@@ -71,3 +71,20 @@ Windows App 在现有 RDP 窗口与连接中心间定位异常，重读／按程
 **自动化与证据边界**：先加两项断言，旧 Orchestrator 均实际失败（无任何 SFTP／SSH 释放调用），原 TRX 保留；修复后定向 Windows 应用／编排／连接结果测试 165 通过。覆盖子先父后、同 base 的另一工作区不误释放、重复／并发结束、释放失败保留并可重试、失败不重连／不丢标签。此为 Mac 上假原生客户端的 .NET 应用层自动化，Windows 原生 crypto／实际 DLL 和完整 GUI 不由此证明。Rust Debug／Release 各 336 通过／2 忽略、严格 Clippy／Windows 静态检查通过；扩展 OpenSSH 可信流程／主机密钥变更／撤销／Release 旧网络接口无连接四场景均通过，临时 sshd 已退出。新远端 CI／签名包／真机复测未完成。后续 OpenSSH 断言包括关闭 SFTP 后子登记消失、重复关闭不误减 base、最后断开后新连接获得新 base。
 
 **收尾与下一步**：本轮只读服务／OTP 中继均已停止、两个私有监听关闭；虚构结果与原始失败证据仅存加密开发盘，仓库只留脱敏记录，测试账户原资产未修改。K60 仅只读连接／锁屏检查，Apple 未操作。先核对新候选 CI／Windows 包来源、备份并更新，再用唯一测试会话验证“正确码在线→显式断开→重新索码→取消未连接”，随后排查附属初始化延迟与 Linux 陈旧目录；五端完整墓碑／真实 TOTP、密钥＋码、双跳与发行验收仍未完成。
+
+
+## Windows 修复包真机闭环（2026-11-01，e18f554）
+
+**来源及安装**：修复提交 `e18f554dbaa1cbb5ecb05cfba54a795f55b431fa`；[Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41296965999) 和 [Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41296966487) completed／success。Windows 原生测试 **379 通过／0 失败／0 跳过**；保留 PRI263 的 RDP-host 资源与缺 mspdbcmf 符号包警告。合并预览 `9ddc8fbc164eb957b4105762d8088033d0622144` 的父含该提交，两者完整树相同 `8515e1de86751e9451209e5282735dd47ae1eb4e`。
+
+artifact `13078969860`：ZIP 142,720,751 字节、SHA-256 `13193a25252e27cacf07623f289693b5569ecbf671b501da156387e81def96c9`；MSIX 144,662,457 字节、SHA-256 `4ace4cadbdb6e147100635fc4346260a5216ffd52c4977065d05b0a80d3cc5b0`，GitHub／Mac／完整 SMB 回读／Windows 本机匹配。随包 CER SHA-256 `6722a1fff356d08fca2169072154ae3598a1cc6fea90aca8e365edddd298504f`，签名者一致。旧 QA 正常退出后，加密开发盘静止备份账户 25 文件、334,372 字节及包设置 2 文件、8,192 字节，零错误。同身份同版本安装前后 25 账户文件相同、三个 payload 匹配、运行 EXE 匹配；系统签名 Valid／包 Ok。用 Windows 系统屏幕键盘独立解锁，原 **5 分组／7 资产**可见后精确移除上一叶证书，验签仍 Valid；不是正式身份分离并装证明。
+
+**真实 Windows 测试机 × 虚构只读服务器**：既有唯一测试资产普通密码连接在线，SFTP 正确列出唯一 32 字节虚构文件；点击会话菜单“断开连接”后，标签未连接、终端关闭、SFTP 面板清空，服务器侧收到连接结束，监听下无剩余 ESTABLISHED TCP。此轮没有声称再次完整下载，新包断开释放与 `dca539b` 的完整下载证据分别记录。
+
+同一受信测试 Host Key／现有合成凭据换为限时静态 OTP 夹具：错码显示可读认证失败、终端未连接；重试为空白挑战；正确静态码后在线并显示 inert 横幅。此后在**唯一活动工作区**显式断开，来源受限中继的上／下游连接均关闭，仅监听保留；立即重连的原生结果为 `RequiresSecondFactor`，弹全新空白验证码页，没有复用旧已认证会话；点取消后保持未连接、输入禁用、无新终端；最后关闭该标签后旧输出完全清空。`dca539b` 的实际失败保留，**该 Windows 明确断开→新挑战→取消资源生命周期用例已在 e18f554 真机通过**；不扩大到共享工作区强制重新认证、真实 TOTP／密钥＋码／双跳或五端验收。
+
+**遗留体验异常继续保留**：正确静态码原生 Connected 97 ms、终端打开 136 ms，但不响应 SFTP／Docker 请求的夹具导致 SFTP 约 30 秒、Docker 约 29 秒顺序等待，命令总计 59,206 ms；期间曾显示 Windows“未响应”，随后自行恢复。认证及资源释放结果不抵消这一体验失败。新版未显示旧 SFTP 目录，不把“尚未打开 SFTP”误记为 SFTP 成功。下一步应让终端可立即交互、附属模块初始化不阻塞 UI，并验证取消／切标签／断线时迟到结果不会回填旧工作区。源码后续审查定位到 Windows `MainWindowViewModel.OpenSftpAsync` 直接等待同步原生调用，连接流程又顺序初始化 SFTP／Docker；后继修复须同时处理后台执行、工作区身份快照和迟到结果归属，不能只加后台任务后仍写当前选中标签。
+
+**门禁边界**：[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41296966002) 当前五常规作业 success，Apple checked-path 尚在 macOS Debug／Release 编译阶段；实时日志已看到 iOS 模拟器 UI lifecycle 12/12、无失败或跳过，但**未完成作业不能记 success**。两发布条件作业 skipped。本地已有 Debug／Release Rust 各 336 通过／2 忽略、Clippy／Windows 静态与 OpenSSH 四场景通过，不能替代最终安全门禁或专用签名 Mac UI。
+
+**失败与收尾**：浏览器首轮下载完成事件超时，产物实际在新标签重定向；用已观察的 GitHub 临时产物地址下载后核对官方摘要，没有跳过校验。首个摘要 helper 误把单行 SHA-256 当文件名清单而报 ValueError，未据此安装；按实际单行 MSIX 摘要核验后通过。中断时证书清理未生成回执，续接先读远端确认缺失，再幂等执行限定清理并获得 Valid 回执，未盲认成功。普通密码夹具正常停止，MFA 来源受限中继／回环服务器精确停止，两个监听均关闭；Windows／RustDesk 未重启／退出，真实资产和云端未改。K60 仅 USB／锁屏只读检查，未操作 QA；Apple 真机未更新。所有详细原始证据在加密开发盘，仓库只留脱敏结论。
