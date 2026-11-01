@@ -104,7 +104,7 @@ pub(crate) async fn run_checked_ssh_connect(
     }
 
     let prepared = match prepare_checked_connection(&request).await {
-        CheckedConnectionPreparationOutcome::Ready(value) => value,
+        CheckedConnectionPreparationOutcome::Ready(value) => *value,
         CheckedConnectionPreparationOutcome::Challenge(value) => {
             return CheckedSshConnectOutcome::Challenge(value);
         }
@@ -137,7 +137,7 @@ async fn run_checked_ssh_connect_via_jump(
             )),
         };
     let prepared_jump = match prepare_checked_connection(&jump_request).await {
-        CheckedConnectionPreparationOutcome::Ready(value) => value,
+        CheckedConnectionPreparationOutcome::Ready(value) => *value,
         CheckedConnectionPreparationOutcome::Challenge(value) => {
             return CheckedSshConnectOutcome::Challenge(value)
         }
@@ -207,7 +207,7 @@ async fn run_checked_ssh_connect_via_jump(
         Ok(Ok(channel)) => channel.into_stream(),
     };
     let prepared_target = match prepare_checked_connection_over_stream(&request, stream).await {
-        CheckedConnectionPreparationOutcome::Ready(value) => value,
+        CheckedConnectionPreparationOutcome::Ready(value) => *value,
         CheckedConnectionPreparationOutcome::Challenge(value) => {
             best_effort_disconnect(&jump_session, "destination host key challenge").await;
             return CheckedSshConnectOutcome::Challenge(value);

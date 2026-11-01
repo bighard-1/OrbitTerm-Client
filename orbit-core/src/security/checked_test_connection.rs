@@ -107,7 +107,7 @@ impl fmt::Debug for CheckedPreparedConnection {
 }
 
 pub(crate) enum CheckedConnectionPreparationOutcome {
-    Ready(CheckedPreparedConnection),
+    Ready(Box<CheckedPreparedConnection>),
     Challenge(Box<RegisteredHostKeyChallenge>),
     Blocked(Box<HostKeyBlock>),
     Error(CheckedTestConnectionError),
@@ -431,9 +431,10 @@ async fn run_checked_test_connection_with_service(
     challenge_service: HostKeyChallengeService,
 ) -> CheckedTestConnectionOutcome {
     let prepared = prepare_checked_connection_with_service(&request, challenge_service).await;
-    let CheckedConnectionPreparationOutcome::Ready(mut prepared) = prepared else {
+    let CheckedConnectionPreparationOutcome::Ready(prepared) = prepared else {
         return preparation_outcome_to_test_outcome(prepared);
     };
+    let mut prepared = *prepared;
 
     let outcome = match timeout(
         CHECKED_AUTH_TIMEOUT,
@@ -523,10 +524,10 @@ async fn prepare_checked_connection_with_service(
 
     match coordinator.pre_authentication_check() {
         CheckedPreAuthDecision::AllowAuthentication(approval) => {
-            CheckedConnectionPreparationOutcome::Ready(CheckedPreparedConnection {
+            CheckedConnectionPreparationOutcome::Ready(Box::new(CheckedPreparedConnection {
                 session,
                 approval,
-            })
+            }))
         }
         CheckedPreAuthDecision::Block(block) => {
             best_effort_disconnect(&session, "host key blocked").await;
@@ -585,10 +586,10 @@ where
 
     match coordinator.pre_authentication_check() {
         CheckedPreAuthDecision::AllowAuthentication(approval) => {
-            CheckedConnectionPreparationOutcome::Ready(CheckedPreparedConnection {
+            CheckedConnectionPreparationOutcome::Ready(Box::new(CheckedPreparedConnection {
                 session,
                 approval,
-            })
+            }))
         }
         CheckedPreAuthDecision::Block(block) => {
             best_effort_disconnect(&session, "host key blocked").await;

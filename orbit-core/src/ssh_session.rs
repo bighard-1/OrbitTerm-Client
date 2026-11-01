@@ -478,7 +478,7 @@ mod tests {
             async fn auth_publickey(
                 &mut self,
                 _: &str,
-                _: &russh::keys::ssh_key::PublicKey,
+                _: server::VerifiedPublicKey<'_>,
             ) -> Result<Auth, Self::Error> {
                 if !self.key_first {
                     return Ok(Auth::reject());

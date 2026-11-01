@@ -102,11 +102,12 @@ impl server::Handler for Fixture {
     async fn auth_publickey(
         &mut self,
         user: &str,
-        public_key: &PublicKey,
+        public_key: server::VerifiedPublicKey<'_>,
     ) -> Result<Auth, Self::Error> {
         if self.mode != Mode::Key
             || user != FIXTURE_USER
-            || self.authorized_key.as_ref().map(PublicKey::key_data) != Some(public_key.key_data())
+            || self.authorized_key.as_ref().map(PublicKey::key_data)
+                != Some(public_key.public_key.key_data())
         {
             return Ok(Auth::reject());
         }
