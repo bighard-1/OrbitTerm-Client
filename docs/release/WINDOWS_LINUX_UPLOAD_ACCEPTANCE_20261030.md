@@ -268,6 +268,24 @@ Mac 控制恢复后，精确 ELF `0f8e3d463ecac258dd5389e8e4ad9085b2912fc51c8e13
 
 **固定提交回执**：窄面板修复及 `241／242` 记录已提交并推送为 `55469608a5cac4aca3430a5c727509b6f88c4065`；上一设备回执 `8083a74` 一并推送。[Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41209055861)、[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41209055838) 和 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41209055839) 已启动、当前均仍运行；安全门禁桌面契约／依赖检查已成功，两条件 skipped，其余待最终结果。没有新包安装或新布局 GUI 签收。本段回执仅本地提交，避免文档推送取消固定运行。两个既有未提交 Android JNI 二进制未纳入提交／推送。
 
+## Windows 窄计数与关闭终端的固定候选真机回执（2026-10-31）
+
+**窄面板候选 `5546960`**：本日志前节记录的三个固定门禁最终均 success（六项常规安全作业通过／两项条件 skipped）。官方归档先在 Linux 侧核对完整长度与官方摘要，再传 Mac；归档 SHA-256 `7fc51b81004f60be5103a4858a25e7de92a8a2dd9634cdec4a9b670e10c74a3f`、MSIX `f2dd225b811cb781c66522bbc355ca93d1b3c3331081e4bc3b7d2178b79a89d4` 与包内清单、SMB 完整回读及 Windows 本机一致。前节 Mac 部分下载摘要失败、Linux SSH 包装器先到时的记录保留，只有完整校验后的文件用于安装。正常退出后加密备份 27 文件／313,349 字节／0 错误，安装前后 25 个账户文件与备份相同；同身份同版本受控安装后 Ok／Valid，运行 EXE 和三个 payload 摘要相同，原 5 分组／7 资产保持后才精确轮换旧测试叶证书。
+
+Windows 10 原生 GUI 在最窄约 280 px 时，空队列、下载中“未完成 1／已完成 0”、完成后“未完成 0／已完成 1”、清空历史后 0 项均完整可读；约 400 px 也正常。只下载 32 字节虚构文件，Windows 目标与源 SHA-256 均为 `dfbf48a61b083ffcc877af18c34000a727d446adb74ceeeb9d37740af4619be0`。**本场景窄计数通过**，但关闭最后标签后旧虚构文字仍在，旧显示失败再次保留，不被计数通过覆盖。会话／限时夹具／监听随后关闭，面板恢复原宽。
+
+**终端显示候选 `0fdbc057e663c059c41b9b82601c4f0636627c55`**：[Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41274792002) 和 [Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41274792043) success；[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41274792018) 的依赖扫描真实失败（详见下一专项），不能记整门禁通过。官方 artifact `13070618151` 的合并预览 `7ee6d21f57e4d4845e6d72893627b9adb6a30fdf` 父提交含候选、完整源码树相同。18 段 Range 下载逐段核对 HTTP 206／Content-Range，再核对完整摘要；归档 `abc657ef2dc6fb086c99683e765f52269701d1593bf19289807767985fea8e99`、MSIX `fd1f780b722ce9ad1dd77b635a282de1f42d80e6a04bf0495f34d246ad19108e` 在 Mac、SMB 回读及 Windows 本机一致。加密备份 27 文件／316,697 字节／0 错误，安装前后 25 账户文件相同；安装 Ok／Valid、三个 payload 匹配。系统屏幕键盘独立完成原主密码解锁，原 5 分组／7 资产保持、运行文件匹配后精确移除上一张测试叶证书，签名仍 Valid。仅轮换同项目测试叶证书，未改线上服务。
+
+| 真实 Windows GUI 场景 | 实际结果 |
+| --- | --- |
+| 连接仅输出编号且禁用命令执行的虚构终端 | 看到 `Virtual transcript session 1 (0fdbc05)`，SFTP 列出唯一 32 字节虚构文件。 |
+| 普通“断开连接” | 原标签仍在，编号 1 与 Terminal closed 保留，输入禁用；这是所属历史，不按关闭残留判定。 |
+| 随后关闭最后标签 | 标签消失，仅“暂无会话”空态，旧编号及 Terminal closed 均不再显示。 |
+| 从同一虚构资产重新连接 | 仅出现编号 2，没有编号 1，不沿用旧会话内容。 |
+| 直接关闭在线的最后标签 | 再次只剩空态，没有编号 2 或旧关闭文字。 |
+
+**结束与边界**：虚构夹具已通过 stop 控制自然退出、监听关闭，原 32 字节文件不变；没有执行 shell 命令、操作真实资产或变更其他端。K60 仅查 USB 与锁屏、未操作 QA。该结果是 Windows 10 真机经 RDP 的单标签有限验收，不是多标签／分屏／真实交互 shell／五端完整验收。普通断开时空态提示仍覆盖历史区域，作为文案／展示后续观察，不把它与已关闭标签残留混淆。Android／Windows 后续对照关闭／断开内容归属、切标签和重连；Linux 普通窗口／Flatpak、真实文件提供方、原偶发长等待与完整墓碑矩阵仍开放。下一优先修复依赖扫描失败并固定新核心，再补其他 GUI，不放行发布。
+
 ## Windows 关闭最后标签后的终端显示修复候选（2026-10-31）
 
 **前置固定门禁**：`55469608a5cac4aca3430a5c727509b6f88c4065` 的 [Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41209055861)、[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41209055838) 与 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41209055839) 最终均 completed／success。Security 六常规成功，两发布条件 skipped；不把跳过记为通过。官方 Windows artifact `13045597469` 为合并预览 `6f6096585cefca70c58c9d79849d111908484f3c`，父提交含本候选、完整树同为 `e727eb9f78a0a05faf6330792a047ba6b7b72692`。上述只证明窄面板候选的自动化，不属于本节新显示修复的远端门禁。
