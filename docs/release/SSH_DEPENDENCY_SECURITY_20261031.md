@@ -34,3 +34,23 @@
 **固定远端结果**：[新 Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41277724326) 中 [依赖漏洞与许可扫描](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41277724326/job/124763190813) 已 **success**，桌面契约 success；其余常规作业记录时尚运行、两条件任务 skipped。同提交 [Windows](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41277724258)／[Linux](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41277724277) CI 仍运行，**不提前记整门禁成功**。旧 `0fdbc05` Security failure 保留；没有加漏洞 ignore、改变扫描级别／exit-code或移除失败测试。新核心的五端 GUI／真实设备及完整矩阵仍待验，不发布。
 
 **进度保存**：本回执先本地提交，待固定远端门禁结束后再同步到同一分支，避免纯文档推送取消仍运行的 Apple／Android 作业。下一步收齐固定 CI，核对签名／产物后先复测 Windows／Linux 的新核心连接、MFA／Host Key 与 SFTP；随后按总台账安排 Android／Apple 对照及 Linux 可读错误／普通窗口问题，不能借当前旧包结果签收新版。
+
+## 固定候选完整门禁与设备续验（2026-11-01）
+
+**完整 CI**：固定 `dca539b` 的 [Windows](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41277724258)、[Linux](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41277724277)、[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41277724326) 最终均 completed／success。Windows 原生测试 **373 通过／0 失败／0 跳过**；六常规安全作业实际成功，两发布条件 skipped。打包保留 PRI263 的 RDP-host 资源及无 mspdbcmf 符号包警告，不称全过程零警告；旧 `0fdbc05` 漏洞扫描 failure 保留。
+
+**Windows 产物与安装**：artifact `13072660430` 对应合并预览 `256bbe32dc07a96a17e6a30bf36310cea0a90890`，父含候选且完整树均为 `94fc02aae1b072654a94fad54a057273d116b9c7`。ZIP 为 142,717,501 字节、SHA-256 `3132dbfd1cc141fb48df7290e6b3a4350bb15e6be2fea333097106c1ca765e76`；MSIX 为 144,659,514 字节、SHA-256 `692fdee585bdb7216244ba74ff08ef2874b58d00b5e02b8433a60035a19d3520`，官方／Mac／SMB 完整回读／Windows 本机匹配，包内摘要一致。CER SHA-256 `dda903b3c24c1dac95c3e34ea6b80496d5dd8276d9c9c3e86e6f3232ee603050`、签名者匹配；信任前 UnknownError 不记 Valid，轮换项目测试叶证书后 Valid，同身份同版本 0.3.0.33／x64／Ok。正常退出后静止加密备份 **27 文件／320,252 字节／0 错误**，25 账户文件安装前后相同；三个 payload、运行 EXE 匹配，系统屏幕键盘独立解锁后原 **5 分组／7 资产**保持，才精确移除旧叶证书并复验 Valid。实际仍是 OrbitTerm.Client 身份，不宣称正式版可独立并装。
+
+**Linux 隔离 GUI**：Release ELF SHA-256 `8ca396052b17b5bf328605583c0a6386b73648b14370aada680cde53122bd829`，新目录／私有 XDG／DBus／Keyring，只有既有一条虚构仅本机资产，原 Flatpak 未动。密码 SSH 后终端 checked／Host Key verified，SFTP 列项；**27 字节下载**摘要 `d7e0317c9429a76779b262f78fc5d747bf5ea47a8f62e1b1d0bb4e0243234724` 与源相同，**256 KiB 上传**摘要 `2312394bd99545d9de131c24efb781e765ac1aec243f2ed9347597a793a415e9` 与源相同，任务完成、无上传临时文件，原 27 字节文件保持。
+
+私有 OTP 服务器副本只适配既有虚构密码／回环端口，沿用受信测试 Host Key，未改产品 ELF 或资产配置。显式重连出现空白二次验证；静态错码后显示认证失败且无终端，重新连接为全新空框，正确静态测试码后在线并显示 inert OTP 横幅。补验取消：空框直接取消，页面明确“已取消 SSH 二次验证”，失败标签、输入禁用。**这是静态回环代码夹具，不是真实 TOTP／密钥＋码／两跳或五端验收。** OTP 夹具无 SFTP，界面有读取失败但旧目录仍可见，列为后续陈旧列表展示检查，不把旧项当新 SFTP 成功。
+
+**Windows GUI 范围**：新版普通密码虚构连接已在线、编号终端与唯一 32 字节 SFTP 文件可见；下载停在选择目录，尚无本候选目标摘要，不记完成。等待续接期间限时夹具／Linux 隔离桌面正常到期退出；恢复先核对进程、监听和网络端口。Windows App 初次提示 0x104，但测试机 RDP／SMB／RPC 端口均可达；后续远控窗口读取／定位异常，不将该辅助故障判为产品失败或盲点选择器。Windows 本候选完整下载／MFA 仍待补。
+
+**首次准备失败保留**：备份 helper 嵌套拼接误成绝对路径，被 Mac 只读文件系统拒绝，首次副本标 incomplete、未据此安装；改为受控相对路径断言后完整备份。Linux 首次启动早于 ELF 复制完成而失败、所选 Python 缺 asyncssh，保留日志并停止私有会话，核对 ELF／依赖后再启。一次远控 Ctrl+A 未到文件名框导致追加路径，观察后完整替换并核对才保存。普通窗口远控不稳、最大化后完成；没有把旧帧或点击尝试直接记为结果。
+
+**验收边界**：K60 仅查 USB 在线且锁屏，Apple QA 未更新。Linux 原 Flatpak 仍在，新核心 GUI 不能替代正常 Flatpak、真实提供方或五端矩阵。下一步完成 Windows 下载／MFA，再处理 Linux 可读错误／陈旧目录／普通窗口，多标签、真实 TOTP 与完整墓碑仍开放；不放行发布。服务及进程的最终清理状态另追加回执。
+
+**续接与精确收尾**：Linux 补验验证码取消后正常退出 QA，监督器关闭私有 Xvfb／Openbox／D-Bus／VNC；各记录 PID 均已退出、私有两个监听关闭、原 Flatpak 为唯一存活客户端，原校验文件不变、上传临时文件零。私有 MFA 服务和 Mac SSH 隧道均精确结束，静态夹具及文件证据保留在加密开发盘。Windows 两轮限时只读服务亦均结束、监听关闭；第二轮因控制通道未恢复，没有提交下载目标或完成新传输。
+
+Windows App 在现有 RDP 窗口与连接中心间定位异常，重读／按程序路径重绑／重置控制会话后仍连续超时；测试机 RDP、SMB、RPC 端口可达。没有关闭 RustDesk、重启测试机或绕过保护；已请求用户仅重开 Windows App 并保持远程桌面可见再续测。该项是明确的验收通道阻碍，**Windows 新版下载／MFA 仍未完成**；不得把 Linux 或 CI 的成功填到这些空项。纯文档回执将在既有固定门禁结束后同步，不再取消该次已完成门禁。
