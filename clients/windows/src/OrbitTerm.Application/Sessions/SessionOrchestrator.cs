@@ -3,6 +3,7 @@ using OrbitTerm.NativeBridge;
 using OrbitTerm.Terminal;
 using System.Collections.Concurrent;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 
 namespace OrbitTerm.Application.Sessions;
 
@@ -13,6 +14,8 @@ public sealed class SessionOrchestrator
     private readonly IKnownHostsPathProvider knownHostsPathProvider;
     private readonly VerifiedSessionRegistry sessionRegistry;
     private readonly TerminalSessionRegistry terminalRegistry;
+    private readonly ConcurrentDictionary<ulong, SftpSessionLease> sftpSessions = new();
+    private readonly ConditionalWeakTable<VerifiedSessionLease, object> sessionResourceGates = new();
     private readonly object terminalBacklogGate = new();
     private readonly Dictionary<ulong, TerminalBacklog> terminalBacklogs = [];
     private readonly Dictionary<ulong, TerminalScreen> terminalScreens = [];
@@ -267,8 +270,21 @@ public sealed class SessionOrchestrator
             throw new InvalidOperationException("A verified SSH session is required before opening SFTP.");
         }
 
-        var envelope = coreClient.OpenSftp(lease.BaseSessionId, HostKeyRequestId.Create());
-        return ValueTask.FromResult(SftpOpenResult.FromEnvelope(lease, envelope));
+        lock (sessionResourceGates.GetValue(lease, static _ => new object()))
+        {
+            if (!sessionRegistry.TryGet(workspaceId, serverId, out var current) ||
+                !ReferenceEquals(current, lease))
+            {
+                throw new InvalidOperationException("The verified SSH session has ended.");
+            }
+            var envelope = coreClient.OpenSftp(lease.BaseSessionId, HostKeyRequestId.Create());
+            var result = SftpOpenResult.FromEnvelope(lease, envelope);
+            if (result is SftpOpenResult.Opened opened)
+            {
+                sftpSessions[opened.Lease.SftpSessionId] = opened.Lease;
+            }
+            return ValueTask.FromResult(result);
+        }
     }
 
     public ValueTask<LocalTunnelLease> StartLocalTunnelAsync(
@@ -783,10 +799,47 @@ public sealed class SessionOrchestrator
             return ValueTask.FromResult(SessionEndResult.NoActiveSession);
         }
 
-        return ValueTask.FromResult(
-            sessionRegistry.Remove(lease)
-                ? SessionEndResult.Ended
-                : SessionEndResult.NoActiveSession);
+        // Native teardown can wait for the peer; do not block the UI dispatcher.
+        return new ValueTask<SessionEndResult>(Task.Run(() =>
+        {
+            lock (sessionResourceGates.GetValue(lease, static _ => new object()))
+            {
+                if (!sessionRegistry.TryGet(workspaceId, serverId, out var current) ||
+                    !ReferenceEquals(current, lease))
+                {
+                    return SessionEndResult.NoActiveSession;
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    // Each child holds its own native reference. Release only this
+                    // workspace's children, then its base reference; other tabs may
+                    // legitimately share the authenticated transport.
+                    foreach (var child in sftpSessions.Values.Where(candidate =>
+                        candidate.WorkspaceId == workspaceId && candidate.ServerId == serverId &&
+                        candidate.BaseSessionId == lease.BaseSessionId).ToArray())
+                    {
+                        if (coreClient.CloseSftp(child.SftpSessionId) is not TerminalControlResult.Succeeded)
+                        {
+                            return SessionEndResult.Failed;
+                        }
+                        sftpSessions.TryRemove(new KeyValuePair<ulong, SftpSessionLease>(child.SftpSessionId, child));
+                    }
+                    if (coreClient.DisconnectSession(lease.BaseSessionId) is not TerminalControlResult.Succeeded)
+                    {
+                        return SessionEndResult.Failed;
+                    }
+                    sessionRegistry.Remove(lease);
+                    return SessionEndResult.Ended;
+                }
+                catch (OrbitNativeException)
+                {
+                    // Retain the lease for a retry; never expose native details or
+                    // claim successful disconnect after a failed release.
+                    return SessionEndResult.Failed;
+                }
+            }
+        }, cancellationToken));
     }
 
     /// <summary>
@@ -796,6 +849,11 @@ public sealed class SessionOrchestrator
     /// </summary>
     public void AbandonSession(Guid workspaceId, Guid serverId)
     {
+        foreach (var child in sftpSessions.Values.Where(candidate =>
+            candidate.WorkspaceId == workspaceId && candidate.ServerId == serverId).ToArray())
+        {
+            sftpSessions.TryRemove(new KeyValuePair<ulong, SftpSessionLease>(child.SftpSessionId, child));
+        }
         foreach (var terminal in terminalRegistry.RemoveAll(workspaceId, serverId))
         {
             lock (terminalBacklogGate)

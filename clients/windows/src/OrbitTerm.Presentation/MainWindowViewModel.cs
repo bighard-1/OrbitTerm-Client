@@ -749,6 +749,10 @@ public sealed class MainWindowViewModel : ObservableObject
         if (HasActiveRuntime)
         {
             await EndSessionCoreAsync(cancellationToken, "正在重新连接").ConfigureAwait(true);
+            if (HasActiveRuntime)
+            {
+                return;
+            }
         }
 
         await ConnectAsync(cancellationToken).ConfigureAwait(true);
@@ -3561,6 +3565,10 @@ public sealed class MainWindowViewModel : ObservableObject
         if (HasActiveRuntime)
         {
             await EndSessionCoreAsync(cancellationToken, "Session ended before closing tab").ConfigureAwait(true);
+            if (HasActiveRuntime)
+            {
+                return;
+            }
         }
 
         CloseSelectedWorkspaceTabCore();
@@ -4158,6 +4166,10 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             Trace("previous_session_end_started");
             await EndSessionCoreAsync(cancellationToken, "Previous session ended before reconnect").ConfigureAwait(true);
+            if (HasActiveRuntime)
+            {
+                return;
+            }
             Trace("previous_session_end_completed");
         }
 
@@ -8537,6 +8549,15 @@ public sealed class MainWindowViewModel : ObservableObject
             CurrentWorkspaceId,
             draftAssetId,
             cancellationToken).ConfigureAwait(true);
+
+        if (endResult == SessionEndResult.Failed)
+        {
+            Status = "断开连接未完成，请重试。";
+            SessionActionSummary = "连接资源尚未完全释放";
+            SaveRuntimeStateToSelectedWorkspaceTab();
+            RefreshCommands();
+            return;
+        }
 
         pendingChallenge = null;
         sftpLease = null;

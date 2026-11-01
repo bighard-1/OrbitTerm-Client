@@ -28,6 +28,10 @@ public interface ICheckedOrbitCoreClient
 
     TerminalControlResult CloseTerminal(ulong terminalChannelId);
 
+    TerminalControlResult DisconnectSession(ulong baseSessionId);
+
+    TerminalControlResult CloseSftp(ulong sftpSessionId);
+
     CheckedEnvelope OpenSftp(ulong baseSessionId, HostKeyRequestId requestId);
 
     CheckedEnvelope ListSftpDirectory(ulong sftpSessionId, string remotePath, HostKeyRequestId requestId);

@@ -404,6 +404,10 @@ fn run_trusted_flow(config: &OpenSshFixtureConfig) {
     assert_download_target_ownership(config, sftp_id);
     assert_upload_temporary_ownership(config, sftp_id);
     assert!(take_owned_string(orbit_sftp_disconnect(sftp_id)).starts_with("OK:"));
+    assert!(session_pool::get_sftp_session(sftp_id).is_err());
+    // Repeated close must not release the shared base reference twice.
+    assert!(take_owned_string(orbit_sftp_disconnect(sftp_id)).starts_with("OK:"));
+    assert!(session_pool::require_active_verified_base_session(base_session_id).is_ok());
 
     let exec_request = c_string("openssh-exec");
     let command = c_string("printf orbitterm-smoke");
@@ -495,6 +499,15 @@ fn run_trusted_flow(config: &OpenSshFixtureConfig) {
     }
 
     assert!(take_owned_string(orbit_ssh_disconnect(base_session_id)).starts_with("OK:"));
+    assert!(session_pool::require_active_verified_base_session(base_session_id).is_err());
+    let reconnected = call_checked_connect(config, "openssh-after-disconnect");
+    assert_envelope(&reconnected, "openssh-after-disconnect", "connected");
+    let new_base = decimal_id(&reconnected["data"]["session_id"]);
+    assert_ne!(
+        new_base, base_session_id,
+        "explicit disconnect must evict the old pooled transport"
+    );
+    assert!(take_owned_string(orbit_ssh_disconnect(new_base)).starts_with("OK:"));
 }
 
 #[test]

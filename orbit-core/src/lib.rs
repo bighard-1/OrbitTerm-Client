@@ -222,17 +222,17 @@ pub async fn sftp_connect(
 
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn sftp_disconnect(session_id: u64) -> Result<(), OrbitCoreError> {
-    let session = session_pool::remove_sftp_session(session_id)?;
+    let Some(session) = session_pool::take_sftp_session(session_id)? else {
+        return Ok(());
+    };
 
     let base_id = session.base.id;
-    session
-        .sftp
-        .close()
-        .await
-        .map_err(|e| OrbitCoreError::SftpFailed(e.to_string()))?;
-    session_pool::release_base_session(base_id).await?;
-
-    Ok(())
+    session_pool::finish_session_release(
+        session.sftp.close(),
+        session_pool::release_base_session(base_id),
+        std::time::Duration::from_secs(3),
+    )
+    .await
 }
 
 #[uniffi::export(async_runtime = "tokio")]

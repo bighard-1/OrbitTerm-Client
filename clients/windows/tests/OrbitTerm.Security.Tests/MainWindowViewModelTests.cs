@@ -1282,6 +1282,32 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task FailedDisconnectBlocksReconnectAndTabRemovalUntilReleaseSucceeds()
+    {
+        var core = new FakeCheckedCoreClient();
+        var viewModel = CreateViewModel(core);
+        viewModel.Password = "secret";
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        var tab = viewModel.SelectedWorkspaceTab;
+        var connectCalls = core.ConnectCallCount;
+        core.FailDisconnect = true;
+
+        await viewModel.ReconnectSelectedWorkspaceAsync(CancellationToken.None);
+        Assert.True(viewModel.IsConnected);
+        Assert.Equal(connectCalls, core.ConnectCallCount);
+        Assert.Equal("断开连接未完成，请重试。", viewModel.Status);
+        await viewModel.DisconnectAndCloseWorkspaceTabCommand.ExecuteAsync(null);
+        Assert.Same(tab, viewModel.SelectedWorkspaceTab);
+        Assert.True(viewModel.IsConnected);
+        Assert.DoesNotContain("private backend", viewModel.Status);
+
+        core.FailDisconnect = false;
+        await viewModel.DisconnectSelectedWorkspaceAsync(CancellationToken.None);
+        Assert.False(viewModel.IsConnected);
+        Assert.Equal("会话已断开", viewModel.Status);
+    }
+
+    [Fact]
     public async Task EndSessionClosesTerminalAndClearsVerifiedState()
     {
         var coreClient = new FakeCheckedCoreClient();
@@ -1300,6 +1326,7 @@ public sealed class MainWindowViewModelTests
 
         Assert.Equal(1, coreClient.CloseTerminalCallCount);
         Assert.Equal("未连接", viewModel.ConnectionStateLabel);
+        Assert.Equal(1, coreClient.DisconnectSessionCallCount);
         Assert.Equal("等待连接", viewModel.SecurityBadgeText);
         Assert.Equal("No verified session", viewModel.SecurityStatus);
         Assert.Equal("打开终端后可输入命令", viewModel.TerminalInputHint);
@@ -3796,6 +3823,18 @@ public sealed class MainWindowViewModelTests
         }
 
         public int CloseTerminalCallCount { get; private set; }
+        public int DisconnectSessionCallCount { get; private set; }
+        public bool FailDisconnect { get; set; }
+
+        public TerminalControlResult CloseSftp(ulong sftpSessionId) =>
+            new TerminalControlResult.Succeeded("closed");
+
+        public TerminalControlResult DisconnectSession(ulong baseSessionId)
+        {
+            DisconnectSessionCallCount++;
+            return FailDisconnect ? new TerminalControlResult.Failed("private backend detail")
+                : new TerminalControlResult.Succeeded("closed");
+        }
         public int WriteTerminalCallCount { get; private set; }
         public int TerminalWriteDelayMilliseconds { get; init; }
         public int ResizeTerminalCallCount { get; private set; }

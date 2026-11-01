@@ -110,6 +110,12 @@ internal static partial class NativeMethods
     internal static partial OrbitCString orbit_terminal_close(ulong terminal_channel_id);
 
     [LibraryImport(LibraryName)]
+    internal static partial OrbitCString orbit_ssh_disconnect(ulong base_session_id);
+
+    [LibraryImport(LibraryName)]
+    internal static partial OrbitCString orbit_sftp_disconnect(ulong session_id);
+
+    [LibraryImport(LibraryName)]
     internal static partial OrbitCString orbit_local_tunnel_start_checked_v1(
         ulong base_session_id,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string bind_host,

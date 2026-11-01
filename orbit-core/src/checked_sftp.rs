@@ -6,8 +6,7 @@ use russh_sftp::client::{Config as SftpClientConfig, SftpSession};
 
 use crate::security::CheckedChannelAccessError;
 use crate::session_pool::{
-    insert_checked_sftp_session, release_base_session, remove_sftp_session,
-    require_active_verified_base_session, VerifiedBaseSessionGuard,
+    insert_checked_sftp_session, require_active_verified_base_session, VerifiedBaseSessionGuard,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -125,10 +124,5 @@ pub(crate) async fn open_sftp_channel_checked_with_backend_timeout<B: CheckedSft
 }
 
 pub(crate) async fn discard_sftp_channel_checked(session_id: SftpSessionId) {
-    let Ok(session) = remove_sftp_session(session_id.get()) else {
-        return;
-    };
-    let base_session_id = session.base.id;
-    let _ = session.sftp.close().await;
-    let _ = release_base_session(base_session_id).await;
+    let _ = crate::sftp_disconnect(session_id.get()).await;
 }

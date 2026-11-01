@@ -136,6 +136,20 @@ public sealed class CheckedOrbitCoreClient : ICheckedOrbitCoreClient
         return TerminalControlResult.Decode(result.ToOwnedString());
     }
 
+    public TerminalControlResult DisconnectSession(ulong baseSessionId)
+    {
+        EnsureBaseSession(baseSessionId);
+        using var result = NativeMethods.orbit_ssh_disconnect(baseSessionId);
+        return TerminalControlResult.Decode(result.ToOwnedString());
+    }
+
+    public TerminalControlResult CloseSftp(ulong sftpSessionId)
+    {
+        EnsureSftpSession(sftpSessionId);
+        using var result = NativeMethods.orbit_sftp_disconnect(sftpSessionId);
+        return TerminalControlResult.Decode(result.ToOwnedString());
+    }
+
     public CheckedEnvelope StartLocalTunnel(
         ulong baseSessionId,
         string bindHost,

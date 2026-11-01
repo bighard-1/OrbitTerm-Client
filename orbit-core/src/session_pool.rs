@@ -429,15 +429,10 @@ pub(crate) fn insert_checked_sftp_session(
     Ok(channel_id)
 }
 
-pub(crate) fn remove_sftp_session(
+pub(crate) fn take_sftp_session(
     session_id: u64,
-) -> Result<Arc<OrbitSftpSession>, OrbitCoreError> {
-    let session = {
-        let mut sessions = lock_sftp_sessions()?;
-        sessions.remove(&session_id)
-    }
-    .ok_or_else(|| OrbitCoreError::SftpFailed("session not found".to_string()))?;
-    Ok(session)
+) -> Result<Option<Arc<OrbitSftpSession>>, OrbitCoreError> {
+    Ok(lock_sftp_sessions()?.remove(&session_id))
 }
 
 pub(crate) async fn get_or_create_base_session(
@@ -866,11 +861,31 @@ pub(crate) async fn release_base_session(base_id: u64) -> Result<(), OrbitCoreEr
         }
     }
 
-    let ssh = base.ssh.lock().await;
-    let _ = ssh
-        .disconnect(Disconnect::ByApplication, "session released", "en")
-        .await;
+    // The pool entry is already revoked. A stalled peer or an in-flight
+    // operation must not prevent local teardown from completing.
+    let _ = tokio::time::timeout(Duration::from_secs(3), async {
+        let ssh = base.ssh.lock().await;
+        let _ = ssh
+            .disconnect(Disconnect::ByApplication, "session released", "en")
+            .await;
+    })
+    .await;
     Ok(())
+}
+
+pub(crate) async fn finish_session_release<C, R>(
+    graceful_close: C,
+    release: R,
+    timeout: Duration,
+) -> Result<(), OrbitCoreError>
+where
+    C: std::future::Future,
+    R: std::future::Future<Output = Result<(), OrbitCoreError>>,
+{
+    // Remote acknowledgement is best effort. Once the local child has been
+    // removed, its owned base reference must be released even on EOF/timeout.
+    let _ = tokio::time::timeout(timeout, graceful_close).await;
+    release.await
 }
 
 fn lock_sftp_sessions(
