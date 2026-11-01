@@ -1282,6 +1282,143 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task TerminalIsReadyAndDockerStartsWhileSftpInitializationIsPending()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var core = new FakeCheckedCoreClient { SftpOpenEnteredGate = entered, SftpOpenReleaseGate = release };
+        var viewModel = CreateViewModel(core);
+        viewModel.Password = "secret";
+        var connecting = viewModel.ConnectCommand.ExecuteAsync(null);
+        try
+        {
+            await WaitUntilAsync(() => entered.IsSet);
+            Assert.True(viewModel.IsTerminalOpen);
+            Assert.False(viewModel.IsConnecting);
+            Assert.False(viewModel.OpenSftpCommand.CanExecute(null));
+            await WaitUntilAsync(() => core.DockerListCallCount > 0);
+            Assert.True(await viewModel.WriteTerminalInputAsync(new byte[] { 0x61 }, CancellationToken.None));
+        }
+        finally { release.Set(); }
+        await connecting;
+        Assert.True(viewModel.IsSftpOpen);
+    }
+
+    [Fact]
+    public async Task LateSftpInitializationBelongsToItsOriginalWorkspace()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var core = new FakeCheckedCoreClient { SftpOpenEnteredGate = entered, SftpOpenReleaseGate = release };
+        var viewModel = CreateViewModel(core);
+        viewModel.Password = "secret";
+        var owner = viewModel.SelectedWorkspaceTab!;
+        var connecting = viewModel.ConnectCommand.ExecuteAsync(null);
+        try
+        {
+            await WaitUntilAsync(() => entered.IsSet);
+            await viewModel.OpenWorkspaceTabCommand.ExecuteAsync(null);
+        }
+        finally { release.Set(); }
+        await connecting;
+        Assert.False(viewModel.IsConnected);
+        Assert.False(viewModel.IsSftpOpen);
+        Assert.Empty(viewModel.SftpEntries);
+        Assert.NotNull(owner.SftpLease);
+        Assert.NotEmpty(owner.SftpEntries);
+        viewModel.SelectedWorkspaceTab = owner;
+        Assert.True(viewModel.IsSftpOpen);
+        Assert.NotEmpty(viewModel.SftpEntries);
+    }
+
+    [Fact]
+    public async Task LateInitialListingCannotResurrectADisconnectedWorkspace()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var core = new FakeCheckedCoreClient { SftpListEnteredGate = entered, SftpListReleaseGate = release };
+        var viewModel = CreateViewModel(core);
+        viewModel.Password = "secret";
+        var connecting = viewModel.ConnectCommand.ExecuteAsync(null);
+        try
+        {
+            await WaitUntilAsync(() => entered.IsSet);
+            await viewModel.DisconnectSelectedWorkspaceAsync(CancellationToken.None);
+        }
+        finally { release.Set(); }
+        await connecting;
+        Assert.False(viewModel.IsConnected);
+        Assert.False(viewModel.IsSftpOpen);
+        Assert.Empty(viewModel.SftpEntries);
+        Assert.Null(viewModel.SelectedWorkspaceTab!.SftpLease);
+        Assert.Equal("会话已断开", viewModel.Status);
+    }
+
+    [Fact]
+    public async Task ManualNavigationSupersedesTheInitialHomeListing()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var core = new FakeCheckedCoreClient
+        {
+            SftpListEnteredGate = entered,
+            SftpListReleaseGate = release,
+            OnlyGateFirstSftpList = true,
+        };
+        var viewModel = CreateViewModel(core);
+        viewModel.Password = "secret";
+        var connecting = viewModel.ConnectCommand.ExecuteAsync(null);
+        try
+        {
+            await WaitUntilAsync(() => entered.IsSet);
+            viewModel.SftpPathText = "/var";
+            await viewModel.PrepareSftpBrowseCommand.ExecuteAsync(null);
+        }
+        finally { release.Set(); }
+        await connecting;
+        Assert.Equal("/var", viewModel.SftpPathText);
+        Assert.Contains(viewModel.SftpEntries, entry => entry.Name == "log");
+        Assert.Equal("已列出 /var", viewModel.SftpBrowserStatus);
+    }
+
+    [Fact]
+    public async Task LateDockerFailureCannotChangeAReconnectedWorkspace()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var core = new FakeCheckedCoreClient
+        {
+            DockerListEnteredGate = entered,
+            DockerListReleaseGate = release,
+            ThrowDockerListAfterGate = true,
+        };
+        var viewModel = CreateViewModel(core);
+        viewModel.Password = "secret";
+        var first = viewModel.ConnectCommand.ExecuteAsync(null);
+        Task? second = null;
+        var staleErrors = new List<string>();
+        try
+        {
+            await WaitUntilAsync(() => entered.IsSet);
+            await viewModel.DisconnectSelectedWorkspaceAsync(CancellationToken.None);
+            viewModel.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(viewModel.DockerSummary) &&
+                    viewModel.DockerSummary.Contains("刷新暂时失败", StringComparison.Ordinal))
+                    staleErrors.Add(viewModel.DockerSummary);
+            };
+            second = viewModel.ReconnectSelectedWorkspaceAsync(CancellationToken.None);
+            await WaitUntilAsync(() => core.ConnectCallCount == 2 && viewModel.IsConnected && !viewModel.IsConnecting);
+        }
+        finally { release.Set(); }
+        await first;
+        if (second is not null) await second;
+        Assert.True(viewModel.IsConnected);
+        Assert.Empty(staleErrors);
+        Assert.DoesNotContain("private", viewModel.DockerSummary);
+    }
+
+    [Fact]
     public async Task FailedDisconnectBlocksReconnectAndTabRemovalUntilReleaseSucceeds()
     {
         var core = new FakeCheckedCoreClient();
@@ -3839,6 +3976,12 @@ public sealed class MainWindowViewModelTests
         public int TerminalWriteDelayMilliseconds { get; init; }
         public int ResizeTerminalCallCount { get; private set; }
         public int OpenSftpCallCount { get; private set; }
+        public ManualResetEventSlim? SftpOpenEnteredGate { get; init; }
+        public ManualResetEventSlim? SftpOpenReleaseGate { get; init; }
+        public ManualResetEventSlim? SftpListEnteredGate { get; init; }
+        public ManualResetEventSlim? SftpListReleaseGate { get; init; }
+        public bool OnlyGateFirstSftpList { get; init; }
+        private int sftpListSequence;
         public int SftpListFailuresRemaining { get; set; }
         public string? SftpListFailureDetailCode { get; set; }
         public int UploadSftpFileCallCount { get; private set; }
@@ -3873,6 +4016,9 @@ public sealed class MainWindowViewModelTests
         public CheckedErrorPayload? ConnectFailure { get; set; }
         public List<string> ExecutedCommands { get; } = [];
         public int DockerListCallCount { get; private set; }
+        public ManualResetEventSlim? DockerListEnteredGate { get; init; }
+        public ManualResetEventSlim? DockerListReleaseGate { get; init; }
+        public bool ThrowDockerListAfterGate { get; init; }
         public int DockerStatsCallCount { get; private set; }
         public int DockerStatsDelayMilliseconds { get; set; }
         public int DockerLogsCallCount { get; private set; }
@@ -3983,6 +4129,9 @@ public sealed class MainWindowViewModelTests
         public CheckedEnvelope OpenSftp(ulong baseSessionId, HostKeyRequestId requestId)
         {
             OpenSftpCallCount++;
+            SftpOpenEnteredGate?.Set();
+            if (SftpOpenReleaseGate is { } gate && !gate.Wait(TimeSpan.FromSeconds(5)))
+                throw new TimeoutException("Fixture SFTP open gate timed out.");
             return CreateEnvelope(
                 CheckedFfiKind.SftpChannelOpened,
                 requestId.Value,
@@ -3997,6 +4146,12 @@ public sealed class MainWindowViewModelTests
 
         public CheckedEnvelope ListSftpDirectory(ulong sftpSessionId, string remotePath, HostKeyRequestId requestId)
         {
+            if (!OnlyGateFirstSftpList || Interlocked.Increment(ref sftpListSequence) == 1)
+            {
+                SftpListEnteredGate?.Set();
+                if (SftpListReleaseGate is { } gate && !gate.Wait(TimeSpan.FromSeconds(5)))
+                    throw new TimeoutException("Fixture SFTP list gate timed out.");
+            }
             if (SftpListFailuresRemaining > 0)
             {
                 SftpListFailuresRemaining--;
@@ -4364,6 +4519,10 @@ public sealed class MainWindowViewModelTests
         public CheckedEnvelope DockerList(ulong baseSessionId, HostKeyRequestId requestId)
         {
             DockerListCallCount++;
+            DockerListEnteredGate?.Set();
+            if (DockerListReleaseGate is { } gate && !gate.Wait(TimeSpan.FromSeconds(5)))
+                throw new TimeoutException("Fixture Docker gate timed out.");
+            if (ThrowDockerListAfterGate) throw new InvalidOperationException("private backend detail");
             return CreateEnvelope(
                 CheckedFfiKind.DockerContainers,
                 requestId.Value,

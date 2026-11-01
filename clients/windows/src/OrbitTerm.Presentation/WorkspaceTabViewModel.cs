@@ -127,6 +127,14 @@ public sealed class WorkspaceTabViewModel : ObservableObject
 
     public SftpSessionLease? SftpLease { get; set; }
 
+    // Runtime-only generation; never persisted or synchronized. A new connection
+    // or explicit teardown invalidates results from the preceding initialization.
+    internal Guid SessionGeneration { get; set; } = Guid.NewGuid();
+
+    internal bool IsSftpOpening { get; set; }
+
+    internal long SftpBrowseVersion { get; set; }
+
     public bool IsConnected
     {
         get => isConnected;

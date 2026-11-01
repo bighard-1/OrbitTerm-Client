@@ -186,6 +186,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private string pendingOneTimeCode = string.Empty;
     private string pendingJumpOneTimeCode = string.Empty;
     private bool isOpeningVerifiedWorkspace;
+    private Guid activeConnectionAttempt;
     private bool isAutoScrollEnabled = true;
     private bool isRestoringWorkspaceTab;
     private Guid? activeTerminalSplitPaneId;
@@ -249,7 +250,7 @@ public sealed class MainWindowViewModel : ObservableObject
         OpenTerminalCommand = new AsyncRelayCommand(OpenTerminalAsync, () => isConnected && terminalLease is null && !isOpeningVerifiedWorkspace && !IsTelnetSession);
         AddTerminalSplitCommand = new AsyncRelayCommand(AddTerminalSplitAsync, () => CanAddTerminalSplit);
         RemoveLastTerminalSplitCommand = new AsyncRelayCommand(RemoveLastTerminalSplitAsync, () => HasTerminalSplits);
-        OpenSftpCommand = new AsyncRelayCommand(OpenSftpAsync, () => isConnected && sftpLease is null && !isOpeningVerifiedWorkspace && !IsTelnetSession);
+        OpenSftpCommand = new AsyncRelayCommand(OpenSftpAsync, () => isConnected && sftpLease is null && !isOpeningVerifiedWorkspace && SelectedWorkspaceTab?.IsSftpOpening != true && !IsTelnetSession);
         RefreshMonitorSnapshotCommand = new AsyncRelayCommand(RefreshMonitorDetailsAsync, () => isConnected && !IsTelnetSession);
         RefreshDockerContainersCommand = new AsyncRelayCommand(RefreshDockerContainersAsync, () => isConnected && !IsTelnetSession);
         RefreshDockerStatsCommand = new AsyncRelayCommand(RefreshDockerStatsAsync, () => isConnected && !IsTelnetSession);
@@ -4198,6 +4199,10 @@ public sealed class MainWindowViewModel : ObservableObject
                 ? new JumpHostConfiguration(draftJumpCredentialId, JumpHost.Trim(), ParsedJumpPort, JumpUsername.Trim(), JumpAllowPasswordFallback)
                 : null);
 
+        var connectionOwner = SelectedWorkspaceTab;
+        if (connectionOwner is null) return;
+        var connectionAttempt = Guid.NewGuid();
+        activeConnectionAttempt = connectionAttempt;
         IsConnecting = true;
         RefreshCommands();
         try
@@ -4265,7 +4270,7 @@ public sealed class MainWindowViewModel : ObservableObject
             // The checked native SSH handshake performs network I/O synchronously.
             // Keep it off the WinUI dispatcher; applying its result stays on the
             // UI context below.
-            var workspaceId = CurrentWorkspaceId;
+            var workspaceId = connectionOwner.WorkspaceId;
             var oneTimeCode = pendingOneTimeCode;
             var jumpOneTimeCode = pendingJumpOneTimeCode;
             var result = await Task.Run(
@@ -4276,6 +4281,13 @@ public sealed class MainWindowViewModel : ObservableObject
                     cancellationToken)
                 .ConfigureAwait(true);
             Trace($"native_result={result.GetType().Name}");
+            if (!ReferenceEquals(connectionOwner, SelectedWorkspaceTab) ||
+                connectionOwner.AssetId != asset.Id || activeConnectionAttempt != connectionAttempt)
+            {
+                if (result is ConnectResult.Connected)
+                    await orchestrator.EndVerifiedSessionAsync(workspaceId, asset.Id, CancellationToken.None).ConfigureAwait(true);
+                return;
+            }
             if (result is ConnectResult.Failed { Code: "ssh_timeout" } timeout)
             {
                 // Log only the closed set of timeout details, never native text.
@@ -4297,28 +4309,19 @@ public sealed class MainWindowViewModel : ObservableObject
                 Trace("terminal_open_started");
                 await OpenTerminalAsync(cancellationToken).ConfigureAwait(true);
                 Trace("terminal_open_completed");
-                // SFTP is part of a verified workstation session, not a second
-                // connection the user has to remember to open. Each workspace tab
-                // owns its lease and listing, so switching tabs restores the matching
-                // asset view without touching another connection.
-                Trace("sftp_open_started");
-                await OpenSftpAsync(cancellationToken).ConfigureAwait(true);
-                Trace("sftp_open_completed");
-                if (sftpLease is not null)
-                {
-                    Trace("sftp_list_started");
-                    await PrepareSftpBrowseAsync(cancellationToken).ConfigureAwait(true);
-                    Trace("sftp_list_completed");
-                }
-                // Docker belongs to the same verified workstation context. Load the
-                // current asset's containers immediately so the inspector never
-                // starts as an empty manual-refresh view.
-                Trace("docker_initialization_started");
-                await RefreshDockerContainersAsync(cancellationToken).ConfigureAwait(true);
-                await RefreshDockerStatsCoreAsync(cancellationToken, publishFeedback: false).ConfigureAwait(true);
-                Trace("docker_initialization_completed");
+                SaveRuntimeStateToSelectedWorkspaceTab();
+                var context = CaptureWorkspaceSession(connectionOwner);
+                // The terminal is usable now. Auxiliary requests are independent,
+                // bounded native operations and must not hold the connecting overlay
+                // or the UI dispatcher while either remote subsystem is unavailable.
+                IsConnecting = false;
+                RefreshCommands();
+                await Task.WhenAll(
+                    InitializeWorkspaceSftpAsync(context, cancellationToken, Trace),
+                    InitializeWorkspaceDockerAsync(context, cancellationToken, Trace)).ConfigureAwait(true);
             }
-            SaveRuntimeStateToSelectedWorkspaceTab();
+            if (ReferenceEquals(connectionOwner, SelectedWorkspaceTab) && activeConnectionAttempt == connectionAttempt)
+                SaveRuntimeStateToSelectedWorkspaceTab();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -4334,6 +4337,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 exception.HResult.ToString("X8", System.Globalization.CultureInfo.InvariantCulture),
                 ";inner=",
                 exception.InnerException?.GetType().Name ?? "none"));
+            if (!ReferenceEquals(connectionOwner, SelectedWorkspaceTab) || activeConnectionAttempt != connectionAttempt) return;
             Status = "连接未完成，请检查网络、凭据或服务器状态后重试";
             if (!IsConnected) ConnectionFailureMessage = Status;
             SecurityStatus = "connection_failed";
@@ -4343,7 +4347,7 @@ public sealed class MainWindowViewModel : ObservableObject
         finally
         {
             Trace("command_finished");
-            IsConnecting = false;
+            if (activeConnectionAttempt == connectionAttempt) IsConnecting = false;
             RefreshCommands();
         }
     }
@@ -4843,49 +4847,148 @@ public sealed class MainWindowViewModel : ObservableObject
         return SftpPreviewText;
     }
 
+    private sealed record WorkspaceSessionContext(
+        WorkspaceTabViewModel Owner, Guid AssetId, Guid Generation, ulong BaseSessionId);
+
+    private WorkspaceSessionContext CaptureWorkspaceSession(WorkspaceTabViewModel owner) =>
+        new(owner, owner.AssetId, owner.SessionGeneration,
+            orchestrator.GetVerifiedBaseSessionId(owner.WorkspaceId, owner.AssetId));
+
+    private bool IsWorkspaceSessionAlive(WorkspaceSessionContext context) =>
+        context.BaseSessionId != 0 && WorkspaceTabs.Contains(context.Owner) &&
+        context.Owner.IsConnected && context.Owner.AssetId == context.AssetId &&
+        context.Owner.SessionGeneration == context.Generation &&
+        orchestrator.GetVerifiedBaseSessionId(context.Owner.WorkspaceId, context.AssetId) == context.BaseSessionId;
+
     private async Task OpenSftpAsync(CancellationToken cancellationToken)
     {
-        SftpStatus = "Opening SFTP";
-        var result = await orchestrator.OpenSftpAsync(
-            CurrentWorkspaceId,
-            draftAssetId,
-            cancellationToken).ConfigureAwait(true);
+        if (SelectedWorkspaceTab is not { } owner) return;
+        SaveRuntimeStateToSelectedWorkspaceTab();
+        await OpenSftpForWorkspaceAsync(CaptureWorkspaceSession(owner), cancellationToken).ConfigureAwait(true);
+    }
 
-        switch (result)
+    private async Task<SftpSessionLease?> OpenSftpForWorkspaceAsync(
+        WorkspaceSessionContext context, CancellationToken cancellationToken)
+    {
+        var owner = context.Owner;
+        if (!IsWorkspaceSessionAlive(context) || owner.IsSftpOpening) return null;
+        if (owner.SftpLease is { } existing) return existing;
+        owner.IsSftpOpening = true;
+        owner.SftpStatus = "正在打开 SFTP，终端可继续使用";
+        PublishSftpWorkspaceState(owner);
+        try
         {
-            case SftpOpenResult.Opened opened:
-                sftpLease = opened.Lease;
-                SftpPathText = opened.Lease.HomePath;
-                RebuildSftpBreadcrumbs(SftpPathText);
-                var transferContext = GetCurrentSftpTransferContext();
-                SftpStatus = "SFTP channel open";
-                SftpBrowserStatus = "SFTP browser ready";
-                SftpOperationStatus = "Validate a remote path before directory operations";
-                SessionActionSummary = "SFTP ready";
-                if (transferContext.LastTransferRetry is not null || transferContext.LastBatchRetry is not null)
+            var result = await Task.Run(async () => await orchestrator.OpenSftpAsync(
+                owner.WorkspaceId, context.AssetId, cancellationToken).ConfigureAwait(false),
+                cancellationToken).ConfigureAwait(true);
+            if (!IsWorkspaceSessionAlive(context)) return null;
+            if (result is SftpOpenResult.Opened opened)
+            {
+                owner.SftpLease = opened.Lease;
+                owner.SftpPathText = opened.Lease.HomePath;
+                owner.SftpStatus = "SFTP channel open";
+                owner.SftpBrowserStatus = "SFTP browser ready";
+                owner.SftpOperationStatus = "Validate a remote path before directory operations";
+                PublishSftpWorkspaceState(owner);
+                if (ReferenceEquals(owner, SelectedWorkspaceTab))
                 {
-                    SetSftpTransferStatus(transferContext, "连接已恢复，可点击“重试”继续未完成的传输任务");
+                    var transferContext = GetCurrentSftpTransferContext();
+                    if (transferContext.LastTransferRetry is not null || transferContext.LastBatchRetry is not null)
+                        SetSftpTransferStatus(transferContext, "连接已恢复，可点击“重试”继续未完成的传输任务");
+                    else if (transferContext.Tasks.Any(static task => task.State == SftpTransferTaskState.Cancelled))
+                        SetSftpTransferStatus(transferContext, "连接已恢复；上次传输已中断，请重新选择文件下载");
+                    else if (transferContext.Tasks.Count > 0)
+                        SetSftpTransferStatus(transferContext, "连接已恢复；先前传输记录已保留");
                 }
-                else if (transferContext.Tasks.Any(static task => task.State == SftpTransferTaskState.Cancelled))
-                {
-                    SetSftpTransferStatus(transferContext, "连接已恢复；上次传输已中断，请重新选择文件下载");
-                }
-                else if (transferContext.Tasks.Count > 0)
-                {
-                    SetSftpTransferStatus(transferContext, "连接已恢复；先前传输记录已保留");
-                }
-                NotifySftpStateChanged();
-                OnPropertyChanged(nameof(CanRetryLastSftpTransfer));
-                SaveRuntimeStateToSelectedWorkspaceTab();
-                break;
-            case SftpOpenResult.Failed failed:
-                SftpStatus = failed.MessageKey;
-                SessionActionSummary = failed.Code;
-                SaveRuntimeStateToSelectedWorkspaceTab();
-                break;
+                return opened.Lease;
+            }
+            owner.SftpStatus = "SFTP 暂不可用，终端连接仍可使用";
+            owner.SftpBrowserStatus = "无法打开 SFTP，请重试或确认服务器支持此功能";
+            owner.SftpEntries.Clear();
+            PublishSftpWorkspaceState(owner);
+            return null;
         }
+        finally
+        {
+            if (owner.SessionGeneration == context.Generation) owner.IsSftpOpening = false;
+            RefreshCommands();
+        }
+    }
 
-        RefreshCommands();
+    private void PublishSftpWorkspaceState(WorkspaceTabViewModel owner)
+    {
+        if (!ReferenceEquals(owner, SelectedWorkspaceTab)) return;
+        sftpLease = owner.SftpLease;
+        SftpStatus = owner.SftpStatus;
+        SftpPathText = owner.SftpPathText;
+        SftpBrowserStatus = owner.SftpBrowserStatus;
+        SftpOperationStatus = owner.SftpOperationStatus;
+        RebuildSftpBreadcrumbs(SftpPathText);
+        SetSelectedSftpEntries([]);
+        SftpEntries.Clear();
+        foreach (var entry in owner.SftpEntries) SftpEntries.Add(entry);
+        NotifySftpStateChanged();
+        NotifySftpListingChanged();
+    }
+
+    private async Task InitializeWorkspaceSftpAsync(
+        WorkspaceSessionContext context, CancellationToken cancellationToken, Action<string> trace)
+    {
+        var owner = context.Owner;
+        try
+        {
+            trace("sftp_open_started");
+            var lease = await OpenSftpForWorkspaceAsync(context, cancellationToken).ConfigureAwait(true);
+            trace("sftp_open_completed");
+            if (lease is null || !IsWorkspaceSessionAlive(context)) return;
+            var version = ++owner.SftpBrowseVersion;
+            trace("sftp_list_started");
+            var result = await Task.Run(async () => await orchestrator.ListSftpDirectoryAsync(
+                lease, lease.HomePath, cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(true);
+            trace("sftp_list_completed");
+            if (!IsWorkspaceSessionAlive(context) || !ReferenceEquals(owner.SftpLease, lease) ||
+                owner.SftpBrowseVersion != version) return;
+            owner.SftpEntries.Clear();
+            if (result is SftpDirectoryListResult.Listed listed)
+            {
+                owner.SftpEntries.AddRange(listed.Entries
+                    .Select(entry => ToSftpEntryViewModel(listed.Path, entry))
+                    .OfType<SftpDirectoryEntryViewModel>()
+                    .OrderBy(entry => entry.IsDirectory ? 0 : 1)
+                    .ThenBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase));
+                owner.SftpBrowserStatus = string.Concat("已列出 ", listed.Path);
+                owner.SftpOperationStatus = "目录已刷新：文件夹优先，再按名称排序。";
+            }
+            else
+            {
+                owner.SftpBrowserStatus = "目录读取失败，请刷新或重新连接";
+                owner.SftpOperationStatus = "终端连接仍可使用";
+            }
+            PublishSftpWorkspaceState(owner);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception)
+        {
+            if (!IsWorkspaceSessionAlive(context)) return;
+            owner.SftpStatus = "SFTP 初始化未完成，终端连接仍可使用";
+            owner.SftpBrowserStatus = "请刷新或重新打开 SFTP";
+            PublishSftpWorkspaceState(owner);
+        }
+    }
+
+    private async Task InitializeWorkspaceDockerAsync(
+        WorkspaceSessionContext context, CancellationToken cancellationToken, Action<string> trace)
+    {
+        try
+        {
+            if (!IsWorkspaceSessionAlive(context) || !ReferenceEquals(context.Owner, SelectedWorkspaceTab)) return;
+            trace("docker_initialization_started");
+            await RefreshDockerContainersCoreAsync(cancellationToken, publishFeedback: false).ConfigureAwait(true);
+            if (IsWorkspaceSessionAlive(context) && ReferenceEquals(context.Owner, SelectedWorkspaceTab))
+                await RefreshDockerStatsCoreAsync(cancellationToken, publishFeedback: false).ConfigureAwait(true);
+            trace("docker_initialization_completed");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
     }
 
     public async Task RefreshMonitorDetailsAsync(CancellationToken cancellationToken)
@@ -5318,6 +5421,7 @@ public sealed class MainWindowViewModel : ObservableObject
         bool publishFeedback)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        var refreshContext = SelectedWorkspaceTab is { } refreshOwner ? CaptureWorkspaceSession(refreshOwner) : null;
 
         if (Interlocked.CompareExchange(ref dockerContainerRefreshInFlight, 1, 0) != 0)
         {
@@ -5354,7 +5458,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 cancellationToken).AsTask(),
             cancellationToken).ConfigureAwait(true);
 
-        if (!IsConnected ||
+        if (!IsConnected || refreshContext is null || !IsWorkspaceSessionAlive(refreshContext) ||
             !ReferenceEquals(owner, SelectedWorkspaceTab) ||
             CurrentWorkspaceId != workspaceId ||
             draftAssetId != serverId)
@@ -5400,7 +5504,8 @@ public sealed class MainWindowViewModel : ObservableObject
         }
         catch (Exception)
         {
-            if (IsConnected)
+            if (IsConnected && refreshContext is not null && IsWorkspaceSessionAlive(refreshContext) &&
+                ReferenceEquals(refreshContext.Owner, SelectedWorkspaceTab))
             {
                 DockerStatus = "无法读取 Docker 容器";
                 DockerSummary = "容器列表刷新暂时失败，已保留上一次数据";
@@ -5424,6 +5529,7 @@ public sealed class MainWindowViewModel : ObservableObject
         bool publishFeedback)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        var refreshContext = SelectedWorkspaceTab is { } refreshOwner ? CaptureWorkspaceSession(refreshOwner) : null;
 
         if (Interlocked.CompareExchange(ref dockerStatsRefreshInFlight, 1, 0) != 0)
         {
@@ -5460,7 +5566,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 cancellationToken).AsTask(),
             cancellationToken).ConfigureAwait(true);
 
-        if (!IsConnected ||
+        if (!IsConnected || refreshContext is null || !IsWorkspaceSessionAlive(refreshContext) ||
             !ReferenceEquals(owner, SelectedWorkspaceTab) ||
             CurrentWorkspaceId != workspaceId ||
             draftAssetId != serverId)
@@ -5510,7 +5616,8 @@ public sealed class MainWindowViewModel : ObservableObject
         }
         catch (Exception)
         {
-            if (IsConnected)
+            if (IsConnected && refreshContext is not null && IsWorkspaceSessionAlive(refreshContext) &&
+                ReferenceEquals(refreshContext.Owner, SelectedWorkspaceTab))
             {
                 DockerStatus = "无法读取 Docker 资源数据";
                 DockerStatsSummary = "资源刷新暂时失败，已保留上一次数据";
@@ -6702,6 +6809,7 @@ public sealed class MainWindowViewModel : ObservableObject
         SftpBrowserStatus = string.Concat("Listing ", normalized);
         SftpOperationStatus = "Reading directory through checked SFTP";
         var activeLease = sftpLease;
+        if (SelectedWorkspaceTab is { } browseOwner) browseOwner.SftpBrowseVersion++;
         var requestVersion = Interlocked.Increment(ref sftpBrowseRequestVersion);
         var result = await Task.Run(
             async () => await orchestrator.ListSftpDirectoryAsync(
@@ -8505,6 +8613,11 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private async Task EndSessionCoreAsync(CancellationToken cancellationToken, string completionStatus)
     {
+        if (SelectedWorkspaceTab is { } owner)
+        {
+            owner.SessionGeneration = Guid.NewGuid();
+            owner.IsSftpOpening = false;
+        }
         CancelAutomaticReconnect();
         var transferContext = GetCurrentSftpTransferContext();
         var preserveSftpRecovery = HasActiveSftpTransfersForCurrentContext ||
@@ -8838,6 +8951,11 @@ public sealed class MainWindowViewModel : ObservableObject
         switch (result)
         {
             case ConnectResult.Connected connected:
+                if (SelectedWorkspaceTab is { } owner)
+                {
+                    owner.SessionGeneration = Guid.NewGuid();
+                    owner.IsSftpOpening = false;
+                }
                 ConnectionFailureMessage = string.Empty;
                 IsConnected = true;
                 if (SelectedWorkspaceTab is not null)
@@ -9889,6 +10007,11 @@ public sealed class MainWindowViewModel : ObservableObject
         }
 
         var reconnectOwner = SelectedWorkspaceTab;
+        if (reconnectOwner is not null)
+        {
+            reconnectOwner.SessionGeneration = Guid.NewGuid();
+            reconnectOwner.IsSftpOpening = false;
+        }
         var reconnectAssetId = draftAssetId;
         var requestedSplitCount = TerminalSplitPanes.Count;
         var mayReconnect = reconnectOwner is not null &&
