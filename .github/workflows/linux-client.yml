@@ -38,8 +38,14 @@ jobs:
             libgtk-4-dev \
             libsecret-1-dev \
             libvte-2.91-gtk4-dev \
-            libwinpr3-dev
+            libwinpr3-dev \
+            dbus-x11 \
+            ripgrep \
+            xvfb \
+            xauth
       - name: Verify Linux security and quality gates
         run: clients/linux/scripts/check_linux.sh
+      - name: Verify GTK SFTP directory view under an isolated display
+        run: clients/linux/scripts/check_sftp_view.sh
       - name: Build native release binary
         run: clients/linux/scripts/build_release.sh

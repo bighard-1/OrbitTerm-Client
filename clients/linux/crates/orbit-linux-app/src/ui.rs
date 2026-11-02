@@ -1137,6 +1137,7 @@ struct ToolsWidgets {
     sftp_transfer_summary: gtk::Label,
     sftp_transfer_detail: gtk::Label,
     sftp_entries: Rc<RefCell<Vec<SftpEntry>>>,
+    sftp_view_owner: Rc<Cell<Option<(Uuid, u64)>>>,
     sftp_view_revision: Rc<Cell<u64>>,
     sftp_listing_context: Rc<RefCell<Option<SftpActionContext>>>,
     sftp_transfer_revision: Rc<Cell<u64>>,
@@ -4290,6 +4291,7 @@ fn build_tools(snippet_repository: SnippetRepository) -> ToolsWidgets {
         sftp_transfer_summary,
         sftp_transfer_detail,
         sftp_entries: Rc::new(RefCell::new(Vec::new())),
+        sftp_view_owner: Rc::new(Cell::new(None)),
         sftp_view_revision: Rc::new(Cell::new(0)),
         sftp_listing_context: Rc::new(RefCell::new(None)),
         sftp_transfer_revision: Rc::new(Cell::new(0)),
@@ -4818,6 +4820,20 @@ fn tool_panel_requested_visible(
 }
 
 fn set_ssh_tool_context_available(context: &UiContext, available: bool) {
+    let owner = if available {
+        context.session.borrow().active().and_then(|runtime| {
+            if runtime.transport == Transport::Ssh && runtime.phase == WorkspacePhase::Connected {
+                runtime
+                    .base_session_id
+                    .map(|base_id| (runtime.asset_id, base_id))
+            } else {
+                None
+            }
+        })
+    } else {
+        None
+    };
+    set_sftp_directory_owner(&context.tools, owner);
     context.tools_ssh_context_available.set(available);
     apply_tool_panel_visibility(context);
 }
@@ -11616,41 +11632,95 @@ fn confirm_remote_process_action(
     });
 }
 
+// Rendered rows and actionable context must belong to the same verified base.
+// Invalidation also advances the revision so old workers cannot restore a view
+// after a tab switch, disconnect, or a newer directory request.
+fn invalidate_sftp_directory_view(tools: &ToolsWidgets) -> u64 {
+    let revision = tools.sftp_view_revision.get().wrapping_add(1);
+    tools.sftp_view_revision.set(revision);
+    tools.sftp_listing_context.replace(None);
+    tools.sftp_entries.borrow_mut().clear();
+    tools.sftp_list.unselect_all();
+    clear_list(&tools.sftp_list);
+    tools.sftp_selection_bar.set_visible(false);
+    tools.sftp_selection_label.set_label("已选 0 项");
+    for button in [
+        &tools.sftp_up,
+        &tools.sftp_refresh,
+        &tools.sftp_upload,
+        &tools.sftp_new_directory,
+        &tools.sftp_new_file,
+        &tools.sftp_download,
+        &tools.sftp_rename,
+        &tools.sftp_chmod,
+        &tools.sftp_delete,
+    ] {
+        button.set_sensitive(false);
+    }
+    revision
+}
+
+fn set_sftp_directory_owner(tools: &ToolsWidgets, owner: Option<(Uuid, u64)>) {
+    if tools.sftp_view_owner.get() == owner {
+        return;
+    }
+    tools.sftp_view_owner.set(owner);
+    invalidate_sftp_directory_view(tools);
+    tools.sftp_path.set_text("/");
+    tools.sftp_refresh.set_sensitive(owner.is_some());
+    tools.sftp_status.set_label(if owner.is_some() {
+        "尚未读取当前会话的目录，请刷新。"
+    } else {
+        "连接后可浏览远程目录。"
+    });
+}
+
+fn prepare_sftp_directory_read(
+    tools: &ToolsWidgets,
+    owner: (Uuid, u64),
+    requested_path: &str,
+) -> u64 {
+    tools.sftp_view_owner.set(Some(owner));
+    let revision = invalidate_sftp_directory_view(tools);
+    tools.sftp_path.set_text(if requested_path.is_empty() {
+        "/"
+    } else {
+        requested_path
+    });
+    tools.sftp_status.set_label("正在读取远程目录…");
+    revision
+}
+
+fn show_sftp_directory_failure(tools: &ToolsWidgets, guidance: &str) {
+    tools.sftp_refresh.set_sensitive(true);
+    tools
+        .sftp_status
+        .set_label(&format!("SFTP 目录未读取：{guidance}"));
+}
+
 fn begin_sftp_list(context: UiContext, path: String) {
     let requested_path = path.trim().to_owned();
-    let (workspace_id, base_id, sftp_id) = {
+    let connection = {
         let registry = context.session.borrow();
-        let Some(runtime) = registry.active() else {
-            context.tools.sftp_status.set_label("请先连接服务器。");
-            return;
-        };
-        if runtime.transport != Transport::Ssh {
-            context.tools.sftp_status.set_label("此协议不提供 SFTP。");
+        match registry.active() {
+            Some(runtime) if runtime.transport != Transport::Ssh => Err("此协议不提供 SFTP。"),
+            Some(runtime) if runtime.phase == WorkspacePhase::Connected => runtime
+                .base_session_id
+                .map(|base_id| (runtime.asset_id, base_id, runtime.sftp_session_id))
+                .ok_or("请先连接服务器。"),
+            _ => Err("请先连接服务器。"),
+        }
+    };
+    let (workspace_id, base_id, sftp_id) = match connection {
+        Ok(connection) => connection,
+        Err(message) => {
+            set_sftp_directory_owner(&context.tools, None);
+            context.tools.sftp_status.set_label(message);
             return;
         }
-        if runtime.phase != WorkspacePhase::Connected {
-            context.tools.sftp_status.set_label("请先连接服务器。");
-            return;
-        }
-        (
-            runtime.asset_id,
-            runtime.base_session_id,
-            runtime.sftp_session_id,
-        )
     };
-    let Some(base_id) = base_id else {
-        context.tools.sftp_status.set_label("请先连接服务器。");
-        return;
-    };
-    let revision = context.tools.sftp_view_revision.get().wrapping_add(1);
-    context.tools.sftp_view_revision.set(revision);
-    context.tools.sftp_listing_context.replace(None);
-    update_sftp_selection_actions(&context);
-    context.tools.sftp_upload.set_sensitive(false);
-    context.tools.sftp_new_directory.set_sensitive(false);
-    context.tools.sftp_new_file.set_sensitive(false);
-    context.tools.sftp_refresh.set_sensitive(false);
-    context.tools.sftp_status.set_label("正在读取远程目录…");
+    let revision =
+        prepare_sftp_directory_read(&context.tools, (workspace_id, base_id), &requested_path);
     let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || {
         let core = CheckedCoreClient::new();
@@ -11687,6 +11757,7 @@ fn begin_sftp_list(context: UiContext, path: String) {
             return gtk::glib::ControlFlow::Continue;
         }
         let owns_request = context.tools.sftp_view_revision.get() == revision
+            && context.tools.sftp_view_owner.get() == Some((workspace_id, base_id))
             && context.session.borrow().active().is_some_and(|runtime| {
                 runtime.asset_id == workspace_id
                     && runtime.phase == WorkspacePhase::Connected
@@ -11725,20 +11796,15 @@ fn begin_sftp_list(context: UiContext, path: String) {
                 gtk::glib::ControlFlow::Break
             }
             Ok(Err(error)) => {
-                context.tools.sftp_refresh.set_sensitive(true);
-                context.tools.sftp_status.set_label(&format!(
-                    "SFTP 读取失败：{}",
-                    describe_sftp_list_error(&error)
-                ));
+                show_sftp_directory_failure(&context.tools, describe_sftp_list_error(&error));
                 gtk::glib::ControlFlow::Break
             }
             Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
             Err(mpsc::TryRecvError::Disconnected) => {
-                context.tools.sftp_refresh.set_sensitive(true);
-                context
-                    .tools
-                    .sftp_status
-                    .set_label("SFTP 工作线程意外退出。");
+                show_sftp_directory_failure(
+                    &context.tools,
+                    "目录读取已中止，请刷新或重新连接后重试。",
+                );
                 gtk::glib::ControlFlow::Break
             }
         }
@@ -12230,18 +12296,23 @@ fn describe_sftp_error(error: &BridgeError) -> &'static str {
 
 fn describe_sftp_list_error(error: &BridgeError) -> &'static str {
     match error {
-        BridgeError::Core {
-            detail_code: Some(detail),
-            ..
-        } if detail == "sftp_list_timeout" => {
-            "远端目录响应超时，请刷新重试；若持续失败，请重新连接该资产"
-        }
-        BridgeError::Core {
-            detail_code: Some(detail),
-            ..
-        } if detail == "sftp_generation_mismatch" || detail == "sftp_session_unavailable" => {
-            "SFTP 会话已中断，请重新连接该资产"
-        }
+        BridgeError::Core { detail_code: Some(detail), .. } => match detail.as_str() {
+            "sftp_list_timeout" =>
+                "远端目录响应超时，请刷新重试；若持续失败，请重新连接该资产",
+            "channel_open_failed" | "subsystem_request_failed" =>
+                "SSH 已通过验证，但 SFTP 通道未能打开；服务器可能未启用 SFTP 或响应超时，请确认服务后重试",
+            "sftp_generation_mismatch" | "sftp_session_unavailable" |
+            "security_generation_mismatch" | "session_not_found" | "session_closed" |
+            "session_draining" | "session_terminating" =>
+                "SFTP 会话已中断或变化，请重新连接该资产",
+            "verified_session_required" | "legacy_session_not_allowed" =>
+                "当前连接尚未完成安全验证，请重新连接并完成身份验证",
+            "sftp_permission_denied" | "permission_denied" =>
+                "无权访问此目录，请检查路径和权限后重试",
+            "sftp_source_not_found" =>
+                "目录不存在或已移动，请检查路径后重试",
+            _ => "目录读取未完成，可能是连接超时或权限不足；请刷新或重新连接",
+        },
         _ => "目录读取未完成，可能是连接超时或权限不足；请刷新或重新连接",
     }
 }
@@ -20602,6 +20673,127 @@ fn fatal_state(message: &str) -> adw::StatusPage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "Requires a display; mandatory in the Linux Xvfb SFTP view gate"]
+    fn sftp_directory_widgets_discard_old_rows_and_block_actions() {
+        adw::init().expect("GTK display is required for this gate");
+        let directory = tempfile::tempdir().unwrap();
+        let tools = build_tools(SnippetRepository::new(
+            directory.path().join("snippets.json"),
+        ));
+        let original = (Uuid::new_v4(), 41);
+        let replacement = (original.0, 42);
+        let seed = |owner: (Uuid, u64)| {
+            tools.sftp_view_owner.set(Some(owner));
+            tools.sftp_entries.replace(vec![SftpEntry {
+                name: "old-session.txt".into(),
+                size: 32,
+                permissions: "-rw-------".into(),
+                permissions_octal: 0o100600,
+                modified_at_unix: 0,
+            }]);
+            tools
+                .sftp_list
+                .append(&gtk::Label::new(Some("old-session.txt")));
+            tools.sftp_listing_context.replace(Some(SftpActionContext {
+                workspace_id: owner.0,
+                base_session_id: owner.1,
+                sftp_session_id: 51,
+                directory: "/old-session".into(),
+                view_revision: tools.sftp_view_revision.get(),
+            }));
+            tools.sftp_selection_bar.set_visible(true);
+            for button in [
+                &tools.sftp_up,
+                &tools.sftp_refresh,
+                &tools.sftp_upload,
+                &tools.sftp_new_directory,
+                &tools.sftp_new_file,
+                &tools.sftp_download,
+                &tools.sftp_rename,
+                &tools.sftp_chmod,
+                &tools.sftp_delete,
+            ] {
+                button.set_sensitive(true);
+            }
+        };
+        let assert_empty = || {
+            assert!(tools.sftp_list.first_child().is_none());
+            assert!(tools.sftp_entries.borrow().is_empty());
+            assert!(tools.sftp_listing_context.borrow().is_none());
+            assert!(!tools.sftp_selection_bar.is_visible());
+            for button in [
+                &tools.sftp_up,
+                &tools.sftp_upload,
+                &tools.sftp_new_directory,
+                &tools.sftp_new_file,
+                &tools.sftp_download,
+                &tools.sftp_rename,
+                &tools.sftp_chmod,
+                &tools.sftp_delete,
+            ] {
+                assert!(!button.is_sensitive());
+            }
+        };
+
+        seed(original);
+        let revision = tools.sftp_view_revision.get();
+        let request = prepare_sftp_directory_read(&tools, original, "/new-directory");
+        assert_ne!(request, revision);
+        assert_empty();
+        assert_eq!(tools.sftp_path.text(), "/new-directory");
+        assert!(!tools.sftp_refresh.is_sensitive());
+
+        show_sftp_directory_failure(&tools, "目录读取已中止，请刷新或重新连接后重试。");
+        assert_empty();
+        assert!(tools.sftp_refresh.is_sensitive());
+        assert!(tools.sftp_status.text().contains("重新连接"));
+        assert_ne!(
+            prepare_sftp_directory_read(&tools, original, "/retry"),
+            request
+        );
+        assert_empty();
+
+        seed(original);
+        set_sftp_directory_owner(&tools, Some(replacement));
+        assert_empty();
+        assert!(tools.sftp_refresh.is_sensitive());
+        assert_eq!(tools.sftp_path.text(), "/");
+        seed(replacement);
+        set_sftp_directory_owner(&tools, Some(replacement));
+        assert!(
+            tools.sftp_list.first_child().is_some(),
+            "same session renders must preserve valid rows"
+        );
+        set_sftp_directory_owner(&tools, None);
+        assert_empty();
+        assert!(!tools.sftp_refresh.is_sensitive());
+    }
+
+    #[test]
+    fn sftp_directory_open_and_permission_errors_remain_readable_and_sanitized() {
+        for (detail, expected) in [
+            ("channel_open_failed", "SFTP 通道未能打开"),
+            ("subsystem_request_failed", "SFTP 通道未能打开"),
+            ("session_closed", "重新连接"),
+            ("security_generation_mismatch", "重新连接"),
+            ("permission_denied", "权限"),
+            ("sftp_source_not_found", "目录不存在"),
+            ("/private/server/path", "刷新或重新连接"),
+        ] {
+            let error = BridgeError::Core {
+                code: "opaque-native-code".into(),
+                message_key: "private-native-message".into(),
+                detail_code: Some(detail.into()),
+            };
+            let message = describe_sftp_list_error(&error);
+            assert!(message.contains(expected), "{detail}");
+            assert!(!message.contains("opaque-native"));
+            assert!(!message.contains("private-native"));
+            assert!(!message.contains("/private/server"));
+        }
+    }
 
     #[test]
     fn old_monitor_completion_cannot_change_a_reconnected_workspace() {
