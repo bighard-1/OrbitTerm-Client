@@ -1,4 +1,5 @@
 use crate::auth_session::AuthSessionCoordinator;
+use crate::sftp_preview::{poll_preview, PreviewPoll};
 use crate::sync_scheduler::{
     choose_background_sync_action, BackgroundSyncAction, SyncSchedulerGate,
 };
@@ -12007,11 +12008,9 @@ fn activate_sftp_row(context: UiContext, index: i32) {
         let _ = sender.send(result);
     });
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
-        match receiver.try_recv() {
-            Ok(Ok(file)) => {
-                if authorize_sftp_context(&context, &target).is_none() {
-                    return gtk::glib::ControlFlow::Break;
-                }
+        let current = current_sftp_context(&context);
+        match poll_preview(&target, current.as_ref(), &receiver) {
+            PreviewPoll::Completed(Ok(file)) => {
                 context.tools.sftp_status.set_label(&format!(
                     "{} · {}",
                     file.path,
@@ -12026,15 +12025,22 @@ fn activate_sftp_row(context: UiContext, index: i32) {
                 );
                 gtk::glib::ControlFlow::Break
             }
-            Ok(Err(error)) => {
+            PreviewPoll::Completed(Err(error)) => {
                 context
                     .tools
                     .sftp_status
                     .set_label(&format!("无法预览文件：{}", describe_sftp_error(&error)));
                 gtk::glib::ControlFlow::Break
             }
-            Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
-            Err(mpsc::TryRecvError::Disconnected) => gtk::glib::ControlFlow::Break,
+            PreviewPoll::Pending => gtk::glib::ControlFlow::Continue,
+            PreviewPoll::Obsolete => gtk::glib::ControlFlow::Break,
+            PreviewPoll::Interrupted => {
+                context
+                    .tools
+                    .sftp_status
+                    .set_label("文本预览已中止，请重新打开文件。");
+                gtk::glib::ControlFlow::Break
+            }
         }
     });
 }
@@ -12193,7 +12199,9 @@ fn run_sftp_operation<F>(
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
         let owns_summary = transfer_revision
             .is_none_or(|revision| context.tools.sftp_transfer_revision.get() == revision);
-        let owns_status = owns_summary && context.session.borrow().owns_sftp_context(&target);
+        // A transfer keeps its origin-labelled history after navigation, but
+        // only the exact rendered directory may receive its status or refresh.
+        let owns_status = owns_summary && current_sftp_context(&context).as_ref() == Some(&target);
         match receiver.try_recv() {
             Ok(Ok(())) => {
                 if let Some(task) = transfer_task.as_ref().filter(|_| owns_summary) {
@@ -12206,7 +12214,7 @@ fn run_sftp_operation<F>(
                         .sftp_transfer_detail
                         .set_label(&format!("{task} · 已完成"));
                 }
-                if owns_status && current_sftp_context(&context).as_ref() == Some(&target) {
+                if owns_status {
                     context
                         .tools
                         .sftp_status
@@ -12245,13 +12253,13 @@ fn run_sftp_operation<F>(
                     context
                         .tools
                         .sftp_transfer_detail
-                        .set_label(&format!("{task} · 工作线程意外退出"));
+                        .set_label(&format!("{task} · 操作已中止，请检查目标文件后重试"));
                 }
                 if owns_status {
                     context
                         .tools
                         .sftp_status
-                        .set_label("SFTP 操作线程意外退出。");
+                        .set_label("SFTP 操作已中止，请检查连接及目标文件后重试。");
                 }
                 gtk::glib::ControlFlow::Break
             }

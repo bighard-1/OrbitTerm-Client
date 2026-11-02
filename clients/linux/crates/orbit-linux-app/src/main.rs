@@ -1,4 +1,5 @@
 mod auth_session;
+mod sftp_preview;
 mod sync_scheduler;
 mod sync_session;
 mod ui;
