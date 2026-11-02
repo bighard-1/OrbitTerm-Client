@@ -1,5 +1,6 @@
 use crate::auth_session::AuthSessionCoordinator;
 use crate::sftp_preview::{poll_preview, PreviewPoll};
+use crate::ssh_disconnect::{SshDisconnect, SshHandles};
 use crate::sync_scheduler::{
     choose_background_sync_action, BackgroundSyncAction, SyncSchedulerGate,
 };
@@ -824,6 +825,7 @@ struct SessionRuntime {
     base_session_id: Option<u64>,
     terminal_channel_id: Option<u64>,
     sftp_session_id: Option<u64>,
+    pending_disconnect: Option<SshDisconnect>,
     terminal_size: Option<(u32, u32)>,
     monitor_in_flight: bool,
     terminal_backlog: Vec<u8>,
@@ -837,6 +839,10 @@ struct SessionRuntime {
 }
 
 impl SessionRuntime {
+    fn accepts_connect_start(&self) -> bool {
+        self.pending_disconnect.is_none() && workspace_phase_accepts_connect_start(self.phase)
+    }
+
     fn new(asset: &ServerAsset) -> Self {
         Self {
             asset_id: asset.id,
@@ -846,6 +852,7 @@ impl SessionRuntime {
             base_session_id: None,
             terminal_channel_id: None,
             sftp_session_id: None,
+            pending_disconnect: None,
             terminal_size: None,
             monitor_in_flight: false,
             terminal_backlog: Vec::new(),
@@ -974,6 +981,34 @@ impl SftpActionContext {
 }
 
 impl SessionRegistry {
+    fn finish_ssh_disconnect(
+        &mut self,
+        asset_id: Uuid,
+        revision: u64,
+        remaining: SshHandles,
+    ) -> Option<(bool, Vec<u64>)> {
+        let was_active = self.active_workspace_id == Some(asset_id);
+        let runtime = self.sessions.get_mut(&asset_id)?;
+        let state = runtime.pending_disconnect.as_mut()?;
+        let remaining_tunnels = remaining.tunnels.clone();
+        if !state.finish(revision, remaining) {
+            return None;
+        }
+        let done = state.handles.is_empty();
+        let remove = state.remove_tab;
+        if done {
+            runtime.pending_disconnect = None;
+            if remove {
+                self.sessions.remove(&asset_id);
+                if was_active {
+                    self.active_workspace_id = self.sessions.keys().next().copied();
+                    self.selected_asset_id = self.active_workspace_id;
+                }
+            }
+        }
+        Some((was_active, remaining_tunnels))
+    }
+
     fn finish_monitor_request(&mut self, workspace_id: Uuid, base_session_id: u64) -> bool {
         let Some(runtime) = self.sessions.get_mut(&workspace_id) else {
             return false;
@@ -2142,6 +2177,17 @@ pub fn build_application_window(application: &adw::Application) {
             return gtk::glib::Propagation::Stop;
         }
         rdp_capture_for_close.suppress_close_until.set(None);
+        if session_for_close
+            .borrow()
+            .sessions
+            .values()
+            .any(|runtime| runtime.pending_disconnect.is_some())
+        {
+            rdp_capture_for_close
+                .status
+                .set_label("SSH 断开尚未完成，请等待完成或重试断开后再退出。");
+            return gtk::glib::Propagation::Stop;
+        }
         set_rdp_system_shortcut_capture(&rdp_capture_for_close, false);
         sync_session_for_close.lock();
         background_pending_for_close.borrow_mut().take();
@@ -4104,6 +4150,12 @@ fn build_tools(snippet_repository: SnippetRepository) -> ToolsWidgets {
     for button in [&sftp_upload, &sftp_new_directory, &sftp_new_file] {
         button.add_css_class("flat");
         button.set_halign(Align::Fill);
+        let menu = sftp_more_popover.downgrade();
+        button.connect_clicked(move |_| {
+            if let Some(menu) = menu.upgrade() {
+                menu.popdown();
+            }
+        });
         sftp_more_actions.append(button);
     }
     sftp_more_popover.set_child(Some(&sftp_more_actions));
@@ -5045,13 +5097,17 @@ fn refresh_session_tabs(context: &UiContext) {
                         runtime.name.clone(),
                         runtime.transport,
                         runtime.phase,
+                        runtime
+                            .pending_disconnect
+                            .as_ref()
+                            .map(SshDisconnect::label),
                     )
                 })
                 .collect::<Vec<_>>(),
             registry.active_workspace_id,
         )
     };
-    for (asset_id, name, transport, phase) in sessions.iter().cloned() {
+    for (asset_id, name, transport, phase, disconnect_label) in sessions.iter().cloned() {
         let tab_group = gtk::Box::new(Orientation::Horizontal, 0);
         tab_group.add_css_class("session-tab-group");
         let content = gtk::Box::new(Orientation::Horizontal, 6);
@@ -5062,9 +5118,11 @@ fn refresh_session_tabs(context: &UiContext) {
         let label = gtk::Label::new(Some(&name));
         label.set_ellipsize(gtk::pango::EllipsizeMode::End);
         label.set_max_width_chars(18);
-        let phase_label = gtk::Label::new(Some(workspace_phase_label(phase)));
+        let phase_label = gtk::Label::new(Some(
+            disconnect_label.unwrap_or_else(|| workspace_phase_label(phase)),
+        ));
         phase_label.add_css_class("tab-status");
-        if phase == WorkspacePhase::Connected {
+        if phase == WorkspacePhase::Connected && disconnect_label.is_none() {
             phase_label.add_css_class("connected");
         } else if phase == WorkspacePhase::Failed {
             phase_label.add_css_class("failed");
@@ -5113,12 +5171,21 @@ fn present_session_tab_menu(
     x: f64,
     y: f64,
 ) {
-    let phase = context
-        .session
-        .borrow()
-        .sessions
-        .get(&asset_id)
-        .map(|runtime| runtime.phase);
+    let (phase, disconnect_running) = {
+        let registry = context.session.borrow();
+        registry
+            .sessions
+            .get(&asset_id)
+            .map_or((None, None), |runtime| {
+                (
+                    Some(runtime.phase),
+                    runtime
+                        .pending_disconnect
+                        .as_ref()
+                        .map(|state| state.running),
+                )
+            })
+    };
     let popover = gtk::Popover::new();
     popover.set_parent(parent);
     popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
@@ -5141,37 +5208,46 @@ fn present_session_tab_menu(
     };
     let disconnect = context.clone();
     add(
-        "断开连接",
-        matches!(
-            phase,
-            Some(
-                WorkspacePhase::Connected
-                    | WorkspacePhase::Starting
-                    | WorkspacePhase::Authenticating
-                    | WorkspacePhase::Reconnecting
-            )
-        ),
+        if disconnect_running == Some(false) {
+            "重试断开"
+        } else {
+            "断开连接"
+        },
+        disconnect_running == Some(false)
+            || (disconnect_running.is_none()
+                && matches!(
+                    phase,
+                    Some(
+                        WorkspacePhase::Connected
+                            | WorkspacePhase::Starting
+                            | WorkspacePhase::Authenticating
+                            | WorkspacePhase::Reconnecting
+                    )
+                )),
         Rc::new(move || disconnect_workspace(disconnect.clone(), asset_id, false)),
     );
     let reconnect = context.clone();
     add(
         "重新连接",
-        matches!(
-            phase,
-            Some(WorkspacePhase::Disconnected | WorkspacePhase::Failed | WorkspacePhase::Closed)
-        ),
+        disconnect_running.is_none()
+            && matches!(
+                phase,
+                Some(
+                    WorkspacePhase::Disconnected | WorkspacePhase::Failed | WorkspacePhase::Closed
+                )
+            ),
         Rc::new(move || begin_connect(reconnect.clone(), asset_id)),
     );
     let detached = context.clone();
     add(
         "在新窗口打开",
-        phase.is_some(),
+        phase.is_some() && disconnect_running.is_none(),
         Rc::new(move || present_detached_session_window(detached.clone(), asset_id)),
     );
     let close = context.clone();
     add(
         "关闭标签",
-        true,
+        disconnect_running != Some(true),
         Rc::new(move || close_workspace(close.clone(), asset_id)),
     );
     popover.set_child(Some(&actions));
@@ -5349,21 +5425,27 @@ fn activate_workspace(context: &UiContext, asset_id: Uuid) {
 }
 
 fn render_active_workspace(context: &UiContext) {
-    let Some((asset_id, transport, phase, pane_backlogs, active_pane, frame)) = ({
-        let registry = context.session.borrow();
-        registry.active().map(|runtime| {
-            (
-                runtime.asset_id,
-                runtime.transport,
-                runtime.phase,
-                (0..runtime.pane_count())
-                    .map(|pane| runtime.pane_backlog(pane).to_vec())
-                    .collect::<Vec<_>>(),
-                runtime.active_terminal_pane,
-                runtime.rdp_frame.clone(),
-            )
+    let Some((asset_id, transport, phase, pane_backlogs, active_pane, frame, disconnect_running)) =
+        ({
+            let registry = context.session.borrow();
+            registry.active().map(|runtime| {
+                (
+                    runtime.asset_id,
+                    runtime.transport,
+                    runtime.phase,
+                    (0..runtime.pane_count())
+                        .map(|pane| runtime.pane_backlog(pane).to_vec())
+                        .collect::<Vec<_>>(),
+                    runtime.active_terminal_pane,
+                    runtime.rdp_frame.clone(),
+                    runtime
+                        .pending_disconnect
+                        .as_ref()
+                        .map(|state| state.running),
+                )
+            })
         })
-    }) else {
+    else {
         render_empty_workspace(context);
         return;
     };
@@ -5375,6 +5457,7 @@ fn render_active_workspace(context: &UiContext) {
         .find(|asset| asset.id == asset_id)
         .cloned();
     let Some(asset) = asset else {
+        render_empty_workspace(context);
         return;
     };
     match phase {
@@ -5561,6 +5644,36 @@ fn render_active_workspace(context: &UiContext) {
         transport.display_name(),
         workspace_phase_label(phase)
     ));
+    context.workspace.disconnect.set_label("断开连接");
+    if let Some(running) = disconnect_running {
+        let label = if running {
+            "正在断开连接…"
+        } else {
+            "断开未完成"
+        };
+        context.workspace.empty_title.set_label(label);
+        context.workspace.empty_description.set_label(if running {
+            "正在释放 SSH 会话与工具通道，请稍候；其他会话仍可使用。"
+        } else {
+            "仍有连接资源尚未确认释放。请重试断开，完成后再重新连接。"
+        });
+        context
+            .workspace
+            .content_stack
+            .set_visible_child_name("empty");
+        context.workspace.connect.set_label(label);
+        context.workspace.connect.set_sensitive(false);
+        context.workspace.edit.set_sensitive(false);
+        context.workspace.disconnect.set_label(if running {
+            "正在断开…"
+        } else {
+            "重试断开"
+        });
+        context.workspace.disconnect.set_sensitive(!running);
+        context
+            .status
+            .set_label(&format!("{} · {label}", asset.name));
+    }
     // RDP-to-RDP selection can reuse an already-focused drawing area, so no
     // focus-enter signal is guaranteed after the outgoing capture is released.
     refresh_rdp_shortcut_capture(context);
@@ -7126,7 +7239,7 @@ fn begin_connect_internal(context: UiContext, asset_id: Uuid, activate: bool) {
     {
         let mut registry = context.session.borrow_mut();
         if let Some(runtime) = registry.sessions.get(&asset_id) {
-            if !workspace_phase_accepts_connect_start(runtime.phase) {
+            if !runtime.accepts_connect_start() {
                 let render_current = registry.select_for_connect(asset_id, activate);
                 drop(registry);
                 if render_current {
@@ -9503,7 +9616,123 @@ fn close_workspace(context: UiContext, asset_id: Uuid) {
     disconnect_workspace(context, asset_id, true);
 }
 
+fn begin_ssh_workspace_disconnect(context: UiContext, asset_id: Uuid, remove_tab: bool) {
+    let tunnel_ids = context
+        .active_tunnels
+        .borrow()
+        .iter()
+        .filter(|tunnel| tunnel.asset_id == asset_id)
+        .map(|tunnel| tunnel.id)
+        .collect();
+    let start = {
+        let mut registry = context.session.borrow_mut();
+        let Some(runtime) = registry.sessions.get_mut(&asset_id) else {
+            return;
+        };
+        if runtime.pending_disconnect.is_none() {
+            let handles = SshHandles {
+                terminals: runtime.take_terminal_channels(),
+                sftp: runtime.sftp_session_id.take(),
+                tunnels: tunnel_ids,
+                base: runtime.base_session_id.take(),
+            };
+            runtime.pending_disconnect = Some(SshDisconnect::new(handles));
+            // Unavailable to new IO, but ownership remains in pending_disconnect
+            // until each native release is acknowledged.
+            runtime.phase = WorkspacePhase::Disconnected;
+            runtime.monitor_in_flight = false;
+            runtime.terminal_size = None;
+        }
+        runtime
+            .pending_disconnect
+            .as_mut()
+            .and_then(|state| state.begin(remove_tab))
+    };
+    let active = context.session.borrow().active_workspace_id == Some(asset_id);
+    if active {
+        if context.module_fullscreen.get() {
+            exit_module_fullscreen(&context);
+        }
+        prepare_workspace_input_handoff(&context, None);
+        render_active_workspace(&context);
+    }
+    refresh_session_tabs(&context);
+    let Some((revision, handles)) = start else {
+        return;
+    };
+    let owned_tunnels = handles.tunnels.clone();
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let core = CheckedCoreClient::new();
+        let remaining = handles.release(
+            |id| core.close_terminal(id).is_ok(),
+            |id| core.close_sftp(id).is_ok(),
+            |id| match core.stop_local_tunnel(id) {
+                Ok(()) => true,
+                Err(BridgeError::Core { code, .. }) if code == "session_not_found" => true,
+                Err(_) => false,
+            },
+            |id| core.disconnect(id).is_ok(),
+        );
+        let _ = sender.send(remaining);
+    });
+    gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
+        let received = receiver.try_recv();
+        if matches!(received, Err(mpsc::TryRecvError::Empty)) {
+            return gtk::glib::ControlFlow::Continue;
+        }
+        let completion = {
+            let mut registry = context.session.borrow_mut();
+            let remaining = match received {
+                Ok(remaining) => remaining,
+                Err(_) => {
+                    let Some(state) = registry
+                        .sessions
+                        .get(&asset_id)
+                        .and_then(|runtime| runtime.pending_disconnect.as_ref())
+                    else {
+                        return gtk::glib::ControlFlow::Break;
+                    };
+                    state.handles.clone()
+                }
+            };
+            registry.finish_ssh_disconnect(asset_id, revision, remaining)
+        };
+        let Some((was_active, remaining_tunnels)) = completion else {
+            return gtk::glib::ControlFlow::Break;
+        };
+        context.active_tunnels.borrow_mut().retain(|tunnel| {
+            !owned_tunnels.contains(&tunnel.id) || remaining_tunnels.contains(&tunnel.id)
+        });
+        refresh_session_tabs(&context);
+        if was_active {
+            render_active_workspace(&context);
+        }
+        gtk::glib::ControlFlow::Break
+    });
+}
+
 fn disconnect_workspace(context: UiContext, asset_id: Uuid, remove_tab: bool) {
+    let has_ssh_ownership = {
+        let registry = context.session.borrow();
+        registry.sessions.get(&asset_id).is_some_and(|runtime| {
+            runtime.transport == Transport::Ssh
+                && (runtime.pending_disconnect.is_some()
+                    || runtime.base_session_id.is_some()
+                    || runtime.terminal_channel_id.is_some()
+                    || !runtime.terminal_splits.is_empty()
+                    || runtime.sftp_session_id.is_some()
+                    || context
+                        .active_tunnels
+                        .borrow()
+                        .iter()
+                        .any(|tunnel| tunnel.asset_id == asset_id))
+        })
+    };
+    if has_ssh_ownership {
+        begin_ssh_workspace_disconnect(context, asset_id, remove_tab);
+        return;
+    }
     cancel_rdp_auto_reconnect(&context, asset_id);
     let was_active = context.session.borrow().active_workspace_id == Some(asset_id);
     if was_active && context.module_fullscreen.get() {
@@ -20681,6 +20910,115 @@ fn fatal_state(message: &str) -> adw::StatusPage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn pending_ssh_runtime(asset: &ServerAsset, remove_tab: bool) -> (SessionRuntime, u64) {
+        let mut runtime = SessionRuntime::new(asset);
+        runtime.phase = WorkspacePhase::Disconnected;
+        let mut pending = SshDisconnect::new(SshHandles {
+            base: Some(41),
+            ..Default::default()
+        });
+        let (revision, _) = pending.begin(remove_tab).unwrap();
+        runtime.pending_disconnect = Some(pending);
+        (runtime, revision)
+    }
+
+    #[test]
+    fn closing_ssh_ownership_blocks_reconnect_until_acknowledged() {
+        let asset = ServerAsset::new("virtual", "test.invalid", "qa");
+        let (runtime, revision) = pending_ssh_runtime(&asset, false);
+        assert!(!runtime.accepts_connect_start());
+        let mut registry = SessionRegistry {
+            active_workspace_id: Some(asset.id),
+            sessions: [(asset.id, runtime)].into(),
+            ..Default::default()
+        };
+        let remaining = SshHandles {
+            base: Some(41),
+            ..Default::default()
+        };
+        assert!(registry
+            .finish_ssh_disconnect(asset.id, revision, remaining.clone())
+            .is_some());
+        assert!(!registry.sessions[&asset.id].accepts_connect_start());
+        let (retry, _) = registry
+            .sessions
+            .get_mut(&asset.id)
+            .unwrap()
+            .pending_disconnect
+            .as_mut()
+            .unwrap()
+            .begin(false)
+            .unwrap();
+        assert!(registry
+            .finish_ssh_disconnect(asset.id, revision, SshHandles::default())
+            .is_none());
+        assert_eq!(
+            registry.sessions[&asset.id]
+                .pending_disconnect
+                .as_ref()
+                .unwrap()
+                .handles,
+            remaining
+        );
+        assert!(registry
+            .finish_ssh_disconnect(asset.id, retry, SshHandles::default())
+            .is_some());
+        assert!(registry.sessions[&asset.id].accepts_connect_start());
+    }
+
+    #[test]
+    fn closing_original_tab_cannot_change_another_selected_workspace() {
+        let origin = ServerAsset::new("origin", "test.invalid", "qa");
+        let other = ServerAsset::new("other", "other.invalid", "qa");
+        let (runtime, revision) = pending_ssh_runtime(&origin, true);
+        let mut other_runtime = SessionRuntime::new(&other);
+        other_runtime.phase = WorkspacePhase::Connected;
+        other_runtime.base_session_id = Some(99);
+        other_runtime.append_terminal(b"other workspace history");
+        let mut registry = SessionRegistry {
+            active_workspace_id: Some(other.id),
+            selected_asset_id: Some(other.id),
+            sessions: [(origin.id, runtime), (other.id, other_runtime)].into(),
+        };
+        assert_eq!(
+            registry.finish_ssh_disconnect(origin.id, revision, SshHandles::default()),
+            Some((false, vec![]))
+        );
+        assert!(!registry.sessions.contains_key(&origin.id));
+        assert_eq!(registry.active_workspace_id, Some(other.id));
+        assert_eq!(registry.selected_asset_id, Some(other.id));
+        assert_eq!(registry.sessions[&other.id].base_session_id, Some(99));
+        assert_eq!(
+            registry.sessions[&other.id].terminal_backlog,
+            b"other workspace history"
+        );
+    }
+
+    #[test]
+    fn failed_disconnect_keeps_original_tab_and_handle_for_retry() {
+        let origin = ServerAsset::new("origin", "test.invalid", "qa");
+        let (runtime, revision) = pending_ssh_runtime(&origin, true);
+        let mut registry = SessionRegistry {
+            active_workspace_id: Some(origin.id),
+            selected_asset_id: Some(origin.id),
+            sessions: [(origin.id, runtime)].into(),
+        };
+        let remaining = SshHandles {
+            base: Some(41),
+            ..Default::default()
+        };
+        registry
+            .finish_ssh_disconnect(origin.id, revision, remaining.clone())
+            .unwrap();
+        assert_eq!(registry.active_workspace_id, Some(origin.id));
+        let runtime = &registry.sessions[&origin.id];
+        let pending = runtime.pending_disconnect.as_ref().unwrap();
+        assert_eq!(pending.handles, remaining);
+        assert_eq!(pending.label(), "断开未完成");
+        assert!(!runtime.accepts_connect_start());
+        assert!(!pending.running);
+    }
 
     #[test]
     #[ignore = "Requires a display; mandatory in the Linux Xvfb SFTP view gate"]
