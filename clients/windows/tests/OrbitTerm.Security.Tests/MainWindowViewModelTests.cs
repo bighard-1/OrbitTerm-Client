@@ -1304,6 +1304,37 @@ public sealed class MainWindowViewModelTests
         Assert.True(viewModel.IsSftpOpen);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LateHandshakeDoesNotConnectAChangedDraftOrWorkspace(bool switchWorkspace)
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var core = new FakeCheckedCoreClient { ConnectEnteredGate = entered, ConnectReleaseGate = release };
+        var viewModel = CreateViewModel(core);
+        viewModel.Password = "secret";
+        var connecting = viewModel.ConnectCommand.ExecuteAsync(null);
+        try
+        {
+            await WaitUntilAsync(() => entered.IsSet);
+            if (switchWorkspace) await viewModel.OpenWorkspaceTabCommand.ExecuteAsync(null);
+            else
+            {
+                var other = new AssetViewModel(Guid.NewGuid(), Guid.NewGuid(), "Other", "other.example", 22,
+                    "ops", ServerTransport.Ssh, false);
+                viewModel.Assets.Add(other);
+                viewModel.SelectedAsset = other;
+            }
+        }
+        finally { release.Set(); }
+        await connecting;
+        Assert.False(viewModel.IsConnected);
+        Assert.False(viewModel.IsTerminalOpen);
+        Assert.False(viewModel.IsSftpOpen);
+        Assert.Equal(1, core.DisconnectSessionCallCount);
+    }
+
     [Fact]
     public async Task LateSftpInitializationBelongsToItsOriginalWorkspace()
     {
@@ -4013,6 +4044,8 @@ public sealed class MainWindowViewModelTests
         private int execCallCount;
         public int ExecCallCount => Volatile.Read(ref execCallCount);
         public int ConnectCallCount { get; private set; }
+        public ManualResetEventSlim? ConnectEnteredGate { get; init; }
+        public ManualResetEventSlim? ConnectReleaseGate { get; init; }
         public CheckedErrorPayload? ConnectFailure { get; set; }
         public List<string> ExecutedCommands { get; } = [];
         public int DockerListCallCount { get; private set; }
@@ -4053,6 +4086,9 @@ public sealed class MainWindowViewModelTests
         public CheckedConnectOutcome Connect(CheckedConnectionRequest request, HostKeyRequestId requestId)
         {
             ConnectCallCount++;
+            ConnectEnteredGate?.Set();
+            if (ConnectReleaseGate is { } gate && !gate.Wait(TimeSpan.FromSeconds(5)))
+                throw new TimeoutException("Fixture connect gate timed out.");
             if (ConnectFailure is { } failure) return new CheckedConnectOutcome.Failed(failure);
             return new CheckedConnectOutcome.Connected(new ConnectedPayload(
                 9UL,
