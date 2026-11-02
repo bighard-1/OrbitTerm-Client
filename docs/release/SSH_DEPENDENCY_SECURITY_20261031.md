@@ -374,3 +374,21 @@ Linux 开发机完整检查与 [Linux CI](https://github.com/bighard-1/OrbitTerm
 **正常退出未通过**：升级后隔离远控中点击主窗口关闭并发送Alt-F4，窗口和已核对PID仍在；尚未区分远控输入、窗口控制组件与应用关闭生命周期，不能据源码回调存在或监督器最终清理签正常退出通过。上述重启明确是监督器结束，未覆盖正常GUI退出。此项沿263继续开放，下一步定向定位，不猜测修复。
 
 **收尾与CI边界**：各轮所属GUI、显示、只读夹具、回环监听和本机隧道均清理；原Flatpak／平台／SDK提交，以及原关键资产、启动器和native二进制摘要均与操作前一致，原系统包、RustDesk及网络未改。私有安装／profile保留供退出复测，详细证据存于前述加密外置盘，不提交含测试密钥的原始包。新路径检查文件亦加入Linux CI触发条件。af5987 Security最终completed/cancelled，五个常规任务成功、Apple取消、两专用环境条件skipped；[Apple作业125197610791](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41421335614/job/125197610791)检查注解明确报告超过1小时最大执行时间，不是已确认的源码断言失败，不能签整门禁通过。本轮未无依据延长时间或跳过检查，新提交CI另收。后续优先定位Linux正常退出，再分析Apple耗时／超时；五端完整验收和系统Deb安装仍开放。
+
+## Linux 标题栏关闭与边缘拉伸归属（2026-11-02）
+
+**候选与根因**：本条同提交基于 `8d70a0525d642ba593e35fcbaa86b2fc449cd349`，仅改Linux `ui.rs`及验收记录；最终源文件SHA-256 `f0bde31a5e3a93b30bc616e407c62118bc12e2d292d7ac92a37f0b63effa56f9`。265的正常关闭失败继续保留。私有诊断构建在真实GTK窗口中记录：关闭按钮内图像处的指针坐标落入24像素东北角拉伸区，capture阶段手势先认领按下，未收到close-request；只在私有诊断构建旁路该手势，同一位置收到close-request、window-removed和application-shutdown并退出。由此确认输入归属问题，不能再归为未经证实的SSH关闭阻塞。诊断开关和日志未进入产品源码或最终二进制。
+
+**源码修复**：运动光标与按下事件共同使用实际widget拾取；候选点或其祖先属于原生Button／MenuButton／WindowControls时让出事件，包含按钮的图像、标签子元素。空白边缘仍交给原生拉伸，未缩小窗口可拉伸能力，也未靠强杀进程修复关闭。
+
+**自动化红绿**：将真实映射HeaderBar／Overlay的拾取断言加入既有必跑GTK用例，定位原生关闭按钮与角落区的重叠点。对旧几何命中逻辑实际执行为 **0通过／1失败／0忽略**（得到NorthEast而非None）；修复后 **1通过／0失败／0忽略**，同时断言空白西侧仍可拉伸、原生关闭信号能结束窗口。最终Linux完整原生 **209通过／0失败／6忽略**、发行路径脚本 **6通过／0失败**，格式、严格Clippy、视觉／元数据校验通过。六项既有忽略不转记执行通过。原生Release成功，ELF 12,837,696字节，SHA-256 `d0f0bf15e5e668b85b9fb67f080e279c76738e21c3b3022c213ada4663a5ea88`。
+
+**隔离GUI**：Ubuntu VM私有X11／D-Bus／密钥环完整应用中，原生Release空会话点击关闭，窗口消失、应用返回0；新进程连接只读虚构SSH，Host Key已验证、SFTP真实列出4项，右侧拖拽使窗口变宽，最大化和还原正常，随后关闭按钮结束窗口、应用返回0，夹具连接归零。GUI画面与进程／TCP证据交叉核对，未以emit_clicked自动化或监督器清理冒充鼠标关闭成功。
+
+**实际Flatpak安装与重开**：同一产品覆盖文件清单核对后重新构建，bundle 6,791,376字节，SHA-256 `489291574768b13bb8abf08aacfac3406d4d6738e72b9279b4ccb3b1ef9d2d25`；包内ELF `4d5ae3d088aac674fa46ca3348138efcded86c2612afdbb66d40bb6fe1c803a0`，私有安装OSTree提交 `a20f1a9de7f91a838e013afbf389e555bd9f6ca6b198ac1459417dacee8a3796`。真实进程路径、运行ELF和私有XDG目录全部匹配后操作：2条原本机虚构资产可见、无需重输凭据连接SSH／SFTP，鼠标关闭后窗口消失、应用返回0、实际Flatpak PID不存在、TCP归零。正常关闭后重新启动同一已安装包，再次看到2条资产、沿用凭据与Host Key连接并列出4项，再次鼠标关闭返回0。原安装关键文件摘要及原Flatpak／平台／SDK提交均未变；本轮所属进程、回环监听与本机SSH隧道已清理，未退出RustDesk或重启系统。
+
+**准备失败与证据**：持久profile复制初次误含runtime套接字／悬空链接而停止，改为仅复制持久目录、重新创建runtime；首次遗漏QA私有密钥环恢复文件导致启动器退出1，尚未启动产品，补齐测试文件后重试。诊断退出记录器更新时发现显示已占用，先结束所属旧启动再继续；等待超过40分钟的未操作实例自动到期，作为准备超时留档，不签GUI失败或通过。Flatpak wrapper替换断言及首次传入不存在的bundle路径均在安装前停止，改用实际构建路径才安装。各轮失败与修正分开保留。受限证据位于加密外置盘 `Development/orbitterm-windows-linux-upload-20261030-d926106/linux-close-ci-20261102/`，归档SHA-256 `964cd274cca447b910e0dcf12fb8f1b1b12aee04b435ccc812f13e59b5930bc1`，不提交密钥、私有profile或真实账户内容。
+
+**CI新失败独立开放**：8d70的[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41434545396)和[Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41434545402)成功；[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41434545399)最终failure。五个常规作业成功，Apple作业约26分钟、exit65，指向 `testOperationalFailuresExposeRetryRetainedContentAndTransientSuccessLifetime`，并非90分钟预算耗尽。下载的原始作业日志只有失败用例名，不能据此确认具体断言、产品缺陷或测试不稳定；当前脚本退出会删除临时结果包，此轮不能补取已删xcresult。该失败原样保留，下一步应先补失败结果证据并定向定位，不盲改产品、不跳过用例或重跑覆盖。本次Linux提交的远端门禁另收回执。
+
+**覆盖边界与跨端对照**：本条关闭了265中此VM／两类实际产物的正常鼠标关闭缺口，非物理Linux、普通GNOME桌面、系统deb安装／系统重启、多发行版、真实业务账户、RDP／Telnet或传输正在阻塞时关闭的完整验收。无手机或Windows新包，五端同版完整验收仍未完成。Android后续对照边缘／导航手势不吞操作按钮、退出重开保留本机资产与凭据；Windows对照自定义拉伸与标题栏按钮优先级、在线会话正常关闭、重开保持，Apple对照自身窗口／生命周期门禁，不借本轮VM通过转签其他平台。

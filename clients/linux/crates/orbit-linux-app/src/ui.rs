@@ -3590,6 +3590,24 @@ fn install_horizontal_paned_cursor(paned: &gtk::Paned) {
     paned.add_controller(drag);
 }
 
+fn window_resize_region_at(overlay: &gtk::Overlay, x: f64, y: f64) -> Option<WindowResizeRegion> {
+    let region = window_resize_region(overlay.width(), overlay.height(), x, y)?;
+    // HeaderBar's native close/maximize/minimize buttons can sit inside the
+    // generous corner band. Their image or label children must retain the
+    // press; otherwise capture-phase resizing prevents the window action.
+    let mut picked = overlay.pick(x, y, gtk::PickFlags::DEFAULT);
+    while let Some(widget) = picked {
+        if widget.is::<gtk::Button>()
+            || widget.is::<gtk::MenuButton>()
+            || widget.is::<gtk::WindowControls>()
+        {
+            return None;
+        }
+        picked = widget.parent();
+    }
+    Some(region)
+}
+
 fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk::Overlay) {
     use gtk::gdk::prelude::ToplevelExt;
     use gtk::gdk::Toplevel;
@@ -3608,7 +3626,7 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
             motion_window.is_maximized(),
             motion_window.is_fullscreen(),
         )
-        .then(|| window_resize_region(motion_overlay.width(), motion_overlay.height(), x, y))
+        .then(|| window_resize_region_at(&motion_overlay, x, y))
         .flatten()
         .map(WindowResizeRegion::cursor_name);
         set_window_resize_cursor(&motion_window, &motion_overlay, cursor);
@@ -3634,9 +3652,7 @@ fn install_window_resize_handles(window: &adw::ApplicationWindow, overlay: &gtk:
             gesture.set_state(gtk::EventSequenceState::Denied);
             return;
         }
-        let Some(region) =
-            window_resize_region(resize_overlay.width(), resize_overlay.height(), x, y)
-        else {
+        let Some(region) = window_resize_region_at(&resize_overlay, x, y) else {
             gesture.set_state(gtk::EventSequenceState::Denied);
             return;
         };
@@ -22290,6 +22306,80 @@ mod tests {
         assert!(current.contains("ALLOCATED_NEW full initial prompt"));
         assert!(!current.contains("OLD_OWNER") && !current.contains("PROVISIONAL_OLD"));
         mapped_window.close();
+
+        // Native title buttons overlap the generous corner resize band.
+        // Exercise mapped GTK controls and real widget picking, including
+        // their image children, rather than assuming a fixed titlebar inset.
+        install_styles();
+        let header = adw::HeaderBar::new();
+        header.set_show_title(false);
+        let shell = gtk::Box::new(Orientation::Vertical, 0);
+        shell.add_css_class("app-shell");
+        shell.append(&header);
+        let body = gtk::Box::new(Orientation::Vertical, 0);
+        body.set_vexpand(true);
+        shell.append(&body);
+        let overlay = gtk::Overlay::new();
+        overlay.set_child(Some(&shell));
+        let controls_window = gtk::Window::builder()
+            .default_width(1000)
+            .default_height(600)
+            .child(&overlay)
+            .build();
+        controls_window.present();
+        flush_vte();
+        let mut widgets = vec![header.clone().upcast::<gtk::Widget>()];
+        let close = loop {
+            let widget = widgets.pop().expect("native close button must exist");
+            if widget.is::<gtk::Button>() && widget.has_css_class("close") {
+                break widget;
+            }
+            let mut child = widget.first_child();
+            while let Some(current) = child {
+                child = current.next_sibling();
+                widgets.push(current);
+            }
+        };
+        let bounds = close.compute_bounds(&overlay).unwrap();
+        let mut overlap = None;
+        for dx in [4.0, 8.0, bounds.width() / 2.0] {
+            for dy in [4.0, 8.0, bounds.height() / 2.0] {
+                let x = f64::from(bounds.x() + bounds.width() - dx);
+                let y = f64::from(bounds.y() + dy);
+                if window_resize_region(overlay.width(), overlay.height(), x, y).is_none() {
+                    continue;
+                }
+                let mut picked = overlay.pick(x, y, gtk::PickFlags::DEFAULT);
+                while let Some(widget) = picked {
+                    if widget == close {
+                        overlap = Some((x, y));
+                        break;
+                    }
+                    picked = widget.parent();
+                }
+            }
+        }
+        let (x, y) = overlap.expect("close button must intersect the resize band");
+        assert_eq!(
+            window_resize_region_at(&overlay, x, y),
+            None,
+            "resize hit testing stole a native close-button press"
+        );
+        assert_eq!(
+            window_resize_region_at(&overlay, 1.0, f64::from(overlay.height()) / 2.0),
+            Some(WindowResizeRegion::West),
+            "empty edge must still allow native resizing"
+        );
+        let closed = Rc::new(Cell::new(false));
+        let closed_for_signal = closed.clone();
+        controls_window.connect_close_request(move |_| {
+            closed_for_signal.set(true);
+            gtk::glib::Propagation::Proceed
+        });
+        close.downcast::<gtk::Button>().unwrap().emit_clicked();
+        flush_vte();
+        assert!(closed.get());
+        assert!(!controls_window.is_visible());
     }
 
     #[test]
