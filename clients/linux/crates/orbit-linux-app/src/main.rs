@@ -1,5 +1,6 @@
 mod auth_session;
 mod sftp_preview;
+mod ssh_connect;
 mod ssh_disconnect;
 mod sync_scheduler;
 mod sync_session;

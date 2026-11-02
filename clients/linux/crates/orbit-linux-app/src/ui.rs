@@ -1,5 +1,6 @@
 use crate::auth_session::AuthSessionCoordinator;
 use crate::sftp_preview::{poll_preview, PreviewPoll};
+use crate::ssh_connect::{ConnectCancellation, PendingConnection};
 use crate::ssh_disconnect::{SshDisconnect, SshHandles};
 use crate::sync_scheduler::{
     choose_background_sync_action, BackgroundSyncAction, SyncSchedulerGate,
@@ -825,6 +826,8 @@ struct SessionRuntime {
     base_session_id: Option<u64>,
     terminal_channel_id: Option<u64>,
     sftp_session_id: Option<u64>,
+    ssh_attempt: Option<Uuid>,
+    ssh_connect_cancellation: ConnectCancellation,
     pending_disconnect: Option<SshDisconnect>,
     terminal_size: Option<(u32, u32)>,
     monitor_in_flight: bool,
@@ -839,6 +842,19 @@ struct SessionRuntime {
 }
 
 impl SessionRuntime {
+    fn owns_ssh_attempt(&self, attempt: Uuid) -> bool {
+        self.transport == Transport::Ssh
+            && self.ssh_attempt == Some(attempt)
+            && !self.ssh_connect_cancellation.is_cancelled()
+            && self.pending_disconnect.is_none()
+            && matches!(
+                self.phase,
+                WorkspacePhase::Starting
+                    | WorkspacePhase::Authenticating
+                    | WorkspacePhase::AwaitingUserDecision
+            )
+    }
+
     fn accepts_connect_start(&self) -> bool {
         self.pending_disconnect.is_none() && workspace_phase_accepts_connect_start(self.phase)
     }
@@ -852,6 +868,8 @@ impl SessionRuntime {
             base_session_id: None,
             terminal_channel_id: None,
             sftp_session_id: None,
+            ssh_attempt: (asset.transport == Transport::Ssh).then(Uuid::new_v4),
+            ssh_connect_cancellation: ConnectCancellation::default(),
             pending_disconnect: None,
             terminal_size: None,
             monitor_in_flight: false,
@@ -943,6 +961,12 @@ impl SessionRuntime {
     }
 }
 
+impl Drop for SessionRuntime {
+    fn drop(&mut self) {
+        self.ssh_connect_cancellation.cancel();
+    }
+}
+
 fn append_bounded_terminal(backlog: &mut Vec<u8>, bytes: &[u8]) {
     backlog.extend_from_slice(bytes);
     if backlog.len() > MAX_SESSION_BACKLOG {
@@ -981,6 +1005,57 @@ impl SftpActionContext {
 }
 
 impl SessionRegistry {
+    fn cancel_ssh_attempt(&mut self, asset_id: Uuid) {
+        if let Some(runtime) = self.sessions.get_mut(&asset_id) {
+            runtime.ssh_attempt = None;
+            runtime.ssh_connect_cancellation.cancel();
+        }
+    }
+
+    fn fail_ssh_attempt(&mut self, asset_id: Uuid, attempt: Uuid) -> bool {
+        if !self.owns_ssh_attempt(asset_id, attempt) {
+            return false;
+        }
+        self.cancel_ssh_attempt(asset_id);
+        self.sessions
+            .get_mut(&asset_id)
+            .expect("owned attempt")
+            .phase = WorkspacePhase::Failed;
+        true
+    }
+
+    fn owns_ssh_attempt(&self, asset_id: Uuid, attempt: Uuid) -> bool {
+        self.sessions
+            .get(&asset_id)
+            .is_some_and(|runtime| runtime.owns_ssh_attempt(attempt))
+    }
+
+    fn adopt_ssh_connection(
+        &mut self,
+        asset_id: Uuid,
+        attempt: Uuid,
+        handles: &SshHandles,
+    ) -> bool {
+        if !self.owns_ssh_attempt(asset_id, attempt)
+            || handles.base.is_none()
+            || handles.terminals.len() != 1
+            || handles.sftp.is_some()
+            || !handles.tunnels.is_empty()
+        {
+            return false;
+        }
+        let runtime = self.sessions.get_mut(&asset_id).expect("owned attempt");
+        runtime.ssh_attempt = None;
+        runtime.base_session_id = handles.base;
+        runtime.terminal_channel_id = Some(handles.terminals[0]);
+        runtime.terminal_size = None;
+        runtime.phase = WorkspacePhase::Connected;
+        runtime.append_terminal(
+            b"OrbitTerm checked SSH session established.\r\nHost Key verified.\r\n\r\n",
+        );
+        true
+    }
+
     fn finish_ssh_disconnect(
         &mut self,
         asset_id: Uuid,
@@ -1270,10 +1345,7 @@ struct RemoteProcess {
 }
 
 enum ConnectWorkerOutcome {
-    Connected {
-        base_session_id: u64,
-        terminal_channel_id: u64,
-    },
+    Connected(PendingConnection<SshHandles>),
     Challenge {
         challenge_id: String,
         fingerprint: String,
@@ -7268,56 +7340,148 @@ fn begin_connect_internal(context: UiContext, asset_id: Uuid, activate: bool) {
 }
 
 fn begin_ssh_connect(context: UiContext, asset: ServerAsset) {
-    begin_ssh_connect_with_codes(context, asset, String::new(), String::new());
+    let attempt = context
+        .session
+        .borrow()
+        .sessions
+        .get(&asset.id)
+        .and_then(|runtime| runtime.ssh_attempt);
+    if let Some(attempt) = attempt {
+        begin_ssh_connect_with_codes(context, asset, attempt, String::new(), String::new());
+    }
+}
+
+fn ssh_attempt_is_current(context: &UiContext, asset_id: Uuid, attempt: Uuid) -> bool {
+    context.session.borrow().owns_ssh_attempt(asset_id, attempt)
+        && context
+            .catalog
+            .borrow()
+            .assets()
+            .iter()
+            .any(|asset| asset.id == asset_id)
+}
+
+fn show_ssh_attempt_error(context: &UiContext, asset_id: Uuid, attempt: Uuid, message: &str) {
+    if !ssh_attempt_is_current(context, asset_id, attempt) {
+        return;
+    }
+    if !context
+        .session
+        .borrow_mut()
+        .fail_ssh_attempt(asset_id, attempt)
+    {
+        return;
+    }
+    if context.session.borrow().active_workspace_id == Some(asset_id) {
+        show_session_error(context, asset_id, message);
+    } else {
+        set_session_phase(context, asset_id, WorkspacePhase::Failed);
+    }
+}
+
+fn present_ssh_decision_when_active(
+    context: UiContext,
+    asset_id: Uuid,
+    attempt: Uuid,
+    present: impl FnOnce(UiContext) + 'static,
+) {
+    if !ssh_attempt_is_current(&context, asset_id, attempt) {
+        return;
+    }
+    set_session_phase(&context, asset_id, WorkspacePhase::AwaitingUserDecision);
+    let mut present = Some(present);
+    gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
+        if !ssh_attempt_is_current(&context, asset_id, attempt) {
+            return gtk::glib::ControlFlow::Break;
+        }
+        if context.session.borrow().active_workspace_id != Some(asset_id) {
+            return gtk::glib::ControlFlow::Continue;
+        }
+        present.take().expect("pending SSH decision")(context.clone());
+        gtk::glib::ControlFlow::Break
+    });
+}
+
+fn close_obsolete_ssh_dialog(
+    context: &UiContext,
+    asset_id: Uuid,
+    attempt: Uuid,
+    dialog: &adw::AlertDialog,
+) {
+    let context = context.clone();
+    let dialog = dialog.downgrade();
+    gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
+        let Some(dialog) = dialog.upgrade() else {
+            return gtk::glib::ControlFlow::Break;
+        };
+        if !ssh_attempt_is_current(&context, asset_id, attempt) {
+            dialog.close();
+            return gtk::glib::ControlFlow::Break;
+        }
+        gtk::glib::ControlFlow::Continue
+    });
 }
 
 fn begin_ssh_connect_with_codes(
     context: UiContext,
     asset: ServerAsset,
+    attempt: Uuid,
     one_time_code: String,
     jump_one_time_code: String,
 ) {
     let asset_id = asset.id;
+    if !ssh_attempt_is_current(&context, asset_id, attempt) {
+        return;
+    }
     set_session_phase(&context, asset.id, WorkspacePhase::Authenticating);
-    context
-        .status
-        .set_label("正在从系统密钥环读取凭据并建立受检 SSH 会话…");
+    if context.session.borrow().active_workspace_id == Some(asset_id) {
+        context
+            .status
+            .set_label("正在从系统密钥环读取凭据并建立受检 SSH 会话…");
+    }
     let context_for_lookup = context.clone();
     gtk::glib::spawn_future_local(async move {
         let credential = match context_for_lookup.vault.lookup(asset.credential_id).await {
             Ok(Some(credential)) => credential,
             Ok(None) => {
-                show_session_error(
+                show_ssh_attempt_error(
                     &context_for_lookup,
                     asset.id,
+                    attempt,
                     "系统密钥环中没有该资产的凭据。",
                 );
                 return;
             }
             Err(error) => {
-                show_session_error(
+                show_ssh_attempt_error(
                     &context_for_lookup,
                     asset.id,
+                    attempt,
                     &format!("无法读取系统密钥环：{error}"),
                 );
                 return;
             }
         };
+        if !ssh_attempt_is_current(&context_for_lookup, asset_id, attempt) {
+            return;
+        }
         let jump_credential = if let Some(jump) = &asset.jump_host {
             match context_for_lookup.vault.lookup(jump.credential_id).await {
                 Ok(Some(credential)) => Some(credential),
                 Ok(None) => {
-                    show_session_error(
+                    show_ssh_attempt_error(
                         &context_for_lookup,
                         asset.id,
+                        attempt,
                         "系统密钥环中没有跳板机凭据。",
                     );
                     return;
                 }
                 Err(error) => {
-                    show_session_error(
+                    show_ssh_attempt_error(
                         &context_for_lookup,
                         asset.id,
+                        attempt,
                         &format!("无法读取跳板机凭据：{error}"),
                     );
                     return;
@@ -7326,14 +7490,26 @@ fn begin_ssh_connect_with_codes(
         } else {
             None
         };
+        if !ssh_attempt_is_current(&context_for_lookup, asset_id, attempt) {
+            return;
+        }
         let Some(known_hosts) = context_for_lookup.known_hosts.to_str().map(str::to_owned) else {
-            show_session_error(
+            show_ssh_attempt_error(
                 &context_for_lookup,
                 asset.id,
+                attempt,
                 "Host Key 存储路径不是有效 UTF-8。",
             );
             return;
         };
+        let cancellation = context_for_lookup
+            .session
+            .borrow()
+            .sessions
+            .get(&asset_id)
+            .expect("current SSH attempt")
+            .ssh_connect_cancellation
+            .clone();
         let (sender, receiver) = mpsc::channel();
         let target_for_worker = one_time_code.clone();
         let jump_for_worker = jump_one_time_code.clone();
@@ -7345,12 +7521,14 @@ fn begin_ssh_connect_with_codes(
                 &known_hosts,
                 &target_for_worker,
                 &jump_for_worker,
+                &cancellation,
             );
             let _ = sender.send(result);
         });
         poll_connect_result(
             context_for_lookup,
             asset_id,
+            attempt,
             receiver,
             one_time_code,
             jump_one_time_code,
@@ -7990,7 +8168,11 @@ fn connect_worker(
     known_hosts: &str,
     one_time_code: &str,
     jump_one_time_code: &str,
+    cancellation: &ConnectCancellation,
 ) -> Result<ConnectWorkerOutcome, BridgeError> {
+    if cancellation.is_cancelled() {
+        return Err(BridgeError::InvalidInput("ssh_connect_cancelled"));
+    }
     let core = CheckedCoreClient::new();
     let request_id = RequestId::new();
     let jump_host = match (&asset.jump_host, jump_credential) {
@@ -8023,28 +8205,26 @@ fn connect_worker(
         "connected" => {
             let connected = envelope.require_kind("connected")?;
             let base_session_id = decimal_id(connected, "session_id")?;
+            let mut connection = PendingConnection::new(
+                SshHandles {
+                    base: Some(base_session_id),
+                    ..Default::default()
+                },
+                release_unclaimed_ssh_connection as fn(SshHandles),
+            );
+            if cancellation.is_cancelled() {
+                return Err(BridgeError::InvalidInput("ssh_connect_cancelled"));
+            }
             let terminal_request = RequestId::new();
-            let opened = match core.open_terminal(base_session_id, 120, 32, &terminal_request) {
-                Ok(opened) => opened,
-                Err(error) => {
-                    let _ = core.disconnect(base_session_id);
-                    return Err(error);
-                }
-            };
-            let terminal_channel_id = match opened
+            let opened = core.open_terminal(base_session_id, 120, 32, &terminal_request)?;
+            let terminal_channel_id = opened
                 .require_kind("terminal_channel_opened")
-                .and_then(|terminal| decimal_id(terminal, "terminal_channel_id"))
-            {
-                Ok(id) => id,
-                Err(error) => {
-                    let _ = core.disconnect(base_session_id);
-                    return Err(error);
-                }
-            };
-            Ok(ConnectWorkerOutcome::Connected {
-                base_session_id,
-                terminal_channel_id,
-            })
+                .and_then(|terminal| decimal_id(terminal, "terminal_channel_id"))?;
+            connection.value_mut().terminals.push(terminal_channel_id);
+            if cancellation.is_cancelled() {
+                return Err(BridgeError::InvalidInput("ssh_connect_cancelled"));
+            }
+            Ok(ConnectWorkerOutcome::Connected(connection))
         }
         "host_key_challenge" => {
             let challenge = envelope.require_kind("host_key_challenge")?;
@@ -8084,6 +8264,21 @@ fn connect_worker(
     }
 }
 
+fn release_unclaimed_ssh_connection(handles: SshHandles) {
+    std::thread::spawn(move || {
+        let core = CheckedCoreClient::new();
+        let remaining = handles.release(
+            |id| core.close_terminal(id).is_ok(),
+            |id| core.close_sftp(id).is_ok(),
+            |id| core.stop_local_tunnel(id).is_ok(),
+            |id| core.disconnect(id).is_ok(),
+        );
+        if !remaining.is_empty() {
+            eprintln!("Unclaimed SSH connection cleanup was not fully acknowledged");
+        }
+    });
+}
+
 fn required_string(value: &serde_json::Value, field: &'static str) -> Result<String, BridgeError> {
     value
         .get(field)
@@ -8096,40 +8291,37 @@ fn required_string(value: &serde_json::Value, field: &'static str) -> Result<Str
 fn poll_connect_result(
     context: UiContext,
     asset_id: Uuid,
+    attempt: Uuid,
     receiver: mpsc::Receiver<Result<ConnectWorkerOutcome, BridgeError>>,
     one_time_code: String,
     jump_one_time_code: String,
 ) {
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
+        if !ssh_attempt_is_current(&context, asset_id, attempt) {
+            // The receipt releases late handles whether it is already queued
+            // or the worker subsequently tries to send to this dropped receiver.
+            return gtk::glib::ControlFlow::Break;
+        }
         match receiver.try_recv() {
-            Ok(Ok(ConnectWorkerOutcome::Connected {
-                base_session_id,
-                terminal_channel_id,
-            })) => {
-                {
-                    let mut registry = context.session.borrow_mut();
-                    let Some(runtime) = registry.sessions.get_mut(&asset_id) else {
-                        let core = CheckedCoreClient::new();
-                        let _ = core.close_terminal(terminal_channel_id);
-                        let _ = core.disconnect(base_session_id);
-                        return gtk::glib::ControlFlow::Break;
-                    };
-                    runtime.base_session_id = Some(base_session_id);
-                    runtime.terminal_channel_id = Some(terminal_channel_id);
-                    runtime.terminal_size = None;
-                    runtime.phase = WorkspacePhase::Connected;
-                    runtime.append_terminal(
-                        b"OrbitTerm checked SSH session established.\r\nHost Key verified.\r\n\r\n",
-                    );
+            Ok(Ok(ConnectWorkerOutcome::Connected(connection))) => {
+                if !context.session.borrow_mut().adopt_ssh_connection(
+                    asset_id,
+                    attempt,
+                    connection.value(),
+                ) {
+                    return gtk::glib::ControlFlow::Break;
                 }
+                let _ = connection.claim();
                 refresh_session_tabs(&context);
-                render_active_workspace(&context);
-                context
-                    .status
-                    .set_label("已连接 · Host Key 已验证 · 终端通道已打开");
-                begin_monitor_refresh(context.clone());
-                begin_sftp_list(context.clone(), String::new());
-                begin_docker_refresh(context.clone());
+                if context.session.borrow().active_workspace_id == Some(asset_id) {
+                    render_active_workspace(&context);
+                    context
+                        .status
+                        .set_label("已连接 · Host Key 已验证 · 终端通道已打开");
+                    begin_monitor_refresh(context.clone());
+                    begin_sftp_list(context.clone(), String::new());
+                    begin_docker_refresh(context.clone());
+                }
                 gtk::glib::ControlFlow::Break
             }
             Ok(Ok(ConnectWorkerOutcome::Challenge {
@@ -8138,18 +8330,26 @@ fn poll_connect_result(
                 algorithm,
                 request_id,
             })) => {
-                prompt_host_key(
+                present_ssh_decision_when_active(
                     context.clone(),
                     asset_id,
-                    challenge_id,
-                    fingerprint,
-                    algorithm,
-                    request_id,
+                    attempt,
+                    move |context| {
+                        prompt_host_key(
+                            context,
+                            asset_id,
+                            attempt,
+                            challenge_id,
+                            fingerprint,
+                            algorithm,
+                            request_id,
+                        );
+                    },
                 );
                 gtk::glib::ControlFlow::Break
             }
             Ok(Ok(ConnectWorkerOutcome::Blocked(reason))) => {
-                show_session_error(&context, asset_id, &reason);
+                show_ssh_attempt_error(&context, asset_id, attempt, &reason);
                 gtk::glib::ControlFlow::Break
             }
             Ok(Err(BridgeError::Core {
@@ -8159,37 +8359,40 @@ fn poll_connect_result(
                 if (for_jump && !jump_one_time_code.is_empty())
                     || (!for_jump && !one_time_code.is_empty())
                 {
-                    show_session_error(
-                        &context,
-                        asset_id,
-                        "SSH 二次验证未完成：服务器再次要求验证码。本次连接不会复用已提交的验证码；请重新连接并获取新码。",
-                    );
+                    show_ssh_attempt_error(&context, asset_id, attempt,
+                        "SSH 二次验证未完成：服务器再次要求验证码。本次连接不会复用已提交的验证码；请重新连接并获取新码。");
                     return gtk::glib::ControlFlow::Break;
                 }
-                prompt_ssh_second_factor(
+                let target = one_time_code.clone();
+                let jump = jump_one_time_code.clone();
+                present_ssh_decision_when_active(
                     context.clone(),
                     asset_id,
-                    for_jump,
-                    one_time_code.clone(),
-                    jump_one_time_code.clone(),
+                    attempt,
+                    move |context| {
+                        prompt_ssh_second_factor(
+                            context, asset_id, attempt, for_jump, target, jump,
+                        );
+                    },
                 );
                 gtk::glib::ControlFlow::Break
             }
             Ok(Err(BridgeError::Core { code, .. })) if code == "ssh_auth_failed" => {
-                show_session_error(
+                show_ssh_attempt_error(
                     &context,
                     asset_id,
+                    attempt,
                     ssh_auth_failure_message(&one_time_code, &jump_one_time_code),
                 );
                 gtk::glib::ControlFlow::Break
             }
             Ok(Err(error)) => {
-                show_session_error(&context, asset_id, &format!("连接失败：{error}"));
+                show_ssh_attempt_error(&context, asset_id, attempt, &format!("连接失败：{error}"));
                 gtk::glib::ControlFlow::Break
             }
             Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
             Err(mpsc::TryRecvError::Disconnected) => {
-                show_session_error(&context, asset_id, "连接工作线程意外退出。");
+                show_ssh_attempt_error(&context, asset_id, attempt, "连接工作线程意外退出。");
                 gtk::glib::ControlFlow::Break
             }
         }
@@ -8210,10 +8413,14 @@ fn ssh_auth_failure_message(one_time_code: &str, jump_one_time_code: &str) -> &'
 fn prompt_ssh_second_factor(
     context: UiContext,
     asset_id: Uuid,
+    attempt: Uuid,
     for_jump: bool,
     one_time_code: String,
     jump_one_time_code: String,
 ) {
+    if !ssh_attempt_is_current(&context, asset_id, attempt) {
+        return;
+    }
     set_session_phase(&context, asset_id, WorkspacePhase::AwaitingUserDecision);
     context
         .status
@@ -8236,15 +8443,26 @@ fn prompt_ssh_second_factor(
     dialog.add_response("cancel", "取消");
     dialog.add_response("confirm", "验证并连接");
     dialog.set_response_appearance("confirm", adw::ResponseAppearance::Suggested);
+    close_obsolete_ssh_dialog(&context, asset_id, attempt, &dialog);
     gtk::glib::spawn_future_local(async move {
-        if dialog.choose_future(Some(&context.window)).await.as_str() != "confirm" {
-            show_session_error(&context, asset_id, "已取消 SSH 二次验证。");
+        let response = dialog.choose_future(Some(&context.window)).await;
+        if !ssh_attempt_is_current(&context, asset_id, attempt) {
+            entry.set_text("");
+            return;
+        }
+        if response.as_str() != "confirm" {
+            show_ssh_attempt_error(&context, asset_id, attempt, "已取消 SSH 二次验证。");
             return;
         }
         let code = entry.text().to_string();
         entry.set_text("");
         if code.is_empty() || code.len() > 128 || code.chars().any(char::is_control) {
-            show_session_error(&context, asset_id, "验证码不能为空且不得超过 128 字节。");
+            show_ssh_attempt_error(
+                &context,
+                asset_id,
+                attempt,
+                "验证码不能为空且不得超过 128 字节。",
+            );
             return;
         }
         let asset = context
@@ -8261,9 +8479,9 @@ fn prompt_ssh_second_factor(
                 code.clone()
             };
             let jump = if for_jump { code } else { jump_one_time_code };
-            begin_ssh_connect_with_codes(context, asset, target, jump);
+            begin_ssh_connect_with_codes(context, asset, attempt, target, jump);
         } else {
-            show_session_error(&context, asset_id, "资产已删除，无法继续连接。");
+            show_ssh_attempt_error(&context, asset_id, attempt, "资产已删除，无法继续连接。");
         }
     });
 }
@@ -8271,11 +8489,15 @@ fn prompt_ssh_second_factor(
 fn prompt_host_key(
     context: UiContext,
     asset_id: Uuid,
+    attempt: Uuid,
     challenge_id: String,
     fingerprint: String,
     algorithm: String,
     request_id: RequestId,
 ) {
+    if !ssh_attempt_is_current(&context, asset_id, attempt) {
+        return;
+    }
     set_session_phase(&context, asset_id, WorkspacePhase::AwaitingUserDecision);
     context.status.set_label("需要验证服务器 Host Key 指纹。");
     let dialog = adw::AlertDialog::builder()
@@ -8288,11 +8510,20 @@ fn prompt_host_key(
     dialog.add_response("cancel", "取消");
     dialog.add_response("trust", "指纹一致，信任");
     dialog.set_response_appearance("trust", adw::ResponseAppearance::Suggested);
+    close_obsolete_ssh_dialog(&context, asset_id, attempt, &dialog);
     let context_for_choice = context.clone();
     gtk::glib::spawn_future_local(async move {
         let response = dialog.choose_future(Some(&context_for_choice.window)).await;
+        if !ssh_attempt_is_current(&context_for_choice, asset_id, attempt) {
+            return;
+        }
         if response.as_str() != "trust" {
-            show_session_error(&context_for_choice, asset_id, "已取消 Host Key 信任。");
+            show_ssh_attempt_error(
+                &context_for_choice,
+                asset_id,
+                attempt,
+                "已取消 Host Key 信任。",
+            );
             return;
         }
         set_session_phase(
@@ -8301,9 +8532,10 @@ fn prompt_host_key(
             WorkspacePhase::Authenticating,
         );
         let Some(known_hosts) = context_for_choice.known_hosts.to_str().map(str::to_owned) else {
-            show_session_error(
+            show_ssh_attempt_error(
                 &context_for_choice,
                 asset_id,
+                attempt,
                 "Host Key 存储路径不是有效 UTF-8。",
             );
             return;
@@ -8325,21 +8557,27 @@ fn prompt_host_key(
                 });
             let _ = sender.send(result);
         });
-        poll_trust_result(context_for_choice, asset_id, receiver);
+        poll_trust_result(context_for_choice, asset_id, attempt, receiver);
     });
 }
 
 fn poll_trust_result(
     context: UiContext,
     asset_id: Uuid,
+    attempt: Uuid,
     receiver: mpsc::Receiver<Result<(), BridgeError>>,
 ) {
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
+        if !ssh_attempt_is_current(&context, asset_id, attempt) {
+            return gtk::glib::ControlFlow::Break;
+        }
         match receiver.try_recv() {
             Ok(Ok(())) => {
-                context
-                    .status
-                    .set_label("Host Key 已安全保存，正在重新建立会话…");
+                if context.session.borrow().active_workspace_id == Some(asset_id) {
+                    context
+                        .status
+                        .set_label("Host Key 已安全保存，正在重新建立会话…");
+                }
                 let asset = context
                     .catalog
                     .borrow()
@@ -8350,17 +8588,27 @@ fn poll_trust_result(
                 if let Some(asset) = asset {
                     begin_ssh_connect(context.clone(), asset);
                 } else {
-                    show_session_error(&context, asset_id, "资产已被删除，无法继续连接。");
+                    show_ssh_attempt_error(
+                        &context,
+                        asset_id,
+                        attempt,
+                        "资产已被删除，无法继续连接。",
+                    );
                 }
                 gtk::glib::ControlFlow::Break
             }
             Ok(Err(error)) => {
-                show_session_error(&context, asset_id, &format!("保存 Host Key 失败：{error}"));
+                show_ssh_attempt_error(
+                    &context,
+                    asset_id,
+                    attempt,
+                    &format!("保存 Host Key 失败：{error}"),
+                );
                 gtk::glib::ControlFlow::Break
             }
             Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
             Err(mpsc::TryRecvError::Disconnected) => {
-                show_session_error(&context, asset_id, "Host Key 工作线程意外退出。");
+                show_ssh_attempt_error(&context, asset_id, attempt, "Host Key 工作线程意外退出。");
                 gtk::glib::ControlFlow::Break
             }
         }
@@ -9713,6 +9961,7 @@ fn begin_ssh_workspace_disconnect(context: UiContext, asset_id: Uuid, remove_tab
 }
 
 fn disconnect_workspace(context: UiContext, asset_id: Uuid, remove_tab: bool) {
+    context.session.borrow_mut().cancel_ssh_attempt(asset_id);
     let has_ssh_ownership = {
         let registry = context.session.borrow();
         registry.sessions.get(&asset_id).is_some_and(|runtime| {
@@ -20910,6 +21159,143 @@ fn fatal_state(message: &str) -> adw::StatusPage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn connected_handles(base: u64, terminal: u64) -> SshHandles {
+        SshHandles {
+            base: Some(base),
+            terminals: vec![terminal],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn cancelled_handshake_cannot_revive_a_disconnected_workspace() {
+        let asset = ServerAsset::new("virtual", "test.invalid", "qa");
+        let runtime = SessionRuntime::new(&asset);
+        let attempt = runtime.ssh_attempt.unwrap();
+        let worker = runtime.ssh_connect_cancellation.clone();
+        let mut registry = SessionRegistry {
+            sessions: [(asset.id, runtime)].into(),
+            ..Default::default()
+        };
+        registry.cancel_ssh_attempt(asset.id);
+        registry.sessions.get_mut(&asset.id).unwrap().phase = WorkspacePhase::Disconnected;
+        assert!(worker.is_cancelled());
+        assert!(!registry.owns_ssh_attempt(asset.id, attempt));
+        assert!(!registry.adopt_ssh_connection(asset.id, attempt, &connected_handles(41, 42)));
+        assert!(!registry.fail_ssh_attempt(asset.id, attempt));
+        let runtime = &registry.sessions[&asset.id];
+        assert_eq!(runtime.phase, WorkspacePhase::Disconnected);
+        assert!(runtime.base_session_id.is_none() && runtime.terminal_channel_id.is_none());
+    }
+
+    #[test]
+    fn old_handshake_and_dialog_cannot_authorize_a_replacement_of_the_same_asset() {
+        let asset = ServerAsset::new("virtual", "test.invalid", "qa");
+        let original = SessionRuntime::new(&asset);
+        let old_attempt = original.ssh_attempt.unwrap();
+        let worker = original.ssh_connect_cancellation.clone();
+        let replacement = SessionRuntime::replacing_for_connect(&asset, Some(original));
+        let current = replacement.ssh_attempt.unwrap();
+        assert_ne!(old_attempt, current);
+        assert!(worker.is_cancelled());
+        let mut registry = SessionRegistry {
+            sessions: [(asset.id, replacement)].into(),
+            ..Default::default()
+        };
+        assert!(!registry.owns_ssh_attempt(asset.id, old_attempt));
+        assert!(!registry.adopt_ssh_connection(asset.id, old_attempt, &connected_handles(41, 42)));
+        assert!(!registry.fail_ssh_attempt(asset.id, old_attempt));
+        assert!(registry.owns_ssh_attempt(asset.id, current));
+        assert!(registry.adopt_ssh_connection(asset.id, current, &connected_handles(51, 52)));
+        assert!(!registry.owns_ssh_attempt(asset.id, current));
+        assert!(!registry.adopt_ssh_connection(asset.id, current, &connected_handles(61, 62)));
+        assert!(!registry.fail_ssh_attempt(asset.id, current));
+        assert_eq!(registry.sessions[&asset.id].base_session_id, Some(51));
+        assert_eq!(registry.sessions[&asset.id].terminal_channel_id, Some(52));
+    }
+
+    #[test]
+    fn closed_tab_and_new_tab_of_the_same_asset_have_distinct_handshake_owners() {
+        let asset = ServerAsset::new("virtual", "test.invalid", "qa");
+        let runtime = SessionRuntime::new(&asset);
+        let old_attempt = runtime.ssh_attempt.unwrap();
+        let worker = runtime.ssh_connect_cancellation.clone();
+        let mut registry = SessionRegistry {
+            sessions: [(asset.id, runtime)].into(),
+            ..Default::default()
+        };
+        registry.sessions.remove(&asset.id);
+        assert!(worker.is_cancelled());
+        assert!(!registry.adopt_ssh_connection(asset.id, old_attempt, &connected_handles(41, 42)));
+        registry
+            .sessions
+            .insert(asset.id, SessionRuntime::new(&asset));
+        assert!(!registry.owns_ssh_attempt(asset.id, old_attempt));
+        assert!(!registry.fail_ssh_attempt(asset.id, old_attempt));
+        assert_eq!(registry.sessions[&asset.id].phase, WorkspacePhase::Starting);
+    }
+
+    #[test]
+    fn background_handshake_adoption_preserves_the_selected_workspace() {
+        let origin = ServerAsset::new("origin", "test.invalid", "qa");
+        let other = ServerAsset::new("other", "other.invalid", "qa");
+        let origin_runtime = SessionRuntime::new(&origin);
+        let attempt = origin_runtime.ssh_attempt.unwrap();
+        let mut other_runtime = SessionRuntime::new(&other);
+        other_runtime.phase = WorkspacePhase::Connected;
+        other_runtime.base_session_id = Some(99);
+        other_runtime.append_terminal(b"other history");
+        let mut registry = SessionRegistry {
+            active_workspace_id: Some(other.id),
+            selected_asset_id: Some(other.id),
+            sessions: [(origin.id, origin_runtime), (other.id, other_runtime)].into(),
+        };
+        assert!(registry.adopt_ssh_connection(origin.id, attempt, &connected_handles(41, 42)));
+        assert_eq!(registry.active_workspace_id, Some(other.id));
+        assert_eq!(registry.selected_asset_id, Some(other.id));
+        assert_eq!(registry.sessions[&other.id].base_session_id, Some(99));
+        assert_eq!(
+            registry.sessions[&other.id].terminal_backlog,
+            b"other history"
+        );
+    }
+
+    #[test]
+    fn current_handshake_failure_invalidates_continuations_and_allows_explicit_retry() {
+        let asset = ServerAsset::new("virtual", "test.invalid", "qa");
+        let mut runtime = SessionRuntime::new(&asset);
+        runtime.phase = WorkspacePhase::AwaitingUserDecision;
+        let attempt = runtime.ssh_attempt.unwrap();
+        let worker = runtime.ssh_connect_cancellation.clone();
+        let mut registry = SessionRegistry {
+            sessions: [(asset.id, runtime)].into(),
+            ..Default::default()
+        };
+        assert!(registry.owns_ssh_attempt(asset.id, attempt));
+        assert!(registry.fail_ssh_attempt(asset.id, attempt));
+        assert!(worker.is_cancelled());
+        assert!(!registry.owns_ssh_attempt(asset.id, attempt));
+        assert!(!registry.fail_ssh_attempt(asset.id, attempt));
+        assert!(registry.sessions[&asset.id].accepts_connect_start());
+    }
+
+    #[test]
+    fn pending_disconnect_and_non_ssh_runtime_cannot_adopt_a_handshake() {
+        let asset = ServerAsset::new("virtual", "test.invalid", "qa");
+        let mut runtime = SessionRuntime::new(&asset);
+        let attempt = runtime.ssh_attempt.unwrap();
+        runtime.pending_disconnect = Some(SshDisconnect::new(connected_handles(11, 12)));
+        let mut registry = SessionRegistry {
+            sessions: [(asset.id, runtime)].into(),
+            ..Default::default()
+        };
+        assert!(!registry.adopt_ssh_connection(asset.id, attempt, &connected_handles(41, 42)));
+        let runtime = registry.sessions.get_mut(&asset.id).unwrap();
+        runtime.pending_disconnect = None;
+        runtime.transport = Transport::Rdp;
+        assert!(!registry.owns_ssh_attempt(asset.id, attempt));
+    }
 
     fn pending_ssh_runtime(asset: &ServerAsset, remove_tab: bool) -> (SessionRuntime, u64) {
         let mut runtime = SessionRuntime::new(asset);
