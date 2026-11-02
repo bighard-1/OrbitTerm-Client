@@ -55,10 +55,11 @@ jobs:
   apple-security-gates:
     name: Apple checked-path gates
     runs-on: macos-15
-    # A cold runner builds the pinned FreeRDP runtime before the complete
-    # macOS/iOS matrix. Recent successful runs take 32–45 minutes, so keep
-    # enough cleanup headroom without weakening or skipping any gate.
-    timeout-minutes: 60
+    # af5987f reached the generated-project audit at minute 59 after all
+    # platform builds, then hit the 60-minute limit before its final XCTest.
+    # Keep the complete cold-build matrix and final audit; allow completion
+    # and cleanup headroom rather than skipping checks or reusing test results.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable

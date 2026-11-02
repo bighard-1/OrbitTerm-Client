@@ -338,6 +338,14 @@ Linux 开发机完整检查与 [Linux CI](https://github.com/bighard-1/OrbitTerm
 **CI 与下一步边界**：最终提交另收远端门禁。基线9dfd的Linux／Windows成功，Security最后一次提交前读取为五个常规作业成功、Apple仍运行、两个专用环境条件skipped，不能签为整门禁成功。下一步先核销最终候选CI，再补Linux普通安装／重启／升级的本机资产、凭据及窗口恢复；Android／Windows／Apple对照仍独立记录，不借本轮VM／合成监控结果放行五端发布。
 
 
+## Apple 冷构建门禁预算（2026-11-02）
+
+本条同提交基于9f77938，仅修改普通Apple门禁的作业预算60→90分钟，无客户端功能、安全契约或平台支持变化。通过现有已登录GitHub页面取得af5987超时作业的完整原始日志（加密外置盘`linux-close-ci-20261102/af5987-security-logs.zip`）；连接器不可用后使用只读页面下载，未重跑或修改GitHub权限。
+
+原日志明确：FreeRDP构建3分08秒；Rust三个目标各Debug／Release合计12分05秒；iOS模拟器UI约12分05秒并已签12/12、0失败／0跳过；macOS Debug／Release约7分26秒；末组iPhoneOS及模拟器Release约16分47秒。作业第59分钟完成平台构建、Release夹具排除及checked ABI检查，进入XcodeGen规范生成项目的独立重建／XCTest时触发60分钟作业上限。未把未完成的末项视为成功，也未把超时归为产品断言失败；完整日志和先前失败继续保留。
+
+据实际冷构建进度增加完成和清理余量，保留所有现有安全检查，不减少矩阵、不用旧测试回执替代、不扩大签名／权限。90分钟是候选预算，不宣称提高运行速度或已闭环；新提交仍须远端完整Security回执。工作流本身语法／差异检查另记；本项无新GUI、真机、安装或五端完整验收。Android／Windows维持原门禁和设备对照。
+
 ## Linux 发行路径与安装保持专项（2026-11-02）
 
 **固定基线／环境**：基于 `af5987ff76476056bec62cc17ff00a4143fc9892` 的本条同提交；Ubuntu VM 保留既有用户 Flatpak、系统 `.deb`、GNOME运行时及其用户数据，独立安装目录和私有 XDG／D-Bus／密钥环仅用于虚构夹具。K60先只读确认USB在线、系统锁屏，本轮不操作手机。af5987的[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41421335700)／[Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41421335627)已成功，[Security](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41421335614)初读仍运行；较早9dfd的[Security](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41417588475)最终cancelled，不能以已完成子任务成功替代整个门禁。
