@@ -408,3 +408,33 @@ Linux 开发机完整检查与 [Linux CI](https://github.com/bighard-1/OrbitTerm
 **最终模拟器回执**：移除实验延迟后的最终源码，完整UI套件 **12通过／0失败／0跳过**，含两处短时反馈及其余根页面、可访问性、授权遮挡和工作区场景。包装器真实执行返回0；导出的summary为Passed、total=12、passed=12，保留副本的所有结果文件和两份JSON与原件逐字节一致。完整静态安全扫描、shell语法、工作流YAML和差异检查通过。以上是自动化模拟器证据，不是实体iPhone性能或真机验收。基线b041的Linux／Windows CI成功，Security五个常规作业成功、Apple读取仍运行、两个专用环境作业条件skipped；不计完整Security成功，新提交仍须新门禁。
 
 **公开Release排除**：同一最终源码的iOS Simulator Release构建成功，未签名／未安装实体设备；可执行文件22,484,760字节，SHA-256 `512279de77197dbc5c18502876b1ee7f44778aa40d0845ac83fe39073b249c7f`。Debug实际产物包含两处新模拟按钮文字及夹具类型名，作为正对照；公开Release可执行文件均不含这四项标记。临时5秒延迟不在提交源码中。此项不替代iPhoneOS真机包、macOS Debug编译／签名UI及远端完整Apple矩阵。
+
+## 固定候选 CI 容量取消与补跑（2026-11-02）
+
+固定提交 `4456ef8e7e70fd65db18a7ad8c7c5f011680cf40` 的[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41454532049)和[Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41454529630)均成功。[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41454529886)第一次最终failure：Rust／Apple／Android Release三个macOS托管作业均cancelled、没有执行步骤，三个检查注解一致报告多次尝试仍未被hosted Runner获取，并附macOS arm64容量不足通知。这与8d70运行中exit65的失败不同，不能误记成测试断言失败，也不能将未执行作业计作通过。
+
+先保存attempt1元数据和注解，再通过GitHub连接器请求仅补跑失败／未完成作业；已接受为同一候选attempt2，当前三个缺项均已获得Runner并运行，完整结果仍待最终核销。没有改客户端源码、Runner类型、检查项、预算或签名／安全权限；等待期间不推送新提交，以免并发策略取消正在运行的候选。本地记录与最终回执将在适当时机一并提交。
+
+同一候选的Android仪器测试归档已下载并核对app／core／feature三份原始XML，按类名＋方法名去重后 **54通过／0失败／0跳过**，归档SHA-256 `22659a3ae5c34e85ae5f20942c045b93f17423f6e7db58d0336eaf2a48acbe96`。此为Android15 CI模拟器，不替代K60真机；K60本轮只读确认USB在线、锁屏，未安装或解锁。证据保存于加密外置盘 `Development/orbitterm-apple-gate-evidence-20261102/ci-capacity/`。无新真机／隔离GUI结果由CI补跑本身产生，五端完整验收仍未完成；Android／Windows后续核对具体候选包、升级数据与原生库摘要，不以构建绿色代替设备行为。
+
+attempt2的Rust作业已成功，原始日志显示Debug／Release主套件各338通过、2项既有忽略，另有独立用例及头文件／ABI符号检查通过；不把两次主套件相加冒充不同用例，也不将忽略项签为执行通过。Android Release与Apple完整矩阵仍在执行，完整Security结果尚未结束。
+
+本轮末再次读取：attempt2 Android Release作业也已成功；普通六项作业中五项成功，仅Apple完整矩阵仍运行。两个专用环境作业仍按条件skipped，不并入成功数。当前回执先作本地文档提交，不推送触发新一轮并发取消；候选4456与其远端CI保持不变，最终Apple结果及保留的UI结果包仍待核销。
+
+## Linux 文本读取停滞时正常退出（2026-11-02）
+
+**固定候选／产物**：当前4456候选未改变Linux产品源码，`ui.rs` SHA-256仍为 `f0bde31a5e3a93b30bc616e407c62118bc12e2d292d7ac92a37f0b63effa56f9`；复用267已实际安装的私有Flatpak `a20f1a9de7f91a838e013afbf389e555bd9f6ca6b198ac1459417dacee8a3796`，运行ELF `4d5ae3d088aac674fa46ca3348138efcded86c2612afdbb66d40bb6fe1c803a0`。两轮均先核对真实进程安装位置、ELF和私有XDG目录，未更换候选、更新原安装或修改系统网络。
+
+**隔离GUI与远端交叉证据**：仅在Ubuntu VM回环只读夹具中，使唯一虚构文本的SFTP read等待60秒；GUI明确显示“正在读取文本预览…”，夹具记录读取开始后才点击真实主窗口关闭按钮。窗口消失，应用正常返回0、实际Flatpak PID不存在、两夹具端口已建立连接归零；从远端read开始到PID消失为6.909秒（包含操作与远控时间，**不是点击关闭耗时或性能SLO**），小于预设60秒，故并非等读取恢复后才退出。没有强杀应用代替正常关闭。
+
+重开同一已安装包后先见0会话，无旧预览或自动重放；展开后原2条虚构本机资产仍在，沿用保存凭据与Host Key重新连接成功，SFTP实际列出4项，再次鼠标关闭返回0。私有资产／Host Key摘要、原安装关键文件及原Flatpak／平台／SDK提交均保持。所属显示、QA、只读夹具、回环监听和本机隧道已清理，临时夹具代码及其认证文件恢复，RustDesk未动。首次地址键入丢失冒号导致连接前校验拒绝，改用核对后的完整AX值再连接；不把这类输入准备问题签为产品故障。
+
+**边界与证据**：本轮没有源码修复或新自动化套件；新增的是完整应用隔离GUI负向证据，不是物理Linux、系统deb安装、普通GNOME桌面、大文件传输／取消、pending-disconnect拒绝退出、RDP或Telnet验收。仍需分别验证传输取消和断开待确认时的提示与重试，不以本轮文本读取停滞退出一并签收。无手机、Windows或Apple新设备结果，五端同版完整验收仍未完成；Android／Windows后续对照远端读取未返回时退出不挂起、进程／连接释放、重开不重放并保持本机资产／凭据。受限证据位于加密外置盘 `Development/orbitterm-apple-gate-evidence-20261102/linux-shutdown/`，归档SHA-256 `31bf0c14ed254cf7aad525fc172e9ea1542e0110fbcb6faeafc78284d951274d`，不提交原始profile或测试认证信息。
+
+## 同候选本机 OpenSSH 专用烟测（2026-11-02）
+
+固定4456候选、无源码修改，在本机运行仓库已有 `run_openssh_smoke.sh`，显式启用其隔离回环模式。脚本仅创建临时sshd配置、临时用户／主机密钥、授权文件、独立HOME与known_hosts及虚构SFTP测试目录，监听回环随机端口；测试后现有trap清理，另查本轮sshd进程无残留。
+
+真实OpenSSH协议四场景全部成功：trusted检查受检基础会话、终端、SFTP、exec及目标／临时文件所有权；changed与revoked按预期拒绝；Release legacy-no-socket证明旧接口未建立网络连接。实际执行为同一Debug受检烟测函数的三个独立协议场景，另加Release专用函数一个场景，**4场景通过／0失败／0忽略**，不是4个不同单元测试。脚本最终退出0；日志SHA-256 `5a5ab4410611863e08e319777b87b67ba5cbb83f841a4bb60dd73042682714dc`，证据位于前述加密外置盘 `ci-capacity/openssh-local-current.log`及summary。
+
+这补充本机真实OpenSSH回环证据，不把GitHub普通PR流程中条件skipped的专用作业改签为CI成功，也不替代远端发布候选专用环境或五端客户端GUI。夹具仅公钥认证，未覆盖TOTP／keyboard-interactive、真实业务主机、移动生命周期、真实设备性能或macOS签名UI。五端完整验收仍未完成；Android／Windows后续对照同候选受检连接、changed／revoked拒绝与目标文件保护，并各自完成原生包和GUI验证。
