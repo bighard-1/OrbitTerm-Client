@@ -1,6 +1,6 @@
 # 五端整改与真机回归台账
 
-更新：2026-11-01。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
+更新：2026-11-02。此文件是**持续更新的索引和执行清单**；详细操作、修订号及证据边界见 [服务端—客户端契约验收台账](SERVER_CLIENT_CONTRACT_ACCEPTANCE.md)、[Apple 真机验收日志](APPLE_REAL_DEVICE_ACCEPTANCE_LOG.md)、[SSH 二次验证专项](SSH_SECOND_FACTOR_ACCEPTANCE.md) 和 [真机验收协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)。历史矩阵 `docs/testing/CROSS-PLATFORM-SYNC-MATRIX.md` 属于旧基线，不可作为当前发布放行依据。
 
 ## 记账规则
 
@@ -421,6 +421,8 @@
 | SSH-MFA-DEVICE-01 | 旧客户端无验证码入口及首次真实主机密码阶段失败继续保留；恢复后 Linux 真实 TOTP、Apple 等端后续设备结果见 SSH 专项与持续记录。当前 `e18f554` Windows 原生测试 379 通过，新包静态 OTP 单跳错码／正确码／显式断开后新挑战／取消已在 Windows 测试机完成，修复了 `dca539b` 仅清托管登记而未释放原生连接的真实失败。 | **未关闭**：同候选真实 TOTP、密钥＋码、双跳、超时／Host Key 变化及敏感数据边界仍需逐端对照；新共用核心不由旧包通过或静态码替代。旧 Windows 附属初始化约59秒／未响应失败保留；`c9d3773` 初始化并行及 `bc1bc57` 断开进度／跨工作区归属已获有限 Windows 真机通过。Linux `111b28d` 已完成目录空态／SFTP不可用／恢复刷新／迟到目录及预览错误的有限隔离 GUI，原生175项及独立GTK项通过；尚无正常Flatpak升级、真实MFA或文件写失败跨页的新增GUI通过，后继完整Security仍待核销。不能据此放行云同步或五端发布。详见 `249/250/252/254/255/256/257/258`。 |
 
 ## 后续追加记录
+
+- 2026-11-02｜`LINUX-MONITOR-FEEDBACK-264`｜[监控失败反馈与空会话状态](SSH_DEPENDENCY_SECURITY_20261031.md#linux-监控失败反馈与空会话状态2026-11-02)。**源码／候选**：与本条同提交、基于9dfdbe0，仅Linux表示层；监控白名单中文提示不含原生详情，失败清空旧采样与趋势、保留SSH／SFTP所有权，有效采样后清提示；切页／重连绑定原base，工作线程中止可重试，空工作区清除断开中文案。**自动化**：完整原生209通过／0失败／6忽略（应用121通过／1忽略），严格Clippy／格式／静态通过；必跑真实GTK1通过，含有效采样→失败→恢复的实际控件断言及既有SFTP／VTE。归档传输尚未结束时的首次准备校验失败保留，校验成功后才构建。**隔离GUI**：Release成功，ELF `5da7acd3…3a6a2f9`；真实应用完成监控失败→合成有效采样→再次失败，提示／旧数值正确清除恢复，终端新输出与SFTP新增标记回拉可用；双会话切换、后台关闭及最后标签关闭后底栏正确，0会话／0夹具连接。所属进程、监听和隧道已清理，首帧滞后以稳定帧复核。**真实设备**：本轮无需手机，未操作物理Linux或其他平台。基线9dfd Linux／Windows CI成功，Security提交前Apple仍运行，不转记本候选；本提交CI另核销。**五端完整验收未完成**；Android／Windows对照监控失败不误断终端／SFTP、陈旧数据清除、恢复／切页／重连及最后标签关闭状态；普通安装升级、真实系统差异与长期稳定性仍未覆盖。
 
 - 2026-11-02｜`LINUX-SSH-TERMINAL-LIFECYCLE-263`｜[终端生命周期、首批输出与VTE隔离](SSH_DEPENDENCY_SECURITY_20261031.md#linux-ssh-终端生命周期反馈2026-11-02)。**源码／候选**：与本条同提交、基于902b07d，仅Linux bridge／表示层及既有GTK门禁；接入EOF／base丢失事件，按原生ID在GTK线程更新，EOF保留SSH／SFTP、禁用结束通道输入、提升活跃分屏，同受检base显式重开。异步打开用独立尝试ID／单次在途／未认领清理，后台完成不污染另一页；早到事件／输出认领后按原ID有序重放，暂存输出总限4MiB，无待认领操作时清除；核心／ABI及安全校验不变。VTE重绘增加排队复位／清屏边界，覆盖隐藏分屏和本地清除入口。**失败保留**：262旧EOF仍在线；首轮三个已有测试构造缺字段编译失败101；首包分屏banner丢失、第二包切工作区残留旧VTE文字均保留，不拿内部backlog正确代替显示隔离。VTE首次分步刷新用例通过未复现；连续排队重绘实际0通过／1失败，修复后真实GTK1通过。**自动化**：新增bridge2项、实际registry／runtime10项；完整原生207通过／0失败／6忽略，严格Clippy及独立GTK1通过（扩展为SFTP＋真实VTE隔离），最终Release通过，ELF摘要已固定且三产品文件双机回读一致。**隔离GUI／真实设备**：最终包已核对首次分屏完整输出、主EOF分屏接替／最后EOF禁用输入且保留SFTP、同TCP重开、后台丢失不换页及断线重新认证；切页和关闭活动标签后只显示当前会话文字，显式刷新正常，最后0会话／0连接。首次布局不足另保留；映射后待有效宽高再重绘当前owner，并纳入真实GTK回归。Linux VM私有profile，不是五端完整验收；K60仅只读在线锁屏，手机／Windows包未改。902 Linux／Windows及完整Security成功（六常规成功／两条件skipped），新提交另收CI。**后续／对照**：收新CI，再整理监控原生错误与空工作台底部残留断开中文案；Android/Windows/Apple对照主／分屏exit、base loss、早到输出、原生引用一次释放及复用终端不残留另一会话画面。正常安装升级、真实MFA、完整墓碑、待决菜单及监控错误文案仍开放。
 

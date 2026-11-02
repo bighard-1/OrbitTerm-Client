@@ -1303,6 +1303,8 @@ struct WorkspaceWidgets {
     connect: gtk::Button,
     disconnect: gtk::Button,
     monitor_connection: gtk::Label,
+    monitor_feedback: gtk::Label,
+    monitor_owner: Cell<Option<(Uuid, u64)>>,
     monitor_latency: gtk::Label,
     monitor_cpu: gtk::Label,
     monitor_memory: gtk::Label,
@@ -4022,6 +4024,16 @@ fn build_workspace() -> WorkspaceWidgets {
     monitor_detail.set_sensitive(false);
     monitor.append(&monitor_detail);
     let monitor_connection = gtk::Label::new(Some("未连接"));
+    let monitor_feedback = gtk::Label::new(None);
+    monitor_feedback.add_css_class("caption");
+    monitor_feedback.set_xalign(0.0);
+    monitor_feedback.set_wrap(true);
+    monitor_feedback.set_margin_start(12);
+    monitor_feedback.set_margin_end(12);
+    monitor_feedback.set_visible(false);
+    let monitor_band = gtk::Box::new(Orientation::Vertical, 0);
+    monitor_band.append(&monitor);
+    monitor_band.append(&monitor_feedback);
 
     let content_stack = gtk::Stack::new();
     content_stack.set_hexpand(true);
@@ -4212,7 +4224,7 @@ fn build_workspace() -> WorkspaceWidgets {
     workspace.append(&content_stack);
     WorkspaceWidgets {
         root: workspace,
-        monitor_band: monitor,
+        monitor_band,
         tabs,
         input_row,
         heading: header,
@@ -4228,6 +4240,8 @@ fn build_workspace() -> WorkspaceWidgets {
         connect,
         disconnect,
         monitor_connection,
+        monitor_feedback,
+        monitor_owner: Cell::new(None),
         monitor_cpu: monitor_values.remove(0),
         monitor_memory: monitor_values.remove(0),
         monitor_disk: monitor_values.remove(0),
@@ -5253,7 +5267,10 @@ fn update_endpoint(context: &UiContext, asset: &ServerAsset) {
 }
 
 fn reset_monitor_presentation(context: &UiContext, endpoint: Option<&str>) {
-    context.workspace.monitor_history.borrow_mut().clear();
+    clear_monitor_samples(&context.workspace);
+    context.workspace.monitor_owner.set(None);
+    context.workspace.monitor_feedback.set_label("");
+    context.workspace.monitor_feedback.set_visible(false);
     context.workspace.monitor_endpoint.set_label(
         endpoint
             .filter(|value| !value.is_empty())
@@ -5264,24 +5281,31 @@ fn reset_monitor_presentation(context: &UiContext, endpoint: Option<&str>) {
         .monitor_copy_endpoint
         .set_sensitive(endpoint.is_some_and(|value| !value.is_empty()));
     context.workspace.monitor_connection.set_label("未连接");
+}
+
+fn clear_monitor_samples(workspace: &WorkspaceWidgets) {
+    workspace.monitor_history.borrow_mut().clear();
     for label in [
-        &context.workspace.monitor_cpu,
-        &context.workspace.monitor_memory,
-        &context.workspace.monitor_disk,
-        &context.workspace.monitor_download,
-        &context.workspace.monitor_upload,
-        &context.workspace.monitor_latency,
+        &workspace.monitor_cpu,
+        &workspace.monitor_memory,
+        &workspace.monitor_disk,
+        &workspace.monitor_download,
+        &workspace.monitor_upload,
+        &workspace.monitor_latency,
     ] {
         label.set_label("—");
     }
-    context.workspace.monitor_detail.set_sensitive(false);
-    for graph in context.workspace.monitor_graphs.iter() {
+    workspace.monitor_detail.set_sensitive(false);
+    for graph in workspace.monitor_graphs.iter() {
         graph.queue_draw();
     }
 }
 
 fn render_empty_workspace(context: &UiContext) {
     reset_monitor_presentation(context, None);
+    context
+        .status
+        .set_label("暂无活动会话 · 请选择资产建立连接。");
     context.workspace.heading.set_visible(false);
     context.workspace.empty_title.set_label(EMPTY_SESSION_TITLE);
     context
@@ -5707,6 +5731,16 @@ fn render_active_workspace(context: &UiContext) {
         render_empty_workspace(context);
         return;
     };
+    let monitor_owner = context.session.borrow().active().and_then(|runtime| {
+        (runtime.transport == Transport::Ssh && runtime.phase == WorkspacePhase::Connected)
+            .then_some(runtime.base_session_id)
+            .flatten()
+            .map(|base| (runtime.asset_id, base))
+    });
+    if context.workspace.monitor_owner.get() != monitor_owner {
+        reset_monitor_presentation(context, None);
+        context.workspace.monitor_owner.set(monitor_owner);
+    }
     match phase {
         WorkspacePhase::Connected => update_endpoint(context, &asset),
         WorkspacePhase::Disconnected | WorkspacePhase::Failed | WorkspacePhase::Closed => {
@@ -5803,7 +5837,6 @@ fn render_active_workspace(context: &UiContext) {
         } else {
             "未连接"
         });
-    context.workspace.monitor_latency.set_label("—");
     if transport != Transport::Ssh {
         context.workspace.monitor_cpu.set_label("—");
         context.workspace.monitor_memory.set_label("—");
@@ -11484,7 +11517,11 @@ fn begin_monitor_refresh(context: UiContext) {
         match result {
             Ok(Ok(snapshot)) => {
                 if context.session.borrow().active_workspace_id == Some(workspace_id) {
-                    render_monitor(&context, &snapshot);
+                    render_monitor(
+                        &context.workspace,
+                        &snapshot,
+                        context.preferences.borrow().monitor_history_samples,
+                    );
                 }
                 gtk::glib::ControlFlow::Break
             }
@@ -11492,15 +11529,17 @@ fn begin_monitor_refresh(context: UiContext) {
                 if monitor_confirms_closed_ssh_session(&error) {
                     disconnect_workspace(context.clone(), workspace_id, false);
                 } else if context.session.borrow().active_workspace_id == Some(workspace_id) {
-                    context.workspace.monitor_latency.set_label("不可用");
-                    context
-                        .status
-                        .set_label(&format!("Monitor 采样失败：{error}"));
+                    show_monitor_failure(&context.workspace, describe_monitor_error(&error));
                 }
                 gtk::glib::ControlFlow::Break
             }
             Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
-            Err(mpsc::TryRecvError::Disconnected) => gtk::glib::ControlFlow::Break,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                if context.session.borrow().active_workspace_id == Some(workspace_id) {
+                    show_monitor_failure(&context.workspace, MONITOR_INTERRUPTED_MESSAGE);
+                }
+                gtk::glib::ControlFlow::Break
+            }
         }
     });
 }
@@ -11510,44 +11549,69 @@ fn monitor_confirms_closed_ssh_session(error: &BridgeError) -> bool {
         if matches!(code.as_str(), "session_closed" | "session_not_found"))
 }
 
-fn render_monitor(context: &UiContext, snapshot: &MonitorSnapshot) {
+const MONITOR_INTERRUPTED_MESSAGE: &str =
+    "监控采样已中止，将在下次采样时重试。SSH 与 SFTP 可继续使用。";
+
+fn describe_monitor_error(error: &BridgeError) -> &'static str {
+    match error {
+        BridgeError::Core { code, .. } => match code.as_str() {
+            "exec_timeout" | "monitor_timeout" => {
+                "监控采样超时，将在下次采样时重试。SSH 与 SFTP 可继续使用。"
+            }
+            "exec_request_failed" | "exec_command_failed" => {
+                "远端未能执行监控命令，请检查系统兼容性或命令权限。SSH 与 SFTP 可继续使用。"
+            }
+            "monitor_snapshot_failed" => {
+                "远端未能提供完整监控数据，将在下次采样时重试。SSH 与 SFTP 可继续使用。"
+            }
+            "exec_output_failed" => {
+                "监控数据读取失败，将在下次采样时重试。SSH 与 SFTP 可继续使用。"
+            }
+            _ => "监控数据暂不可用；如持续失败，请重新连接后重试。",
+        },
+        _ => "监控数据未通过完整性或会话校验；请重新连接后重试。",
+    }
+}
+
+fn show_monitor_failure(workspace: &WorkspaceWidgets, message: &str) {
+    // A failed sample must not leave previous values or trends looking current.
+    // Keep the verified endpoint and SSH/SFTP ownership unchanged.
+    clear_monitor_samples(workspace);
+    workspace.monitor_feedback.set_label(message);
+    workspace.monitor_feedback.set_visible(true);
+}
+
+fn render_monitor(workspace: &WorkspaceWidgets, snapshot: &MonitorSnapshot, limit: usize) {
     let stats = &snapshot.stats;
     let latency_summary = {
-        let mut history = context.workspace.monitor_history.borrow_mut();
+        let mut history = workspace.monitor_history.borrow_mut();
         history.push(snapshot.clone());
-        let limit = context.preferences.borrow().monitor_history_samples;
         if history.len() > limit {
             history.remove(0);
         }
         format_monitor_latency_summary(&history)
     };
-    context.workspace.monitor_connection.set_label("已验证");
-    context.workspace.monitor_detail.set_sensitive(true);
-    context
-        .workspace
-        .monitor_latency
-        .set_label(&latency_summary);
-    context
-        .workspace
+    workspace.monitor_feedback.set_label("");
+    workspace.monitor_feedback.set_visible(false);
+    workspace.monitor_connection.set_label("已验证");
+    workspace.monitor_detail.set_sensitive(true);
+    workspace.monitor_latency.set_label(&latency_summary);
+    workspace
         .monitor_cpu
         .set_label(&format!("{:.1}%", stats.cpu_usage_percent));
-    context
-        .workspace
+    workspace
         .monitor_memory
         .set_label(&format!("{:.1}%", stats.mem_used_percent));
-    context
-        .workspace
+    workspace
         .monitor_disk
         .set_label(&format!("{:.1}%", stats.disk_used_percent));
-    context
-        .workspace
+    workspace
         .monitor_download
         .set_label(&format_monitor_network_rate(stats.rx_rate_kbps));
-    context
-        .workspace
+    workspace
         .monitor_upload
         .set_label(&format_monitor_network_rate(stats.tx_rate_kbps));
-    for graph in context.workspace.monitor_graphs.iter() {
+    for graph in workspace.monitor_graphs.iter() {
         graph.queue_draw();
     }
 }
@@ -22070,6 +22134,49 @@ mod tests {
         // reset(clear_history=true) alone leaves visible cells from the old
         // workspace behind when the replacement output is shorter.
         let workspace = build_workspace();
+        let sample: MonitorSnapshot = serde_json::from_value(serde_json::json!({
+            "base_session_id": "41", "security_generation": "1",
+            "stats": {
+                "sampled_at_unix": 100, "cpu_usage_percent": 25.0,
+                "mem_available_mb": 512, "mem_used_percent": 50.0,
+                "disk_used_percent": 30.0, "ping_latency_ms": 2.0,
+                "rx_rate_kbps": 64.0, "tx_rate_kbps": 32.0,
+                "system_info": {
+                    "os_name": "virtual", "cpu_core_count": 2, "cpu_thread_count": 2,
+                    "memory_total_mb": 1024, "swap_total_mb": 0, "swap_used_mb": 0,
+                    "disk_total_mb": 1024, "disk_used_mb": 307
+                }
+            }, "diagnostics": []
+        }))
+        .unwrap();
+        workspace.monitor_endpoint.set_label("virtual.invalid");
+        workspace.monitor_copy_endpoint.set_sensitive(true);
+        render_monitor(&workspace, &sample, 30);
+        assert_eq!(workspace.monitor_cpu.text(), "25.0%");
+        assert!(workspace.monitor_detail.is_sensitive());
+        show_monitor_failure(&workspace, MONITOR_INTERRUPTED_MESSAGE);
+        assert!(workspace.monitor_feedback.is_visible());
+        assert!(workspace.monitor_history.borrow().is_empty());
+        for value in [
+            &workspace.monitor_cpu,
+            &workspace.monitor_memory,
+            &workspace.monitor_disk,
+            &workspace.monitor_download,
+            &workspace.monitor_upload,
+            &workspace.monitor_latency,
+        ] {
+            assert_eq!(value.text(), "—", "failed sample left a stale value");
+        }
+        assert!(!workspace.monitor_detail.is_sensitive());
+        assert_eq!(workspace.monitor_endpoint.text(), "virtual.invalid");
+        assert!(workspace.monitor_copy_endpoint.is_sensitive());
+        assert_eq!(workspace.monitor_connection.text(), "已验证");
+        render_monitor(&workspace, &sample, 30);
+        assert!(!workspace.monitor_feedback.is_visible());
+        assert!(workspace.monitor_feedback.text().is_empty());
+        assert_eq!(workspace.monitor_history.borrow().len(), 1);
+        assert_eq!(workspace.monitor_cpu.text(), "25.0%");
+        assert!(workspace.monitor_detail.is_sensitive());
         workspace.content_stack.set_visible_child_name("terminal");
         rebuild_terminal_grid(&workspace, 2, 0);
         let window = gtk::Window::builder()
@@ -22260,6 +22367,58 @@ mod tests {
         assert!(!monitor_confirms_closed_ssh_session(
             &BridgeError::InvalidInput("session_closed")
         ));
+    }
+
+    #[test]
+    fn monitor_errors_are_actionable_without_exposing_native_details() {
+        for (code, expected) in [
+            ("exec_timeout", "超时"),
+            ("exec_request_failed", "命令权限"),
+            ("exec_command_failed", "系统兼容性"),
+            ("monitor_snapshot_failed", "完整监控数据"),
+            ("exec_output_failed", "读取失败"),
+            ("/private/remote/error", "重新连接"),
+            ("security_generation_mismatch", "重新连接"),
+        ] {
+            let error = BridgeError::Core {
+                code: code.into(),
+                message_key: "private-account-message".into(),
+                detail_code: Some("private-server-output".into()),
+            };
+            let message = describe_monitor_error(&error);
+            assert!(message.contains(expected), "{code}");
+            assert!(!message.contains("private"));
+            assert!(!message.contains("exec_"));
+            assert!(!monitor_confirms_closed_ssh_session(&error));
+        }
+        assert!(describe_monitor_error(&BridgeError::UnverifiedPayload).contains("校验"));
+        let malformed = BridgeError::UnexpectedKind {
+            expected: "private-request".into(),
+            actual: "private-response".into(),
+        };
+        assert!(!describe_monitor_error(&malformed).contains("private"));
+    }
+
+    #[test]
+    fn monitor_failure_completion_keeps_other_workspaces_and_allows_retry() {
+        let (origin, mut registry) = ssh_registry();
+        let other = ServerAsset::new("other", "test.invalid", "qa");
+        registry
+            .sessions
+            .insert(other.id, SessionRuntime::new(&other));
+        registry.active_workspace_id = Some(other.id);
+        registry
+            .sessions
+            .get_mut(&origin.id)
+            .unwrap()
+            .monitor_in_flight = true;
+        assert!(registry.finish_monitor_request(origin.id, 41));
+        let runtime = &registry.sessions[&origin.id];
+        assert!(!runtime.monitor_in_flight);
+        assert_eq!(runtime.phase, WorkspacePhase::Connected);
+        assert_eq!(runtime.base_session_id, Some(41));
+        assert_eq!(runtime.sftp_session_id, Some(43));
+        assert_eq!(registry.active_workspace_id, Some(other.id));
     }
 
     fn sftp_dialog_target() -> SftpActionContext {
