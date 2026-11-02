@@ -297,11 +297,11 @@ pub(crate) async fn close(terminal_channel_id: u64) -> Result<(), OrbitCoreError
     let channel = lock_terminal_channels()?.remove(&terminal_channel_id);
     if let Some(ch) = channel {
         let _ = ch.tx.send(TerminalCommand::Close);
-        return Ok(());
     }
-    Err(OrbitCoreError::SshFailed(
-        "terminal channel not found".to_string(),
-    ))
+    // EOF and a prior close both remove the registration. Already absent is
+    // successful cleanup, matching SFTP/base disconnect. The terminal worker
+    // alone releases its base reference; a retry must not release it again.
+    Ok(())
 }
 
 pub(crate) fn base_id_for_channel(terminal_channel_id: u64) -> Result<Option<u64>, OrbitCoreError> {
