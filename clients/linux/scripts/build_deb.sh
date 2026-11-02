@@ -8,10 +8,18 @@ stage="$(mktemp -d /tmp/orbitterm-deb.XXXXXX)"
 trap 'rm -rf "$stage"' EXIT
 chmod 0755 "$stage"
 
-"$script_dir/build_release.sh"
+binary="$("$script_dir/build_release.sh" --print-binary-path)"
+python3 - "$binary" <<'PY'
+import sys
+
+with open(sys.argv[1], "rb") as executable:
+    header = executable.read(20)
+if header[:6] != b"\x7fELF\x02\x01" or int.from_bytes(header[18:20], "little") != 62:
+    sys.exit("The amd64 Debian package requires an x86-64 Linux ELF executable.")
+PY
 
 install -Dm755 \
-    "$linux_root/target/release/orbitterm-linux" \
+    "$binary" \
     "$stage/usr/bin/orbitterm-linux"
 install -Dm644 \
     "$linux_root/data/com.orbitterm.Client.desktop" \

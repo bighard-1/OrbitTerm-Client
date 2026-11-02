@@ -336,3 +336,33 @@ Linux 开发机完整检查与 [Linux CI](https://github.com/bighard-1/OrbitTerm
 **关闭与清理**：先关闭后台标签，原工作区内容与在线状态保留；关闭最后一个标签后，实际画面为0会话、输入禁用、监控无失败提示、端点“尚未选择”，底栏明确“暂无活动会话 · 请选择资产建立连接”，不再显示正在断开。独立检查夹具两个端口均无已建立连接。监督器登记的QA／私有显示／只读夹具等子进程均已结束，三个回环监听关闭，本机只结束本轮所属SSH隧道；原Flatpak、系统网络和RustDesk未动。构建、夹具、GUI人工回执、准备失败与清理证据存于加密外置盘 `Development/orbitterm-windows-linux-upload-20261030-d926106/linux-monitor-feedback-20261102/`，不提交含测试密钥的私有证据包。
 
 **CI 与下一步边界**：最终提交另收远端门禁。基线9dfd的Linux／Windows成功，Security最后一次提交前读取为五个常规作业成功、Apple仍运行、两个专用环境条件skipped，不能签为整门禁成功。下一步先核销最终候选CI，再补Linux普通安装／重启／升级的本机资产、凭据及窗口恢复；Android／Windows／Apple对照仍独立记录，不借本轮VM／合成监控结果放行五端发布。
+
+
+## Linux 发行路径与安装保持专项（2026-11-02）
+
+**固定基线／环境**：基于 `af5987ff76476056bec62cc17ff00a4143fc9892` 的本条同提交；Ubuntu VM 保留既有用户 Flatpak、系统 `.deb`、GNOME运行时及其用户数据，独立安装目录和私有 XDG／D-Bus／密钥环仅用于虚构夹具。K60先只读确认USB在线、系统锁屏，本轮不操作手机。af5987的[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41421335700)／[Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41421335627)已成功，[Security](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41421335614)初读仍运行；较早9dfd的[Security](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41417588475)最终cancelled，不能以已完成子任务成功替代整个门禁。
+
+**源码缺口与修复**：`build_release.sh` 固定检查默认 `target/release`，`build_deb.sh`固定从该处取文件；外置 `CARGO_TARGET_DIR`、目标架构或Cargo配置改变路径后，可能报错或误用默认目录留下的旧二进制。现仅接受本次Cargo成功回报、目标名称匹配的唯一可执行产物；无产物、多产物或构建失败均拒绝，不回退旧路径。`--print-binary-path`为打包脚本提供精确路径，`.deb`直接使用该回执。Flatpak安装脚本的导出、菜单和图标路径改遵循 `FLATPAK_USER_DIR`／`XDG_DATA_HOME`，默认路径行为不变；自定义目录的安装和启动须保持同一环境。README同步说明。
+
+**可复现路径回归**：新增五项独立脚本检查并纳入Linux门禁，覆盖带空格外置缓存／目标架构路径、缺失与多个产物拒绝、失败构建不发布、Flatpak自定义安装和XDG菜单路径不写入默认目录。Ubuntu上对旧af5987脚本实际运行同一套检查，**1通过／4失败／0跳过**；修复后 **5通过／0失败／0跳过**。此为真实旧脚本／新脚本的控制依赖红绿，不冒充实际安装测试。最初在Mac开发机试跑时，假HOME未创建Cargo环境文件、BSD install与Linux GNU install不同导致 **3通过／2失败**；补齐测试环境并将GNU安装检查在非Linux明确跳过后，Mac **4通过／1跳过**；前述失败单独保留，Linux必须执行全部五项，未将跳过记为通过。
+
+**当前自动化**：新隔离检出完整原生209通过／0失败／6忽略、上述脚本5项全通过、格式／严格Clippy／视觉／元数据通过；既有必跑真实GTK1通过／0失败／0忽略。Release、`.deb`产物一致性及真实Flatpak私有安装／升级／进程重启另收最终回执，不以控制依赖测试替代。构建和安装证据保存于加密外置盘 `Development/orbitterm-windows-linux-upload-20261030-d926106/linux-package-install-20261102/`，不提交私有profile、测试密钥或原账户数据。
+
+**未覆盖与对照**：本轮无物理Linux、真实业务账户、Android／Windows／Apple新包或五端同版完整验收。Windows对照打包所用原生库／产物摘要与当前构建匹配、升级和重启保持凭据；Android对照APK／原生库候选匹配及升级不丢本机资产；Apple分别核对应用身份、签名、包内原生库和升级保持。系统`.deb`安装／卸载、正常GNOME桌面会话、发行版差异与长期稳定性不因私有目录测试通过签收。
+
+
+**架构补充与最终路径检查**：复查时补强 `.deb` 的amd64边界：本次Cargo回报其他目标路径是合法的Release输出，但不能装入amd64包；打包前检查ELF64／小端／x86-64标识，拒绝AArch64等其他架构及非ELF。新增第六项负向检查。保留初版五项红绿日志，最终六项在Ubuntu对旧脚本 **1通过／5失败**、对修复 **6通过／0失败／0跳过**；Mac最终5通过／1项GNU安装检查跳过，不替代Linux。此前209项原生／独立GTK结果仍对应相同未改Rust源码，最终六项路径检查与`.deb`另跑并留档。
+
+**原生Release／Debian产物**：外置目标缓存构建成功，`.deb`打包成功并实际解包，`usr/bin/orbitterm-linux`逐字节等于本次外置缓存产物，SHA-256 `8925a39b8045df5664655f8b30251ebbe0239ad1aecf078ba09547d1ebbf8155`；最终`.deb` SHA-256 `362a6de9d3511d7985d9c2ba5de9e83f53d5bef85356f2c6db7d6e53e709a03c`、Architecture=amd64。没有用系统dpkg覆盖旧安装，此结果只证明包构建、架构与载荷一致性，不证明系统安装或升级。完整Flatpak仍另收回执。
+
+**准备失败均保留**：首次Deb载荷启动器全局替换路径时也改变了旧helper的查找字面量，实际启动旧QA；执行路径核查发现后停止，不计新包GUI通过。仅替换目标表达式后，实际进程摘要与Deb载荷一致才重测。现有旧Flatpak归档对应9bbdf68f，与原安装9cb5ea27不同，私有安装后的提交检查阻断；改为从原安装不可变提交只读导出精确基线。首次Flatpak启动又被前置隔离检查发现重设了XDG目录，仍使用默认应用目录；立即停止、该轮未操作GUI，原关键文件摘要均未变。改为在沙箱内部设置测试XDG，进程的安装路径、可执行文件及数据／状态目录校验全部通过后才继续。另有包权限检查误用socket文本子串而失败，改用集合核对Flatpak自动展开的x11／wayland／fallback-x11，未扩大权限。以上准备／夹具失败不冒充产品红绿，无效轮日志分别留存。
+
+**Deb载荷实际GUI**：纠正路径后，最终Deb内真实程序显示原2条虚构本机资产，保存的私有密钥环凭据无需重输即可连接只读SSH夹具，终端Host Key已验证、SFTP实际读取4项，新监控提示可见。仍非系统dpkg安装验收。
+
+**Flatpak固定产物与真实安装**：产品Rust源码仍为af5987，本条只修改发行脚本、路径检查和文档；使用已有GNOME50 SDK／运行时、当前锁文件vendor及原产品清单构建成功，未更新原全局SDK／运行时。bundle为6,788,072字节，SHA-256 `ddebdac7a68796d36d2b4307350e72ca14e43452f42a290958bb98167b5ebc44`；包内ELF `934c7db37643d14a7fbb572b99e455a51f676d8f73dec50913835ffc68c5d658`，新安装OSTree提交 `34b3d0aedbdc44e0fbd42c82100e38cad5a577dd1209ccbdcca2e6752f343807`。独立用户安装目录先装精确原基线 `9cb5ea272aa53842b6921d85fc064bb4413c1df808e0b6b53ec4c5e9c114a26d`，导出菜单／图标在测试XDG目录。旧基线GUI能读取原2条虚构本机资产、保存凭据和Host Key，受检SSH连接、4项SFTP目录成功；旧基线重复终端banner观察保留。
+
+**覆盖升级与监督重启**：安装新包后逐进程核对安装位置与ELF，原2条资产可见，无需重输凭据即可受检连接，Host Key沿用、SFTP正常，新监控提示可见。资产文件和known_hosts摘要均与升级前相同。监督器结束该私有进程，重新启动同一已安装包并重建私有D-Bus／密钥环，再次读到2条资产、无需重输凭据完成SSH／Host Key验证及4项SFTP读取，两个文件摘要仍相同。只证明此VM私有profile的真实安装／覆盖升级和监督进程重启保持；非物理Linux、系统重启、真实账户恢复或普通GNOME桌面验收。运行时额外挂载仅测试profile与Xauthority，原产品清单没有新增host／home整体访问。
+
+**正常退出未通过**：升级后隔离远控中点击主窗口关闭并发送Alt-F4，窗口和已核对PID仍在；尚未区分远控输入、窗口控制组件与应用关闭生命周期，不能据源码回调存在或监督器最终清理签正常退出通过。上述重启明确是监督器结束，未覆盖正常GUI退出。此项沿263继续开放，下一步定向定位，不猜测修复。
+
+**收尾与CI边界**：各轮所属GUI、显示、只读夹具、回环监听和本机隧道均清理；原Flatpak／平台／SDK提交，以及原关键资产、启动器和native二进制摘要均与操作前一致，原系统包、RustDesk及网络未改。私有安装／profile保留供退出复测，详细证据存于前述加密外置盘，不提交含测试密钥的原始包。新路径检查文件亦加入Linux CI触发条件。af5987 Security最终completed/cancelled，五个常规任务成功、Apple取消、两专用环境条件skipped；[Apple作业125197610791](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41421335614/job/125197610791)检查注解明确报告超过1小时最大执行时间，不是已确认的源码断言失败，不能签整门禁通过。本轮未无依据延长时间或跳过检查，新提交CI另收。后续优先定位Linux正常退出，再分析Apple耗时／超时；五端完整验收和系统Deb安装仍开放。

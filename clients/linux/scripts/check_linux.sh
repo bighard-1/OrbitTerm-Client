@@ -7,6 +7,7 @@ linux_root="$(cd "$script_dir/.." && pwd)"
 source "$HOME/.cargo/env" 2>/dev/null || true
 
 python3 "$linux_root/../../scripts/quality/check_desktop_visual_contract.py"
+python3 "$linux_root/../../scripts/quality/check_linux_packaging_paths.py"
 
 cargo fmt --manifest-path "$linux_root/Cargo.toml" --all -- --check
 cargo clippy --locked --manifest-path "$linux_root/Cargo.toml" --workspace --all-targets -- -D warnings

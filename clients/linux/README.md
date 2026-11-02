@@ -46,6 +46,13 @@ clients/linux/scripts/check_linux.sh
 clients/linux/scripts/run_linux.sh
 ```
 
+`build_release.sh` 和 `build_deb.sh` 使用本次 Cargo 构建回报的可执行文件，支持
+`CARGO_TARGET_DIR` 外置缓存；Release支持目标架构目录，不会回退读取默认目录中的旧产物。
+当前 `.deb` 仅支持 amd64，打包前会拒绝其他架构的可执行文件。
+`build_release.sh --print-binary-path` 只向标准输出返回该路径，供打包工具使用。
+`install_flatpak.sh` 遵循 `XDG_DATA_HOME` 和 `FLATPAK_USER_DIR`；使用自定义目录时，
+安装和启动须保持相同的目录环境。
+
 最低开发工具链为 Rust 1.92。当前已验证目标为 Ubuntu Desktop 24.04 x86-64、GNOME 46、Wayland/XWayland。
 
 ## 本地数据

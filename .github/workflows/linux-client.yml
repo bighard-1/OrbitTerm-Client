@@ -4,12 +4,14 @@ on:
   pull_request:
     paths:
       - "clients/linux/**"
+      - "scripts/quality/check_linux_packaging_paths.py"
       - "orbit-core/**"
       - ".github/workflows/linux-client.yml"
   push:
     branches: [main]
     paths:
       - "clients/linux/**"
+      - "scripts/quality/check_linux_packaging_paths.py"
       - "orbit-core/**"
       - ".github/workflows/linux-client.yml"
 
