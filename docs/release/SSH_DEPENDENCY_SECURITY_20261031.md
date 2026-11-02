@@ -392,3 +392,19 @@ Linux 开发机完整检查与 [Linux CI](https://github.com/bighard-1/OrbitTerm
 **CI新失败独立开放**：8d70的[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41434545396)和[Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41434545402)成功；[Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41434545399)最终failure。五个常规作业成功，Apple作业约26分钟、exit65，指向 `testOperationalFailuresExposeRetryRetainedContentAndTransientSuccessLifetime`，并非90分钟预算耗尽。下载的原始作业日志只有失败用例名，不能据此确认具体断言、产品缺陷或测试不稳定；当前脚本退出会删除临时结果包，此轮不能补取已删xcresult。该失败原样保留，下一步应先补失败结果证据并定向定位，不盲改产品、不跳过用例或重跑覆盖。本次Linux提交的远端门禁另收回执。
 
 **覆盖边界与跨端对照**：本条关闭了265中此VM／两类实际产物的正常鼠标关闭缺口，非物理Linux、普通GNOME桌面、系统deb安装／系统重启、多发行版、真实业务账户、RDP／Telnet或传输正在阻塞时关闭的完整验收。无手机或Windows新包，五端同版完整验收仍未完成。Android后续对照边缘／导航手势不吞操作按钮、退出重开保留本机资产与凭据；Windows对照自定义拉伸与标题栏按钮优先级、在线会话正常关闭、重开保持，Apple对照自身窗口／生命周期门禁，不借本轮VM通过转签其他平台。
+
+## Apple UI 短时反馈与失败证据留存（2026-11-02）
+
+**固定基线与失败边界**：本条同提交基于 `b041c7beae81aa598486ce76cd7e9cab10218747`。8d70的Apple作业exit65及失败用例名继续保留，原xcresult已被旧脚本删除，不能追认其具体断言或把后续通过覆盖旧失败。本机Xcode26.6／iOS26.5模拟器单独执行同一原始运维用例，**1通过／0失败／0跳过**；历史CI使用iOS18.5模拟器，本机通过不代表相同环境复现。K60先只读确认USB在线、系统锁屏，本轮无需解锁或使用任何实体手机。
+
+**已确认的夹具时序缺口**：运维状态、同步恢复两处非公开Release的UI夹具，在应用启动即开始4秒成功提示倒计时，原用例必须赶在提示消失前完成启动与无障碍读取。本机对原用例增加5秒就绪延迟作受控实验；只读画面显示提示已消失，进程采样指向原 `XCTAssertTrue(success.waitForExistence(timeout: 2))` 的断言失败处理。该轮随后在XCTest错误收尾阶段挂起，先SIGINT、再结束所属xcodebuild，最终退出143、结果包不完整，**不计作0通过／1失败的完整结构化红灯**；运行日志、线程采样、源文件与中断回执分别留存。此实验确认启动倒计时假设不可靠，但不等于已证明8d70的全部失败原因。
+
+**夹具与用例修正**：两处成功提示初始关闭，待稳定界面完成持久失败、重试入口、保留内容等断言后，由测试点击明确的模拟成功按钮，再使用原 `OperationalFeedbackPolicy` 倒计时。仍检查提示出现与消失、失败提示和恢复入口持续可见；未延长产品4秒策略、未删除用例或放宽断言，公开Release不包含这些夹具。保留相同5秒就绪延迟的修复候选定向验证为 **2通过／0失败／0跳过**，完整xcresult与summary均已导出；随后移除实验延迟，最终源码另跑全12项UI，不把带延迟实验代作最终回执。
+
+**失败证据契约**：新增UI执行包装器，无论xcodebuild成功或失败，都先导出summary／tests并按显式CI路径保存xcresult，再返回原测试失败退出码。成功却缺结果包、导出失败或保存失败均不能报绿。普通Apple门禁继续要求结果Passed、至少12项、全部通过且零失败／零跳过；工作流用always上传结果，保留14天，不跳过其他矩阵或改变权限。五项控制依赖自动化覆盖exit65仍保留断言证据、无结果包拒绝、导出失败不遮盖测试失败、保存失败拒绝和正常成功；**5通过**，连同原有bounded-phase共 **9通过**。真实受控中断轮也保留143和不完整结果，没有因导出失败变成成功。
+
+**证据／后续对照**：本机完整日志、结果包、受控实验源摘要及故障回执位于加密外置盘 `Development/orbitterm-apple-gate-evidence-20261102/`，不提交原始结果包、设备标识或敏感内容。无iOS／Android／Windows新真机包、macOS签名UI或五端完整验收。Android／Windows后续对照短时成功提示的测试应在实际操作后计时、冷启动和慢无障碍读取不消耗观察窗口；失败结果和完整执行数量需独立留存，不能凭命令退出0签收。新提交完整远端Security回执仍必需。
+
+**最终模拟器回执**：移除实验延迟后的最终源码，完整UI套件 **12通过／0失败／0跳过**，含两处短时反馈及其余根页面、可访问性、授权遮挡和工作区场景。包装器真实执行返回0；导出的summary为Passed、total=12、passed=12，保留副本的所有结果文件和两份JSON与原件逐字节一致。完整静态安全扫描、shell语法、工作流YAML和差异检查通过。以上是自动化模拟器证据，不是实体iPhone性能或真机验收。基线b041的Linux／Windows CI成功，Security五个常规作业成功、Apple读取仍运行、两个专用环境作业条件skipped；不计完整Security成功，新提交仍须新门禁。
+
+**公开Release排除**：同一最终源码的iOS Simulator Release构建成功，未签名／未安装实体设备；可执行文件22,484,760字节，SHA-256 `512279de77197dbc5c18502876b1ee7f44778aa40d0845ac83fe39073b249c7f`。Debug实际产物包含两处新模拟按钮文字及夹具类型名，作为正对照；公开Release可执行文件均不含这四项标记。临时5秒延迟不在提交源码中。此项不替代iPhoneOS真机包、macOS Debug编译／签名UI及远端完整Apple矩阵。

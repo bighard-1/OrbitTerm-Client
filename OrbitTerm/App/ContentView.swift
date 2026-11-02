@@ -513,12 +513,18 @@ private struct LocalStorageQueueRecoveryBanner: View {
 
 #if !ORBITTERM_PUBLIC_RELEASE
 private struct OperationalStateUITestHarnessView: View {
-    @State private var showsTransientSuccess = true
+    @State private var showsTransientSuccess = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    Button("模拟容器操作成功") { showsTransientSuccess = true }
+                        .buttonStyle(.bordered)
+                        .disabled(showsTransientSuccess)
+                    if showsTransientSuccess {
+                        OperationalTransientSuccessBanner(message: "容器操作已完成。")
+                    }
                     fixture(
                         title: "监控读取失败",
                         detail: "监控请求超时。",
@@ -541,15 +547,13 @@ private struct OperationalStateUITestHarnessView: View {
                         hasContent: true
                     )
                     OperationalRefreshButton(presentation: busy) {}
-                    if showsTransientSuccess {
-                        OperationalTransientSuccessBanner(message: "容器操作已完成。")
-                    }
                 }
                 .padding(16)
             }
             .navigationTitle("操作状态回归")
         }
-        .task {
+        .task(id: showsTransientSuccess) {
+            guard showsTransientSuccess else { return }
             guard let delay = OperationalFeedbackPolicy.lifetime(kind: .success).autoDismissAfterNanoseconds else {
                 return
             }
@@ -591,7 +595,7 @@ private struct OperationalStateUITestHarnessView: View {
 }
 
 private struct SyncRecoveryStateUITestHarnessView: View {
-    @State private var showsQueuedSuccess = true
+    @State private var showsQueuedSuccess = false
 
     private let partialFailure = SyncPresentationState.afterCompletedPull(
         detail: "资产同步完成",
@@ -608,6 +612,12 @@ private struct SyncRecoveryStateUITestHarnessView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
+                    Button("模拟恢复加入队列") { showsQueuedSuccess = true }
+                        .buttonStyle(.bordered)
+                        .disabled(showsQueuedSuccess)
+                    if showsQueuedSuccess {
+                        OperationalTransientSuccessBanner(message: "恢复已加入后台队列，联网后自动完成。")
+                    }
                     syncStatus(SyncPresentationState.make(.awaitingNetwork, detail: "网络恢复后自动同步"))
                     syncStatus(SyncPresentationState.make(.awaitingUnlock, detail: "解锁后继续安全同步"))
                     syncStatus(partialFailure)
@@ -634,15 +644,13 @@ private struct SyncRecoveryStateUITestHarnessView: View {
                     .securityStatusStyle(.danger)
                     Button(recentlyDeletedFailure.refreshLabel) {}
                         .accessibilityLabel("重试最近删除")
-                    if showsQueuedSuccess {
-                        OperationalTransientSuccessBanner(message: "恢复已加入后台队列，联网后自动完成。")
-                    }
                 }
                 .padding(16)
             }
             .navigationTitle("同步与恢复状态回归")
         }
-        .task {
+        .task(id: showsQueuedSuccess) {
+            guard showsQueuedSuccess else { return }
             guard let delay = OperationalFeedbackPolicy.lifetime(kind: .success).autoDismissAfterNanoseconds else {
                 return
             }

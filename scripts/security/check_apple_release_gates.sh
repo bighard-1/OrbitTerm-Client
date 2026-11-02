@@ -146,10 +146,10 @@ xcrun simctl bootstatus "$simulator_id" -b
 # the evidence for this gate. Simulator signing is ephemeral and uses no
 # distribution identity, so source-build lanes remain unsigned.
 ios_ui_result="$derived_data/ios-ui-tests.xcresult"
-xcodebuild test -quiet -project "$project" -scheme OrbitTermiOSUITests \
+bash "$ORBIT_ROOT/scripts/security/run_apple_ui_tests.sh" "$ios_ui_result" \
+  test -quiet -project "$project" -scheme OrbitTermiOSUITests \
   -destination "platform=iOS Simulator,id=$simulator_id" -derivedDataPath "$derived_data" \
-  -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
-  -resultBundlePath "$ios_ui_result"
+  -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1
 ios_ui_count="$(xcrun xcresulttool get test-results summary --path "$ios_ui_result" | python3 -c '
 import json
 import sys

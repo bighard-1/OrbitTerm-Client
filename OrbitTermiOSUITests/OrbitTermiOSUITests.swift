@@ -151,10 +151,10 @@ final class OrbitTermiOSUITests: XCTestCase {
         let app = launch("operational_states")
         XCTAssertTrue(app.navigationBars["操作状态回归"].waitForExistence(timeout: 5))
 
-        // The success contract is intentionally short lived. Capture it before
-        // the exhaustive failure-state assertions consume that four-second window.
+        // Launch and accessibility startup must not consume the success lifetime.
+        // Trigger the fixture only after the persistent failure checks complete.
         let success = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "容器操作已完成。")).firstMatch
-        XCTAssertTrue(success.waitForExistence(timeout: 2))
+        XCTAssertFalse(success.exists)
 
         for title in ["监控读取失败", "SFTP 操作失败", "Docker 操作失败"] {
             XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 5))
@@ -175,6 +175,10 @@ final class OrbitTermiOSUITests: XCTestCase {
         let busy = app.buttons["正在刷新监控"]
         XCTAssertTrue(busy.waitForExistence(timeout: 5))
         XCTAssertFalse(busy.isEnabled)
+        let trigger = app.buttons["模拟容器操作成功"]
+        XCTAssertTrue(trigger.waitForExistence(timeout: 5))
+        trigger.tap()
+        XCTAssertTrue(success.waitForExistence(timeout: 2))
         let disappeared = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == false"),
             object: success
@@ -190,7 +194,7 @@ final class OrbitTermiOSUITests: XCTestCase {
         let queued = app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS %@", "恢复已加入后台队列，联网后自动完成。")
         ).firstMatch
-        XCTAssertTrue(queued.waitForExistence(timeout: 2))
+        XCTAssertFalse(queued.exists)
 
         for message in [
             "等待网络：网络恢复后自动同步",
@@ -208,6 +212,10 @@ final class OrbitTermiOSUITests: XCTestCase {
         }
         XCTAssertTrue(app.staticTexts["检测到同步冲突"].waitForExistence(timeout: 5))
 
+        let trigger = app.buttons["模拟恢复加入队列"]
+        XCTAssertTrue(trigger.waitForExistence(timeout: 5))
+        trigger.tap()
+        XCTAssertTrue(queued.waitForExistence(timeout: 2))
         let disappeared = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == false"),
             object: queued
