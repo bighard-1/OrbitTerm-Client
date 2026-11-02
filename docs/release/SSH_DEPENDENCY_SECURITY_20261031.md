@@ -438,3 +438,13 @@ attempt2的Rust作业已成功，原始日志显示Debug／Release主套件各33
 真实OpenSSH协议四场景全部成功：trusted检查受检基础会话、终端、SFTP、exec及目标／临时文件所有权；changed与revoked按预期拒绝；Release legacy-no-socket证明旧接口未建立网络连接。实际执行为同一Debug受检烟测函数的三个独立协议场景，另加Release专用函数一个场景，**4场景通过／0失败／0忽略**，不是4个不同单元测试。脚本最终退出0；日志SHA-256 `5a5ab4410611863e08e319777b87b67ba5cbb83f841a4bb60dd73042682714dc`，证据位于前述加密外置盘 `ci-capacity/openssh-local-current.log`及summary。
 
 这补充本机真实OpenSSH回环证据，不把GitHub普通PR流程中条件skipped的专用作业改签为CI成功，也不替代远端发布候选专用环境或五端客户端GUI。夹具仅公钥认证，未覆盖TOTP／keyboard-interactive、真实业务主机、移动生命周期、真实设备性能或macOS签名UI。五端完整验收仍未完成；Android／Windows后续对照同候选受检连接、changed／revoked拒绝与目标文件保护，并各自完成原生包和GUI验证。
+
+## 固定候选完整 CI 与 Apple 结果包最终核销（2026-11-02）
+
+**候选与远端结果**：固定产品／门禁提交 `4456ef8e7e70fd65db18a7ad8c7c5f011680cf40`，[Security Gates attempt2](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41454529886/attempts/2)最终 **completed／success**。桌面视觉、Rust、Apple、Android Release、Android仪器／迁移及依赖扫描六项常规作业全部成功；[Apple作业](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41454529886/job/125318270826)29分13秒完成，包括iOS UI、macOS UI目标编译、各平台Debug／Release、Release夹具及checked ABI排除、末尾XcodeGen规范重建／XCTest。不是仅以中间UI成功替代完整作业。OpenSSH专用作业与macOS签名UI仍按PR条件skipped，不能计作专用CI验收成功；271的本机回环OpenSSH结果独立保留。attempt1的容量取消、8d70原断言缺证失败、受控实验中断和旧60分钟超时均保留，不被本次通过覆盖，也不追认已丢失的历史失败断言。
+
+**上传产物实际复核**：从已登录GitHub页面下载本作业的 `apple-ui-results`，归档516,127字节，SHA-256 `763e61dccdab5ccc82b6f3db8945a4feffd5d6a0c6eecb8979e65e2cd8529f44`，与GitHub artifact13149801923公布摘要一致。导出summary为Passed、total12／passed12／failed0／skipped0；递归读取tests树确认恰好12个Test Case、全为Passed，其名称集合逐项匹配4456候选源码，包含本轮修正的运维反馈与同步恢复两个用例。本机 `xcresulttool` 对下载的原始xcresult重新解析得到同样结果，非只信任导出JSON或日志徽标。此CI使用iOS18.5模拟器，与268本机iOS26.5完整12项通过为不同环境的独立证据。
+
+**来源与失败留存机制**：六个涉及本轮修复的源码／门禁文件逐字节等于4456候选，验收期间未变更；本地587ee35仅为回执文档提交，未打断候选执行。[Linux CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41454532049)与[Windows CI](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41454529630)同候选成功；Windows归档名使用PR merge SHA，已核对其父提交包含4456，未因名称不同误装其他候选。结果上传成功证明真实CI成功路径可保留完整产物；失败退出码／缺结果／保存失败路径仍由268五项控制依赖回归和受控中断证据支持，不谎称本次成功作业执行过一次真实CI失败上传。浏览器下载等待接口超时但文件实际落盘，先检查本地文件、匹配摘要后继续，未盲目重复下载。
+
+**记录／发布边界**：原归档、解析输出、候选摘要与最终run／job／artifact元数据保存在加密外置盘 `Development/orbitterm-apple-gate-evidence-20261102/ci-capacity/`，不提交原始xcresult、设备标识或账户信息。本条关闭268的远端UI及完整普通门禁缺项、269的容量取消补跑缺项；后续仅文档提交不改变被验收的产品和门禁代码，新head若触发CI仍单独观察，不自动继承结果。无新五端真机／GUI证据，五端同版完整验收、Mac专用签名UI、真机性能、Linux普通桌面／系统deb、pending-disconnect失败恢复与RDP／Telnet仍未签收。Android／Windows后续按候选包／原生库摘要对照未结束操作退出、重开不重放、本机资产／凭据及Host Key保持，不能以本轮CI放行真实设备或发布。
