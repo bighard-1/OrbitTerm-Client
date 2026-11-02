@@ -461,7 +461,7 @@ public sealed partial class MainWindow : Window
         {
             State: OverlappedPresenterState.Minimized,
         };
-        if (ViewModel.IsMonitorAutoRefreshEnabled && ViewModel.IsConnected && !isMinimized)
+        if (ViewModel.IsMonitorAutoRefreshEnabled && ViewModel.IsConnected && !ViewModel.IsDisconnecting && !isMinimized)
         {
             monitorRefreshTimer.Start();
         }
@@ -474,6 +474,7 @@ public sealed partial class MainWindow : Window
     private async void DockerRefreshTimerTick(DispatcherQueueTimer sender, object args)
     {
         if (!isDockerInspectorVisible ||
+            ViewModel.IsDisconnecting ||
             !ViewModel.IsConnected ||
             ViewModel.IsTelnetSession ||
             ViewModel.RefreshMonitorSnapshotCommand.IsRunning)
@@ -493,6 +494,7 @@ public sealed partial class MainWindow : Window
         if (isDockerInspectorVisible &&
             isMainWindowActive &&
             ViewModel.IsConnected &&
+            !ViewModel.IsDisconnecting &&
             !ViewModel.IsTelnetSession &&
             !isMinimized)
         {
@@ -3889,7 +3891,8 @@ public sealed partial class MainWindow : Window
     private void ViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(MainWindowViewModel.IsTerminalOpen) or
-            nameof(MainWindowViewModel.HasTerminalOutput))
+            nameof(MainWindowViewModel.HasTerminalOutput) or
+            nameof(MainWindowViewModel.CanInteractWithTerminal))
         {
             UpdateTerminalEmptyState();
         }
@@ -3956,13 +3959,15 @@ public sealed partial class MainWindow : Window
         }
 
         if (e.PropertyName is nameof(MainWindowViewModel.IsConnected) or
+            nameof(MainWindowViewModel.IsDisconnecting) or
             nameof(MainWindowViewModel.IsMonitorAutoRefreshEnabled))
         {
-            if (e.PropertyName == nameof(MainWindowViewModel.IsConnected) && !ViewModel.IsConnected)
+            if ((e.PropertyName == nameof(MainWindowViewModel.IsConnected) && !ViewModel.IsConnected) ||
+                (e.PropertyName == nameof(MainWindowViewModel.IsDisconnecting) && ViewModel.IsDisconnecting))
             {
                 activeDockerLogWindow?.StopAndClose();
             }
-            if (e.PropertyName == nameof(MainWindowViewModel.IsConnected))
+            if (e.PropertyName is nameof(MainWindowViewModel.IsConnected) or nameof(MainWindowViewModel.IsDisconnecting))
             {
                 UpdateToolInspectorSessionState();
                 UpdateTerminalEmptyState();
@@ -7411,7 +7416,7 @@ public sealed partial class MainWindow : Window
         {
             NativeTerminalView.ClearSelection();
         }
-        NativeTerminalView.IsInputEnabled = ViewModel.IsTerminalOpen;
+        NativeTerminalView.IsInputEnabled = ViewModel.CanInteractWithTerminal;
 
         // Focus only for the closed -> open transition. Re-running a generic
         // workbench refresh must never steal focus from search, settings,

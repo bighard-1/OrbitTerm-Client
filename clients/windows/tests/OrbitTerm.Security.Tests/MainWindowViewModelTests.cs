@@ -1476,6 +1476,156 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task PendingDisconnectShowsProgressAndRejectsDuplicateConnectionActions()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var core = new FakeCheckedCoreClient { DisconnectEnteredGate = entered, DisconnectReleaseGate = release };
+        var viewModel = CreateViewModel(core);
+        viewModel.Password = "secret";
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        var connectCalls = core.ConnectCallCount;
+        var ending = viewModel.DisconnectSelectedWorkspaceAsync(CancellationToken.None);
+        try
+        {
+            await WaitUntilAsync(() => entered.IsSet);
+            Assert.Equal("正在断开连接…", viewModel.SelectedWorkspaceTab!.ConnectionStateLabel);
+            Assert.Equal("正在断开连接…", viewModel.TerminalEmptyStateLabel);
+            Assert.False(viewModel.ConnectCommand.CanExecute(null));
+            Assert.False(viewModel.EndSessionCommand.CanExecute(null));
+            Assert.False(viewModel.OpenTerminalCommand.CanExecute(null));
+            await viewModel.DisconnectSelectedWorkspaceAsync(CancellationToken.None);
+            await viewModel.ReconnectSelectedWorkspaceAsync(CancellationToken.None);
+            await viewModel.DisconnectAndCloseWorkspaceTabCommand.ExecuteAsync(null);
+            Assert.Equal(1, core.DisconnectSessionCallCount);
+            Assert.Equal(connectCalls, core.ConnectCallCount);
+        }
+        finally { release.Set(); }
+        await ending;
+        Assert.False(viewModel.IsConnected);
+        Assert.Equal("未连接", viewModel.SelectedWorkspaceTab!.ConnectionStateLabel);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DisconnectCompletionStaysWithOriginalWorkspace(bool failDisconnect)
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var core = new FakeCheckedCoreClient
+        {
+            DisconnectEnteredGate = entered, DisconnectReleaseGate = release, FailDisconnect = failDisconnect,
+        };
+        var viewModel = CreateViewModel(core);
+        viewModel.Password = "secret";
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        var original = viewModel.SelectedWorkspaceTab!;
+        var ending = viewModel.DisconnectSelectedWorkspaceAsync(CancellationToken.None);
+        WorkspaceTabViewModel? other = null;
+        string? otherStatus = null;
+        try
+        {
+            await WaitUntilAsync(() => entered.IsSet);
+            await viewModel.OpenWorkspaceTabCommand.ExecuteAsync(null);
+            other = viewModel.SelectedWorkspaceTab;
+            viewModel.CommandText = "untouched draft";
+            viewModel.SftpPathText = "/draft-only";
+            otherStatus = viewModel.Status;
+        }
+        finally { release.Set(); }
+        await ending;
+        Assert.Same(other, viewModel.SelectedWorkspaceTab);
+        Assert.Equal(otherStatus, viewModel.Status);
+        Assert.Equal("untouched draft", viewModel.CommandText);
+        Assert.Equal("/draft-only", viewModel.SftpPathText);
+        Assert.False(viewModel.IsConnected);
+        Assert.Equal(failDisconnect, original.IsConnected);
+        viewModel.SelectedWorkspaceTab = original;
+        Assert.Equal(failDisconnect ? "断开连接未完成，请重试。" : "会话已断开", viewModel.Status);
+        Assert.Equal(failDisconnect, viewModel.IsConnected);
+    }
+
+    [Fact]
+    public async Task PendingTerminalCloseReturnsControlAndRejectsNewInput()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var core = new FakeCheckedCoreClient { TerminalCloseEnteredGate = entered, TerminalCloseReleaseGate = release };
+        var viewModel = CreateViewModel(core);
+        viewModel.Password = "secret";
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        var ending = viewModel.DisconnectSelectedWorkspaceAsync(CancellationToken.None);
+        try
+        {
+            await WaitUntilAsync(() => entered.IsSet);
+            Assert.False(ending.IsCompleted);
+            Assert.True(viewModel.IsDisconnecting);
+            Assert.False(viewModel.CanInteractWithTerminal);
+            Assert.False(await viewModel.WriteTerminalInputAsync(new byte[] { 65 }, CancellationToken.None));
+            Assert.Equal(0, core.WriteTerminalCallCount);
+            Assert.False(viewModel.SelectedWorkspaceTab!.CanChangeConnection);
+        }
+        finally { release.Set(); }
+        await ending;
+        Assert.False(viewModel.IsDisconnecting);
+        Assert.True(viewModel.SelectedWorkspaceTab!.CanChangeConnection);
+    }
+
+    [Fact]
+    public async Task UnexpectedTerminalCloseFailureKeepsOwnershipRetryableAndSanitized()
+    {
+        var core = new FakeCheckedCoreClient { ThrowOnTerminalClose = true };
+        var viewModel = CreateViewModel(core);
+        viewModel.Password = "secret";
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        await viewModel.DisconnectSelectedWorkspaceAsync(CancellationToken.None);
+        Assert.True(viewModel.IsConnected);
+        Assert.True(viewModel.IsTerminalOpen);
+        Assert.False(viewModel.IsDisconnecting);
+        Assert.Equal("断开连接未完成，请重试。", viewModel.Status);
+        Assert.DoesNotContain("private backend", viewModel.Status);
+        Assert.True(viewModel.EndSessionCommand.CanExecute(null));
+        core.ThrowOnTerminalClose = false;
+        await viewModel.DisconnectSelectedWorkspaceAsync(CancellationToken.None);
+        Assert.False(viewModel.IsConnected);
+        Assert.False(viewModel.IsTerminalOpen);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AwaitingDisconnectDoesNotReconnectOrCloseAnotherWorkspace(bool closing)
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var core = new FakeCheckedCoreClient { DisconnectEnteredGate = entered, DisconnectReleaseGate = release };
+        var viewModel = CreateViewModel(core);
+        viewModel.Password = "secret";
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        var connectCalls = core.ConnectCallCount;
+        var action = closing ? viewModel.DisconnectAndCloseWorkspaceTabCommand.ExecuteAsync(null)
+            : viewModel.ReconnectSelectedWorkspaceAsync(CancellationToken.None);
+        WorkspaceTabViewModel? draft = null;
+        try
+        {
+            await WaitUntilAsync(() => entered.IsSet);
+            await viewModel.OpenWorkspaceTabCommand.ExecuteAsync(null);
+            draft = viewModel.SelectedWorkspaceTab;
+            viewModel.Host = "other.example";
+            viewModel.Username = "qa";
+            viewModel.Password = "other synthetic credential";
+        }
+        finally { release.Set(); }
+        await action;
+        Assert.Same(draft, viewModel.SelectedWorkspaceTab);
+        Assert.Contains(draft!, viewModel.WorkspaceTabs);
+        Assert.False(viewModel.IsConnected);
+        Assert.Equal(connectCalls, core.ConnectCallCount);
+        Assert.Equal("other.example", viewModel.Host);
+    }
+
+    [Fact]
     public async Task EndSessionClosesTerminalAndClearsVerifiedState()
     {
         var coreClient = new FakeCheckedCoreClient();
@@ -3181,11 +3331,11 @@ public sealed class MainWindowViewModelTests
         viewModel.SendCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.CommandText.Length == 0 && !viewModel.SendCommand.IsRunning);
         viewModel.SftpPathText = "/var/log/auth.log";
-        viewModel.RefreshDockerContainersCommand.Execute(null);
-        await WaitUntilAsync(() => viewModel.DockerContainers.Count == 2);
+        await viewModel.RefreshDockerContainersCommand.ExecuteAsync(null);
+        Assert.Equal(2, viewModel.DockerContainers.Count);
         viewModel.SelectedDockerContainer = viewModel.DockerContainers[0];
-        viewModel.PreviewDockerLogsCommand.Execute(null);
-        await WaitUntilAsync(() => viewModel.DockerLogText.Length > 0);
+        await viewModel.PreviewDockerLogsCommand.ExecuteAsync(null);
+        Assert.NotEmpty(viewModel.DockerLogText);
 
         var json = viewModel.PrepareDiagnosticsBundleCopy();
 
@@ -3991,8 +4141,13 @@ public sealed class MainWindowViewModelTests
         }
 
         public int CloseTerminalCallCount { get; private set; }
+        public ManualResetEventSlim? TerminalCloseEnteredGate { get; init; }
+        public ManualResetEventSlim? TerminalCloseReleaseGate { get; init; }
+        public bool ThrowOnTerminalClose { get; set; }
         public int DisconnectSessionCallCount { get; private set; }
         public bool FailDisconnect { get; set; }
+        public ManualResetEventSlim? DisconnectEnteredGate { get; init; }
+        public ManualResetEventSlim? DisconnectReleaseGate { get; init; }
 
         public TerminalControlResult CloseSftp(ulong sftpSessionId) =>
             new TerminalControlResult.Succeeded("closed");
@@ -4000,6 +4155,9 @@ public sealed class MainWindowViewModelTests
         public TerminalControlResult DisconnectSession(ulong baseSessionId)
         {
             DisconnectSessionCallCount++;
+            DisconnectEnteredGate?.Set();
+            if (DisconnectReleaseGate is { } gate && !gate.Wait(TimeSpan.FromSeconds(5)))
+                throw new TimeoutException("Fixture disconnect gate timed out.");
             return FailDisconnect ? new TerminalControlResult.Failed("private backend detail")
                 : new TerminalControlResult.Succeeded("closed");
         }
@@ -4159,6 +4317,10 @@ public sealed class MainWindowViewModelTests
         public TerminalControlResult CloseTerminal(ulong terminalChannelId)
         {
             CloseTerminalCallCount++;
+            if (ThrowOnTerminalClose) throw new InvalidOperationException("private backend failure");
+            TerminalCloseEnteredGate?.Set();
+            if (TerminalCloseReleaseGate is { } gate && !gate.Wait(TimeSpan.FromSeconds(5)))
+                throw new TimeoutException("Fixture terminal close gate timed out.");
             return new TerminalControlResult.Succeeded("closed");
         }
 

@@ -743,10 +743,10 @@
                                   Padding="9,5">
                                 <Grid.ContextFlyout>
                                     <MenuFlyout>
-                                        <MenuFlyoutItem Text="断开连接" Tag="{Binding}" Click="WorkspaceTabContextDisconnectClick" />
-                                        <MenuFlyoutItem Text="重新连接" Tag="{Binding}" Click="WorkspaceTabContextReconnectClick" />
+                                        <MenuFlyoutItem Text="断开连接" IsEnabled="{Binding CanChangeConnection}" Tag="{Binding}" Click="WorkspaceTabContextDisconnectClick" />
+                                        <MenuFlyoutItem Text="重新连接" IsEnabled="{Binding CanChangeConnection}" Tag="{Binding}" Click="WorkspaceTabContextReconnectClick" />
                                         <MenuFlyoutSeparator />
-                                        <MenuFlyoutItem Text="关闭会话标签" Tag="{Binding}" Click="CloseWorkspaceTabClick" />
+                                        <MenuFlyoutItem Text="关闭会话标签" IsEnabled="{Binding CanChangeConnection}" Tag="{Binding}" Click="CloseWorkspaceTabClick" />
                                     </MenuFlyout>
                                 </Grid.ContextFlyout>
                                 <TextBlock Text="{Binding ConnectionStateGlyph}"

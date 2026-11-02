@@ -10,6 +10,7 @@ public sealed class WorkspaceTabViewModel : ObservableObject
     private string endpoint;
     private string? remoteHostName;
     private bool isConnected;
+    private bool isDisconnecting;
     private bool hasHostKeyChallenge;
     private bool isBatchTargetSelected;
     private bool isSessionTabVisible;
@@ -135,6 +136,21 @@ public sealed class WorkspaceTabViewModel : ObservableObject
 
     internal long SftpBrowseVersion { get; set; }
 
+    public bool IsDisconnecting
+    {
+        get => isDisconnecting;
+        internal set
+        {
+            if (SetProperty(ref isDisconnecting, value))
+            {
+                NotifyConnectionStateChanged();
+                OnPropertyChanged(nameof(CanChangeConnection));
+            }
+        }
+    }
+
+    public bool CanChangeConnection => !IsDisconnecting;
+
     public bool IsConnected
     {
         get => isConnected;
@@ -182,11 +198,11 @@ public sealed class WorkspaceTabViewModel : ObservableObject
 
     public void MarkSessionStarted() => IsSessionTabVisible = true;
 
-    public string ConnectionStateLabel => IsConnected
+    public string ConnectionStateLabel => IsDisconnecting ? "正在断开连接…" : IsConnected
         ? "已连接"
         : HasHostKeyChallenge ? "待确认" : "未连接";
 
-    public string ConnectionStateGlyph => IsConnected
+    public string ConnectionStateGlyph => IsDisconnecting ? "◐" : IsConnected
         ? "●"
         : HasHostKeyChallenge ? "◐" : "○";
 
