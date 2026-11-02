@@ -47,6 +47,13 @@ const MAX_TERMINAL_CALLBACK_BYTES: usize = 1024 * 1024;
 const MAX_SFTP_TEXT_BYTES: usize = 2 * 1024 * 1024;
 const MAX_DOCKER_LOG_BYTES: usize = 1024 * 1024;
 static TERMINAL_OUTPUT: Mutex<Option<Sender<TerminalChunk>>> = Mutex::new(None);
+static CONNECTION_EVENTS: Mutex<Vec<Sender<ConnectionEvent>>> = Mutex::new(Vec::new());
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ConnectionEvent {
+    TerminalClosed(u64),
+    ConnectionLost(u64),
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RequestId(String);
@@ -1119,6 +1126,47 @@ pub fn register_terminal_output(sender: Sender<TerminalChunk>) -> Result<(), Bri
     Ok(())
 }
 
+pub fn register_connection_events(sender: Sender<ConnectionEvent>) -> Result<(), BridgeError> {
+    CONNECTION_EVENTS
+        .lock()
+        .map_err(|_| BridgeError::CallbackUnavailable)?
+        .push(sender);
+    // SAFETY: The function is process-lifetime and uses the core's exact C ABI.
+    unsafe { orbit_connection_set_callback(Some(connection_event_callback)) };
+    Ok(())
+}
+
+fn decode_connection_event(id: u64, code: &[u8]) -> Option<ConnectionEvent> {
+    if id == 0 {
+        return None;
+    }
+    match code {
+        b"ERR_TERMINAL_CLOSED" => Some(ConnectionEvent::TerminalClosed(id)),
+        b"ERR_CONNECTION_LOST" => Some(ConnectionEvent::ConnectionLost(id)),
+        _ => None,
+    }
+}
+
+extern "C" fn connection_event_callback(id: u64, code: *const c_char) {
+    if code.is_null() {
+        return;
+    }
+    // SAFETY: Core owns this NUL-terminated string for the callback duration.
+    let Some(event) = decode_connection_event(id, unsafe { CStr::from_ptr(code) }.to_bytes())
+    else {
+        return;
+    };
+    if let Ok(mut listeners) = CONNECTION_EVENTS.lock() {
+        // Each window checks exact native handles on the GTK thread. Creating
+        // another window must not replace an existing window's subscription.
+        dispatch_connection_event(&mut listeners, event);
+    }
+}
+
+fn dispatch_connection_event(listeners: &mut Vec<Sender<ConnectionEvent>>, event: ConnectionEvent) {
+    listeners.retain(|sender| sender.send(event).is_ok());
+}
+
 pub fn decimal_id(data: &Value, field: &'static str) -> Result<u64, BridgeError> {
     let value = data.get(field).ok_or(BridgeError::InvalidPayloadShape)?;
     if let Some(number) = value.as_u64() {
@@ -1365,6 +1413,7 @@ unsafe extern "C" {
         request_id: *const c_char,
     ) -> *mut c_char;
     fn orbit_terminal_set_callback(callback: Option<extern "C" fn(u64, *const u8, usize)>);
+    fn orbit_connection_set_callback(callback: Option<extern "C" fn(u64, *const c_char)>);
     fn orbit_terminal_write(channel_id: u64, data: *const u8, length: usize) -> *mut c_char;
     fn orbit_terminal_resize(channel_id: u64, columns: u32, rows: u32) -> *mut c_char;
     fn orbit_terminal_close(channel_id: u64) -> *mut c_char;
@@ -1584,6 +1633,34 @@ pub enum BridgeError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn connection_events_accept_only_known_codes_and_nonzero_ids() {
+        assert_eq!(
+            decode_connection_event(41, b"ERR_TERMINAL_CLOSED"),
+            Some(ConnectionEvent::TerminalClosed(41))
+        );
+        assert_eq!(
+            decode_connection_event(42, b"ERR_CONNECTION_LOST"),
+            Some(ConnectionEvent::ConnectionLost(42))
+        );
+        assert_eq!(decode_connection_event(0, b"ERR_TERMINAL_CLOSED"), None);
+        assert_eq!(decode_connection_event(41, b"remote arbitrary text"), None);
+    }
+
+    #[test]
+    fn connection_events_reach_every_live_window_and_remove_dead_receivers() {
+        let (a, ar) = std::sync::mpsc::channel();
+        let (b, br) = std::sync::mpsc::channel();
+        let (dead, dr) = std::sync::mpsc::channel();
+        drop(dr);
+        let mut listeners = vec![a, b, dead];
+        let event = ConnectionEvent::TerminalClosed(42);
+        dispatch_connection_event(&mut listeners, event);
+        assert_eq!(ar.try_recv().unwrap(), event);
+        assert_eq!(br.try_recv().unwrap(), event);
+        assert_eq!(listeners.len(), 2);
+    }
 
     #[test]
     fn accepts_structured_success_envelope() {

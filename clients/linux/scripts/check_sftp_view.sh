@@ -25,4 +25,4 @@ if ! rg -q '^test result: ok\. 1 passed; 0 failed;' "$log"; then
   echo "The GTK SFTP view test did not execute successfully." >&2
   exit 1
 fi
-echo "[PASS] GTK SFTP view clears stale rows and blocks unvalidated actions"
+echo "[PASS] GTK SFTP actions and VTE workspace output remain isolated"

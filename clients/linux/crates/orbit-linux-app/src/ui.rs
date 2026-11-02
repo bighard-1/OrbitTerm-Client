@@ -10,9 +10,10 @@ use adw::prelude::*;
 use gtk::{Align, Orientation};
 use orbit_linux_application::AssetCatalog;
 use orbit_linux_bridge::{
-    decimal_id, register_terminal_output, BridgeError, CheckedConnectionRequest, CheckedCoreClient,
-    CheckedJumpHostRequest, DockerContainer, MonitorSnapshot, RequestId, SftpDirectoryListing,
-    SftpEntry, SftpEntrySnapshot,
+    decimal_id, register_connection_events, register_terminal_output, BridgeError,
+    CheckedConnectionRequest, CheckedCoreClient, CheckedJumpHostRequest, ConnectionEvent,
+    DockerContainer, MonitorSnapshot, RequestId, SftpDirectoryListing, SftpEntry,
+    SftpEntrySnapshot, TerminalChunk,
 };
 use orbit_linux_domain::{
     AssetStorageScope, AuthMethod, JumpHostConfiguration, ServerAsset, Transport,
@@ -825,6 +826,7 @@ struct SessionRuntime {
     phase: WorkspacePhase,
     base_session_id: Option<u64>,
     terminal_channel_id: Option<u64>,
+    terminal_open_attempt: Option<Uuid>,
     sftp_session_id: Option<u64>,
     ssh_attempt: Option<Uuid>,
     ssh_connect_cancellation: ConnectCancellation,
@@ -867,6 +869,7 @@ impl SessionRuntime {
             phase: WorkspacePhase::Starting,
             base_session_id: None,
             terminal_channel_id: None,
+            terminal_open_attempt: None,
             sftp_session_id: None,
             ssh_attempt: (asset.transport == Transport::Ssh).then(Uuid::new_v4),
             ssh_connect_cancellation: ConnectCancellation::default(),
@@ -932,6 +935,7 @@ impl SessionRuntime {
     }
 
     fn take_terminal_channels(&mut self) -> Vec<u64> {
+        self.terminal_open_attempt = None;
         let mut channels = self
             .terminal_channel_id
             .take()
@@ -940,6 +944,64 @@ impl SessionRuntime {
         channels.extend(self.terminal_splits.drain(..).map(|split| split.channel_id));
         self.active_terminal_pane = 0;
         channels
+    }
+
+    fn close_remote_terminal(&mut self, channel_id: u64) -> bool {
+        if self.terminal_channel_id == Some(channel_id) {
+            self.terminal_channel_id = None;
+            self.terminal_size = None;
+            if self.terminal_splits.is_empty() {
+                self.active_terminal_pane = 0;
+                self.append_terminal(
+                    "\r\n远端终端已结束；SSH 连接和 SFTP 仍可用。可从分屏菜单重新打开终端。\r\n"
+                        .as_bytes(),
+                );
+            } else {
+                let next = self.terminal_splits.remove(0);
+                self.terminal_channel_id = Some(next.channel_id);
+                self.terminal_size = next.terminal_size;
+                self.terminal_backlog = next.terminal_backlog;
+                self.active_terminal_pane = self.active_terminal_pane.saturating_sub(1);
+            }
+            true
+        } else if let Some(index) = self
+            .terminal_splits
+            .iter()
+            .position(|s| s.channel_id == channel_id)
+        {
+            remove_terminal_split(self, index + 1);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn ssh_terminal_ended(&self) -> bool {
+        self.transport == Transport::Ssh
+            && self.phase == WorkspacePhase::Connected
+            && self.terminal_channel_id.is_none()
+    }
+
+    fn adopt_terminal_open(&mut self, base: u64, attempt: Uuid, channel: u64) -> bool {
+        if self.base_session_id != Some(base)
+            || self.terminal_open_attempt != Some(attempt)
+            || self.phase != WorkspacePhase::Connected
+            || self.pending_disconnect.is_some()
+        {
+            return false;
+        }
+        self.terminal_open_attempt = None;
+        if self.terminal_channel_id.is_none() {
+            self.terminal_channel_id = Some(channel);
+            self.terminal_size = None;
+            self.terminal_backlog.clear();
+            self.active_terminal_pane = 0;
+        } else {
+            self.terminal_splits
+                .push(TerminalSplitRuntime::new(channel));
+            self.active_terminal_pane = self.pane_count() - 1;
+        }
+        true
     }
 
     fn clear_terminal_pane(&mut self, pane: usize) {
@@ -980,6 +1042,8 @@ struct SessionRegistry {
     selected_asset_id: Option<Uuid>,
     active_workspace_id: Option<Uuid>,
     sessions: BTreeMap<Uuid, SessionRuntime>,
+    pending_ssh_events: HashSet<ConnectionEvent>,
+    pending_terminal_output: VecDeque<TerminalChunk>,
 }
 
 /// A dialog authorizes one rendered directory on one checked SSH/SFTP session.
@@ -1005,6 +1069,92 @@ impl SftpActionContext {
 }
 
 impl SessionRegistry {
+    fn has_pending_ssh_open(&self) -> bool {
+        self.sessions
+            .values()
+            .any(|r| r.ssh_attempt.is_some() || r.terminal_open_attempt.is_some())
+    }
+
+    fn apply_terminal_output(
+        &mut self,
+        chunks: impl IntoIterator<Item = TerminalChunk>,
+    ) -> Vec<(usize, Vec<u8>)> {
+        // Replay older early data first. A newly opened shell may write its
+        // prompt before the worker's handle receipt reaches the GTK thread.
+        let mut queued = std::mem::take(&mut self.pending_terminal_output);
+        queued.extend(chunks);
+        let mut visible = Vec::new();
+        let mut pending_bytes = 0;
+        let waiting = self.has_pending_ssh_open();
+        for chunk in queued {
+            let owner = self.sessions.iter_mut().find_map(|(id, runtime)| {
+                runtime
+                    .append_terminal_channel(chunk.channel_id, &chunk.bytes)
+                    .map(|pane| (*id, pane))
+            });
+            if let Some((id, pane)) = owner {
+                if self.active_workspace_id == Some(id) {
+                    visible.push((pane, chunk.bytes));
+                }
+            } else if waiting {
+                pending_bytes += chunk.bytes.len();
+                self.pending_terminal_output.push_back(chunk);
+                while pending_bytes > MAX_SESSION_BACKLOG {
+                    pending_bytes -= self
+                        .pending_terminal_output
+                        .pop_front()
+                        .unwrap()
+                        .bytes
+                        .len();
+                }
+            }
+        }
+        visible
+    }
+
+    fn apply_ssh_events(
+        &mut self,
+        events: impl IntoIterator<Item = ConnectionEvent>,
+    ) -> (HashSet<Uuid>, HashSet<Uuid>) {
+        self.pending_ssh_events.extend(events);
+        let mut changed = HashSet::new();
+        let mut lost = HashSet::new();
+        self.pending_ssh_events.retain(|event| {
+            let mut matched = false;
+            for (id, runtime) in &mut self.sessions {
+                if runtime.transport != Transport::Ssh
+                    || runtime.phase != WorkspacePhase::Connected
+                    || runtime.pending_disconnect.is_some()
+                {
+                    continue;
+                }
+                match *event {
+                    ConnectionEvent::TerminalClosed(channel)
+                        if runtime.close_remote_terminal(channel) =>
+                    {
+                        changed.insert(*id);
+                        matched = true;
+                    }
+                    ConnectionEvent::ConnectionLost(base)
+                        if runtime.base_session_id == Some(base) =>
+                    {
+                        lost.insert(*id);
+                        matched = true;
+                    }
+                    _ => {}
+                }
+            }
+            !matched
+        });
+        // A shell can exit before its worker result reaches GTK. Keep unmatched
+        // IDs only while an open/handshake can still adopt them. Native IDs are
+        // never reused, so old events cannot authorize or close a replacement.
+        if !self.has_pending_ssh_open() {
+            self.pending_ssh_events.clear();
+        }
+        (changed, lost)
+    }
+
     fn cancel_ssh_attempt(&mut self, asset_id: Uuid) {
         if let Some(runtime) = self.sessions.get_mut(&asset_id) {
             runtime.ssh_attempt = None;
@@ -1494,6 +1644,10 @@ pub fn build_application_window(application: &adw::Application) {
     let vault = CredentialVault;
     let session = Rc::new(RefCell::new(SessionRegistry::default()));
     let (session_events, session_event_receiver) = mpsc::channel();
+    let (ssh_event_sender, ssh_event_receiver) = mpsc::channel();
+    if let Err(error) = register_connection_events(ssh_event_sender) {
+        status_label.set_label(&format!("SSH 状态回调不可用：{error}"));
+    }
 
     let (terminal_sender, terminal_receiver) = mpsc::channel();
     if let Err(error) = register_terminal_output(terminal_sender) {
@@ -1502,31 +1656,15 @@ pub fn build_application_window(application: &adw::Application) {
     let terminals_for_output = workspace.terminals.clone();
     let session_for_output = session.clone();
     gtk::glib::timeout_add_local(Duration::from_millis(16), move || {
-        while let Ok(chunk) = terminal_receiver.try_recv() {
-            let visible_pane = {
-                let mut registry = session_for_output.borrow_mut();
-                let active = registry.active_workspace_id;
-                let Some((workspace_id, pane)) =
-                    registry
-                        .sessions
-                        .iter_mut()
-                        .find_map(|(workspace_id, runtime)| {
-                            let pane =
-                                runtime.append_terminal_channel(chunk.channel_id, &chunk.bytes)?;
-                            Some((*workspace_id, pane))
-                        })
-                else {
-                    continue;
-                };
-                (active == Some(workspace_id)).then_some(pane)
-            };
-            if let Some(pane) = visible_pane {
-                // All panes in the active workspace stay live. Feeding VTE
-                // does not request focus, so background output can update
-                // without stealing keyboard routing from the active pane.
-                if let Some(terminal) = terminals_for_output.get(pane) {
-                    terminal.feed(&chunk.bytes);
-                }
+        let visible = session_for_output
+            .borrow_mut()
+            .apply_terminal_output(terminal_receiver.try_iter());
+        for (pane, bytes) in visible {
+            // All panes in the active workspace stay live. Feeding VTE
+            // does not request focus, so background output can update
+            // without stealing keyboard routing from the active pane.
+            if let Some(terminal) = terminals_for_output.get(pane) {
+                terminal.feed(&bytes);
             }
         }
         gtk::glib::ControlFlow::Continue
@@ -1693,6 +1831,20 @@ pub fn build_application_window(application: &adw::Application) {
 
     let context_for_events = context.clone();
     gtk::glib::timeout_add_local(Duration::from_millis(16), move || {
+        let (changed, lost) = context_for_events
+            .session
+            .borrow_mut()
+            .apply_ssh_events(ssh_event_receiver.try_iter());
+        if !changed.is_empty() {
+            refresh_session_tabs(&context_for_events);
+            let active = context_for_events.session.borrow().active_workspace_id;
+            if active.is_some_and(|id| changed.contains(&id)) {
+                render_active_workspace(&context_for_events);
+            }
+        }
+        for id in lost {
+            disconnect_workspace(context_for_events.clone(), id, false);
+        }
         let mut rdp_frames_ready = HashSet::new();
         while let Ok(event) = session_event_receiver.try_recv() {
             if matches!(&event.kind, SessionEventKind::RdpFrameReady) {
@@ -5169,6 +5321,7 @@ fn refresh_session_tabs(context: &UiContext) {
                         runtime.name.clone(),
                         runtime.transport,
                         runtime.phase,
+                        runtime.ssh_terminal_ended(),
                         runtime
                             .pending_disconnect
                             .as_ref()
@@ -5179,7 +5332,9 @@ fn refresh_session_tabs(context: &UiContext) {
             registry.active_workspace_id,
         )
     };
-    for (asset_id, name, transport, phase, disconnect_label) in sessions.iter().cloned() {
+    for (asset_id, name, transport, phase, terminal_ended, disconnect_label) in
+        sessions.iter().cloned()
+    {
         let tab_group = gtk::Box::new(Orientation::Horizontal, 0);
         tab_group.add_css_class("session-tab-group");
         let content = gtk::Box::new(Orientation::Horizontal, 6);
@@ -5190,11 +5345,15 @@ fn refresh_session_tabs(context: &UiContext) {
         let label = gtk::Label::new(Some(&name));
         label.set_ellipsize(gtk::pango::EllipsizeMode::End);
         label.set_max_width_chars(18);
-        let phase_label = gtk::Label::new(Some(
-            disconnect_label.unwrap_or_else(|| workspace_phase_label(phase)),
-        ));
+        let phase_label = gtk::Label::new(Some(disconnect_label.unwrap_or_else(|| {
+            if terminal_ended {
+                "终端已结束"
+            } else {
+                workspace_phase_label(phase)
+            }
+        })));
         phase_label.add_css_class("tab-status");
-        if phase == WorkspacePhase::Connected && disconnect_label.is_none() {
+        if phase == WorkspacePhase::Connected && !terminal_ended && disconnect_label.is_none() {
             phase_label.add_css_class("connected");
         } else if phase == WorkspacePhase::Failed {
             phase_label.add_css_class("failed");
@@ -5374,14 +5533,21 @@ fn present_detached_session_window(context: UiContext, asset_id: Uuid) {
             }
         });
         root.append(&input);
+        let input_for_poll = input.clone();
         let observed = Rc::new(Cell::new(backlog.len()));
         let terminal_for_poll = terminal.clone();
         let session_for_poll = context.session.clone();
         gtk::glib::timeout_add_local(Duration::from_millis(50), move || {
             let registry = session_for_poll.borrow();
             let Some(runtime) = registry.sessions.get(&asset_id) else {
+                input_for_poll.set_sensitive(false);
                 return gtk::glib::ControlFlow::Break;
             };
+            input_for_poll.set_sensitive(
+                runtime.phase == WorkspacePhase::Connected
+                    && (runtime.transport != Transport::Ssh
+                        || runtime.terminal_channel_id.is_some()),
+            );
             let start = observed.get().min(runtime.terminal_backlog.len());
             if start < runtime.terminal_backlog.len() {
                 terminal_for_poll.feed(&runtime.terminal_backlog[start..]);
@@ -5497,26 +5663,35 @@ fn activate_workspace(context: &UiContext, asset_id: Uuid) {
 }
 
 fn render_active_workspace(context: &UiContext) {
-    let Some((asset_id, transport, phase, pane_backlogs, active_pane, frame, disconnect_running)) =
-        ({
-            let registry = context.session.borrow();
-            registry.active().map(|runtime| {
-                (
-                    runtime.asset_id,
-                    runtime.transport,
-                    runtime.phase,
-                    (0..runtime.pane_count())
-                        .map(|pane| runtime.pane_backlog(pane).to_vec())
-                        .collect::<Vec<_>>(),
-                    runtime.active_terminal_pane,
-                    runtime.rdp_frame.clone(),
-                    runtime
-                        .pending_disconnect
-                        .as_ref()
-                        .map(|state| state.running),
-                )
-            })
+    let Some((
+        asset_id,
+        transport,
+        phase,
+        pane_backlogs,
+        active_pane,
+        frame,
+        disconnect_running,
+        terminal_ended,
+    )) = ({
+        let registry = context.session.borrow();
+        registry.active().map(|runtime| {
+            (
+                runtime.asset_id,
+                runtime.transport,
+                runtime.phase,
+                (0..runtime.pane_count())
+                    .map(|pane| runtime.pane_backlog(pane).to_vec())
+                    .collect::<Vec<_>>(),
+                runtime.active_terminal_pane,
+                runtime.rdp_frame.clone(),
+                runtime
+                    .pending_disconnect
+                    .as_ref()
+                    .map(|state| state.running),
+                runtime.ssh_terminal_ended(),
+            )
         })
+    })
     else {
         render_empty_workspace(context);
         return;
@@ -5648,8 +5823,25 @@ fn render_active_workspace(context: &UiContext) {
                 .split_menu
                 .set_sensitive(transport == Transport::Ssh && connected);
             update_split_actions(context);
-            context.workspace.input.set_sensitive(connected);
-            context.workspace.send.set_sensitive(connected);
+            context
+                .workspace
+                .input
+                .set_sensitive(connected && !terminal_ended);
+            context
+                .workspace
+                .send
+                .set_sensitive(connected && !terminal_ended);
+            context
+                .workspace
+                .input
+                .set_placeholder_text(Some(if terminal_ended {
+                    "终端已结束；可从分屏菜单重新打开终端"
+                } else {
+                    "连接后可输入命令"
+                }));
+            for terminal in context.workspace.terminals.iter() {
+                terminal.set_input_enabled(connected && !terminal_ended);
+            }
             if transport == Transport::Ssh && connected {
                 context.tools.content_stack.set_visible_child_name("active");
             } else if transport == Transport::Telnet {
@@ -5714,7 +5906,11 @@ fn render_active_workspace(context: &UiContext) {
         "{} · {} · {}",
         asset.name,
         transport.display_name(),
-        workspace_phase_label(phase)
+        if terminal_ended {
+            "终端已结束 · SSH 连接和 SFTP 仍可用"
+        } else {
+            workspace_phase_label(phase)
+        }
     ));
     context.workspace.disconnect.set_label("断开连接");
     if let Some(running) = disconnect_running {
@@ -9151,6 +9347,17 @@ fn present_shortcut_help(context: UiContext) {
 
 fn install_terminal_input(context: &UiContext) {
     for (pane, terminal) in context.workspace.terminals.iter().enumerate() {
+        let mapped_context = context.clone();
+        terminal.connect_map(move |terminal| {
+            let registry = mapped_context.session.clone();
+            repaint_terminal_after_allocation(terminal, move || {
+                registry
+                    .borrow()
+                    .active()
+                    .filter(|runtime| pane < runtime.pane_count())
+                    .map(|runtime| runtime.pane_backlog(pane).to_vec())
+            });
+        });
         let commit_context = context.clone();
         terminal.connect_commit(move |_, text, _| {
             activate_terminal_pane(&commit_context, pane, false);
@@ -9341,7 +9548,7 @@ fn present_terminal_split_menu(
         if let Some(runtime) = clear_context.session.borrow_mut().active_mut() {
             runtime.clear_terminal_pane(pane);
         }
-        clear_terminal.reset(true, true);
+        clear_terminal_display(&clear_terminal);
         clear_context
             .status
             .set_label("仅清除了本地终端显示，远端会话保持连接。");
@@ -9533,11 +9740,38 @@ fn render_terminal_backlogs(workspace: &WorkspaceWidgets, backlogs: &[Vec<u8>]) 
     // middle split closes, later channels shift left and must never inherit
     // the old pane's screen contents or parser state.
     for (pane, terminal) in workspace.terminals.iter().enumerate() {
-        terminal.reset(true, true);
+        clear_terminal_display(terminal);
         if let Some(backlog) = backlogs.get(pane) {
             terminal.feed(backlog);
         }
     }
+}
+
+fn clear_terminal_display(terminal: &vte::Terminal) {
+    terminal.reset(true, true);
+    // feed() is parsed asynchronously. A synchronous reset does not order a
+    // wipe after a previous render's queued feed. Queue a parser cancellation,
+    // reset and erase before the new owner's backlog, including hidden panes.
+    terminal.feed(b"\x18\x1b\\\x1bc\x1b[?1049l\x1b[2J\x1b[3J\x1b[H");
+}
+
+fn repaint_terminal_after_allocation(
+    terminal: &vte::Terminal,
+    current_backlog: impl Fn() -> Option<Vec<u8>> + 'static,
+) {
+    terminal.add_tick_callback(move |terminal, _| {
+        if terminal.width() <= 1 || terminal.height() <= 1 {
+            return gtk::glib::ControlFlow::Continue;
+        }
+        // Newly mapped panes can parse their early banner at a provisional
+        // one-column size. Replay only after real allocation, using the owner
+        // current at this frame, never a captured previous workspace snapshot.
+        clear_terminal_display(terminal);
+        if let Some(bytes) = current_backlog() {
+            terminal.feed(&bytes);
+        }
+        gtk::glib::ControlFlow::Break
+    });
 }
 
 fn remove_terminal_split(
@@ -9600,21 +9834,36 @@ fn update_split_actions(context: &UiContext) {
                 && runtime.phase == WorkspacePhase::Connected
                 && runtime.base_session_id.is_some();
             (
-                ready && runtime.pane_count() < MAX_TERMINAL_PANES,
+                ready
+                    && runtime.terminal_open_attempt.is_none()
+                    && (runtime.terminal_channel_id.is_none()
+                        || runtime.pane_count() < MAX_TERMINAL_PANES),
                 ready && runtime.active_terminal_pane > 0,
                 ready && runtime.pane_count() > 1,
             )
         })
         .unwrap_or((false, false, false));
     context.workspace.split_add.set_sensitive(can_add);
+    context.workspace.split_add.set_label(
+        if context
+            .session
+            .borrow()
+            .active()
+            .is_some_and(SessionRuntime::ssh_terminal_ended)
+        {
+            "重新打开终端"
+        } else {
+            "添加分屏"
+        },
+    );
     context.workspace.split_remove.set_sensitive(can_close);
     context.workspace.split_reset.set_sensitive(can_reset);
 }
 
 fn begin_add_terminal_split(context: UiContext) {
-    let (asset_id, base_session_id, columns, rows) = {
-        let registry = context.session.borrow();
-        let Some(runtime) = registry.active() else {
+    let (asset_id, base_session_id, attempt, columns, rows) = {
+        let mut registry = context.session.borrow_mut();
+        let Some(runtime) = registry.active_mut() else {
             context.status.set_label("请先连接 SSH 资产。");
             return;
         };
@@ -9624,7 +9873,10 @@ fn begin_add_terminal_split(context: UiContext) {
                 .set_label("终端分屏仅适用于已连接的 SSH 资产。");
             return;
         }
-        if runtime.pane_count() >= MAX_TERMINAL_PANES {
+        if runtime.terminal_open_attempt.is_some() {
+            return;
+        }
+        if runtime.terminal_channel_id.is_some() && runtime.pane_count() >= MAX_TERMINAL_PANES {
             context.status.set_label("每个会话最多支持四个终端分屏。");
             return;
         }
@@ -9634,15 +9886,18 @@ fn begin_add_terminal_split(context: UiContext) {
         };
         let active = runtime.active_terminal_pane;
         let terminal = &context.workspace.terminals[active];
+        let attempt = Uuid::new_v4();
+        runtime.terminal_open_attempt = Some(attempt);
         (
             runtime.asset_id,
             base_session_id,
+            attempt,
             u32::try_from(terminal.column_count()).unwrap_or(120).max(1),
             u32::try_from(terminal.row_count()).unwrap_or(32).max(1),
         )
     };
     context.workspace.split_add.set_sensitive(false);
-    context.status.set_label("正在打开独立终端分屏…");
+    context.status.set_label("正在打开终端通道…");
     let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || {
         let core = CheckedCoreClient::new();
@@ -9654,54 +9909,95 @@ fn begin_add_terminal_split(context: UiContext) {
                     .require_kind("terminal_channel_opened")
                     .and_then(|value| decimal_id(value, "terminal_channel_id"))
             });
-        let _ = sender.send(result);
+        let owned = result.map(|id| {
+            PendingConnection::new(
+                SshHandles {
+                    terminals: vec![id],
+                    ..Default::default()
+                },
+                release_unclaimed_ssh_connection,
+            )
+        });
+        let _ = sender.send(owned);
     });
     gtk::glib::timeout_add_local(Duration::from_millis(30), move || {
         match receiver.try_recv() {
-            Ok(Ok(channel_id)) => {
-                let pane = {
+            Ok(Ok(opened)) => {
+                let channel_id = opened.value().terminals[0];
+                let active = {
                     let mut registry = context.session.borrow_mut();
                     let Some(runtime) = registry.sessions.get_mut(&asset_id) else {
-                        let _ = CheckedCoreClient::new().close_terminal(channel_id);
                         return gtk::glib::ControlFlow::Break;
                     };
-                    if runtime.base_session_id != Some(base_session_id)
-                        || runtime.phase != WorkspacePhase::Connected
-                        || runtime.pane_count() >= MAX_TERMINAL_PANES
-                    {
-                        let _ = CheckedCoreClient::new().close_terminal(channel_id);
+                    if !runtime.adopt_terminal_open(base_session_id, attempt, channel_id) {
                         return gtk::glib::ControlFlow::Break;
                     }
-                    runtime
-                        .terminal_splits
-                        .push(TerminalSplitRuntime::new(channel_id));
-                    runtime.active_terminal_pane = runtime.pane_count() - 1;
-                    runtime.active_terminal_pane
+                    registry.active_workspace_id == Some(asset_id)
                 };
-                rebuild_terminal_grid(&context.workspace, pane + 1, pane);
-                context.workspace.terminals[pane].reset(true, true);
-                let _ = context.workspace.terminals[pane].grab_focus();
-                update_split_actions(&context);
-                context
-                    .status
-                    .set_label(&format!("终端分屏 {} 已打开并获得焦点。", pane + 1));
+                let _ = opened.claim();
+                refresh_session_tabs(&context);
+                if active {
+                    render_active_workspace(&context);
+                    // Background completion never changes another page's
+                    // terminal layout, focus, input or tool context.
+                    let pane = context
+                        .session
+                        .borrow()
+                        .active()
+                        .unwrap()
+                        .active_terminal_pane;
+                    let _ = context.workspace.terminals[pane].grab_focus();
+                    context.status.set_label("终端通道已打开。");
+                }
                 gtk::glib::ControlFlow::Break
             }
             Ok(Err(error)) => {
-                context
-                    .status
-                    .set_label(&format!("无法打开终端分屏：{error}"));
-                update_split_actions(&context);
+                finish_terminal_open_error(
+                    &context,
+                    asset_id,
+                    base_session_id,
+                    attempt,
+                    &format!("无法打开终端通道：{error}"),
+                );
                 gtk::glib::ControlFlow::Break
             }
             Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
             Err(mpsc::TryRecvError::Disconnected) => {
-                context.status.set_label("终端分屏工作线程意外退出。");
-                update_split_actions(&context);
+                finish_terminal_open_error(
+                    &context,
+                    asset_id,
+                    base_session_id,
+                    attempt,
+                    "终端通道工作线程意外退出。",
+                );
                 gtk::glib::ControlFlow::Break
             }
         }
     });
+}
+
+fn finish_terminal_open_error(
+    context: &UiContext,
+    asset_id: Uuid,
+    base: u64,
+    attempt: Uuid,
+    message: &str,
+) {
+    let current = {
+        let mut registry = context.session.borrow_mut();
+        let Some(runtime) = registry.sessions.get_mut(&asset_id) else {
+            return;
+        };
+        if runtime.base_session_id != Some(base) || runtime.terminal_open_attempt != Some(attempt) {
+            return;
+        }
+        runtime.terminal_open_attempt = None;
+        registry.active_workspace_id == Some(asset_id)
+    };
+    if current {
+        context.status.set_label(message);
+        update_split_actions(context);
+    }
 }
 
 fn close_terminal_split(context: UiContext, requested_pane: Option<usize>) {
@@ -21168,6 +21464,271 @@ mod tests {
         }
     }
 
+    fn ssh_registry() -> (ServerAsset, SessionRegistry) {
+        let asset = ServerAsset::new("virtual", "test.invalid", "qa");
+        let mut runtime = SessionRuntime::new(&asset);
+        runtime.phase = WorkspacePhase::Connected;
+        runtime.ssh_attempt = None;
+        runtime.base_session_id = Some(41);
+        runtime.terminal_channel_id = Some(42);
+        runtime.sftp_session_id = Some(43);
+        (
+            asset.clone(),
+            SessionRegistry {
+                sessions: [(asset.id, runtime)].into(),
+                active_workspace_id: Some(asset.id),
+                ..Default::default()
+            },
+        )
+    }
+
+    #[test]
+    fn early_terminal_output_is_replayed_once_before_newer_bytes_after_adoption() {
+        let (asset, mut registry) = ssh_registry();
+        let attempt = Uuid::new_v4();
+        registry
+            .sessions
+            .get_mut(&asset.id)
+            .unwrap()
+            .terminal_open_attempt = Some(attempt);
+        assert!(registry
+            .apply_terminal_output([TerminalChunk {
+                channel_id: 44,
+                bytes: b"early ".to_vec()
+            }])
+            .is_empty());
+        assert!(registry
+            .sessions
+            .get_mut(&asset.id)
+            .unwrap()
+            .adopt_terminal_open(41, attempt, 44));
+        assert_eq!(
+            registry.apply_terminal_output([TerminalChunk {
+                channel_id: 44,
+                bytes: b"prompt".to_vec()
+            }]),
+            vec![(1, b"early ".to_vec()), (1, b"prompt".to_vec())]
+        );
+        assert_eq!(
+            registry.sessions[&asset.id].terminal_splits[0].terminal_backlog,
+            b"early prompt"
+        );
+        assert!(registry.apply_terminal_output([]).is_empty());
+        assert!(registry.pending_terminal_output.is_empty());
+    }
+
+    #[test]
+    fn early_terminal_output_is_bounded_and_discarded_when_no_open_can_claim_it() {
+        let (asset, mut registry) = ssh_registry();
+        registry
+            .sessions
+            .get_mut(&asset.id)
+            .unwrap()
+            .terminal_open_attempt = Some(Uuid::new_v4());
+        for _ in 0..5 {
+            registry.apply_terminal_output([TerminalChunk {
+                channel_id: 44,
+                bytes: vec![0; MAX_SESSION_BACKLOG / 4],
+            }]);
+        }
+        assert_eq!(registry.pending_terminal_output.len(), 4);
+        registry
+            .sessions
+            .get_mut(&asset.id)
+            .unwrap()
+            .terminal_open_attempt = None;
+        assert!(registry.apply_terminal_output([]).is_empty());
+        assert!(registry.pending_terminal_output.is_empty());
+    }
+
+    #[test]
+    fn background_terminal_output_updates_only_its_owner_backlog() {
+        let (asset, mut registry) = ssh_registry();
+        registry.active_workspace_id = Some(Uuid::new_v4());
+        assert!(registry
+            .apply_terminal_output([TerminalChunk {
+                channel_id: 42,
+                bytes: b"background".to_vec()
+            }])
+            .is_empty());
+        assert_eq!(registry.sessions[&asset.id].terminal_backlog, b"background");
+        assert!(registry
+            .apply_terminal_output([TerminalChunk {
+                channel_id: 99,
+                bytes: b"stale".to_vec()
+            }])
+            .is_empty());
+        assert_eq!(registry.sessions[&asset.id].terminal_backlog, b"background");
+    }
+
+    #[test]
+    fn terminal_eof_preserves_transport_sftp_and_history_without_releasing_again() {
+        let (asset, mut registry) = ssh_registry();
+        registry
+            .sessions
+            .get_mut(&asset.id)
+            .unwrap()
+            .append_terminal(b"retained history");
+        let (changed, lost) = registry.apply_ssh_events([ConnectionEvent::TerminalClosed(42)]);
+        assert_eq!(changed, [asset.id].into());
+        assert!(lost.is_empty());
+        let runtime = &registry.sessions[&asset.id];
+        assert!(runtime.ssh_terminal_ended());
+        assert!(runtime.terminal_channel_id.is_none());
+        assert_eq!(runtime.base_session_id, Some(41));
+        assert_eq!(runtime.sftp_session_id, Some(43));
+        assert!(runtime.terminal_backlog.starts_with(b"retained history"));
+        assert!(runtime.pending_disconnect.is_none());
+        let (changed, _) = registry.apply_ssh_events([ConnectionEvent::TerminalClosed(42)]);
+        assert!(changed.is_empty());
+    }
+
+    #[test]
+    fn primary_eof_promotes_live_split_and_split_eof_only_removes_its_pane() {
+        let (asset, mut registry) = ssh_registry();
+        let runtime = registry.sessions.get_mut(&asset.id).unwrap();
+        let mut first = TerminalSplitRuntime::new(44);
+        first.append_terminal(b"split output");
+        runtime.terminal_splits = vec![
+            first,
+            TerminalSplitRuntime::new(45),
+            TerminalSplitRuntime::new(46),
+        ];
+        runtime.active_terminal_pane = 3;
+        registry.apply_ssh_events([ConnectionEvent::TerminalClosed(42)]);
+        let runtime = &registry.sessions[&asset.id];
+        assert_eq!(runtime.terminal_channel_id, Some(44));
+        assert_eq!(runtime.terminal_backlog, b"split output");
+        assert_eq!(runtime.active_terminal_pane, 2);
+        registry.apply_ssh_events([ConnectionEvent::TerminalClosed(45)]);
+        let runtime = &registry.sessions[&asset.id];
+        assert_eq!(runtime.terminal_splits[0].channel_id, 46);
+        assert_eq!(runtime.active_terminal_pane, 1);
+        assert_eq!(runtime.base_session_id, Some(41));
+        assert!(!runtime.ssh_terminal_ended());
+    }
+
+    #[test]
+    fn early_eof_is_replayed_after_handshake_adoption() {
+        let asset = ServerAsset::new("virtual", "test.invalid", "qa");
+        let runtime = SessionRuntime::new(&asset);
+        let attempt = runtime.ssh_attempt.unwrap();
+        let mut registry = SessionRegistry {
+            sessions: [(asset.id, runtime)].into(),
+            ..Default::default()
+        };
+        assert!(registry
+            .apply_ssh_events([ConnectionEvent::TerminalClosed(42)])
+            .0
+            .is_empty());
+        assert_eq!(registry.pending_ssh_events.len(), 1);
+        assert!(registry.adopt_ssh_connection(asset.id, attempt, &connected_handles(41, 42)));
+        assert_eq!(registry.apply_ssh_events([]).0, [asset.id].into());
+        assert!(registry.sessions[&asset.id].ssh_terminal_ended());
+        assert!(registry.pending_ssh_events.is_empty());
+    }
+
+    #[test]
+    fn early_split_eof_is_replayed_and_stale_open_cannot_adopt_a_replacement() {
+        let (asset, mut registry) = ssh_registry();
+        let attempt = Uuid::new_v4();
+        registry
+            .sessions
+            .get_mut(&asset.id)
+            .unwrap()
+            .terminal_open_attempt = Some(attempt);
+        registry.apply_ssh_events([ConnectionEvent::TerminalClosed(44)]);
+        assert!(registry
+            .sessions
+            .get_mut(&asset.id)
+            .unwrap()
+            .adopt_terminal_open(41, attempt, 44));
+        registry.apply_ssh_events([]);
+        assert!(registry.sessions[&asset.id].terminal_splits.is_empty());
+        let runtime = registry.sessions.get_mut(&asset.id).unwrap();
+        let replacement = Uuid::new_v4();
+        runtime.terminal_open_attempt = Some(replacement);
+        assert!(!runtime.adopt_terminal_open(41, attempt, 45));
+        assert_eq!(runtime.terminal_open_attempt, Some(replacement));
+        assert_eq!(runtime.terminal_channel_id, Some(42));
+    }
+
+    #[test]
+    fn reopened_terminal_reuses_owned_base_without_creating_a_placeholder_split() {
+        let (asset, mut registry) = ssh_registry();
+        registry.apply_ssh_events([ConnectionEvent::TerminalClosed(42)]);
+        let runtime = registry.sessions.get_mut(&asset.id).unwrap();
+        let attempt = Uuid::new_v4();
+        runtime.terminal_open_attempt = Some(attempt);
+        assert!(runtime.adopt_terminal_open(41, attempt, 44));
+        assert_eq!(runtime.terminal_channel_id, Some(44));
+        assert_eq!(runtime.sftp_session_id, Some(43));
+        assert_eq!(runtime.pane_count(), 1);
+        assert!(!runtime.ssh_terminal_ended());
+    }
+
+    #[test]
+    fn stale_events_do_not_close_a_reconnected_asset_or_override_pending_cleanup() {
+        let (asset, mut registry) = ssh_registry();
+        registry
+            .sessions
+            .get_mut(&asset.id)
+            .unwrap()
+            .terminal_channel_id = Some(52);
+        assert!(registry
+            .apply_ssh_events([
+                ConnectionEvent::TerminalClosed(42),
+                ConnectionEvent::ConnectionLost(40)
+            ])
+            .0
+            .is_empty());
+        let runtime = registry.sessions.get_mut(&asset.id).unwrap();
+        runtime.pending_disconnect = Some(SshDisconnect::new(connected_handles(41, 52)));
+        registry.apply_ssh_events([
+            ConnectionEvent::TerminalClosed(52),
+            ConnectionEvent::ConnectionLost(41),
+        ]);
+        let runtime = &registry.sessions[&asset.id];
+        assert_eq!(
+            runtime
+                .pending_disconnect
+                .as_ref()
+                .unwrap()
+                .handles
+                .terminals,
+            [52]
+        );
+        assert_eq!(runtime.terminal_channel_id, Some(52));
+    }
+
+    #[test]
+    fn shared_base_loss_targets_all_owners_and_background_eof_keeps_selection() {
+        let (asset, mut registry) = ssh_registry();
+        let other = ServerAsset::new("other virtual", "test.invalid", "qa");
+        let mut runtime = SessionRuntime::new(&other);
+        runtime.phase = WorkspacePhase::Connected;
+        runtime.ssh_attempt = None;
+        runtime.base_session_id = Some(41);
+        runtime.terminal_channel_id = Some(44);
+        registry.sessions.insert(other.id, runtime);
+        registry.active_workspace_id = Some(other.id);
+        assert_eq!(
+            registry
+                .apply_ssh_events([ConnectionEvent::TerminalClosed(42)])
+                .0,
+            [asset.id].into()
+        );
+        assert_eq!(registry.active_workspace_id, Some(other.id));
+        assert_eq!(registry.sessions[&other.id].terminal_channel_id, Some(44));
+        assert_eq!(
+            registry
+                .apply_ssh_events([ConnectionEvent::ConnectionLost(41)])
+                .1,
+            [asset.id, other.id].into()
+        );
+        assert_eq!(registry.sessions[&other.id].base_session_id, Some(41)); // cleanup keeps ownership until acknowledged
+    }
+
     #[test]
     fn cancelled_handshake_cannot_revive_a_disconnected_workspace() {
         let asset = ServerAsset::new("virtual", "test.invalid", "qa");
@@ -21250,6 +21811,7 @@ mod tests {
             active_workspace_id: Some(other.id),
             selected_asset_id: Some(other.id),
             sessions: [(origin.id, origin_runtime), (other.id, other_runtime)].into(),
+            ..Default::default()
         };
         assert!(registry.adopt_ssh_connection(origin.id, attempt, &connected_handles(41, 42)));
         assert_eq!(registry.active_workspace_id, Some(other.id));
@@ -21366,6 +21928,7 @@ mod tests {
             active_workspace_id: Some(other.id),
             selected_asset_id: Some(other.id),
             sessions: [(origin.id, runtime), (other.id, other_runtime)].into(),
+            ..Default::default()
         };
         assert_eq!(
             registry.finish_ssh_disconnect(origin.id, revision, SshHandles::default()),
@@ -21389,6 +21952,7 @@ mod tests {
             active_workspace_id: Some(origin.id),
             selected_asset_id: Some(origin.id),
             sessions: [(origin.id, runtime)].into(),
+            ..Default::default()
         };
         let remaining = SshHandles {
             base: Some(41),
@@ -21501,6 +22065,124 @@ mod tests {
         set_sftp_directory_owner(&tools, None);
         assert_empty();
         assert!(!tools.sftp_refresh.is_sensitive());
+
+        // Exercise real VTE cells, not just the per-workspace Rust backlog.
+        // reset(clear_history=true) alone leaves visible cells from the old
+        // workspace behind when the replacement output is shorter.
+        let workspace = build_workspace();
+        workspace.content_stack.set_visible_child_name("terminal");
+        rebuild_terminal_grid(&workspace, 2, 0);
+        let window = gtk::Window::builder()
+            .default_width(1000)
+            .default_height(700)
+            .child(&workspace.root)
+            .build();
+        window.present();
+        let flush_vte = || {
+            let until = Instant::now() + Duration::from_millis(150);
+            let main = gtk::glib::MainContext::default();
+            while Instant::now() < until {
+                while main.pending() {
+                    main.iteration(false);
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        };
+        render_terminal_backlogs(
+            &workspace,
+            &[
+                b"OLD_A private row\r\nOLD_A private second row\r\n".to_vec(),
+                b"OLD_HIDDEN private split\r\n".to_vec(),
+            ],
+        );
+        flush_vte();
+        assert!(workspace.terminals[0]
+            .text_format(vte::Format::Text)
+            .unwrap()
+            .contains("OLD_A"));
+        assert!(workspace.terminals[1]
+            .text_format(vte::Format::Text)
+            .unwrap()
+            .contains("OLD_HIDDEN"));
+        render_terminal_backlogs(&workspace, &[b"NEW_B\r\n".to_vec()]);
+        rebuild_terminal_grid(&workspace, 1, 0);
+        flush_vte();
+        let current = workspace.terminals[0]
+            .text_format(vte::Format::Text)
+            .unwrap();
+        assert!(current.contains("NEW_B"));
+        assert!(
+            !current.contains("OLD_A"),
+            "visible VTE cells leaked the previous workspace"
+        );
+        assert!(
+            !workspace.terminals[1]
+                .text_format(vte::Format::Text)
+                .unwrap()
+                .contains("OLD_HIDDEN"),
+            "hidden pane retained the previous workspace"
+        );
+        workspace.terminals[0].feed(b"\x1b[?1049hALT_OLD\r\n");
+        flush_vte();
+        render_terminal_backlogs(&workspace, &[b"NEW_C\r\n".to_vec()]);
+        flush_vte();
+        let current = workspace.terminals[0]
+            .text_format(vte::Format::Text)
+            .unwrap();
+        assert!(current.contains("NEW_C"));
+        assert!(
+            !current.contains("ALT_OLD")
+                && !current.contains("NEW_B")
+                && !current.contains("OLD_A")
+        );
+        render_terminal_backlogs(
+            &workspace,
+            &[b"QUEUED_OLD\r\nQUEUED_OLD second row\r\n".to_vec()],
+        );
+        // Disconnect and completion can enqueue both redraws before VTE
+        // processes either feed; do not flush GLib between renders here.
+        render_terminal_backlogs(&workspace, &[b"RAPID_NEW\r\n".to_vec()]);
+        flush_vte();
+        let current = workspace.terminals[0]
+            .text_format(vte::Format::Text)
+            .unwrap();
+        assert!(current.contains("RAPID_NEW"));
+        assert!(
+            !current.contains("QUEUED_OLD"),
+            "queued VTE input leaked across workspace replacement"
+        );
+        workspace.terminals[0].feed(b"\x1b[?1049hQUEUED_ALT\x1b]0;unfinished");
+        render_terminal_backlogs(&workspace, &[b"PARSER_NEW\r\n".to_vec()]);
+        flush_vte();
+        let current = workspace.terminals[0]
+            .text_format(vte::Format::Text)
+            .unwrap();
+        assert!(current.contains("PARSER_NEW"));
+        assert!(!current.contains("QUEUED_ALT") && !current.contains("RAPID_NEW"));
+        window.close();
+
+        let newly_mapped = vte::Terminal::new();
+        let latest = Rc::new(RefCell::new(b"OLD_OWNER".to_vec()));
+        let latest_for_paint = latest.clone();
+        repaint_terminal_after_allocation(&newly_mapped, move || {
+            Some(latest_for_paint.borrow().clone())
+        });
+        newly_mapped.feed(b"PROVISIONAL_OLD\r\n");
+        // Owner changes before mapping/allocation. Deferred rendering must
+        // read the current owner, including output buffered before mapping.
+        *latest.borrow_mut() = b"ALLOCATED_NEW full initial prompt\r\n".to_vec();
+        let mapped_window = gtk::Window::builder()
+            .default_width(700)
+            .default_height(300)
+            .child(&newly_mapped)
+            .build();
+        mapped_window.present();
+        flush_vte();
+        let current = newly_mapped.text_format(vte::Format::Text).unwrap();
+        assert!(newly_mapped.width() > 1 && newly_mapped.height() > 1);
+        assert!(current.contains("ALLOCATED_NEW full initial prompt"));
+        assert!(!current.contains("OLD_OWNER") && !current.contains("PROVISIONAL_OLD"));
+        mapped_window.close();
     }
 
     #[test]
