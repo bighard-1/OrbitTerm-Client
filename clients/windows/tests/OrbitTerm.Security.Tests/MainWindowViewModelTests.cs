@@ -1625,6 +1625,84 @@ public sealed class MainWindowViewModelTests
         Assert.Equal("other.example", viewModel.Host);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DisconnectAndRetryKeepAnotherLiveWorkspaceUsable(bool failDisconnect)
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var core = new FakeCheckedCoreClient
+        {
+            AllocateDistinctBaseSessionIds = true,
+            DisconnectEnteredGate = entered,
+            DisconnectReleaseGate = release,
+            FailDisconnect = failDisconnect,
+        };
+        var viewModel = CreateViewModel(core);
+        viewModel.Password = "secret";
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        var owner = viewModel.SelectedWorkspaceTab!;
+        var ownerBase = owner.TerminalLease!.BaseSessionId;
+
+        await viewModel.OpenWorkspaceTabCommand.ExecuteAsync(null);
+        await viewModel.NewAssetCommand.ExecuteAsync(null);
+        viewModel.AssetName = "Other live workspace";
+        viewModel.Host = "other.example";
+        viewModel.Username = "qa";
+        viewModel.Password = "synthetic credential";
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        var other = viewModel.SelectedWorkspaceTab!;
+        var otherTerminal = other.TerminalLease!;
+        var otherSftp = other.SftpLease!;
+        Assert.NotEqual(ownerBase, otherTerminal.BaseSessionId);
+
+        viewModel.SelectedWorkspaceTab = owner;
+        var ending = viewModel.DisconnectSelectedWorkspaceAsync(CancellationToken.None);
+        try
+        {
+            await WaitUntilAsync(() => entered.IsSet);
+            viewModel.SelectedWorkspaceTab = other;
+            Assert.False(viewModel.IsDisconnecting);
+            core.EmitTerminalData(otherTerminal.TerminalChannelId, "during-owner-disconnect\r\n");
+            Assert.True(await viewModel.WriteTerminalInputAsync(new byte[] { 65 }, CancellationToken.None));
+            Assert.Equal(otherTerminal.TerminalChannelId, core.LastWrittenTerminalChannelId);
+            viewModel.SftpPathText = "/var";
+            await viewModel.PrepareSftpBrowseCommand.ExecuteAsync(null);
+            Assert.Contains(viewModel.SftpEntries, entry => entry.Name == "log");
+        }
+        finally { release.Set(); }
+        await ending;
+
+        Assert.Same(other, viewModel.SelectedWorkspaceTab);
+        Assert.True(viewModel.IsConnected);
+        Assert.Same(otherTerminal, other.TerminalLease);
+        Assert.Same(otherSftp, other.SftpLease);
+        Assert.Equal("/var", viewModel.SftpPathText);
+        Assert.Contains(viewModel.TerminalLines, line => line.Text.Contains("during-owner-disconnect", StringComparison.Ordinal));
+        Assert.Equal(failDisconnect, owner.IsConnected);
+        Assert.Equal(new[] { ownerBase }, core.DisconnectedBaseSessionIds);
+
+        if (failDisconnect)
+        {
+            var terminalCloses = core.CloseTerminalCallCount;
+            viewModel.SelectedWorkspaceTab = owner;
+            Assert.Equal("断开连接未完成，请重试。", viewModel.Status);
+            core.FailDisconnect = false;
+            await viewModel.DisconnectSelectedWorkspaceAsync(CancellationToken.None);
+            Assert.False(owner.IsConnected);
+            Assert.Equal(terminalCloses, core.CloseTerminalCallCount);
+            Assert.Equal(new[] { ownerBase, ownerBase }, core.DisconnectedBaseSessionIds);
+            viewModel.SelectedWorkspaceTab = other;
+        }
+
+        core.EmitTerminalData(otherTerminal.TerminalChannelId, "after-owner-release\r\n");
+        Assert.True(viewModel.IsConnected);
+        Assert.True(viewModel.IsSftpOpen);
+        Assert.Contains(viewModel.TerminalLines, line => line.Text.Contains("after-owner-release", StringComparison.Ordinal));
+        Assert.Equal(2, core.ConnectCallCount);
+    }
+
     [Fact]
     public async Task EndSessionClosesTerminalAndClearsVerifiedState()
     {
@@ -4145,6 +4223,8 @@ public sealed class MainWindowViewModelTests
         public ManualResetEventSlim? TerminalCloseReleaseGate { get; init; }
         public bool ThrowOnTerminalClose { get; set; }
         public int DisconnectSessionCallCount { get; private set; }
+        public bool AllocateDistinctBaseSessionIds { get; init; }
+        public List<ulong> DisconnectedBaseSessionIds { get; } = [];
         public bool FailDisconnect { get; set; }
         public ManualResetEventSlim? DisconnectEnteredGate { get; init; }
         public ManualResetEventSlim? DisconnectReleaseGate { get; init; }
@@ -4155,6 +4235,7 @@ public sealed class MainWindowViewModelTests
         public TerminalControlResult DisconnectSession(ulong baseSessionId)
         {
             DisconnectSessionCallCount++;
+            DisconnectedBaseSessionIds.Add(baseSessionId);
             DisconnectEnteredGate?.Set();
             if (DisconnectReleaseGate is { } gate && !gate.Wait(TimeSpan.FromSeconds(5)))
                 throw new TimeoutException("Fixture disconnect gate timed out.");
@@ -4249,7 +4330,7 @@ public sealed class MainWindowViewModelTests
                 throw new TimeoutException("Fixture connect gate timed out.");
             if (ConnectFailure is { } failure) return new CheckedConnectOutcome.Failed(failure);
             return new CheckedConnectOutcome.Connected(new ConnectedPayload(
-                9UL,
+                AllocateDistinctBaseSessionIds ? 9UL + (ulong)ConnectCallCount : 9UL,
                 request.Host,
                 request.Host,
                 checked((ushort)request.Port),
