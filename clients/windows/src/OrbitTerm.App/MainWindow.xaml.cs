@@ -977,7 +977,7 @@ public sealed partial class MainWindow : Window
                             $"删除所选的 {selectedAssets.Length} 个资产？",
                             new TextBlock
                             {
-                                Text = $"将删除：{preview}\n\n本机资产记录和已保存凭据会被清理；已登录时会为每项资产记录同步删除墓碑。此操作不会连接或修改远端服务器。",
+                                Text = $"将删除：{preview}\n\n{BuildAssetDeletionScopeDescription(selectedAssets)}",
                                 TextWrapping = TextWrapping.Wrap,
                             },
                             "删除",
@@ -5509,6 +5509,25 @@ public sealed partial class MainWindow : Window
             : null;
     }
 
+    private string BuildAssetDeletionScopeDescription(IReadOnlyCollection<AssetViewModel> assets)
+    {
+        var synchronizedCount = ViewModel.IsAccountSignedIn
+            ? assets.Count(asset => asset.StorageScope == AssetStorageScope.AccountSynced)
+            : 0;
+        var localCount = assets.Count - synchronizedCount;
+        var descriptions = new List<string>();
+        if (localCount > 0)
+        {
+            descriptions.Add($"{localCount} 个本机资产及其本机凭据会被直接删除；不会进入最近删除，无法在应用内恢复，不影响其他设备。");
+        }
+        if (synchronizedCount > 0)
+        {
+            descriptions.Add($"{synchronizedCount} 个同步资产会先安全记录删除墓碑，再从本机移除资产及凭据。下次双向同步会将删除传播到其他设备；若墓碑无法记录，本机资产会保留。保留期内可从支持“最近删除”的客户端恢复。");
+        }
+        descriptions.Add("不会连接或修改资产所指向的服务器。");
+        return string.Join("\n\n", descriptions);
+    }
+
     private async void DeleteAssetClick(object sender, RoutedEventArgs e)
     {
         if (isAssetDialogOpen || ViewModel.SelectedAsset is not { } selected)
@@ -5531,9 +5550,7 @@ public sealed partial class MainWindow : Window
                         "服务器：", selected.Name,
                         "\n端点：", selected.Endpoint,
                         "\n分组：", selected.Group,
-                        isSynchronizedAsset
-                            ? "\n\n此操作先安全记录删除墓碑，再从本机移除资产及凭据。下次双向同步会将删除传播到其他设备；若墓碑无法记录，本机资产会保留。保留期内可从支持“最近删除”的客户端恢复。不会连接或修改资产所指向的服务器。"
-                            : "\n\n此操作会从当前 Windows 设备直接删除资产及本机凭据；不会进入最近删除，无法在应用内恢复。不会影响其他设备，也不会连接或修改资产所指向的服务器。"),
+                        "\n\n", BuildAssetDeletionScopeDescription([selected])),
                     TextWrapping = TextWrapping.Wrap,
                 },
                 PrimaryButtonText = "删除",
@@ -5544,7 +5561,15 @@ public sealed partial class MainWindow : Window
                 ViewModel.SelectedAsset?.Id == selected.Id &&
                 ViewModel.DeleteAssetCommand.CanExecute(null))
             {
-                ViewModel.DeleteAssetCommand.Execute(null);
+                try
+                {
+                    await ViewModel.DeleteAssetCommand.ExecuteAsync(null);
+                    await ShowAccountMessageAsync("资产删除结果", ViewModel.AssetEditorStatus);
+                }
+                catch
+                {
+                    await ShowAccountMessageAsync("删除未完成", "请检查资产列表和本机凭据状态后重试。");
+                }
             }
         }
         finally
