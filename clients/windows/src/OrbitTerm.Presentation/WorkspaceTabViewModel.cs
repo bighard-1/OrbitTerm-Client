@@ -11,6 +11,7 @@ public sealed class WorkspaceTabViewModel : ObservableObject
     private string? remoteHostName;
     private bool isConnected;
     private bool isDisconnecting;
+    private bool needsDisconnectRetry;
     private bool hasHostKeyChallenge;
     private bool isBatchTargetSelected;
     private bool isSessionTabVisible;
@@ -136,7 +137,21 @@ public sealed class WorkspaceTabViewModel : ObservableObject
 
     // Runtime ownership only. A failed teardown must remain protected even
     // after its asynchronous command has returned and another tab is selected.
-    internal bool NeedsDisconnectRetry { get; set; }
+    internal bool NeedsDisconnectRetry
+    {
+        get => needsDisconnectRetry;
+        set
+        {
+            if (SetProperty(ref needsDisconnectRetry, value))
+            {
+                NotifyConnectionStateChanged();
+                OnPropertyChanged(nameof(CanChangeConnection));
+                OnPropertyChanged(nameof(CanDisconnect));
+            }
+        }
+    }
+
+    internal bool CloseAfterDisconnect { get; set; }
 
     internal long SftpBrowseVersion { get; set; }
 
@@ -149,11 +164,14 @@ public sealed class WorkspaceTabViewModel : ObservableObject
             {
                 NotifyConnectionStateChanged();
                 OnPropertyChanged(nameof(CanChangeConnection));
+                OnPropertyChanged(nameof(CanDisconnect));
             }
         }
     }
 
-    public bool CanChangeConnection => !IsDisconnecting;
+    public bool CanChangeConnection => !IsDisconnecting && !NeedsDisconnectRetry;
+
+    public bool CanDisconnect => !IsDisconnecting && (IsConnected || HasHostKeyChallenge || NeedsDisconnectRetry);
 
     public bool IsConnected
     {
@@ -202,11 +220,11 @@ public sealed class WorkspaceTabViewModel : ObservableObject
 
     public void MarkSessionStarted() => IsSessionTabVisible = true;
 
-    public string ConnectionStateLabel => IsDisconnecting ? "正在断开连接…" : IsConnected
+    public string ConnectionStateLabel => IsDisconnecting ? "正在断开连接…" : NeedsDisconnectRetry ? "断开未完成" : IsConnected
         ? "已连接"
         : HasHostKeyChallenge ? "待确认" : "未连接";
 
-    public string ConnectionStateGlyph => IsDisconnecting ? "◐" : IsConnected
+    public string ConnectionStateGlyph => IsDisconnecting ? "◐" : NeedsDisconnectRetry ? "!" : IsConnected
         ? "●"
         : HasHostKeyChallenge ? "◐" : "○";
 
@@ -276,6 +294,7 @@ public sealed class WorkspaceTabViewModel : ObservableObject
         }
         OnPropertyChanged(nameof(ConnectionStateLabel));
         OnPropertyChanged(nameof(ConnectionStateGlyph));
+        OnPropertyChanged(nameof(CanDisconnect));
     }
 
     private static string BuildEndpoint(string username, string host, string portText)

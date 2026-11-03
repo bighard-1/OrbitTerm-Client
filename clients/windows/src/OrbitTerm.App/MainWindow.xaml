@@ -743,7 +743,7 @@
                                   Padding="9,5">
                                 <Grid.ContextFlyout>
                                     <MenuFlyout>
-                                        <MenuFlyoutItem Text="断开连接" IsEnabled="{Binding CanChangeConnection}" Tag="{Binding}" Click="WorkspaceTabContextDisconnectClick" />
+                                        <MenuFlyoutItem Text="断开连接" IsEnabled="{Binding CanDisconnect}" Tag="{Binding}" Click="WorkspaceTabContextDisconnectClick" />
                                         <MenuFlyoutItem Text="重新连接" IsEnabled="{Binding CanChangeConnection}" Tag="{Binding}" Click="WorkspaceTabContextReconnectClick" />
                                         <MenuFlyoutSeparator />
                                         <MenuFlyoutItem Text="关闭会话标签" IsEnabled="{Binding CanChangeConnection}" Tag="{Binding}" Click="CloseWorkspaceTabClick" />
@@ -877,6 +877,12 @@
                                 Command="{Binding ConnectCommand}"
                                 HorizontalAlignment="Center"
                                 AutomationProperties.Name="重新连接当前服务器" />
+                        <Button x:Name="RetryDisconnectEmptyButton"
+                                Visibility="Collapsed"
+                                Content="重试断开"
+                                Command="{Binding EndSessionCommand}"
+                                HorizontalAlignment="Center"
+                                AutomationProperties.Name="重试释放当前连接" />
                     </StackPanel>
                     <Border x:Name="TerminalSearchPanel"
                             Canvas.ZIndex="20"

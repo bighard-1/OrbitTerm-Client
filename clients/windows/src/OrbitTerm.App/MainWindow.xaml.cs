@@ -461,7 +461,7 @@ public sealed partial class MainWindow : Window
         {
             State: OverlappedPresenterState.Minimized,
         };
-        if (ViewModel.IsMonitorAutoRefreshEnabled && ViewModel.IsConnected && !ViewModel.IsDisconnecting && !isMinimized)
+        if (ViewModel.IsMonitorAutoRefreshEnabled && ViewModel.IsConnected && !ViewModel.IsConnectionReleaseBlocked && !isMinimized)
         {
             monitorRefreshTimer.Start();
         }
@@ -474,7 +474,7 @@ public sealed partial class MainWindow : Window
     private async void DockerRefreshTimerTick(DispatcherQueueTimer sender, object args)
     {
         if (!isDockerInspectorVisible ||
-            ViewModel.IsDisconnecting ||
+            ViewModel.IsConnectionReleaseBlocked ||
             !ViewModel.IsConnected ||
             ViewModel.IsTelnetSession ||
             ViewModel.RefreshMonitorSnapshotCommand.IsRunning)
@@ -494,7 +494,7 @@ public sealed partial class MainWindow : Window
         if (isDockerInspectorVisible &&
             isMainWindowActive &&
             ViewModel.IsConnected &&
-            !ViewModel.IsDisconnecting &&
+            !ViewModel.IsConnectionReleaseBlocked &&
             !ViewModel.IsTelnetSession &&
             !isMinimized)
         {
@@ -3979,14 +3979,15 @@ public sealed partial class MainWindow : Window
 
         if (e.PropertyName is nameof(MainWindowViewModel.IsConnected) or
             nameof(MainWindowViewModel.IsDisconnecting) or
+            nameof(MainWindowViewModel.IsConnectionReleaseBlocked) or
             nameof(MainWindowViewModel.IsMonitorAutoRefreshEnabled))
         {
             if ((e.PropertyName == nameof(MainWindowViewModel.IsConnected) && !ViewModel.IsConnected) ||
-                (e.PropertyName == nameof(MainWindowViewModel.IsDisconnecting) && ViewModel.IsDisconnecting))
+                (e.PropertyName == nameof(MainWindowViewModel.IsConnectionReleaseBlocked) && ViewModel.IsConnectionReleaseBlocked))
             {
                 activeDockerLogWindow?.StopAndClose();
             }
-            if (e.PropertyName is nameof(MainWindowViewModel.IsConnected) or nameof(MainWindowViewModel.IsDisconnecting))
+            if (e.PropertyName is nameof(MainWindowViewModel.IsConnected) or nameof(MainWindowViewModel.IsDisconnecting) or nameof(MainWindowViewModel.IsConnectionReleaseBlocked))
             {
                 UpdateToolInspectorSessionState();
                 UpdateTerminalEmptyState();
@@ -7423,13 +7424,16 @@ public sealed partial class MainWindow : Window
     {
         var becameOpen = ViewModel.IsTerminalOpen && !terminalWasOpen;
         terminalWasOpen = ViewModel.IsTerminalOpen;
-        TerminalEmptyState.Visibility = ViewModel.IsTerminalOpen
+        TerminalEmptyState.Visibility = ViewModel.IsTerminalOpen && !ViewModel.IsConnectionReleaseBlocked
             ? Visibility.Collapsed
             : Visibility.Visible;
-        OpenTerminalEmptyButton.Visibility = ViewModel.IsConnected
+        OpenTerminalEmptyButton.Visibility = ViewModel.IsConnected && !ViewModel.IsConnectionReleaseBlocked
             ? Visibility.Visible
             : Visibility.Collapsed;
         RetryConnectionEmptyButton.Visibility = ViewModel.CanRetryConnectionFromEmptyState
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        RetryDisconnectEmptyButton.Visibility = ViewModel.IsDisconnectRetryRequired
             ? Visibility.Visible
             : Visibility.Collapsed;
         // A fresh draft has no transcript. Hide the drawing surface as soon

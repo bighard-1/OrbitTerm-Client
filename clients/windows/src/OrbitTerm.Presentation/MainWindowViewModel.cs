@@ -247,14 +247,14 @@ public sealed class MainWindowViewModel : ObservableObject
         ConnectCommand = new AsyncRelayCommand(ConnectAsync, CanConnect);
         TrustHostKeyCommand = new AsyncRelayCommand(TrustHostKeyAsync, () => pendingChallenge is not null);
         EndSessionCommand = new AsyncRelayCommand(EndSessionAsync, () => !IsDisconnecting && (isConnected || terminalLease is not null || sftpLease is not null || pendingChallenge is not null || SelectedWorkspaceTab?.NeedsDisconnectRetry == true));
-        OpenTerminalCommand = new AsyncRelayCommand(OpenTerminalAsync, () => !IsDisconnecting && isConnected && terminalLease is null && !isOpeningVerifiedWorkspace && !IsTelnetSession);
+        OpenTerminalCommand = new AsyncRelayCommand(OpenTerminalAsync, () => !IsConnectionReleaseBlocked && isConnected && terminalLease is null && !isOpeningVerifiedWorkspace && !IsTelnetSession);
         AddTerminalSplitCommand = new AsyncRelayCommand(AddTerminalSplitAsync, () => CanAddTerminalSplit);
-        RemoveLastTerminalSplitCommand = new AsyncRelayCommand(RemoveLastTerminalSplitAsync, () => !IsDisconnecting && HasTerminalSplits);
-        OpenSftpCommand = new AsyncRelayCommand(OpenSftpAsync, () => !IsDisconnecting && isConnected && sftpLease is null && !isOpeningVerifiedWorkspace && SelectedWorkspaceTab?.IsSftpOpening != true && !IsTelnetSession);
-        RefreshMonitorSnapshotCommand = new AsyncRelayCommand(RefreshMonitorDetailsAsync, () => !IsDisconnecting && isConnected && !IsTelnetSession);
-        RefreshDockerContainersCommand = new AsyncRelayCommand(RefreshDockerContainersAsync, () => !IsDisconnecting && isConnected && !IsTelnetSession);
-        RefreshDockerStatsCommand = new AsyncRelayCommand(RefreshDockerStatsAsync, () => !IsDisconnecting && isConnected && !IsTelnetSession);
-        PreviewDockerLogsCommand = new AsyncRelayCommand(PreviewDockerLogsAsync, () => !IsDisconnecting && isConnected && !IsTelnetSession && SelectedDockerContainer is not null);
+        RemoveLastTerminalSplitCommand = new AsyncRelayCommand(RemoveLastTerminalSplitAsync, () => !IsConnectionReleaseBlocked && HasTerminalSplits);
+        OpenSftpCommand = new AsyncRelayCommand(OpenSftpAsync, () => !IsConnectionReleaseBlocked && isConnected && sftpLease is null && !isOpeningVerifiedWorkspace && SelectedWorkspaceTab?.IsSftpOpening != true && !IsTelnetSession);
+        RefreshMonitorSnapshotCommand = new AsyncRelayCommand(RefreshMonitorDetailsAsync, () => !IsConnectionReleaseBlocked && isConnected && !IsTelnetSession);
+        RefreshDockerContainersCommand = new AsyncRelayCommand(RefreshDockerContainersAsync, () => !IsConnectionReleaseBlocked && isConnected && !IsTelnetSession);
+        RefreshDockerStatsCommand = new AsyncRelayCommand(RefreshDockerStatsAsync, () => !IsConnectionReleaseBlocked && isConnected && !IsTelnetSession);
+        PreviewDockerLogsCommand = new AsyncRelayCommand(PreviewDockerLogsAsync, () => !IsConnectionReleaseBlocked && isConnected && !IsTelnetSession && SelectedDockerContainer is not null);
         StartDockerContainerCommand = new AsyncRelayCommand(cancellationToken => RunDockerActionAsync("start", cancellationToken), () => CanRunDockerAction(static container => container.CanStart));
         StopDockerContainerCommand = new AsyncRelayCommand(cancellationToken => RunDockerActionAsync("stop", cancellationToken), () => CanRunDockerAction(static container => container.CanStop));
         RestartDockerContainerCommand = new AsyncRelayCommand(cancellationToken => RunDockerActionAsync("restart", cancellationToken), () => CanRunDockerAction(static container => container.CanRestart));
@@ -617,23 +617,23 @@ public sealed class MainWindowViewModel : ObservableObject
         $"仍有 {Math.Max(1, GetTotalActiveSftpTransferCount())} 项 SFTP 传输正在进行。退出会安全取消未完成任务，远程临时文件可能需要稍后检查。");
 
     public bool CanDownloadSelectedSftpEntry =>
-        !IsDisconnecting && sftpLease is not null &&
+        !IsConnectionReleaseBlocked && sftpLease is not null &&
         SelectedSftpEntryCount <= 1 &&
         SelectedSftpEntry is { IsDirectory: false };
 
     public bool CanDownloadSelectedSftpEntries =>
-        !IsDisconnecting && sftpLease is not null &&
+        !IsConnectionReleaseBlocked && sftpLease is not null &&
         !IsSftpBatchRunning &&
         GetEffectiveSftpSelection().Count > 0;
 
     public bool CanDeleteSelectedSftpEntries =>
-        !IsDisconnecting && sftpLease is not null &&
+        !IsConnectionReleaseBlocked && sftpLease is not null &&
         !IsSftpBatchRunning &&
         GetEffectiveSftpSelection().Count > 0 &&
         !IsSftpPreviewDirty;
 
     public bool CanPreviewSelectedSftpText =>
-        !IsDisconnecting && sftpLease is not null &&
+        !IsConnectionReleaseBlocked && sftpLease is not null &&
         SelectedSftpEntryCount <= 1 &&
         SelectedSftpEntry is { IsDirectory: false };
 
@@ -651,10 +651,10 @@ public sealed class MainWindowViewModel : ObservableObject
             " · 权限 ", SelectedSftpEntry.Permissions);
 
     public bool CanMutateSelectedSftpEntry =>
-        !IsDisconnecting && sftpLease is not null && SelectedSftpEntryCount <= 1 && SelectedSftpEntry is not null && !IsSftpPreviewDirty;
+        !IsConnectionReleaseBlocked && sftpLease is not null && SelectedSftpEntryCount <= 1 && SelectedSftpEntry is not null && !IsSftpPreviewDirty;
 
     public bool CanChangeSelectedSftpPermissions =>
-        !IsDisconnecting && sftpLease is not null &&
+        !IsConnectionReleaseBlocked && sftpLease is not null &&
         !IsSftpPreviewDirty &&
         SelectedSftpEntryCount <= 1 &&
         SelectedSftpEntry is { PermissionsOctal: var permissions } &&
@@ -746,7 +746,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public async Task ReconnectSelectedWorkspaceAsync(CancellationToken cancellationToken)
     {
-        if (IsDisconnecting) return;
+        if (IsConnectionReleaseBlocked) return;
         var owner = SelectedWorkspaceTab;
         CancelAutomaticReconnect();
         if (HasActiveRuntime)
@@ -1063,7 +1063,7 @@ public sealed class MainWindowViewModel : ObservableObject
     }
 
     public bool CanRetryConnectionFromEmptyState =>
-        !string.IsNullOrEmpty(ConnectionFailureMessage) && !IsConnecting && !IsConnected;
+        !IsConnectionReleaseBlocked && !string.IsNullOrEmpty(ConnectionFailureMessage) && !IsConnecting && !IsConnected;
 
     public string CommandText
     {
@@ -1181,7 +1181,7 @@ public sealed class MainWindowViewModel : ObservableObject
         ? "请选择或新建服务器资产"
         : string.Concat(Username.Trim(), "@", Host.Trim(), ":", PortText.Trim());
 
-    public string CurrentConnectedHost => IsDisconnecting ? "正在断开连接…" : IsConnected
+    public string CurrentConnectedHost => IsDisconnectRetryRequired ? "连接尚未释放" : IsDisconnecting ? "正在断开连接…" : IsConnected
         ? (terminalLease?.Host ?? sftpLease?.Host ?? SelectedWorkspaceTab?.Host ?? string.Empty).Trim()
         : "未连接";
 
@@ -1190,6 +1190,7 @@ public sealed class MainWindowViewModel : ObservableObject
         get
         {
             if (IsDisconnecting) return "正在断开连接…";
+            if (IsDisconnectRetryRequired) return "断开未完成";
             if (IsConnected)
             {
                 return IsTelnetSession ? "Telnet 明文连接" : "SSH 已验证";
@@ -1204,6 +1205,7 @@ public sealed class MainWindowViewModel : ObservableObject
         get
         {
             if (IsDisconnecting) return "正在释放连接";
+            if (IsDisconnectRetryRequired) return "请重试断开";
             if (HasHostKeyChallenge)
             {
                 return "需要确认";
@@ -1219,10 +1221,14 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public bool IsDisconnecting => SelectedWorkspaceTab?.IsDisconnecting == true;
 
+    public bool IsDisconnectRetryRequired => SelectedWorkspaceTab?.NeedsDisconnectRetry == true && !IsDisconnecting;
+
+    public bool IsConnectionReleaseBlocked => IsDisconnecting || SelectedWorkspaceTab?.NeedsDisconnectRetry == true;
+
     public bool HasIncompleteWorkspaceDisconnect =>
         WorkspaceTabs.Any(tab => tab.IsDisconnecting || tab.NeedsDisconnectRetry);
 
-    public bool CanInteractWithTerminal => IsTerminalOpen && !IsDisconnecting;
+    public bool CanInteractWithTerminal => IsTerminalOpen && !IsConnectionReleaseBlocked;
 
     public ObservableCollection<TerminalSplitPaneViewModel> TerminalSplitPanes =>
         SelectedWorkspaceTab?.TerminalSplitPanes ?? emptyTerminalSplitPanes;
@@ -1232,7 +1238,7 @@ public sealed class MainWindowViewModel : ObservableObject
     public bool HasTerminalSplits => TerminalSplitPanes.Count > 0;
 
     public bool CanAddTerminalSplit =>
-        !IsDisconnecting && IsConnected && IsTerminalOpen && !IsTelnetSession && TerminalSplitPanes.Count < 3;
+        !IsConnectionReleaseBlocked && IsConnected && IsTerminalOpen && !IsTelnetSession && TerminalSplitPanes.Count < 3;
 
     public int TerminalSplitOutputVersion => terminalSplitOutputVersion;
 
@@ -1241,6 +1247,7 @@ public sealed class MainWindowViewModel : ObservableObject
         get
         {
             if (IsDisconnecting) return "正在断开连接…";
+            if (IsDisconnectRetryRequired) return "断开未完成，请重试";
             if (terminalLease is not null)
             {
                 return string.Create(
@@ -1256,7 +1263,7 @@ public sealed class MainWindowViewModel : ObservableObject
         ? "终端会话"
         : string.Concat(terminalLease.Host, ":", terminalLease.Port.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
-    public string TerminalSubtitle => terminalLease is not null
+    public string TerminalSubtitle => IsConnectionReleaseBlocked ? "请先完成当前连接的释放。" : terminalLease is not null
         ? string.Concat(
             "终端通道 ",
             terminalLease.TerminalChannelId.ToString(System.Globalization.CultureInfo.InvariantCulture),
@@ -1268,13 +1275,17 @@ public sealed class MainWindowViewModel : ObservableObject
         : IsConnected ? IsTelnetSession ? "Telnet 明文通道已建立。" : "SSH 已验证，可以安全地打开终端。"
         : "连接并验证服务器后即可开始。";
 
-    public string TerminalEmptyStateLabel => IsDisconnecting ? "正在断开连接…" : HasHostKeyChallenge
+    public string TerminalEmptyStateLabel => IsDisconnecting ? "正在断开连接…" : IsDisconnectRetryRequired
+        ? "断开连接未完成"
+        : HasHostKeyChallenge
         ? "等待主机密钥确认"
         : IsConnected ? "已准备就绪"
         : !string.IsNullOrEmpty(ConnectionFailureMessage) ? "连接未完成" : "暂无会话";
 
     public string TerminalEmptyStateDescription => IsDisconnecting
         ? "正在停止传输并释放连接，请稍候。完成前无法重复连接或关闭此会话；可以切换到其他会话。"
+        : IsDisconnectRetryRequired
+        ? "连接资源尚未完全释放。请重试断开；完成前不能重新连接、打开终端或传输文件，其他会话不受影响。"
         : HasHostKeyChallenge
         ? "确认主机密钥后，才能为此服务器打开终端。"
         : IsConnected ? "此服务器已完成验证。打开终端后即可运行命令。"
@@ -1330,6 +1341,7 @@ public sealed class MainWindowViewModel : ObservableObject
         get
         {
             if (IsDisconnecting) return "正在断开连接，请稍候";
+            if (IsDisconnectRetryRequired) return "断开未完成，请先重试断开";
             if (!IsTerminalOpen)
             {
                 return "打开终端后可输入命令";
@@ -1347,7 +1359,9 @@ public sealed class MainWindowViewModel : ObservableObject
             System.Globalization.CultureInfo.InvariantCulture,
             $"SFTP 会话 {sftpLease.SftpSessionId}");
 
-    public string SftpInspectorHint => !IsConnected
+    public string SftpInspectorHint => IsConnectionReleaseBlocked
+        ? "请先完成当前连接的释放；暂时不能浏览或传输文件。"
+        : !IsConnected
         ? "请先建立并验证 SSH 连接，再打开 SFTP。"
         : !IsSftpOpen ? "当前会话已验证；打开 SFTP 后可浏览和传输文件。"
         : SftpEntries.Count == 0 ? "当前目录尚无可显示的项目，或尚未列出目录。"
@@ -1441,7 +1455,7 @@ public sealed class MainWindowViewModel : ObservableObject
         get
         {
             var context = GetCurrentSftpTransferContext();
-            return (context.LastTransferRetry is not null || context.LastBatchRetry is not null) &&
+            return !IsConnectionReleaseBlocked && (context.LastTransferRetry is not null || context.LastBatchRetry is not null) &&
                 sftpLease is not null &&
                 !context.IsBatchRunning;
         }
@@ -1472,7 +1486,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public bool HasSftpPreview => sftpPreviewPath is not null;
 
-    public bool CanEditSftpPreview => sftpPreviewSnapshot is not null;
+    public bool CanEditSftpPreview => !IsConnectionReleaseBlocked && sftpPreviewSnapshot is not null;
 
     public bool IsSftpPreviewReadOnly => !CanEditSftpPreview;
 
@@ -3581,16 +3595,38 @@ public sealed class MainWindowViewModel : ObservableObject
         }
 
         var owner = SelectedWorkspaceTab;
+        owner.CloseAfterDisconnect = true;
         if (HasActiveRuntime)
         {
             await EndSessionCoreAsync(cancellationToken, "Session ended before closing tab").ConfigureAwait(true);
-            if (!ReferenceEquals(owner, SelectedWorkspaceTab) || HasActiveRuntime)
-            {
-                return;
-            }
+            return;
         }
 
-        CloseSelectedWorkspaceTabCore();
+        CloseReleasedWorkspaceTab(owner);
+    }
+
+    private void CloseReleasedWorkspaceTab(WorkspaceTabViewModel owner)
+    {
+        if (!owner.CloseAfterDisconnect || owner.IsDisconnecting || owner.NeedsDisconnectRetry ||
+            owner.IsConnected || owner.HasHostKeyChallenge || owner.TerminalLease is not null || owner.SftpLease is not null ||
+            !WorkspaceTabs.Contains(owner)) return;
+        owner.CloseAfterDisconnect = false;
+        if (ReferenceEquals(owner, SelectedWorkspaceTab))
+        {
+            CloseSelectedWorkspaceTabCore();
+            return;
+        }
+
+        // A close request belongs to its original tab, even when release
+        // completes after the user has switched to a different workspace.
+        WorkspaceTabs.Remove(owner);
+        if (sftpTransferContexts.Remove(owner.Id, out var context))
+        {
+            context.BatchCancellation?.Cancel();
+            context.BatchCancellation?.Dispose();
+        }
+        OnPropertyChanged(nameof(WorkspaceTabSummary));
+        RefreshCommands();
     }
 
     private void CloseSelectedWorkspaceTabCore()
@@ -4142,7 +4178,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private async Task ConnectAsync(CancellationToken cancellationToken)
     {
-        if (IsDisconnecting) return;
+        if (IsConnectionReleaseBlocked) return;
         var attemptId = Guid.NewGuid().ToString("N");
         var elapsed = System.Diagnostics.Stopwatch.StartNew();
         void Trace(string phase) => WriteConnectionDiagnostic(string.Create(
@@ -4440,6 +4476,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private async Task OpenTerminalAsync(CancellationToken cancellationToken)
     {
+        if (IsConnectionReleaseBlocked) return;
         var result = await orchestrator.OpenTerminalAsync(
             CurrentWorkspaceId,
             draftAssetId,
@@ -4511,7 +4548,7 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         var owner = WorkspaceTabs.FirstOrDefault(tab => tab.TerminalSplitPanes.Any(pane => pane.Id == paneId));
         var pane = owner?.TerminalSplitPanes.FirstOrDefault(candidate => candidate.Id == paneId);
-        if (owner is null || owner.IsDisconnecting || pane is null)
+        if (owner is null || owner.IsDisconnecting || owner.NeedsDisconnectRetry || pane is null)
         {
             return false;
         }
@@ -4541,7 +4578,7 @@ public sealed class MainWindowViewModel : ObservableObject
         ReadOnlyMemory<byte> bytes,
         CancellationToken cancellationToken)
     {
-        if (IsDisconnecting || bytes.IsEmpty || FindTerminalSplitPane(paneId) is not { } pane)
+        if (IsConnectionReleaseBlocked || bytes.IsEmpty || FindTerminalSplitPane(paneId) is not { } pane)
         {
             return false;
         }
@@ -4680,7 +4717,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private async Task PreviewSftpTextAsync(CancellationToken cancellationToken)
     {
-        if (IsDisconnecting) return;
+        if (IsConnectionReleaseBlocked) return;
         cancellationToken.ThrowIfCancellationRequested();
 
         if (sftpLease is null)
@@ -4759,7 +4796,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public async Task SaveSftpPreviewAsync(CancellationToken cancellationToken)
     {
-        if (IsDisconnecting) return;
+        if (IsConnectionReleaseBlocked) return;
         cancellationToken.ThrowIfCancellationRequested();
         if (sftpLease is null || sftpPreviewPath is null || sftpPreviewSnapshot is null || !CanSaveSftpPreview)
         {
@@ -4886,7 +4923,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private bool IsWorkspaceSessionAlive(WorkspaceSessionContext context) =>
         context.BaseSessionId != 0 && WorkspaceTabs.Contains(context.Owner) &&
-        !context.Owner.IsDisconnecting && context.Owner.IsConnected && context.Owner.AssetId == context.AssetId &&
+        !context.Owner.IsDisconnecting && !context.Owner.NeedsDisconnectRetry && context.Owner.IsConnected && context.Owner.AssetId == context.AssetId &&
         context.Owner.SessionGeneration == context.Generation &&
         orchestrator.GetVerifiedBaseSessionId(context.Owner.WorkspaceId, context.AssetId) == context.BaseSessionId;
 
@@ -5023,7 +5060,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public async Task RefreshMonitorDetailsAsync(CancellationToken cancellationToken)
     {
-        if (IsDisconnecting) return;
+        if (IsConnectionReleaseBlocked) return;
         cancellationToken.ThrowIfCancellationRequested();
 
         // The main-window timer and monitor detail window can request a sample
@@ -5425,7 +5462,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public async Task RefreshDockerInspectorForAutoRefreshAsync(CancellationToken cancellationToken)
     {
-        if (IsDisconnecting) return;
+        if (IsConnectionReleaseBlocked) return;
         if (Interlocked.CompareExchange(ref dockerInspectorAutoRefreshInFlight, 1, 0) != 0)
         {
             return;
@@ -5452,7 +5489,7 @@ public sealed class MainWindowViewModel : ObservableObject
         CancellationToken cancellationToken,
         bool publishFeedback)
     {
-        if (IsDisconnecting) return;
+        if (IsConnectionReleaseBlocked) return;
         cancellationToken.ThrowIfCancellationRequested();
         var refreshContext = SelectedWorkspaceTab is { } refreshOwner ? CaptureWorkspaceSession(refreshOwner) : null;
 
@@ -5561,7 +5598,7 @@ public sealed class MainWindowViewModel : ObservableObject
         CancellationToken cancellationToken,
         bool publishFeedback)
     {
-        if (IsDisconnecting) return;
+        if (IsConnectionReleaseBlocked) return;
         cancellationToken.ThrowIfCancellationRequested();
         var refreshContext = SelectedWorkspaceTab is { } refreshOwner ? CaptureWorkspaceSession(refreshOwner) : null;
 
@@ -5738,7 +5775,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public DockerLogSessionContext? CreateSelectedDockerLogSessionContext()
     {
-        if (IsDisconnecting || !IsConnected ||
+        if (IsConnectionReleaseBlocked || !IsConnected ||
             IsTelnetSession ||
             SelectedWorkspaceTab is not { IsConnected: true } tab ||
             SelectedDockerContainer is not { } container)
@@ -5759,7 +5796,7 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         ArgumentNullException.ThrowIfNull(context);
         return WorkspaceTabs.Any(tab =>
-            !tab.IsDisconnecting && tab.Id == context.WorkspaceTabId &&
+            !tab.IsDisconnecting && !tab.NeedsDisconnectRetry && tab.Id == context.WorkspaceTabId &&
             tab.WorkspaceId == context.WorkspaceId &&
             tab.AssetId == context.AssetId &&
             tab.IsConnected &&
@@ -5811,7 +5848,7 @@ public sealed class MainWindowViewModel : ObservableObject
     }
 
     private bool CanRunDockerAction(Func<DockerContainerViewModel, bool> statePolicy) =>
-        !IsDisconnecting && isConnected &&
+        !IsConnectionReleaseBlocked && isConnected &&
         !IsTelnetSession &&
         SelectedDockerContainer is { } container &&
         statePolicy(container);
@@ -6201,7 +6238,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private bool CanRunBatchCommand()
     {
-        return !WorkspaceTabs.Any(tab => tab.IsDisconnecting &&
+        return !WorkspaceTabs.Any(tab => (tab.IsDisconnecting || tab.NeedsDisconnectRetry) &&
                 BatchAssetTargets.Any(target => target.IsSelected && target.AssetId == tab.AssetId)) &&
             BatchAssetTargets.Any(target => target.IsSelected) &&
             !string.IsNullOrWhiteSpace(BatchCommandText) &&
@@ -7227,7 +7264,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public async Task DownloadSelectedSftpEntryAsync(string localPath, CancellationToken cancellationToken)
     {
-        if (IsDisconnecting) return;
+        if (IsConnectionReleaseBlocked) return;
         cancellationToken.ThrowIfCancellationRequested();
         if (sftpLease is null || SelectedSftpEntry is not { IsDirectory: false } selected)
         {
@@ -7301,7 +7338,7 @@ public sealed class MainWindowViewModel : ObservableObject
         string localDirectory,
         CancellationToken cancellationToken)
     {
-        if (IsDisconnecting) return;
+        if (IsConnectionReleaseBlocked) return;
         cancellationToken.ThrowIfCancellationRequested();
         if (selection is null || sftpLease is null || !ReferenceEquals(sftpLease, selection.Lease) ||
             SelectedWorkspaceTab?.Id != selection.WorkspaceId || IsSftpBatchRunning ||
@@ -7570,7 +7607,7 @@ public sealed class MainWindowViewModel : ObservableObject
         SftpUploadConflictPolicy conflictPolicy,
         CancellationToken cancellationToken)
     {
-        if (IsDisconnecting) return;
+        if (IsConnectionReleaseBlocked) return;
         ArgumentNullException.ThrowIfNull(sources);
         cancellationToken.ThrowIfCancellationRequested();
         if (sftpLease is null || sources.Count == 0 || sources.Count > 100)
@@ -7917,7 +7954,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public async Task UploadSftpFileAsync(string localPath, string localFileName, CancellationToken cancellationToken)
     {
-        if (IsDisconnecting) return;
+        if (IsConnectionReleaseBlocked) return;
         cancellationToken.ThrowIfCancellationRequested();
         if (sftpLease is null)
         {
@@ -7989,6 +8026,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private async Task RetryLastSftpTransferAsync(CancellationToken cancellationToken)
     {
+        if (IsConnectionReleaseBlocked) return;
         cancellationToken.ThrowIfCancellationRequested();
         var owner = SelectedWorkspaceTab!;
         var transferContext = GetOrCreateSftpTransferContext(owner);
@@ -8165,7 +8203,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public async Task CreateSftpDirectoryAsync(string directoryName, CancellationToken cancellationToken)
     {
-        if (IsDisconnecting) return;
+        if (IsConnectionReleaseBlocked) return;
         cancellationToken.ThrowIfCancellationRequested();
         if (sftpLease is null)
         {
@@ -8207,7 +8245,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public async Task CreateSftpFileAsync(string fileName, CancellationToken cancellationToken)
     {
-        if (IsDisconnecting) return;
+        if (IsConnectionReleaseBlocked) return;
         cancellationToken.ThrowIfCancellationRequested();
         if (sftpLease is null)
         {
@@ -8249,7 +8287,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public async Task RenameSelectedSftpEntryAsync(string newName, CancellationToken cancellationToken)
     {
-        if (IsDisconnecting) return;
+        if (IsConnectionReleaseBlocked) return;
         cancellationToken.ThrowIfCancellationRequested();
         if (sftpLease is null || SelectedSftpEntry is not { } selected)
         {
@@ -8300,7 +8338,7 @@ public sealed class MainWindowViewModel : ObservableObject
         SftpDirectoryEntryViewModel confirmedEntry,
         CancellationToken cancellationToken)
     {
-        if (IsDisconnecting) return;
+        if (IsConnectionReleaseBlocked) return;
         cancellationToken.ThrowIfCancellationRequested();
         if (sftpLease is null ||
             SelectedSftpEntry is not { } selected ||
@@ -8348,7 +8386,7 @@ public sealed class MainWindowViewModel : ObservableObject
         IReadOnlyList<SftpDirectoryEntryViewModel> confirmedEntries,
         CancellationToken cancellationToken)
     {
-        if (IsDisconnecting) return;
+        if (IsConnectionReleaseBlocked) return;
         ArgumentNullException.ThrowIfNull(confirmedEntries);
         cancellationToken.ThrowIfCancellationRequested();
         var currentSelection = GetEffectiveSftpSelection();
@@ -8488,7 +8526,7 @@ public sealed class MainWindowViewModel : ObservableObject
         string modeText,
         CancellationToken cancellationToken)
     {
-        if (IsDisconnecting) return;
+        if (IsConnectionReleaseBlocked) return;
         cancellationToken.ThrowIfCancellationRequested();
         if (sftpLease is null ||
             SelectedSftpEntry is not { } selected ||
@@ -8540,7 +8578,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private async Task SendAsync(CancellationToken cancellationToken)
     {
-        if (IsDisconnecting) return;
+        if (IsConnectionReleaseBlocked) return;
         var owner = SelectedWorkspaceTab;
         var targetPaneId = activeTerminalSplitPaneId;
         var targetLease = targetPaneId is { } activePaneId
@@ -8760,6 +8798,7 @@ public sealed class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(HasIncompleteWorkspaceDisconnect));
             RefreshBatchAssetTargets();
             if (ReferenceEquals(owner, SelectedWorkspaceTab)) NotifyDisconnectStateChanged();
+            CloseReleasedWorkspaceTab(owner);
         }
     }
 
@@ -8775,6 +8814,8 @@ public sealed class MainWindowViewModel : ObservableObject
     private void NotifyDisconnectStateChanged()
     {
         OnPropertyChanged(nameof(IsDisconnecting));
+        OnPropertyChanged(nameof(IsDisconnectRetryRequired));
+        OnPropertyChanged(nameof(IsConnectionReleaseBlocked));
         OnPropertyChanged(nameof(HasIncompleteWorkspaceDisconnect));
         OnPropertyChanged(nameof(CurrentConnectedHost));
         RefreshBatchAssetTargets();
@@ -8902,7 +8943,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public async Task<bool> InterruptTerminalAsync(CancellationToken cancellationToken)
     {
-        if (IsDisconnecting || terminalLease is null)
+        if (IsConnectionReleaseBlocked || terminalLease is null)
         {
             return false;
         }
@@ -8936,7 +8977,7 @@ public sealed class MainWindowViewModel : ObservableObject
         var targetLease = activeTerminalSplitPaneId is { } activePaneId
             ? FindTerminalSplitPane(activePaneId)?.Lease
             : terminalLease;
-        if (IsDisconnecting || targetLease is null || bytes.IsEmpty)
+        if (IsConnectionReleaseBlocked || targetLease is null || bytes.IsEmpty)
         {
             return false;
         }
@@ -9393,7 +9434,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private bool CanConnect()
     {
-        return !IsDisconnecting && !string.IsNullOrWhiteSpace(Host) &&
+        return !IsConnectionReleaseBlocked && !string.IsNullOrWhiteSpace(Host) &&
             ParsedPort is > 0 and <= 65535 &&
             !string.IsNullOrWhiteSpace(Username) &&
             (!string.IsNullOrEmpty(Password) ||
@@ -9496,7 +9537,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private bool CanCloseSelectedWorkspaceTab()
     {
-        return SelectedWorkspaceTab is not null && !IsDisconnecting &&
+        return SelectedWorkspaceTab is not null && !IsConnectionReleaseBlocked &&
             !SelectedWorkspaceTab.NeedsDisconnectRetry &&
             !SelectedWorkspaceTab.IsConnected &&
             !SelectedWorkspaceTab.HasHostKeyChallenge &&
@@ -9938,6 +9979,8 @@ public sealed class MainWindowViewModel : ObservableObject
         sftpLease = tab.SftpLease;
         IsConnected = tab.IsConnected;
         OnPropertyChanged(nameof(IsDisconnecting));
+        OnPropertyChanged(nameof(IsDisconnectRetryRequired));
+        OnPropertyChanged(nameof(IsConnectionReleaseBlocked));
         HasHostKeyChallenge = tab.HasHostKeyChallenge;
         OnPropertyChanged(nameof(HostKeySummary));
         NotifyTerminalStateChanged();
@@ -10043,7 +10086,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private bool CanNavigateSftp()
     {
-        return !IsDisconnecting && sftpLease is not null && !IsSftpPreviewDirty;
+        return !IsConnectionReleaseBlocked && sftpLease is not null && !IsSftpPreviewDirty;
     }
 
     private void ResetSftpBrowserState(bool preserveTransferRecovery = false)

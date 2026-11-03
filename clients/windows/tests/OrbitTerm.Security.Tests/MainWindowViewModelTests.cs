@@ -1525,8 +1525,100 @@ public sealed class MainWindowViewModelTests
         core.FailDisconnect = false;
         await viewModel.DisconnectSelectedWorkspaceAsync(CancellationToken.None);
         Assert.False(viewModel.IsConnected);
-        Assert.Equal("会话已断开", viewModel.Status);
+        Assert.DoesNotContain(tab!, viewModel.WorkspaceTabs);
         Assert.False(viewModel.HasIncompleteWorkspaceDisconnect);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FailedReleaseBlocksWorkAndShowsRetryUntilExplicitReleaseSucceeds(bool terminalCloseThrows)
+    {
+        var core = new FakeCheckedCoreClient();
+        var viewModel = CreateViewModel(core);
+        viewModel.Password = "secret";
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        var owner = viewModel.SelectedWorkspaceTab!;
+        var terminals = core.OpenedTerminalChannelIds.Count;
+        var sftpOpens = core.OpenSftpCallCount;
+        core.ThrowOnTerminalClose = terminalCloseThrows;
+        core.FailDisconnect = !terminalCloseThrows;
+
+        await viewModel.DisconnectSelectedWorkspaceAsync(CancellationToken.None);
+        Assert.True(viewModel.IsDisconnectRetryRequired);
+        Assert.True(viewModel.IsConnectionReleaseBlocked);
+        Assert.Equal("断开未完成", owner.ConnectionStateLabel);
+        Assert.Equal("断开连接未完成", viewModel.TerminalEmptyStateLabel);
+        Assert.Contains("请重试断开", viewModel.TerminalEmptyStateDescription);
+        Assert.DoesNotContain("已验证", viewModel.TerminalSubtitle);
+        Assert.False(owner.CanChangeConnection);
+        Assert.True(owner.CanDisconnect);
+        Assert.False(viewModel.CanInteractWithTerminal);
+        Assert.False(viewModel.CanRetryConnectionFromEmptyState);
+        Assert.False(viewModel.ConnectCommand.CanExecute(null));
+        Assert.False(viewModel.OpenTerminalCommand.CanExecute(null));
+        Assert.False(viewModel.OpenSftpCommand.CanExecute(null));
+        Assert.False(viewModel.PrepareSftpBrowseCommand.CanExecute(null));
+        Assert.False(viewModel.RefreshMonitorSnapshotCommand.CanExecute(null));
+        Assert.False(viewModel.CanRetryLastSftpTransfer);
+        Assert.False(viewModel.CanEditSftpPreview);
+        Assert.True(viewModel.EndSessionCommand.CanExecute(null));
+
+        await viewModel.OpenTerminalCommand.ExecuteAsync(null);
+        await viewModel.OpenSftpCommand.ExecuteAsync(null);
+        await viewModel.ReconnectSelectedWorkspaceAsync(CancellationToken.None);
+        await viewModel.CreateSftpFileAsync("must-not-create.txt", CancellationToken.None);
+        Assert.False(await viewModel.WriteTerminalInputAsync(new byte[] { 65 }, CancellationToken.None));
+        Assert.Equal(terminals, core.OpenedTerminalChannelIds.Count);
+        Assert.Equal(sftpOpens, core.OpenSftpCallCount);
+        Assert.Equal(1, core.ConnectCallCount);
+        Assert.Equal(0, core.WriteTerminalCallCount);
+
+        core.ThrowOnTerminalClose = false;
+        core.FailDisconnect = false;
+        await viewModel.EndSessionCommand.ExecuteAsync(null);
+        Assert.False(viewModel.IsConnectionReleaseBlocked);
+        Assert.False(viewModel.IsDisconnectRetryRequired);
+        Assert.True(owner.CanChangeConnection);
+        Assert.False(owner.CanDisconnect);
+    }
+
+    [Fact]
+    public async Task RetryingFailedCloseKeepsIntentAndDoesNotCloseSelectedOtherWorkspace()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var core = new FakeCheckedCoreClient { DisconnectEnteredGate = entered, DisconnectReleaseGate = release };
+        var viewModel = CreateViewModel(core);
+        viewModel.Password = "secret";
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        var owner = viewModel.SelectedWorkspaceTab!;
+        core.FailDisconnect = true;
+        release.Set();
+        await viewModel.DisconnectAndCloseWorkspaceTabCommand.ExecuteAsync(null);
+        Assert.Contains(owner, viewModel.WorkspaceTabs);
+        Assert.True(viewModel.IsDisconnectRetryRequired);
+        release.Reset();
+        entered.Reset();
+        core.FailDisconnect = false;
+        var retry = viewModel.EndSessionCommand.ExecuteAsync(null);
+        WorkspaceTabViewModel? other = null;
+        try
+        {
+            await WaitUntilAsync(() => entered.IsSet);
+            await viewModel.OpenWorkspaceTabCommand.ExecuteAsync(null);
+            other = viewModel.SelectedWorkspaceTab;
+            viewModel.CommandText = "other draft remains";
+            Assert.False(viewModel.IsConnectionReleaseBlocked);
+        }
+        finally { release.Set(); }
+        await retry;
+        Assert.Same(other, viewModel.SelectedWorkspaceTab);
+        Assert.DoesNotContain(owner, viewModel.WorkspaceTabs);
+        Assert.Contains(other!, viewModel.WorkspaceTabs);
+        Assert.Equal("other draft remains", viewModel.CommandText);
+        Assert.False(viewModel.HasIncompleteWorkspaceDisconnect);
+        Assert.Equal(1, core.CloseTerminalCallCount);
     }
 
     [Fact]
