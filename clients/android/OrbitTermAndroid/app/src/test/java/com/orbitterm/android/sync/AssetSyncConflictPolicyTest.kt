@@ -138,6 +138,22 @@ class AssetSyncConflictPolicyTest {
         )
     }
 
+    @Test
+    fun `remote deletion never turns a changed local upsert into an automatic restore`() {
+        assertEquals(
+            TombstoneUpsertDecision.RequireUserChoice,
+            AssetSyncConflictPolicy.tombstoneUpsertDecision("deleted", matchesLocalState = false),
+        )
+        assertEquals(
+            TombstoneUpsertDecision.AcceptDeletion,
+            AssetSyncConflictPolicy.tombstoneUpsertDecision("deleted", matchesLocalState = true),
+        )
+        assertEquals(
+            TombstoneUpsertDecision.NotTombstone,
+            AssetSyncConflictPolicy.tombstoneUpsertDecision("active", matchesLocalState = false),
+        )
+    }
+
     private fun sampleAsset(group: String = "默认") = ServerAsset(
         id = "00000000-0000-0000-0000-000000000001", credentialID = "credential", name = "网关",
         group = group, host = "10.0.0.1", port = 22, username = "root", authMethod = "password",

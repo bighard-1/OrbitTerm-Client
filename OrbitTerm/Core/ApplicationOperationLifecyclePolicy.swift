@@ -193,9 +193,58 @@ enum ApplicationOperationLifecyclePolicy {
 enum MobileAutoLockPolicy {
     static func shouldLockOnBackground(
         isAuthenticated: Bool,
-        hasMasterPassword: Bool
+        wasUnlocked: Bool
     ) -> Bool {
-        isAuthenticated && hasMasterPassword
+        isAuthenticated && wasUnlocked
+    }
+
+    static func shouldLockOnProtectedDataLoss(
+        isAuthenticated: Bool,
+        wasUnlocked: Bool
+    ) -> Bool {
+        isAuthenticated && wasUnlocked
+    }
+}
+
+/// An interrupted SSH challenge is never retained as a live authenticated
+/// transport. Only this non-secret, process-local reconnect intent survives
+/// the ordinary mobile account lock.
+struct PendingSecondFactorResumeIntent: Equatable, Sendable {
+    let serverID: UUID
+    let accountScopeID: String
+    let capturedAt: Date
+}
+
+enum MobileSecondFactorResumePolicy {
+    static let maximumAge: TimeInterval = 300
+
+    static func canResume(
+        _ intent: PendingSecondFactorResumeIntent,
+        accountScopeID: String,
+        now: Date,
+        isAuthenticated: Bool,
+        isUnlocked: Bool
+    ) -> Bool {
+        isAuthenticated && isUnlocked &&
+            !accountScopeID.isEmpty && intent.accountScopeID == accountScopeID &&
+            now >= intent.capturedAt &&
+            now.timeIntervalSince(intent.capturedAt) <= maximumAge
+    }
+}
+
+/// A code submission should reveal its terminal only after the checked SSH
+/// route has opened that exact workspace. A failed code, another jump-host
+/// challenge, or a late completion from a cancelled route must not navigate.
+enum MobileSecondFactorSessionFocusPolicy {
+    static func shouldFocus(
+        after outcome: CheckedTerminalConnectionOutcome,
+        expectedWorkspaceID: UUID,
+        routeWasCurrent: Bool,
+        terminalIsConnected: Bool
+    ) -> Bool {
+        guard routeWasCurrent, terminalIsConnected,
+              case let .connected(lease) = outcome else { return false }
+        return lease.workspaceID == expectedWorkspaceID
     }
 }
 
@@ -203,6 +252,20 @@ enum SessionReconnectAvailability: Equatable {
     case available
     case waitingForNetwork
     case reconnecting
+}
+
+enum NetworkRouteState: Equatable {
+    case determining
+    case usable
+    case unavailable
+
+    var isUsable: Bool { self == .usable }
+
+    /// A user-initiated connection must not be discarded merely because
+    /// NWPathMonitor has not delivered its first callback yet. The transport
+    /// still performs the authoritative connection check; only a positively
+    /// unavailable route suppresses the attempt.
+    var allowsUserInitiatedConnection: Bool { self != .unavailable }
 }
 
 enum SessionReconnectPolicy {
@@ -231,10 +294,9 @@ enum SessionReconnectPolicy {
 final class ApplicationNetworkAvailability: ObservableObject {
     static let shared = ApplicationNetworkAvailability()
 
-    // Fail closed until NWPathMonitor publishes its first real route. This may
-    // disable the button for a brief launch interval, but never starts a
-    // connection from an assumed-online state.
-    @Published private(set) var isNetworkUsable = false
+    @Published private(set) var routeState: NetworkRouteState = .determining
+
+    var isNetworkUsable: Bool { routeState.isUsable }
 
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "com.orbitterm.session-network")
@@ -243,7 +305,7 @@ final class ApplicationNetworkAvailability: ObservableObject {
         monitor.pathUpdateHandler = { [weak self] path in
             let usable = path.status == .satisfied
             Task { @MainActor [weak self] in
-                self?.isNetworkUsable = usable
+                self?.routeState = usable ? .usable : .unavailable
             }
         }
         monitor.start(queue: queue)

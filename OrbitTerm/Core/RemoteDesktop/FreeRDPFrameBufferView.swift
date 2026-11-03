@@ -75,12 +75,42 @@ final class FreeRDPNativeDesktopView: NSView {
     var onViewportResize: ((Int, Int) -> Void)?
     private var tracking: NSTrackingArea?
     private var activeModifiers: NSEvent.ModifierFlags = []
+    private var pressedPointerButtons: Set<Int32> = []
+    private var lastRemotePoint: (x: UInt16, y: UInt16) = (0, 0)
 
     var image: CGImage? {
         didSet { needsDisplay = true }
     }
 
     override var acceptsFirstResponder: Bool { true }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(
+            self,
+            name: NSWindow.didResignKeyNotification,
+            object: nil
+        )
+        if let window {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(windowDidResignKey(_:)),
+                name: NSWindow.didResignKeyNotification,
+                object: window
+            )
+        } else {
+            releaseRemoteInputState()
+        }
+    }
+
+    override func resignFirstResponder() -> Bool {
+        releaseRemoteInputState()
+        return super.resignFirstResponder()
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -154,13 +184,8 @@ final class FreeRDPNativeDesktopView: NSView {
 
     override func flagsChanged(with event: NSEvent) {
         let current = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let mappings: [(NSEvent.ModifierFlags, UInt32)] = [
-            (.shift, 0x2A),
-            (.control, 0x1D),
-            (.option, 0x38),
-            (.command, 0x15B)
-        ]
-        for (flag, scancode) in mappings where current.contains(flag) != activeModifiers.contains(flag) {
+        for (flag, scancode) in RemoteDesktopInputReleasePlan.modifierMappings
+        where current.contains(flag) != activeModifiers.contains(flag) {
             engineSession?.send(scancode: scancode, pressed: current.contains(flag))
         }
         if current.contains(.capsLock) != activeModifiers.contains(.capsLock) {
@@ -179,7 +204,47 @@ final class FreeRDPNativeDesktopView: NSView {
 
     private func sendPointer(_ event: NSEvent, action: Int32) {
         let point = remotePoint(for: event)
+        lastRemotePoint = point
+        switch action {
+        case 1, 3, 5:
+            pressedPointerButtons.insert(action)
+        case 2:
+            pressedPointerButtons.remove(1)
+        case 4:
+            pressedPointerButtons.remove(3)
+        case 6:
+            pressedPointerButtons.remove(5)
+        default:
+            break
+        }
         engineSession?.sendPointer(action: action, x: point.x, y: point.y, wheelDelta: 0)
+    }
+
+    @objc private func windowDidResignKey(_ notification: Notification) {
+        _ = notification
+        releaseRemoteInputState()
+    }
+
+    private func releaseRemoteInputState() {
+        guard let engineSession else {
+            activeModifiers = []
+            pressedPointerButtons.removeAll()
+            return
+        }
+
+        for scancode in RemoteDesktopInputReleasePlan.modifierScancodes(for: activeModifiers) {
+            engineSession.send(scancode: scancode, pressed: false)
+        }
+        for action in RemoteDesktopInputReleasePlan.pointerReleaseActions(for: pressedPointerButtons) {
+            engineSession.sendPointer(
+                action: action,
+                x: lastRemotePoint.x,
+                y: lastRemotePoint.y,
+                wheelDelta: 0
+            )
+        }
+        activeModifiers = []
+        pressedPointerButtons.removeAll()
     }
 
     private func remotePoint(for event: NSEvent) -> (x: UInt16, y: UInt16) {
@@ -208,6 +273,32 @@ final class FreeRDPNativeDesktopView: NSView {
         96: 0x3F, 97: 0x40, 98: 0x41, 100: 0x42, // F5-F8
         101: 0x43, 109: 0x44, 103: 0x57, 111: 0x58 // F9-F12
     ]
+}
+
+enum RemoteDesktopInputReleasePlan {
+    static let modifierMappings: [(NSEvent.ModifierFlags, UInt32)] = [
+        (.shift, 0x2A),
+        (.control, 0x1D),
+        (.option, 0x38),
+        (.command, 0x15B)
+    ]
+
+    static func modifierScancodes(for flags: NSEvent.ModifierFlags) -> [UInt32] {
+        modifierMappings.compactMap { flag, scancode in
+            flags.contains(flag) ? scancode : nil
+        }
+    }
+
+    static func pointerReleaseActions(for pressedButtons: Set<Int32>) -> [Int32] {
+        pressedButtons.sorted().compactMap { downAction in
+            switch downAction {
+            case 1: 2
+            case 3: 4
+            case 5: 6
+            default: nil
+            }
+        }
+    }
 }
 
 struct FreeRDPDesktopSurface: NSViewRepresentable {

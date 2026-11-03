@@ -23,3 +23,9 @@ struct OrbitCStringResultReader: @unchecked Sendable {
         return value
     }
 }
+
+extension OrbitCStringResultReader {
+    static let orbitCore = OrbitCStringResultReader { pointer in
+        orbit_free_string(pointer)
+    }
+}

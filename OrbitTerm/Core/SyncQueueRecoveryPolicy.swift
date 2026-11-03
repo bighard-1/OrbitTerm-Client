@@ -22,7 +22,7 @@ enum SyncQueueRecoveryPolicy {
             return attemptCount <= maximumServiceUnavailableAttempts ? .automaticRetry : .blocked
         case "sync.requestRejected":
             return .blocked
-        case "sync.authenticationExpired":
+        case "sync.authenticationExpired", "sync.passwordChangeRequired":
             return .waitForAuthentication
         default:
             return .blocked
@@ -48,6 +48,74 @@ enum SyncQueueRecoveryPolicy {
         serverSuggested: TimeInterval?
     ) -> TimeInterval {
         max(defaultBackoff, serverSuggested ?? 0)
+    }
+}
+
+/// Persist only a bounded HTTP status alongside the stable recovery category.
+/// Never copy a response body, URL, token, or server-controlled error text into
+/// the durable queue. The existing `blocked:` prefix remains query-compatible.
+enum SyncQueueFailureEvidence {
+    static func persistedError(
+        diagnosticCode: String,
+        disposition: SyncQueueDeliveryDisposition,
+        underlyingError: Error
+    ) -> String {
+        let category = SyncQueueRecoveryPolicy.persistedError(
+            diagnosticCode: diagnosticCode,
+            disposition: disposition
+        )
+        guard let networkError = underlyingError as? NetworkService.NetworkError else {
+            return category
+        }
+        let statusCode: Int
+        switch networkError {
+        case let .httpStatus(code, _), let .unexpectedStatus(code):
+            statusCode = code
+        case .requestTooLarge:
+            statusCode = 413
+        default:
+            return category
+        }
+        guard (400 ... 599).contains(statusCode) else { return category }
+        return "\(category)|http=\(statusCode)"
+    }
+}
+
+/// A fresh, authenticated pull can prove that an old rejected delete has
+/// already reached its intended state. Never infer this from local metadata
+/// alone: it may be stale while another device has restored the asset.
+struct ConfirmedRemoteTombstone: Sendable {
+    let assetID: UUID
+    let state: String
+    let vectorClock: String
+    let serverRevision: UInt64
+}
+
+enum SyncQueueTombstoneReconciliationPolicy {
+    static let blockedConflictCode = "blocked:sync.requestRejected|http=409"
+
+    static func mayAcknowledge(
+        queuedAssetID: UUID,
+        queuedVectorClock: String,
+        persistedError: String?,
+        remote: ConfirmedRemoteTombstone
+    ) -> Bool {
+        guard persistedError == blockedConflictCode,
+              remote.serverRevision > 0,
+              (remote.state == "deleted" || remote.state == "purged"),
+              queuedAssetID == remote.assetID else { return false }
+        return clock(remote.vectorClock, covers: queuedVectorClock)
+    }
+
+    private static func clock(_ remoteRaw: String, covers queuedRaw: String) -> Bool {
+        guard let remote = try? JSONDecoder().decode([String: Int64].self, from: Data(remoteRaw.utf8)),
+              let queued = try? JSONDecoder().decode([String: Int64].self, from: Data(queuedRaw.utf8)),
+              !remote.isEmpty, !queued.isEmpty,
+              remote.values.allSatisfy({ $0 >= 0 }),
+              queued.values.allSatisfy({ $0 >= 0 }) else { return false }
+        return queued.allSatisfy { entry in
+            (remote[entry.key] ?? -1) >= entry.value
+        }
     }
 }
 

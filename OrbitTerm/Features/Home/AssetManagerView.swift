@@ -18,6 +18,7 @@ struct AssetManagerView: View {
     @State private var showingBulkAdd = false
     @State private var selectedAssetIDs: Set<UUID> = []
     @State private var showingBulkDeleteConfirmation = false
+    @State private var pendingSingleDelete: ServerEntry?
     @State private var assetActionTask: Task<Void, Never>?
     @State private var assetActionOwner = PageOperationOwner()
 
@@ -27,23 +28,7 @@ struct AssetManagerView: View {
 
     var body: some View {
         NavigationStack {
-            List(selection: $selectedAssetIDs) {
-                if filteredServers.isEmpty {
-                    ContentUnavailableView(
-                        "暂无匹配资产",
-                        systemImage: "server.rack",
-                        description: Text(query.isEmpty ? "还没有已保存服务器" : "尝试更换搜索关键词")
-                    )
-                } else {
-                    ForEach(groupedFiltered, id: \.group) { section in
-                        Section(section.group) {
-                            ForEach(section.items) { server in
-                                assetRow(for: server)
-                            }
-                        }
-                    }
-                }
-            }
+            assetList
             .scrollContentBackground(.hidden)
             .background(AppChromeBackground())
             .searchable(text: $query, prompt: "搜索名称 / 主机 / 用户名")
@@ -120,25 +105,70 @@ struct AssetManagerView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("会删除本地凭据并尝试同步云端删除。此操作不可撤销。")
+            Text("随账户同步的资产会移入最近删除，保留期内可恢复；仅此设备的资产无法从云端恢复。所有选中资产的本机凭据都会移除；可重试的云端删除失败会后台补投，需处理的冲突会保留并提示。")
+        }
+        .confirmationDialog(
+            "删除资产？",
+            isPresented: Binding(
+                get: { pendingSingleDelete != nil },
+                set: { if !$0 { pendingSingleDelete = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingSingleDelete
+        ) { server in
+            Button("删除「\(server.name)」", role: .destructive) {
+                deleteServer(server)
+                pendingSingleDelete = nil
+            }
+            Button("取消", role: .cancel) {
+                pendingSingleDelete = nil
+            }
+        } message: { server in
+            Text(server.storageScope == .accountSynced
+                 ? "这条资产将从本机移除并同步到最近删除，保留期内可恢复。本机凭据会立即清除；离线时删除任务会排队。"
+                 : "这条资产仅保存在此设备，删除后无法从云端恢复，本机凭据也会清除。")
         }
 #if os(macOS)
         .frame(minWidth: 760, minHeight: 520)
 #endif
         .onDisappear {
+            pendingSingleDelete = nil
             cancelAssetAction(.pageDisappeared)
         }
         .onChange(of: session.username) { _, _ in
+            pendingSingleDelete = nil
             cancelAssetAction(.accountChanged)
         }
         .onChange(of: session.isAuthenticated) { _, authenticated in
             if !authenticated {
+                pendingSingleDelete = nil
                 cancelAssetAction(.accountSignedOut)
             }
         }
         .onChange(of: session.isUnlocked) { _, unlocked in
             if !unlocked {
+                pendingSingleDelete = nil
                 cancelAssetAction(.accountLocked)
+            }
+        }
+    }
+
+    private var assetList: some View {
+        List(selection: $selectedAssetIDs) {
+            if filteredServers.isEmpty {
+                ContentUnavailableView(
+                    "暂无匹配资产",
+                    systemImage: "server.rack",
+                    description: Text(query.isEmpty ? "还没有已保存服务器" : "尝试更换搜索关键词")
+                )
+            } else {
+                ForEach(groupedFiltered, id: \.group) { section in
+                    Section(section.group) {
+                        ForEach(section.items) { server in
+                            assetRow(for: server)
+                        }
+                    }
+                }
             }
         }
     }
@@ -163,7 +193,7 @@ struct AssetManagerView: View {
             keySetup: { keySetupServer = server },
             enablePasswordFallback: { enablePasswordFallback(server) },
             disablePasswordFallback: { startDisablePasswordFallback(server) },
-            delete: { deleteServer(server) }
+            delete: { pendingSingleDelete = server }
         )
         return AssetManagerServerRow(
             server: server,
@@ -230,12 +260,19 @@ struct AssetManagerView: View {
     }
 
     private func deleteServer(_ server: ServerEntry) {
-        store.remove(server)
+        guard session.isAuthenticated, session.isUnlocked,
+              let current = store.servers.first(where: { $0.id == server.id }) else { return }
+        store.remove(current)
         let token = session.readToken()
         let masterPassword = session.readMasterPassword()
+        let accountID = session.username
+        noticeKind = .success
+        noticeText = current.storageScope == .accountSynced
+            ? "已本地删除「\(current.name)」，云端删除正在同步或排队"
+            : "已从此设备删除「\(current.name)」"
         Task(priority: .background) {
             await syncService.deleteRemoteConfigs(
-                for: [server], token: token, masterPassword: masterPassword, accountID: session.username
+                for: [current], token: token, masterPassword: masterPassword, accountID: accountID
             )
         }
     }
@@ -265,6 +302,11 @@ struct AssetManagerView: View {
     }
 
     private func syncServerUpdate(_ server: ServerEntry) {
+        guard server.storageScope == .accountSynced else {
+            noticeKind = .success
+            noticeText = "已仅保存到此设备：\(server.name)"
+            return
+        }
         guard let credentials = try? vault.read(for: server.credentialID),
               let token = session.readToken(),
               let masterPassword = session.readMasterPassword() else { return }

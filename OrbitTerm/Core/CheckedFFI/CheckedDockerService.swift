@@ -218,7 +218,8 @@ actor CheckedDockerOperationService: CheckedDockerOperating {
             .refreshCancelled
         case .invalidInput:
             .invalidContainerID
-        case .unavailable, .timeout, .protocolViolation, .nullCStringResult,
+        case .unavailable, .credentialUnavailable, .credentialStorageFailed,
+             .timeout, .protocolViolation, .nullCStringResult,
              .invalidUTF8Result, .jsonDecodeFailed, .unsupportedSchema,
              .internalInvariant:
             .unknownCheckedFFIError

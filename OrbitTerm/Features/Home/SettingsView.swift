@@ -151,6 +151,14 @@ struct SettingsView: View {
     @State private var blockedSyncQueueCount = 0
     @State private var showDiscardBlockedSyncConfirmation = false
 #if os(iOS)
+    @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var temporaryCapture = TemporaryCaptureAuthorization.shared
+#if ORBITTERM_CAPTURE_DIAGNOSTIC_QA
+    @StateObject private var captureDiagnostics = CaptureQADiagnostics.shared
+#endif
+    @State private var showCaptureAuthorization = false
+    @State private var verifiedCaptureAccount: String?
+    @State private var captureAuthorizationFeedback: String?
 #endif
 
     var body: some View {
@@ -324,6 +332,45 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+#if os(iOS)
+                Text("已授权的 iPhone 镜像可在 Mac 上显示应用前台画面；输入主密码后，资产与终端也可能对该 Mac 可见。应用会遮挡后台预览，并在系统报告捕获时隐藏内容，但无法保证识别并遮挡所有镜像。处理敏感资产前，请检查并关闭不需要的镜像连接。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let expiresAt = temporaryCapture.expiresAt {
+                    Text("临时允许录屏至 \(expiresAt.formatted(date: .omitted, time: .shortened))；前台画面可能被录屏、镜像或共享。")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                    Button("立即停止允许录屏", role: .destructive) {
+                        temporaryCapture.revoke()
+                    }
+                } else {
+                    Button("临时允许录屏（3 分钟）") {
+                        captureAuthorizationFeedback = nil
+                        showCaptureAuthorization = true
+                    }
+                    .disabled(!session.isAuthenticated || !session.isUnlocked || session.mustChangePassword)
+                    Text("默认隐藏系统报告的录屏/共享画面。开启前须重新验证主密码；授权期间无法只允许某一种捕获，录屏、投屏和镜像都可能看到前台内容。切后台、锁定应用、切换账户或超时会自动关闭。iOS 主动截屏通常无法被应用阻止。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let captureAuthorizationFeedback {
+                    Text(captureAuthorizationFeedback)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+#if ORBITTERM_CAPTURE_DIAGNOSTIC_QA
+                if Bundle.main.bundleIdentifier == "com.orbitterm.matrix.ios" {
+                    Text("QA 录屏状态（仅状态位，无内容）")
+                        .font(.caption.bold())
+                    Text(captureDiagnostics.entries.joined(separator: "\n"))
+                        .font(.system(size: 10, design: .monospaced))
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+#endif
+#endif
                 if let biometricFeedback {
                     Text(biometricFeedback.message)
                         .font(.caption)
@@ -374,6 +421,15 @@ struct SettingsView: View {
         .sheet(isPresented: $showDiagnostics) {
             DiagnosticsExportView()
         }
+#if os(iOS)
+        .sheet(isPresented: $showCaptureAuthorization, onDismiss: finishCaptureAuthorization) {
+            TemporaryCaptureAuthorizationSheet(
+                verifyPassword: { session.validateMasterPassword($0) },
+                onAuthorized: { verifiedCaptureAccount = session.username }
+            )
+            .protectSensitiveScreenContent()
+        }
+#endif
         .alert("启用不安全的 Telnet？", isPresented: $showTelnetEnableConfirmation) {
             Button("取消", role: .cancel) {}
             Button("我了解风险，启用", role: .destructive) {
@@ -405,7 +461,34 @@ struct SettingsView: View {
         .onDisappear {
             biometricFeedbackDismissTask?.cancel()
         }
+#if os(iOS)
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { verifiedCaptureAccount = nil }
+        }
+        .onChange(of: session.isUnlocked) { _, unlocked in
+            if !unlocked { verifiedCaptureAccount = nil }
+        }
+        .onChange(of: session.username) { _, _ in
+            verifiedCaptureAccount = nil
+        }
+#endif
     }
+
+#if os(iOS)
+    @MainActor
+    private func finishCaptureAuthorization() {
+        defer { verifiedCaptureAccount = nil }
+        guard let verifiedCaptureAccount else { return }
+        guard verifiedCaptureAccount == session.username,
+              session.isAuthenticated, session.isUnlocked,
+              !session.mustChangePassword, scenePhase == .active,
+              temporaryCapture.authorize(for: verifiedCaptureAccount) else {
+            captureAuthorizationFeedback = "安全状态已变化，未开启录屏授权；请停止现有录屏后重试。"
+            return
+        }
+        captureAuthorizationFeedback = nil
+    }
+#endif
 
     @MainActor
     private func refreshBlockedSyncQueueCount() async {
@@ -541,6 +624,71 @@ struct SettingsView: View {
     }
 #endif
 }
+
+#if os(iOS)
+private struct TemporaryCaptureAuthorizationSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    let verifyPassword: (String) -> Bool
+    let onAuthorized: () -> Void
+    @State private var masterPassword = ""
+    @State private var errorMessage = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("授权后 3 分钟内，录屏、投屏和已授权镜像都可能显示资产、终端和其他前台内容。请确认接收端可信，结束后立即停止授权。")
+                        .fixedSize(horizontal: false, vertical: true)
+                    SecureField("重新输入主密码", text: $masterPassword)
+                        .textContentType(.password)
+                    if !errorMessage.isEmpty {
+                        Text(errorMessage).foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("临时允许录屏")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("开启 3 分钟") { authorize() }
+                        .disabled(masterPassword.isEmpty)
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .orbitTermClearTransientSensitiveInput)) { _ in
+            wipeInput()
+            dismiss()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active {
+                wipeInput()
+                dismiss()
+            }
+        }
+        .onDisappear { wipeInput() }
+    }
+
+    private func authorize() {
+        var candidate = masterPassword
+        wipeInput()
+        defer { SecurityPrimitives.secureZero(&candidate) }
+        guard verifyPassword(candidate) else {
+            errorMessage = "主密码未通过；录屏授权未开启。"
+            return
+        }
+        onAuthorized()
+        dismiss()
+    }
+
+    private func wipeInput() {
+        SecurityPrimitives.secureZero(&masterPassword)
+    }
+}
+#endif
 
 #if os(macOS)
 /// Native, settings-scoped recorder. It never installs a global event tap and

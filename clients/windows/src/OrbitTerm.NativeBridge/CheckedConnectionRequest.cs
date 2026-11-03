@@ -9,7 +9,12 @@ public sealed record CheckedConnectionRequest(
     string PrivateKeyPassphrase,
     bool AllowPasswordFallback,
     string KnownHostsPath,
-    CheckedJumpHostRequest? JumpHost = null);
+    CheckedJumpHostRequest? JumpHost = null,
+    string OneTimeCode = "",
+    string JumpOneTimeCode = "")
+{
+    public override string ToString() => "CheckedConnectionRequest([REDACTED])";
+}
 
 public sealed record CheckedJumpHostRequest(
     string Host,
@@ -18,4 +23,7 @@ public sealed record CheckedJumpHostRequest(
     string Password,
     string PrivateKey,
     string PrivateKeyPassphrase,
-    bool AllowPasswordFallback);
+    bool AllowPasswordFallback)
+{
+    public override string ToString() => "CheckedJumpHostRequest([REDACTED])";
+}

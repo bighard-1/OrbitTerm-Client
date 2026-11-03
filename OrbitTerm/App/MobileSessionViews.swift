@@ -169,7 +169,7 @@ struct MobileSessionView: View {
 
     private func connectionOperationIsActive(_ session: WorkspaceSession) -> Bool {
         switch session.connectionPresentation.phase {
-        case .connecting, .reconnecting, .openingTerminal, .awaitingHostKeyDecision:
+        case .connecting, .reconnecting, .openingTerminal, .awaitingHostKeyDecision, .awaitingSecondFactor:
             true
         default:
             false

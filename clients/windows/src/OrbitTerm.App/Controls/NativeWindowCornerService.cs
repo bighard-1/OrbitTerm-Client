@@ -5,8 +5,9 @@ using WinRT.Interop;
 namespace OrbitTerm.App.Controls;
 
 /// <summary>
-/// Requests the Windows 11 native rounded-window treatment without clipping
-/// the app surface. Windows 10 safely keeps its native square window frame.
+/// Requests the Windows 11 native rounded-window treatment. Windows 10 keeps
+/// its system-owned sizing frame: WinUI child windows can otherwise consume
+/// real pointer-down events even when a synthetic hit test reports an edge.
 /// </summary>
 internal static class NativeWindowCornerService
 {
@@ -14,6 +15,7 @@ internal static class NativeWindowCornerService
     private const int DwmwcpRound = 2;
     private const int DwmwaUseImmersiveDarkModeBefore20H1 = 19;
     private const int DwmwaUseImmersiveDarkMode = 20;
+    private const int DwmwaExtendedFrameBounds = 9;
     private const int Windows10CornerRadius = 12;
     private const int GwlStyle = -16;
     private const long WsThickFrame = 0x00040000L;
@@ -23,11 +25,7 @@ internal static class NativeWindowCornerService
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpFrameChanged = 0x0020;
     private const uint WmNcHitTest = 0x0084;
-    private const uint WmNcCalcSize = 0x0083;
     private const uint WmNcDestroy = 0x0082;
-    private const uint WmNcLeftButtonDown = 0x00A1;
-    private const uint WmSystemCommand = 0x0112;
-    private const int ScSize = 0xF000;
     private const int HtNowhere = 0;
     private const int HtClient = 1;
     private const int HtCaption = 2;
@@ -40,22 +38,17 @@ internal static class NativeWindowCornerService
     private const int HtBottomLeft = 16;
     private const int HtBottomRight = 17;
     private const int HtBorder = 18;
-    private const int WmszLeft = 1;
-    private const int WmszRight = 2;
-    private const int WmszTop = 3;
-    private const int WmszTopLeft = 4;
-    private const int WmszTopRight = 5;
-    private const int WmszBottom = 6;
-    private const int WmszBottomLeft = 7;
-    private const int WmszBottomRight = 8;
     private static readonly UIntPtr ResizeSubclassId = new(0x4F544652);
-    private static readonly WindowSubclassProc ResizeSubclassProc = Windows10ResizeSubclass;
+    private static readonly WindowSubclassProc ResizeSubclassProc = Windows11ResizeSubclass;
 
     public static void Apply(Window window)
     {
         var windowHandle = WindowNative.GetWindowHandle(window);
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
         {
+            // The native non-client frame must own the press as well as its
+            // hit test. Client-painted edge experiments passed synthetic hit
+            // tests but failed actual Win10 mouse resizing on the QA machine.
             ApplyWindows10Region(windowHandle);
             window.AppWindow.Changed += (_, args) =>
             {
@@ -67,6 +60,10 @@ internal static class NativeWindowCornerService
             return;
         }
 
+        // WinUI extends client content into the frame. Explicit edge hit-tests
+        // keep the native resize cursor and sizing loop discoverable over that
+        // client-owned surface on Windows 11.
+        _ = SetWindowSubclass(windowHandle, ResizeSubclassProc, ResizeSubclassId, nint.Zero);
         var preference = DwmwcpRound;
         _ = DwmSetWindowAttribute(
             windowHandle,
@@ -88,12 +85,9 @@ internal static class NativeWindowCornerService
             return;
         }
 
-        // Keep the real Win10 sizing frame. Returning custom HTLEFT/HTRIGHT
-        // values after removing WS_THICKFRAME works on some builds but LTSC
-        // 2021 can ignore the horizontal/corner sizing loop. The native frame
-        // is the dependable implementation across supported Win10 builds.
-        // Use Win10's dark non-client attribute so the frame does not remain
-        // bright when the application switches to a dark palette.
+        // LTSC 2021 can ignore horizontal/corner sizing when the WinUI client
+        // covers the non-client edge, despite correct synthetic hit tests.
+        // Preserve the system-owned WS_THICKFRAME and theme its controls.
         _ = RemoveWindowSubclass(windowHandle, ResizeSubclassProc, ResizeSubclassId);
         var darkMode = dark ? 1 : 0;
         if (DwmSetWindowAttribute(
@@ -124,7 +118,7 @@ internal static class NativeWindowCornerService
         ApplyWindows10Region(windowHandle);
     }
 
-    private static nint Windows10ResizeSubclass(
+    private static nint Windows11ResizeSubclass(
         nint windowHandle,
         uint message,
         nint wParam,
@@ -137,67 +131,6 @@ internal static class NativeWindowCornerService
             _ = RemoveWindowSubclass(windowHandle, ResizeSubclassProc, ResizeSubclassId);
             return DefSubclassProc(windowHandle, message, wParam, lParam);
         }
-        if (message == WmNcLeftButtonDown && !IsZoomed(windowHandle))
-        {
-            var resizeDirection = wParam.ToInt32() switch
-            {
-                HtLeft => WmszLeft,
-                HtRight => WmszRight,
-                HtTop => WmszTop,
-                HtTopLeft => WmszTopLeft,
-                HtTopRight => WmszTopRight,
-                HtBottom => WmszBottom,
-                HtBottomLeft => WmszBottomLeft,
-                HtBottomRight => WmszBottomRight,
-                _ => 0,
-            };
-            if (resizeDirection != 0)
-            {
-                // Win10 can report the correct HTLEFT/HTRIGHT value but still
-                // decline to start sizing after its visible WS_THICKFRAME was
-                // removed. Temporarily expose that capability only while the
-                // native SC_SIZE loop is active. No frame recalculation is
-                // requested, so the light Win10 system border stays hidden.
-                var style = GetWindowLongPtr(windowHandle, GwlStyle).ToInt64();
-                var restoredThickFrame = (style & WsThickFrame) == 0;
-                if (restoredThickFrame)
-                {
-                    _ = SetWindowLongPtr(windowHandle, GwlStyle, new nint(style | WsThickFrame));
-                }
-
-                try
-                {
-                    _ = ReleaseCapture();
-                    _ = SendMessage(
-                        windowHandle,
-                        WmSystemCommand,
-                        new nint(ScSize + resizeDirection),
-                        nint.Zero);
-                }
-                finally
-                {
-                    if (restoredThickFrame)
-                    {
-                        var currentStyle = GetWindowLongPtr(windowHandle, GwlStyle).ToInt64();
-                        _ = SetWindowLongPtr(
-                            windowHandle,
-                            GwlStyle,
-                            new nint(currentStyle & ~WsThickFrame));
-                        ApplyWindows10Region(windowHandle);
-                    }
-                }
-                return nint.Zero;
-            }
-        }
-        if (message == WmNcCalcSize && wParam != nint.Zero)
-        {
-            // Keep WS_CAPTION so Windows App SDK retains caption buttons,
-            // drag-to-move and snap integration, but make the WinUI client
-            // cover the system-owned side and bottom caption frame. Returning
-            // zero is the documented borderless-client calculation for a
-            // custom frame; our hit-test branch restores resizing.
-            return nint.Zero;
-        }
         if (message != WmNcHitTest || IsZoomed(windowHandle))
         {
             return DefSubclassProc(windowHandle, message, wParam, lParam);
@@ -205,16 +138,24 @@ internal static class NativeWindowCornerService
 
         var fallback = DefSubclassProc(windowHandle, message, wParam, lParam);
         var fallbackHit = fallback.ToInt32();
-        // Once WS_THICKFRAME is removed Windows 10 commonly reports
-        // HTNOWHERE on the left/right edge while it still reports HTCLIENT or
-        // HTCAPTION near the top/bottom. Treat all three as areas where our
-        // custom resize frame may take ownership. Caption buttons and other
-        // non-client controls keep their original hit-test result.
-        if ((fallbackHit != HtNowhere && fallbackHit != HtClient && fallbackHit != HtCaption &&
-             fallbackHit != HtBorder) ||
-            !GetWindowRect(windowHandle, out var bounds))
+        // With client paint covering the sizing frame, WinUI may report
+        // HTNOWHERE/HTCLIENT/HTCAPTION at edges. Only those cases are ours;
+        // native caption buttons keep their original hit-test result.
+        if (fallbackHit != HtNowhere && fallbackHit != HtClient && fallbackHit != HtCaption &&
+            fallbackHit != HtBorder)
         {
             return fallback;
+        }
+
+        var resizeHit = GetResizeHit(windowHandle, lParam);
+        return resizeHit == 0 ? fallback : new nint(resizeHit);
+    }
+
+    private static int GetResizeHit(nint windowHandle, nint lParam)
+    {
+        if (!GetVisibleWindowBounds(windowHandle, out var bounds))
+        {
+            return 0;
         }
 
         var packed = lParam.ToInt64();
@@ -232,19 +173,19 @@ internal static class NativeWindowCornerService
         var inTopCorner = pointerY < bounds.Top + corner;
         var inBottomCorner = pointerY > bounds.Bottom - corner;
 
-        if (nearTop && inLeftCorner) return new nint(HtTopLeft);
-        if (nearTop && inRightCorner) return new nint(HtTopRight);
-        if (nearBottom && inLeftCorner) return new nint(HtBottomLeft);
-        if (nearBottom && inRightCorner) return new nint(HtBottomRight);
-        if (nearLeft && inTopCorner) return new nint(HtTopLeft);
-        if (nearLeft && inBottomCorner) return new nint(HtBottomLeft);
-        if (nearRight && inTopCorner) return new nint(HtTopRight);
-        if (nearRight && inBottomCorner) return new nint(HtBottomRight);
-        if (nearLeft) return new nint(HtLeft);
-        if (nearRight) return new nint(HtRight);
-        if (nearTop) return new nint(HtTop);
-        if (nearBottom) return new nint(HtBottom);
-        return fallback;
+        if (nearTop && inLeftCorner) return HtTopLeft;
+        if (nearTop && inRightCorner) return HtTopRight;
+        if (nearBottom && inLeftCorner) return HtBottomLeft;
+        if (nearBottom && inRightCorner) return HtBottomRight;
+        if (nearLeft && inTopCorner) return HtTopLeft;
+        if (nearLeft && inBottomCorner) return HtBottomLeft;
+        if (nearRight && inTopCorner) return HtTopRight;
+        if (nearRight && inBottomCorner) return HtBottomRight;
+        if (nearLeft) return HtLeft;
+        if (nearRight) return HtRight;
+        if (nearTop) return HtTop;
+        if (nearBottom) return HtBottom;
+        return 0;
     }
 
     private static void ApplyWindows10Region(nint windowHandle)
@@ -272,11 +213,31 @@ internal static class NativeWindowCornerService
         }
     }
 
+    private static bool GetVisibleWindowBounds(nint windowHandle, out NativeRect bounds)
+    {
+        // GetWindowRect may include an invisible DWM resize margin. WinUI's
+        // painted edge needs the visible frame in screen coordinates; fall
+        // back when DWM has not published those bounds yet.
+        return DwmGetWindowAttribute(
+                   windowHandle,
+                   DwmwaExtendedFrameBounds,
+                   out bounds,
+                   Marshal.SizeOf<NativeRect>()) == 0 ||
+               GetWindowRect(windowHandle, out bounds);
+    }
+
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(
         nint windowHandle,
         int attribute,
         ref int attributeValue,
+        int attributeSize);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(
+        nint windowHandle,
+        int attribute,
+        out NativeRect attributeValue,
         int attributeSize);
 
     [DllImport("gdi32.dll")]
@@ -320,17 +281,6 @@ internal static class NativeWindowCornerService
         int width,
         int height,
         uint flags);
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool ReleaseCapture();
-
-    [DllImport("user32.dll")]
-    private static extern nint SendMessage(
-        nint windowHandle,
-        uint message,
-        nint wParam,
-        nint lParam);
 
     private delegate nint WindowSubclassProc(
         nint windowHandle,

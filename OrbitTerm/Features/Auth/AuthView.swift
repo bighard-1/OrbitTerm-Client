@@ -28,19 +28,7 @@ struct AuthView: View {
     private let network = NetworkService.shared
 
     private var canSubmit: Bool {
-        guard !isLoading, cooldownRemaining == 0, acceptedTerms,
-              !username.isEmpty, !password.isEmpty else { return false }
-        guard !isLoginMode else { return true }
-        let emailParts = username.split(separator: "@", omittingEmptySubsequences: false)
-        return emailParts.count == 2
-            && !emailParts[0].isEmpty
-            && !emailParts[1].isEmpty
-            && !inviteCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && password.count >= 12
-            && password.contains { $0.isUppercase }
-            && password.contains { $0.isLowercase }
-            && password.contains { $0.isNumber }
-            && password.contains { !$0.isLetter && !$0.isNumber && !$0.isWhitespace }
+        !isLoading && cooldownRemaining == 0
     }
 
     var body: some View {
@@ -242,11 +230,23 @@ struct AuthView: View {
     private var bannerArea: some View {
         if !message.isEmpty {
             AuthStatusBanner(message: message, kind: messageKind, shakeOffset: shakeOffset)
+        } else if let warning = session.logoutRevocationWarning {
+            AuthStatusBanner(message: warning, kind: .failure, shakeOffset: 0)
         }
     }
 
     private func startSubmit() {
         guard submitTask == nil, canSubmit else { return }
+        if let validationMessage = AuthInputValidation.message(
+            isLoginMode: isLoginMode,
+            username: username,
+            password: password,
+            inviteCode: inviteCode,
+            acceptedTerms: acceptedTerms
+        ) {
+            setMessage("失败: \(validationMessage)", kind: .failure)
+            return
+        }
         let canonicalUsername = AccountIdentity.canonicalUsername(username)
         let retryAfter = LoginAttemptThrottle.retryAfterSeconds(for: canonicalUsername)
         guard retryAfter == 0 else {
@@ -303,7 +303,8 @@ struct AuthView: View {
             try session.persistLogin(
                 accessToken: loginData.accessTokenValue,
                 refreshToken: loginData.refreshTokenValue,
-                username: canonicalUsername
+                username: canonicalUsername,
+                mustChangePassword: loginData.must_change_password ?? false
             )
             username = canonicalUsername
             LoginAttemptThrottle.clear(for: canonicalUsername)
@@ -324,7 +325,7 @@ struct AuthView: View {
                 let delay = LoginAttemptThrottle.recordFailure(for: canonicalUsername)
                 if delay > 0 { beginCooldown(seconds: delay) }
             }
-            setMessage("失败: \(error.localizedDescription)", kind: .failure)
+            setMessage("失败: \(LoginFailurePresentation.message(for: error))", kind: .failure)
         }
     }
 

@@ -75,6 +75,8 @@ pub enum OrbitCoreError {
     DecryptFailed,
     #[error("SSH 连接失败: {0}")]
     SshFailed(String),
+    #[error("SSH 需要一次性验证码")]
+    SshSecondFactorRequired,
     #[error("SFTP 错误: {0}")]
     SftpFailed(String),
     #[error("SFTP 传输已取消")]
@@ -83,6 +85,8 @@ pub enum OrbitCoreError {
     Internal(String),
     #[error("legacy_network_disabled")]
     LegacyNetworkDisabled,
+    #[error("SFTP 请求超时")]
+    SftpTimedOut,
 }
 
 impl From<legacy_network::LegacyNetworkDisabled> for OrbitCoreError {
@@ -163,6 +167,7 @@ pub async fn test_ssh_connection(
             &private_key_content,
             &private_key_passphrase,
             allow_password_fallback,
+            None,
         )
         .await?;
 
@@ -217,17 +222,17 @@ pub async fn sftp_connect(
 
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn sftp_disconnect(session_id: u64) -> Result<(), OrbitCoreError> {
-    let session = session_pool::remove_sftp_session(session_id)?;
+    let Some(session) = session_pool::take_sftp_session(session_id)? else {
+        return Ok(());
+    };
 
     let base_id = session.base.id;
-    session
-        .sftp
-        .close()
-        .await
-        .map_err(|e| OrbitCoreError::SftpFailed(e.to_string()))?;
-    session_pool::release_base_session(base_id).await?;
-
-    Ok(())
+    session_pool::finish_session_release(
+        session.sftp.close(),
+        session_pool::release_base_session(base_id),
+        std::time::Duration::from_secs(3),
+    )
+    .await
 }
 
 #[uniffi::export(async_runtime = "tokio")]

@@ -7,8 +7,9 @@ use std::os::unix::fs::PermissionsExt;
 use rand::random;
 
 use super::{
-    AddRevokedKeyOutcome, AddTrustedKeyOutcome, HostIdentity, HostKeyState, KnownHostMarker,
-    KnownHostsStore, KnownHostsStoreError, KnownHostsStoreWarning, ReplaceTrustedKeyOutcome,
+    fingerprint_sha256_from_base64, AddRevokedKeyOutcome, AddTrustedKeyOutcome, HostIdentity,
+    HostKeyState, KnownHostMarker, KnownHostsStore, KnownHostsStoreError, KnownHostsStoreWarning,
+    ReplaceTrustedKeyOutcome,
 };
 
 const KEY_A: &str = "AQIDBA==";
@@ -329,6 +330,57 @@ fn delete_specific_trusted_key_preserves_other_host_patterns_and_revocations() {
         HostKeyState::Trusted
     );
     assert!(store.to_text().contains("@revoked example.com"));
+}
+
+#[test]
+fn confirmed_rotation_removes_only_the_exact_expected_trust_record() {
+    let source = format!(
+        "example.com,alias.example.com ssh-ed25519 {KEY_A}\nexample.com ssh-ed25519 {KEY_B}\nother.example ssh-ed25519 {KEY_B}\n"
+    );
+    let mut store = KnownHostsStore::from_text(&source).unwrap();
+    let identity = HostIdentity::parse("example.com", 22).unwrap();
+    let alias = HostIdentity::parse("alias.example.com", 22).unwrap();
+    let expected = fingerprint_sha256_from_base64(KEY_A).unwrap();
+
+    assert_eq!(
+        store
+            .remove_trusted_key_if_fingerprint(&identity, "ssh-ed25519", &expected)
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        store.query(&alias, "ssh-ed25519", KEY_A).state,
+        HostKeyState::Trusted
+    );
+    assert_eq!(
+        store.query(&identity, "ssh-ed25519", KEY_B).state,
+        HostKeyState::Trusted
+    );
+    assert!(store.to_text().contains("other.example"));
+}
+
+#[test]
+fn confirmed_rotation_rejects_a_stale_or_incorrect_expected_fingerprint() {
+    let identity = HostIdentity::parse("example.com", 22).unwrap();
+    let mut store = KnownHostsStore::empty();
+    store
+        .add_trusted_key(&identity, "ssh-ed25519", KEY_A, None)
+        .unwrap();
+
+    assert_eq!(
+        store
+            .remove_trusted_key_if_fingerprint(
+                &identity,
+                "ssh-ed25519",
+                &fingerprint_sha256_from_base64(KEY_B).unwrap(),
+            )
+            .unwrap_err(),
+        KnownHostsStoreError::FingerprintMismatch
+    );
+    assert_eq!(
+        store.query(&identity, "ssh-ed25519", KEY_A).state,
+        HostKeyState::Trusted
+    );
 }
 
 #[test]

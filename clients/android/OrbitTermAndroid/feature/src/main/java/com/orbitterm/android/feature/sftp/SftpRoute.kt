@@ -28,10 +28,12 @@ import android.net.Uri
 import android.content.Context
 import android.content.ClipData
 import android.content.Intent
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.core.content.FileProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import java.io.OutputStream
 import java.util.ArrayDeque
 import java.util.UUID
 import java.util.zip.ZipEntry
@@ -86,6 +88,7 @@ import com.orbitterm.android.ui.design.OrbitFormDialog
 import com.orbitterm.android.ui.design.OrbitStatusLine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -139,6 +142,9 @@ private data class PendingSftpTransfer(
     val operation: (requestId: String, markNativeTransferStarted: () -> Boolean) -> CheckedSftpTransferResult,
     val onCompleted: (() -> Unit)? = null,
     val onDiscarded: (() -> Unit)? = null,
+    val onCancelledMessage: (() -> String)? = null,
+    val onFailureGuidance: ((String) -> String)? = null,
+    val canRetrySelectedTarget: ((String) -> Boolean)? = null,
 )
 
 /** File browser state is tied to the process-lifetime checked SSH session, never to credentials. */
@@ -263,7 +269,14 @@ class SftpViewModel @Inject constructor(
 
     fun refresh() {
         val state = mutableUiState.value
-        val sftpSessionId = state.sftpSessionId ?: return
+        if (state.isLoading) return
+        val sftpSessionId = state.sftpSessionId
+        if (sftpSessionId == null) {
+            // A failed first open has no SFTP id yet. The visible refresh
+            // action must actually retry the checked open, not silently do nothing.
+            state.session?.let(::bind)
+            return
+        }
         listDirectory(sftpSessionId, state.path)
     }
 
@@ -480,26 +493,39 @@ class SftpViewModel @Inject constructor(
         }
     }
 
-    fun download(entry: SftpDirectoryEntry, destination: Uri) {
+    fun download(entry: SftpDirectoryEntry, destination: Uri, createdByPicker: Boolean = false) {
         if (entry.isDirectory) return
         val state = mutableUiState.value
         val sessionId = state.sftpSessionId ?: return
-        mutateTransfer("下载", "正在写入所选位置…") { requestId, markNativeTransferStarted ->
+        var emptyDestinationRemoved = false
+        mutateTransfer(
+            label = "下载",
+            detail = "正在写入所选位置…",
+            onCancelledMessage = { cancelledSftpTransferMessage("下载", emptyDestinationRemoved) },
+            onFailureGuidance = { code -> downloadTargetFailureGuidance(code, emptyDestinationRemoved) },
+        ) { requestId, markNativeTransferStarted ->
             val staging = File(context.cacheDir, "sftp-download-${UUID.randomUUID()}")
             try {
                 if (!markNativeTransferStarted()) {
+                    if (createdByPicker) {
+                        emptyDestinationRemoved = removeEmptyCreatedDownloadDocument(context, destination)
+                    }
                     return@mutateTransfer CheckedSftpTransferResult.Failure("sftp_transfer_session_changed")
                 }
                 when (val result = sftpClient.download(sessionId, childPath(state.path, entry.name), staging.absolutePath, requestId)) {
                     is CheckedSftpTransferResult.Completed -> {
-                        val output = context.contentResolver.openOutputStream(destination)
-                            ?: return@mutateTransfer CheckedSftpTransferResult.Failure("destination_unwritable")
-                        output.use { destinationStream ->
-                            staging.inputStream().use { sourceStream -> sourceStream.copyTo(destinationStream) }
+                        copyDownloadedStagingToDestination(staging, result) {
+                            context.contentResolver.openOutputStream(destination)
+                        }
+                    }
+                    is CheckedSftpTransferResult.Failure -> {
+                        if (createdByPicker) {
+                            // Native download has only touched staging; the picker-created
+                            // destination is safe to remove only if still provably empty.
+                            emptyDestinationRemoved = removeEmptyCreatedDownloadDocument(context, destination)
                         }
                         result
                     }
-                    is CheckedSftpTransferResult.Failure -> result
                 }
             } finally { staging.delete() }
         }
@@ -509,12 +535,18 @@ class SftpViewModel @Inject constructor(
      * Downloads one or more remote entries as a single ZIP. Directories are walked through SFTP,
      * so the server never has to provide shell access or an archive utility.
      */
-    fun downloadAsZip(entries: List<SftpDirectoryEntry>, destination: Uri) {
+    fun downloadAsZip(entries: List<SftpDirectoryEntry>, destination: Uri, createdByPicker: Boolean) {
         if (entries.isEmpty()) return
         val state = mutableUiState.value
         val sessionId = state.sftpSessionId ?: return
-        mutateTransfer("打包下载", "正在准备 ${entries.size} 个项目…") { requestId, markNativeTransferStarted ->
-            archiveRemoteEntries(
+        var emptyDestinationRemoved = false
+        mutateTransfer(
+            label = "打包下载",
+            detail = "正在准备 ${entries.size} 个项目…",
+            onCancelledMessage = { cancelledSftpTransferMessage("打包下载", emptyDestinationRemoved) },
+            onFailureGuidance = { code -> downloadTargetFailureGuidance(code, emptyDestinationRemoved) },
+        ) { requestId, markNativeTransferStarted ->
+            val result = archiveRemoteEntries(
                 sessionId = sessionId,
                 parentPath = state.path,
                 entries = entries,
@@ -522,6 +554,12 @@ class SftpViewModel @Inject constructor(
                 requestId = requestId,
                 markNativeTransferStarted = markNativeTransferStarted,
             )
+            if (result is CheckedSftpTransferResult.Failure && createdByPicker) {
+                // The archive is staged privately. Delete only a provably empty picker-created
+                // document; retain nonempty or unverifiable targets after any write failure.
+                emptyDestinationRemoved = removeEmptyCreatedDownloadDocument(context, destination)
+            }
+            result
         }
     }
 
@@ -571,6 +609,9 @@ class SftpViewModel @Inject constructor(
         detail: String,
         onCompleted: (() -> Unit)? = null,
         onDiscarded: (() -> Unit)? = null,
+        onCancelledMessage: (() -> String)? = null,
+        onFailureGuidance: ((String) -> String)? = null,
+        canRetrySelectedTarget: ((String) -> Boolean)? = null,
         operation: (requestId: String, markNativeTransferStarted: () -> Boolean) -> CheckedSftpTransferResult,
     ) {
         val state = mutableUiState.value
@@ -586,6 +627,9 @@ class SftpViewModel @Inject constructor(
             operation = operation,
             onCompleted = onCompleted,
             onDiscarded = onDiscarded,
+            onCancelledMessage = onCancelledMessage,
+            onFailureGuidance = onFailureGuidance,
+            canRetrySelectedTarget = canRetrySelectedTarget,
         )
         retryLastTransfer = null
         if (activeTransfer == null && !state.queuePaused) {
@@ -669,30 +713,42 @@ class SftpViewModel @Inject constructor(
                             activeTransferRequestId = null,
                             canCancelTransfer = false,
                             cancellationRequested = false,
-                            transferMessage = "${pending.label}已取消",
+                            transferMessage = pending.onCancelledMessage?.invoke()
+                                ?: cancelledSftpTransferMessage(pending.label),
                             transferMessageIsError = false,
                         )
                         if (pendingTransfers.isEmpty()) refresh() else startNextTransfer()
                         return@launch
                     }
-                    retryLastTransfer = {
-                        mutateTransfer(
-                            label = pending.label,
-                            detail = pending.detail,
-                            onCompleted = pending.onCompleted,
-                            onDiscarded = pending.onDiscarded,
-                            operation = pending.operation,
-                        )
-                    }
+                    val retrySelectedTarget = pending.canRetrySelectedTarget?.invoke(result.code)
+                        ?: canRetrySftpTransferWithSelectedTarget(pending.label)
+                    retryLastTransfer = if (retrySelectedTarget) {
+                        {
+                            mutateTransfer(
+                                label = pending.label,
+                                detail = pending.detail,
+                                onCompleted = pending.onCompleted,
+                                onDiscarded = pending.onDiscarded,
+                                onCancelledMessage = pending.onCancelledMessage,
+                                onFailureGuidance = pending.onFailureGuidance,
+                                canRetrySelectedTarget = pending.canRetrySelectedTarget,
+                                operation = pending.operation,
+                            )
+                        }
+                    } else null
                     mutableUiState.value = mutableUiState.value.copy(
                         isLoading = false,
                         transfer = null,
                         activeTransferRequestId = null,
                         canCancelTransfer = false,
                         cancellationRequested = false,
-                        retryTransferLabel = pending.label,
+                        retryTransferLabel = if (retrySelectedTarget) pending.label else null,
                         queuePaused = pendingTransfers.isNotEmpty(),
-                        error = sftpErrorMessage("文件传输失败", result.code),
+                        error = sftpErrorMessage("文件传输失败", result.code) +
+                            (pending.onFailureGuidance?.invoke(result.code)
+                                ?: if (pending.label == "下载" || pending.label == "打包下载") {
+                                    downloadTargetFailureGuidance(result.code)
+                                } else ""),
                         queuedTransfers = pendingTransfers.map { SftpQueuedTransferUiState(it.id, it.label) },
                     )
                 }
@@ -757,9 +813,10 @@ class SftpViewModel @Inject constructor(
                 }
             }
             if (destination != null) {
-                val output = context.contentResolver.openOutputStream(destination)
-                    ?: return CheckedSftpTransferResult.Failure("destination_unwritable")
-                output.use { destinationStream -> archive.inputStream().use { it.copyTo(destinationStream) } }
+                return copyDownloadedStagingToDestination(
+                    archive,
+                    CheckedSftpTransferResult.Completed(byteLength),
+                ) { context.contentResolver.openOutputStream(destination) }
             } else {
                 onArchivePrepared?.invoke(archive)
                 retainArchive = true
@@ -1088,11 +1145,11 @@ fun SftpRoute(
     var pendingArchiveDownload by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<List<SftpDirectoryEntry>>(emptyList()) }
     val uploadPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> uri?.let(viewModel::upload) }
     val downloadPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
-        pendingDownload?.let { entry -> uri?.let { viewModel.download(entry, it) } }
+        pendingDownload?.let { entry -> uri?.let { viewModel.download(entry, it, createdByPicker = true) } }
         pendingDownload = null
     }
     val archivePicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
-        uri?.let { destination -> viewModel.downloadAsZip(pendingArchiveDownload, destination) }
+        uri?.let { destination -> viewModel.downloadAsZip(pendingArchiveDownload, destination, createdByPicker = true) }
         pendingArchiveDownload = emptyList()
     }
     uiState.shareArchive?.let { archive ->
@@ -1743,8 +1800,123 @@ private fun String.textDocumentMessage(): String = when (this) {
 }
 
 private fun sftpErrorMessage(prefix: String, code: String, retryable: Boolean = false): String {
+    if (code == "sftp_list_timeout") {
+        return "$prefix：目录读取超时，请重新建立会话后重试。诊断代码：sftp_list_timeout。"
+    }
     val error = orbitNativeError(code, retryable)
     return "$prefix：${error.userMessage()} 诊断代码：${error.diagnosticCode}。"
+}
+
+internal fun cancelledSftpTransferMessage(label: String, emptyDestinationRemoved: Boolean = false): String =
+    if (label == "下载" || label == "打包下载") {
+        if (emptyDestinationRemoved) {
+            "${label}已取消，已清理系统新建的空目标文件。"
+        } else {
+            "${label}已取消。系统创建的目标文件可能为空，请在保存位置检查。"
+        }
+    } else {
+        "${label}已取消"
+    }
+
+// A SAF provider may retain or externally modify the selected document after any failed
+// download. Never silently reuse its URI: let the system picker make the next choice explicit.
+internal fun canRetrySftpTransferWithSelectedTarget(label: String): Boolean =
+    label != "下载" && label != "打包下载"
+
+internal fun downloadTargetFailureGuidance(code: String, emptyDestinationRemoved: Boolean = false): String = when {
+    emptyDestinationRemoved -> " 已清理系统新建的空目标文件；重新建立会话后请选择保存位置重试。"
+    code == "destination_unwritable" -> " 已选目标可能包含不完整内容，请检查并重新选择保存位置。"
+    else -> " 已选目标可能保留内容，请在保存位置检查；重新下载时请重新选择保存位置。"
+}
+
+internal fun shouldRemoveEmptyCancelledDownloadTarget(
+    createdByPicker: Boolean,
+    isDocumentUri: Boolean,
+    sizeBytes: Long?,
+    flags: Int?,
+): Boolean = createdByPicker && isDocumentUri && sizeBytes == 0L &&
+    flags != null && flags and DocumentsContract.Document.FLAG_SUPPORTS_DELETE != 0
+
+internal data class CancelledDownloadDocumentMetadata(val sizeBytes: Long?, val flags: Int?)
+
+internal interface CancelledDownloadDocumentGateway {
+    fun isDocumentUri(): Boolean
+    fun metadata(): CancelledDownloadDocumentMetadata?
+    fun delete(): Boolean
+}
+
+internal fun removeEmptyCreatedDownloadDocument(
+    createdByPicker: Boolean,
+    gateway: CancelledDownloadDocumentGateway,
+): Boolean {
+    if (!createdByPicker) return false
+    val eligible = try {
+        if (!gateway.isDocumentUri()) {
+            false
+        } else {
+            val metadata = gateway.metadata()
+            shouldRemoveEmptyCancelledDownloadTarget(
+                createdByPicker = true,
+                isDocumentUri = true,
+                sizeBytes = metadata?.sizeBytes,
+                flags = metadata?.flags,
+            )
+        }
+    } catch (_: Exception) {
+        false
+    }
+    if (!eligible) return false
+    return try {
+        gateway.delete()
+    } catch (_: Exception) {
+        false
+    }
+}
+
+internal fun removeEmptyCreatedDownloadDocument(context: Context, destination: Uri): Boolean {
+    val resolver = context.contentResolver
+    return removeEmptyCreatedDownloadDocument(
+        createdByPicker = true,
+        gateway = object : CancelledDownloadDocumentGateway {
+            override fun isDocumentUri(): Boolean = DocumentsContract.isDocumentUri(context, destination)
+
+            override fun metadata(): CancelledDownloadDocumentMetadata? = resolver.query(
+                destination,
+                arrayOf(DocumentsContract.Document.COLUMN_SIZE, DocumentsContract.Document.COLUMN_FLAGS),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                val sizeIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
+                val flagsIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_FLAGS)
+                if (!cursor.moveToFirst() || sizeIndex < 0 || flagsIndex < 0 ||
+                    cursor.isNull(sizeIndex) || cursor.isNull(flagsIndex)
+                ) {
+                    null
+                } else {
+                    CancelledDownloadDocumentMetadata(cursor.getLong(sizeIndex), cursor.getInt(flagsIndex))
+                }
+            }
+
+            override fun delete(): Boolean = DocumentsContract.deleteDocument(resolver, destination)
+        },
+    )
+}
+
+/** A provider may refuse opening, writing, or closing a newly selected target. Keep it for inspection/retry. */
+internal fun copyDownloadedStagingToDestination(
+    staging: File,
+    downloaded: CheckedSftpTransferResult.Completed,
+    openDestination: () -> OutputStream?,
+): CheckedSftpTransferResult = try {
+    val destination = openDestination()
+        ?: return CheckedSftpTransferResult.Failure("destination_unwritable")
+    destination.use { output -> staging.inputStream().use { input -> input.copyTo(output) } }
+    downloaded
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (_: Exception) {
+    CheckedSftpTransferResult.Failure("destination_unwritable")
 }
 
 private fun formatBytes(bytes: Long): String {

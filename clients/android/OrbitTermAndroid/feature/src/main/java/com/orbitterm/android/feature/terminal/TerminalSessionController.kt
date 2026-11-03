@@ -4,6 +4,8 @@ import com.orbitterm.android.core.CheckedTerminalNativeClient
 import com.orbitterm.android.core.CheckedTerminalCommandResult
 import com.orbitterm.android.core.CheckedTerminalOpenResult
 import com.orbitterm.android.core.CheckedSshNativeClient
+import com.orbitterm.android.core.NativeConnectionEventRouter
+import com.orbitterm.android.core.NativeSessionEvent
 import com.orbitterm.android.core.NativeTerminalOutputRouter
 import com.orbitterm.android.core.OrbitCoreBridge
 import com.orbitterm.android.core.SessionForegroundController
@@ -56,6 +58,8 @@ class TerminalSessionController @Inject constructor(
     private val sessions = MutableStateFlow<List<ActiveTerminalSession>>(emptyList())
     private val mutableSelectedSessionId = MutableStateFlow<String?>(null)
     private val pendingOutputByChannel = LinkedHashMap<Long, PendingTerminalOutput>()
+    private val lostBaseSessionIds = LinkedHashSet<Long>()
+    private val closedTerminalChannelIds = LinkedHashSet<Long>()
     private val pendingRenderChannels = FrameInvalidationBatcher<Long>(
         RuntimeResourceBudget.TERMINAL_MAX_PENDING_RENDER_CHANNELS,
     )
@@ -70,6 +74,20 @@ class TerminalSessionController @Inject constructor(
     val hadInterruptedSessionsAtProcessStart: Boolean = recoveryStore.hadInterruptedSessionsAtProcessStart
 
     init {
+        scope.launch {
+            NativeConnectionEventRouter.events.collect { event ->
+                when (event) {
+                    is NativeSessionEvent.BaseConnectionLost -> {
+                        rememberRecentId(lostBaseSessionIds, event.baseSessionId)
+                        markBaseDisconnected(event.baseSessionId)
+                    }
+                    is NativeSessionEvent.TerminalClosed -> {
+                        rememberRecentId(closedTerminalChannelIds, event.terminalChannelId)
+                        markDisconnected(event.terminalChannelId)
+                    }
+                }
+            }
+        }
         scope.launch {
             NativeTerminalOutputRouter.output.collect { output ->
                 val currentSession = sessions.value.firstOrNull {
@@ -127,6 +145,8 @@ class TerminalSessionController @Inject constructor(
             engine = engine,
             revision = 0,
         )
+        if (baseSessionId in lostBaseSessionIds) markBaseDisconnected(baseSessionId)
+        if (opened.terminalChannelId in closedTerminalChannelIds) markDisconnected(opened.terminalChannelId)
         mutableSelectedSessionId.value = terminalSessionId
         NativeTerminalOutputRouter.activate(opened.terminalChannelId)
         val earlyOutput = pendingOutputByChannel.remove(opened.terminalChannelId)
@@ -285,6 +305,8 @@ class TerminalSessionController @Inject constructor(
         sessions.value = emptyList()
         mutableSelectedSessionId.value = null
         pendingOutputByChannel.clear()
+        lostBaseSessionIds.clear()
+        closedTerminalChannelIds.clear()
         pendingRenderChannels.clear()
         renderFlushJob?.cancel()
         renderFlushJob = null
@@ -355,7 +377,7 @@ class TerminalSessionController @Inject constructor(
 
     private fun markDisconnected(terminalChannelId: Long) {
         sessions.value = sessions.value.map { session ->
-            if (session.terminalChannelId == terminalChannelId) {
+            if (session.terminalChannelId == terminalChannelId && session.connectionState != TerminalSessionConnectionState.Disconnected) {
                 session.copy(
                     connectionState = TerminalSessionConnectionState.Disconnected,
                     revision = session.revision + 1,
@@ -364,6 +386,24 @@ class TerminalSessionController @Inject constructor(
                 session
             }
         }
+    }
+
+    private fun markBaseDisconnected(baseSessionId: Long) {
+        sessions.value = sessions.value.map { session ->
+            if (session.baseSessionId == baseSessionId && session.connectionState != TerminalSessionConnectionState.Disconnected) {
+                session.copy(
+                    connectionState = TerminalSessionConnectionState.Disconnected,
+                    revision = session.revision + 1,
+                )
+            } else {
+                session
+            }
+        }
+    }
+
+    private fun rememberRecentId(ids: LinkedHashSet<Long>, id: Long) {
+        ids.add(id)
+        while (ids.size > MAX_RECENT_LOST_BASE_SESSIONS) ids.remove(ids.first())
     }
 
     private class PendingTerminalOutput(
@@ -377,6 +417,7 @@ class TerminalSessionController @Inject constructor(
         const val DEFAULT_ROWS = 32
         const val EARLY_OUTPUT_TTL_MILLIS = 5_000L
         const val MAX_COMMAND_HISTORY = 50
+        const val MAX_RECENT_LOST_BASE_SESSIONS = 256
         const val FORM_FEED: Byte = 12
     }
 }

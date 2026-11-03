@@ -84,7 +84,7 @@ enum SecurityOperationPresentation {
     static let loginPasswordBusy = "正在更新登录密码…"
     static let masterPasswordBusy = "正在轮换主密码…"
     static let logoutTitle = "退出登录？"
-    static let logoutMessage = "将断开当前所有会话并清除当前登录状态；本机加密数据仍按账户隔离保留。"
+    static let logoutMessage = "将退出当前设备并清除本机令牌，同时尝试撤销服务端当前设备会话；其他设备不受影响。本机加密数据仍按账户隔离保留。"
     static let logoutConfirm = "退出登录"
     static let biometricEnabledSuccess = "已启用生物识别解锁。"
     static let biometricDisabledSuccess = "已关闭生物识别解锁。"
@@ -190,6 +190,7 @@ enum OperationFailureDomain: String, Equatable, Sendable {
 
 enum OperationFailureCode: String, Equatable, Sendable {
     case authenticationExpired
+    case passwordChangeRequired
     case authenticationFailed
     case masterPasswordLocked
     case masterPasswordMismatch
@@ -203,6 +204,8 @@ enum OperationFailureCode: String, Equatable, Sendable {
     case hostIdentityBlocked
     case terminalOpenFailed
     case localSecureStorageFailed
+    case credentialUnavailable
+    case credentialStorageFailed
     case operationCancelled
     case protocolViolation
     case unsupportedOperation
@@ -229,6 +232,7 @@ enum OperationFailureSeverity: Equatable, Sendable {
 /// presentation model remains independently testable.
 enum SyncRecoveryNetworkFailure: Equatable, Sendable {
     case authenticationExpired
+    case passwordChangeRequired
     case serviceConfigurationInvalid
     case serviceUnavailable
     case requestRejected
@@ -275,6 +279,16 @@ enum OperationRecoveryMapper {
                 symbol: "person.crop.circle.badge.exclamationmark",
                 severity: .warning,
                 actions: [.reauthenticate]
+            )
+        case .passwordChangeRequired:
+            return presentation(
+                domain: .sync,
+                code: .passwordChangeRequired,
+                title: "需要更新登录密码",
+                message: "请先更新登录密码；本地待同步数据已保留。",
+                symbol: "lock.rotation",
+                severity: .warning,
+                actions: [.dismiss]
             )
         case .serviceConfigurationInvalid:
             return presentation(
@@ -429,7 +443,7 @@ enum OperationRecoveryMapper {
 
     static func connection(_ outcome: CheckedTerminalConnectionOutcome) -> OperationRecoveryPresentation? {
         switch outcome {
-        case .pending, .awaitingUserDecision, .connected:
+        case .pending, .awaitingUserDecision, .awaitingSecondFactor, .connected:
             return nil
         case .cancelled:
             return cancelled(domain: .connection)
@@ -460,12 +474,18 @@ enum OperationRecoveryMapper {
 
     static func connection(_ failure: HostKeyTrustFailure) -> OperationRecoveryPresentation {
         switch failure {
-        case .authentication:
+        case let .authentication(error, submittedSecondFactor):
+            let submittedCodeMessage: String
+            if error.code.rawValue == "ssh_second_factor_required" {
+                submittedCodeMessage = "服务器再次要求验证码。本次连接不会复用已提交的验证码；请重新连接并获取新码。"
+            } else {
+                submittedCodeMessage = "本次已提交验证码，但服务器仍拒绝连接；验证码可能错误或过期，也可能是其他凭据或认证策略导致。请重新连接并获取新码。"
+            }
             return presentation(
                 domain: .connection,
                 code: .authenticationFailed,
                 title: "认证失败",
-                message: "请检查凭据后重新连接。",
+                message: submittedSecondFactor ? submittedCodeMessage : "请检查凭据后重新连接。",
                 symbol: "person.crop.circle.badge.exclamationmark",
                 severity: .warning,
                 actions: [.reviewCredentials, .reconnect, .dismiss]
@@ -480,6 +500,26 @@ enum OperationRecoveryMapper {
                 code: .localSecureStorageFailed,
                 title: "无法保存主机信任信息",
                 message: "未建立连接，请检查系统钥匙串权限后重试。",
+                symbol: "key.fill",
+                severity: .danger,
+                actions: [.retry, .dismiss]
+            )
+        case .client(.credentialUnavailable):
+            return presentation(
+                domain: .connection,
+                code: .credentialUnavailable,
+                title: "缺少本机 SSH 凭据",
+                message: "请在此设备重新保存该资产的密码或私钥后重试。",
+                symbol: "key.slash.fill",
+                severity: .warning,
+                actions: [.reviewCredentials, .dismiss]
+            )
+        case .client(.credentialStorageFailed):
+            return presentation(
+                domain: .connection,
+                code: .credentialStorageFailed,
+                title: "无法读取本机 SSH 凭据",
+                message: "请解锁设备并检查系统钥匙串后重试；现有凭据不会被覆盖。",
                 symbol: "key.fill",
                 severity: .danger,
                 actions: [.retry, .dismiss]
@@ -604,6 +644,54 @@ enum LoginCooldownPolicy {
         case 7: return 120
         default: return 300
         }
+    }
+}
+
+enum LoginFailurePresentation {
+    static func message(for error: Error) -> String {
+        if let networkError = error as? NetworkService.NetworkError,
+           case .unauthorized = networkError {
+            return "邮箱账号或登录密码不正确，请检查后重试。"
+        }
+        return error.localizedDescription
+    }
+}
+
+enum AuthInputValidation {
+    static func message(
+        isLoginMode: Bool,
+        username: String,
+        password: String,
+        inviteCode: String,
+        acceptedTerms: Bool
+    ) -> String? {
+        guard acceptedTerms else {
+            return "请先勾选同意使用条款、免责声明与隐私说明。"
+        }
+        let canonicalUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !canonicalUsername.isEmpty else { return "请输入邮箱账号。" }
+        let parts = canonicalUsername.split(separator: "@", omittingEmptySubsequences: false)
+        guard parts.count == 2,
+              !parts[0].isEmpty,
+              parts[1].contains("."),
+              !parts[1].hasPrefix("."),
+              !parts[1].hasSuffix("."),
+              !canonicalUsername.contains(where: \.isWhitespace) else {
+            return "请输入有效的邮箱账号，例如 name@example.com。"
+        }
+        guard !password.isEmpty else { return "请输入登录密码。" }
+        guard !isLoginMode else { return nil }
+        guard password.count >= 12,
+              password.contains(where: \.isUppercase),
+              password.contains(where: \.isLowercase),
+              password.contains(where: \.isNumber),
+              password.contains(where: { !$0.isLetter && !$0.isNumber && !$0.isWhitespace }) else {
+            return "密码至少 12 位，且必须包含大小写字母、数字和特殊字符。"
+        }
+        guard !inviteCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "请输入管理员提供的邀请码。"
+        }
+        return nil
     }
 }
 

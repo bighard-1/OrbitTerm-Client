@@ -18,12 +18,14 @@ use super::host_key_ffi_error::HostKeyFfiProtocolError;
 use super::host_key_ffi_error::{HostKeyFfiErrorCode, HostKeyFfiErrorPayload};
 use super::host_key_ffi_lifecycle::{
     HostKeyChallengeStatusPayload, HostKeyCleanupCompletedPayload, HostKeyProtocolVersionPayload,
+    HostKeyTrustRemovedPayload,
 };
 use super::host_key_ffi_protocol::HostKeyTrustPersistedPayload;
 use super::host_key_ffi_protocol::{HostKeyFfiEnvelope, HostKeyFfiResult};
 use super::host_key_trust_persistence::{
     persist_snapshot_to_known_hosts, HostKeyTrustPersistenceError,
 };
+use super::{HostIdentity, KnownHostsStore};
 
 pub(crate) type FfiOperationResult = Result<HostKeyFfiEnvelope, HostKeyFfiErrorPayload>;
 
@@ -86,6 +88,68 @@ pub extern "C" fn orbit_hostkey_challenge_accept_and_persist_v1(
             HostKeyFfiResult::HostKeyTrustPersisted(HostKeyTrustPersistedPayload::from_persisted(
                 &persisted, outcome,
             )),
+        )
+    })
+}
+
+/// Removes one previously trusted key only when the caller supplies the exact
+/// fingerprint that was displayed in the changed-key warning. The presented
+/// replacement key is deliberately not trusted here: reconnecting must create
+/// a fresh unknown-key challenge and a second explicit user decision.
+#[no_mangle]
+pub extern "C" fn orbit_known_hosts_remove_trusted_v1(
+    host: *const c_char,
+    port: u16,
+    key_algorithm: *const c_char,
+    expected_fingerprint_sha256: *const c_char,
+    known_hosts_path: *const c_char,
+) -> *mut c_char {
+    ffi_response(|| {
+        let host = parse_required_c_string(host, "null_host", "host_invalid_utf8")?;
+        let key_algorithm = parse_required_c_string(
+            key_algorithm,
+            "null_key_algorithm",
+            "key_algorithm_invalid_utf8",
+        )?;
+        let expected_fingerprint_sha256 = parse_required_c_string(
+            expected_fingerprint_sha256,
+            "null_expected_fingerprint",
+            "expected_fingerprint_invalid_utf8",
+        )?;
+        let known_hosts_path = parse_known_hosts_path(known_hosts_path)?;
+        let identity = HostIdentity::parse(&host, port).map_err(|_| {
+            HostKeyFfiErrorPayload::new(
+                HostKeyFfiErrorCode::InvalidRequest,
+                Some("invalid_host_identity"),
+                None,
+                None,
+            )
+        })?;
+        let mut store = KnownHostsStore::load(&known_hosts_path)
+            .map_err(|error| HostKeyFfiErrorPayload::from_store_error(&error, None, None))?;
+        let removed_count = store
+            .remove_trusted_key_if_fingerprint(
+                &identity,
+                &key_algorithm,
+                &expected_fingerprint_sha256,
+            )
+            .map_err(|error| HostKeyFfiErrorPayload::from_store_error(&error, None, None))?;
+        store
+            .save(&known_hosts_path)
+            .map_err(|error| HostKeyFfiErrorPayload::from_store_error(&error, None, None))?;
+        let removed_count =
+            u64::try_from(removed_count).map_err(|_| internal_error("removed_count_overflow"))?;
+        success_envelope(
+            None,
+            HostKeyFfiResult::HostKeyTrustRemoved(HostKeyTrustRemovedPayload {
+                host: identity.original_host,
+                normalized_host: identity.normalized_host,
+                port: identity.port,
+                lookup_token: identity.lookup_token,
+                key_algorithm,
+                previous_fingerprint_sha256: expected_fingerprint_sha256,
+                removed_count,
+            }),
         )
     })
 }

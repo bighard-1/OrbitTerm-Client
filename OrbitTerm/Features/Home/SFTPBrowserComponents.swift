@@ -117,24 +117,11 @@ struct SFTPFileRow: View {
     let item: FileItem
     let isSelected: Bool
     let isPathTarget: Bool
-    let onToggleSelection: () -> Void
     @Environment(\.appThemePalette) private var palette
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Button(action: onToggleSelection) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isSelected ? palette.accentPrimary.color : palette.textSecondary.color)
-                    .font(.system(size: 18, weight: .medium))
-                    .frame(width: 28, height: 28)
-                    .clipped()
-            }
-            .buttonStyle(.plain)
-            .frame(width: 28, height: 44, alignment: .top)
-            .clipped()
-            .accessibilityLabel(isSelected ? "取消选择 \(item.name)" : "选择 \(item.name)")
-
             Image(systemName: item.iconName)
                 .foregroundStyle(item.isDirectory ? palette.accentPrimary.color : palette.textSecondary.color)
                 .font(.system(size: 18, weight: .medium))
@@ -200,6 +187,7 @@ struct SFTPBatchToolbar: View {
     let selectedCount: Int
     let progress: BatchDownloadProgress?
     let isRunning: Bool
+    let isCancelling: Bool
     let onCancel: () -> Void
     let onDownload: () -> Void
     let onDelete: () -> Void
@@ -214,11 +202,16 @@ struct SFTPBatchToolbar: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(palette.textPrimary.color)
                 Spacer()
-                Button("取消", action: onCancel)
+                Button(isCancelling ? "正在停止…" : "取消", action: onCancel)
                     .buttonStyle(.bordered)
+                    .disabled(isCancelling)
             }
 
-            if let progress, isRunning {
+            if isCancelling {
+                Label("正在停止传输并等待目标清理，请稍候。", systemImage: "hourglass")
+                    .font(.caption)
+                    .foregroundStyle(palette.textSecondary.color)
+            } else if let progress, isRunning {
                 VStack(alignment: .leading, spacing: 4) {
                     ProgressView(value: progress.fraction)
                     Text("下载进度 \(progress.completed)/\(progress.total) · \(FileSizeFormatter.humanReadable(progress.bytesTransferred))")
@@ -249,10 +242,34 @@ struct SFTPBatchToolbar: View {
     }
 }
 
+struct SFTPBatchExportToolbar: View {
+    let completedCount: Int
+    let onExport: () -> Void
+    let onDismiss: () -> Void
+    @Environment(\.appThemePalette) private var palette
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("已完成 \(completedCount) 个文件，可导出保存。")
+                .font(.subheadline)
+            HStack {
+                Button("导出已完成文件", action: onExport)
+                    .buttonStyle(.borderedProminent)
+                Spacer()
+                Button("关闭", action: onDismiss)
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("关闭批量下载导出入口")
+            }
+        }
+        .padding(12)
+        .background(palette.surfaceGlassStrong.color, in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
 struct SFTPTransferBoard: View {
     private enum QueueSection: String, CaseIterable, Identifiable {
         case active = "进行中"
-        case completed = "已完成"
+        case completed = "已结束"
         var id: String { rawValue }
     }
 
@@ -367,6 +384,7 @@ struct SFTPTransferBoard: View {
         .background(palette.surfaceInput.color, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(task.fileName)，\(presentation.label)，进度 \(Int(task.progress * 100))%")
+        .accessibilityValue(task.statusText)
     }
 
     private func transferRole(for task: TransferTaskItem) -> SFTPTransferSemanticRole {

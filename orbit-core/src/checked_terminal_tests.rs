@@ -28,6 +28,49 @@ fn verified_generation() -> SessionSecurityGeneration {
     }
 }
 
+#[tokio::test]
+async fn terminal_close_after_remote_removal_is_idempotent() {
+    let base = TestBase::new(verified_generation());
+    let backend = FakeBackend::registering();
+    let terminal = open_terminal_channel_checked_with_backend(base.id, 120, 32, &backend)
+        .await
+        .unwrap()
+        .get();
+    // The terminal worker removes its registration when the remote shell exits.
+    remove_synthetic_terminal_channel_for_tests(terminal);
+    crate::terminal::close(terminal)
+        .await
+        .expect("remote-closed terminal is already released");
+    crate::terminal::close(terminal)
+        .await
+        .expect("repeated close remains successful");
+}
+
+#[tokio::test]
+async fn repeated_terminal_close_preserves_other_channels_and_base_ownership() {
+    let base = TestBase::new(verified_generation());
+    let backend = FakeBackend::registering();
+    let first = open_terminal_channel_checked_with_backend(base.id, 120, 32, &backend)
+        .await
+        .unwrap()
+        .get();
+    let other = open_terminal_channel_checked_with_backend(base.id, 120, 32, &backend)
+        .await
+        .unwrap()
+        .get();
+    let owner = resolve_base_session_by_base_id(base.id).unwrap();
+    let before = owner.channel_ref_count.load(Ordering::SeqCst);
+    crate::terminal::close(first).await.unwrap();
+    let repeated = crate::terminal::close(first).await;
+    let other_still_registered = terminal_channel_metadata_for_tests(other).is_some();
+    remove_synthetic_terminal_channel_for_tests(other);
+    repeated.expect("closing the same channel twice must not fail");
+    assert!(terminal_channel_metadata_for_tests(first).is_none());
+    assert!(other_still_registered);
+    // Only the terminal worker releases its base reference; retries must not.
+    assert_eq!(owner.channel_ref_count.load(Ordering::SeqCst), before);
+}
+
 struct TestBase {
     id: u64,
 }

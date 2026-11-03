@@ -57,6 +57,19 @@ final class RemoteDesktopAdapterTests: XCTestCase {
         XCTAssertEqual(image.bytesPerRow, 8)
     }
 
+    func testRemoteDesktopFocusLossReleasesHeldModifiersAndPointerButtons() {
+        XCTAssertEqual(
+            RemoteDesktopInputReleasePlan.modifierScancodes(for: [.shift, .command]),
+            [0x2A, 0x15B]
+        )
+        XCTAssertEqual(
+            RemoteDesktopInputReleasePlan.pointerReleaseActions(for: [5, 1, 3]),
+            [2, 4, 6]
+        )
+        XCTAssertTrue(RemoteDesktopInputReleasePlan.modifierScancodes(for: []).isEmpty)
+        XCTAssertTrue(RemoteDesktopInputReleasePlan.pointerReleaseActions(for: []).isEmpty)
+    }
+
     func testClosedSessionCannotBeRevivedByLateCallbacks() {
         var machine = RemoteDesktopSessionStateMachine()
         XCTAssertTrue(machine.transition(to: .authenticating))
@@ -64,6 +77,43 @@ final class RemoteDesktopAdapterTests: XCTestCase {
         XCTAssertTrue(machine.transition(to: .closed))
         XCTAssertFalse(machine.transition(to: .connected))
         XCTAssertEqual(machine.phase, .closed)
+    }
+
+    func testControllerPublishesPreEngineFailureAndRetryReopensSavedTarget() async throws {
+        let adapter = FailingRemoteDesktopAdapter(failure: .authenticationFailed)
+        let controller = RemoteDesktopSessionController(adapter: adapter)
+        var phases: [RemoteDesktopSessionPhase] = []
+        controller.onUpdate = { phases.append($0.phase) }
+        let server = ServerEntry(
+            name: "RDP test",
+            host: "rdp.example.test",
+            port: 3389,
+            username: "test-user",
+            authMethod: .password,
+            transport: .rdp
+        )
+
+        do {
+            try await controller.connect(to: server)
+            XCTFail("The injected adapter must fail before creating an engine session")
+        } catch {
+            XCTAssertEqual(error as? RemoteDesktopFailureKind, .authenticationFailed)
+        }
+        XCTAssertEqual(controller.phase, .failed)
+        XCTAssertEqual(controller.failureMessage, "远程桌面凭据无效或无权登录。")
+        XCTAssertEqual(adapter.openCount, 1)
+        XCTAssertEqual(phases, [.starting, .failed])
+
+        await controller.reconnect()
+        XCTAssertEqual(adapter.openCount, 2)
+        XCTAssertEqual(controller.phase, .failed)
+
+        await controller.disconnect()
+        XCTAssertEqual(controller.phase, .disconnected)
+        XCTAssertNil(controller.failureMessage)
+        await controller.reconnect()
+        XCTAssertEqual(adapter.openCount, 3)
+        XCTAssertEqual(controller.phase, .failed)
     }
 
     private func profile(target: RemoteDesktopTargetPlatform) throws -> RemoteDesktopConnectionProfile {
@@ -74,5 +124,22 @@ final class RemoteDesktopAdapterTests: XCTestCase {
             targetPlatform: target,
             credentialID: UUID()
         )
+    }
+}
+
+@MainActor
+private final class FailingRemoteDesktopAdapter: RemoteDesktopEngineAdapter {
+    let capability: RemoteDesktopRuntimeCapability = .available
+    private let failure: RemoteDesktopFailureKind
+    private(set) var openCount = 0
+
+    init(failure: RemoteDesktopFailureKind) {
+        self.failure = failure
+    }
+
+    func open(profile: RemoteDesktopConnectionProfile) async throws -> any RemoteDesktopEngineSession {
+        _ = profile
+        openCount += 1
+        throw failure
     }
 }

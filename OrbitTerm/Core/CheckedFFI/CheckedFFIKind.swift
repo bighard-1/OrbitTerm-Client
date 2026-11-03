@@ -4,6 +4,8 @@ enum CheckedFFIResultKind: Hashable, Sendable, Codable {
     case connected
     case connectionTestSucceeded
     case sftpChannelOpened
+    case sftpDownloadCompleted
+    case sftpUploadCompleted
     case terminalChannelOpened
     case monitorSnapshot
     case dockerContainers
@@ -17,6 +19,7 @@ enum CheckedFFIResultKind: Hashable, Sendable, Codable {
     case hostKeyChallengeAccepted
     case hostKeyChallengeStatus
     case hostKeyCleanupCompleted
+    case hostKeyTrustRemoved
     case hostKeyBlocked
     case hostKeyTrustPersisted
     case hostKeyRejected
@@ -40,6 +43,8 @@ enum CheckedFFIResultKind: Hashable, Sendable, Codable {
         case "connected": self = .connected
         case "connection_test_succeeded": self = .connectionTestSucceeded
         case "sftp_channel_opened": self = .sftpChannelOpened
+        case "sftp_download_completed": self = .sftpDownloadCompleted
+        case "sftp_upload_completed": self = .sftpUploadCompleted
         case "terminal_channel_opened": self = .terminalChannelOpened
         case "monitor_snapshot": self = .monitorSnapshot
         case "docker_containers": self = .dockerContainers
@@ -53,6 +58,7 @@ enum CheckedFFIResultKind: Hashable, Sendable, Codable {
         case "host_key_challenge_accepted": self = .hostKeyChallengeAccepted
         case "host_key_challenge_status": self = .hostKeyChallengeStatus
         case "host_key_cleanup_completed": self = .hostKeyCleanupCompleted
+        case "host_key_trust_removed": self = .hostKeyTrustRemoved
         case "host_key_blocked": self = .hostKeyBlocked
         case "host_key_trust_persisted": self = .hostKeyTrustPersisted
         case "host_key_rejected": self = .hostKeyRejected
@@ -67,6 +73,8 @@ enum CheckedFFIResultKind: Hashable, Sendable, Codable {
         case .connected: "connected"
         case .connectionTestSucceeded: "connection_test_succeeded"
         case .sftpChannelOpened: "sftp_channel_opened"
+        case .sftpDownloadCompleted: "sftp_download_completed"
+        case .sftpUploadCompleted: "sftp_upload_completed"
         case .terminalChannelOpened: "terminal_channel_opened"
         case .monitorSnapshot: "monitor_snapshot"
         case .dockerContainers: "docker_containers"
@@ -80,6 +88,7 @@ enum CheckedFFIResultKind: Hashable, Sendable, Codable {
         case .hostKeyChallengeAccepted: "host_key_challenge_accepted"
         case .hostKeyChallengeStatus: "host_key_challenge_status"
         case .hostKeyCleanupCompleted: "host_key_cleanup_completed"
+        case .hostKeyTrustRemoved: "host_key_trust_removed"
         case .hostKeyBlocked: "host_key_blocked"
         case .hostKeyTrustPersisted: "host_key_trust_persisted"
         case .hostKeyRejected: "host_key_rejected"

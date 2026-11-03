@@ -10,8 +10,11 @@ public sealed class WorkspaceTabViewModel : ObservableObject
     private string endpoint;
     private string? remoteHostName;
     private bool isConnected;
+    private bool isDisconnecting;
+    private bool needsDisconnectRetry;
     private bool hasHostKeyChallenge;
     private bool isBatchTargetSelected;
+    private bool isSessionTabVisible;
 
     public WorkspaceTabViewModel(
         Guid id,
@@ -70,6 +73,8 @@ public sealed class WorkspaceTabViewModel : ObservableObject
 
     public string Status { get; set; } = "待命";
 
+    public string ConnectionFailureMessage { get; set; } = string.Empty;
+
     public string SecurityStatus { get; set; } = "尚未建立已验证会话";
 
     public string PasteSafetyStatus { get; set; } = "粘贴安全检查已就绪";
@@ -124,6 +129,50 @@ public sealed class WorkspaceTabViewModel : ObservableObject
 
     public SftpSessionLease? SftpLease { get; set; }
 
+    // Runtime-only generation; never persisted or synchronized. A new connection
+    // or explicit teardown invalidates results from the preceding initialization.
+    internal Guid SessionGeneration { get; set; } = Guid.NewGuid();
+
+    internal bool IsSftpOpening { get; set; }
+
+    // Runtime ownership only. A failed teardown must remain protected even
+    // after its asynchronous command has returned and another tab is selected.
+    internal bool NeedsDisconnectRetry
+    {
+        get => needsDisconnectRetry;
+        set
+        {
+            if (SetProperty(ref needsDisconnectRetry, value))
+            {
+                NotifyConnectionStateChanged();
+                OnPropertyChanged(nameof(CanChangeConnection));
+                OnPropertyChanged(nameof(CanDisconnect));
+            }
+        }
+    }
+
+    internal bool CloseAfterDisconnect { get; set; }
+
+    internal long SftpBrowseVersion { get; set; }
+
+    public bool IsDisconnecting
+    {
+        get => isDisconnecting;
+        internal set
+        {
+            if (SetProperty(ref isDisconnecting, value))
+            {
+                NotifyConnectionStateChanged();
+                OnPropertyChanged(nameof(CanChangeConnection));
+                OnPropertyChanged(nameof(CanDisconnect));
+            }
+        }
+    }
+
+    public bool CanChangeConnection => !IsDisconnecting && !NeedsDisconnectRetry;
+
+    public bool CanDisconnect => !IsDisconnecting && (IsConnected || HasHostKeyChallenge || NeedsDisconnectRetry);
+
     public bool IsConnected
     {
         get => isConnected;
@@ -158,11 +207,24 @@ public sealed class WorkspaceTabViewModel : ObservableObject
         set => SetProperty(ref isBatchTargetSelected, value);
     }
 
-    public string ConnectionStateLabel => IsConnected
+    /// <summary>
+    /// The view model keeps one internal draft workspace so editing and command
+    /// state always have an owner. That draft is not a user session and must not
+    /// appear in the connected-session tab strip until a connection is started.
+    /// </summary>
+    public bool IsSessionTabVisible
+    {
+        get => isSessionTabVisible;
+        private set => SetProperty(ref isSessionTabVisible, value);
+    }
+
+    public void MarkSessionStarted() => IsSessionTabVisible = true;
+
+    public string ConnectionStateLabel => IsDisconnecting ? "正在断开连接…" : NeedsDisconnectRetry ? "断开未完成" : IsConnected
         ? "已连接"
         : HasHostKeyChallenge ? "待确认" : "未连接";
 
-    public string ConnectionStateGlyph => IsConnected
+    public string ConnectionStateGlyph => IsDisconnecting ? "◐" : NeedsDisconnectRetry ? "!" : IsConnected
         ? "●"
         : HasHostKeyChallenge ? "◐" : "○";
 
@@ -226,8 +288,13 @@ public sealed class WorkspaceTabViewModel : ObservableObject
 
     private void NotifyConnectionStateChanged()
     {
+        if (IsConnected || HasHostKeyChallenge)
+        {
+            IsSessionTabVisible = true;
+        }
         OnPropertyChanged(nameof(ConnectionStateLabel));
         OnPropertyChanged(nameof(ConnectionStateGlyph));
+        OnPropertyChanged(nameof(CanDisconnect));
     }
 
     private static string BuildEndpoint(string username, string host, string portText)

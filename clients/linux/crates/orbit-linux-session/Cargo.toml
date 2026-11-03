@@ -1,0 +1,17 @@
+[package]
+name = "orbit-linux-session"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[dependencies]
+regex.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+zeroize.workspace = true
+
+[build-dependencies]
+cc = "1"
+pkg-config = "0.3"

@@ -21,19 +21,37 @@ struct CheckedConnectInput: Hashable, Sendable, CustomStringConvertible,
     let username: String
     let credentialReference: CredentialAccessReference
     let jumpHost: CheckedJumpHostInput?
+    let oneTimeCode: String?
+    let jumpOneTimeCode: String?
 
     init(
         host: String,
         port: UInt16,
         username: String,
         credentialReference: CredentialAccessReference,
-        jumpHost: CheckedJumpHostInput? = nil
+        jumpHost: CheckedJumpHostInput? = nil,
+        oneTimeCode: String? = nil,
+        jumpOneTimeCode: String? = nil
     ) {
         self.host = host
         self.port = port
         self.username = username
         self.credentialReference = credentialReference
         self.jumpHost = jumpHost
+        self.oneTimeCode = oneTimeCode
+        self.jumpOneTimeCode = jumpOneTimeCode
+    }
+
+    func withOneTimeCode(_ code: String, forJump: Bool) -> Self {
+        Self(host: host, port: port, username: username,
+             credentialReference: credentialReference, jumpHost: jumpHost,
+             oneTimeCode: forJump ? oneTimeCode : code,
+             jumpOneTimeCode: forJump ? code : jumpOneTimeCode)
+    }
+
+    func withoutOneTimeCodes() -> Self {
+        Self(host: host, port: port, username: username,
+             credentialReference: credentialReference, jumpHost: jumpHost)
     }
 
     var description: String {
@@ -124,6 +142,8 @@ enum CheckedFFIClientError: Error, Hashable, Sendable {
     case unexpectedKind(CheckedFFIResultKind)
     case ffiErrorPayload(CheckedFFIErrorPayload)
     case invalidInput
+    case credentialUnavailable
+    case credentialStorageFailed
     case unsupportedSchema(UInt32)
     case unknownKind(String)
     case internalInvariant
@@ -143,6 +163,8 @@ extension CheckedFFIClientError: CustomStringConvertible, CustomDebugStringConve
         case let .unexpectedKind(kind): "checked_ffi_unexpected_kind:\(kind.rawValue)"
         case let .ffiErrorPayload(payload): "checked_ffi_error:\(payload.code.rawValue)"
         case .invalidInput: "checked_ffi_invalid_input"
+        case .credentialUnavailable: "checked_ffi_credential_unavailable"
+        case .credentialStorageFailed: "checked_ffi_credential_storage_failed"
         case let .unsupportedSchema(version): "checked_ffi_unsupported_schema:\(version)"
         case let .unknownKind(kind): "checked_ffi_unknown_kind:\(kind)"
         case .internalInvariant: "checked_ffi_internal_invariant"

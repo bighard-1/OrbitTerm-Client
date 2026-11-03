@@ -40,69 +40,89 @@ struct ServerListView: View {
                                     if expanded { expandedGroups.insert(section.group) } else { expandedGroups.remove(section.group) }
                                 }
                             )
-                        ) {
-                            ForEach(section.items) { server in
-                                HStack(spacing: 8) {
+                            ) {
+                                ForEach(section.items) { server in
+                                    let desktopOnly = !MobileTransportSupportPolicy.allowsConnection(server.transport)
+                                    HStack(spacing: 8) {
                                     if batchMode {
                                         Image(systemName: selectedForDelete.contains(server.id) ? "checkmark.circle.fill" : "circle")
                                             .foregroundStyle(selectedForDelete.contains(server.id) ? security.danger.color : palette.textSecondary.color)
                                     }
-                                    Button {
-                                        if batchMode {
-                                            toggleBatchSelection(server.id)
-                                        } else {
-                                            connect(server)
-                                        }
-                                    } label: {
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            HStack(spacing: 6) {
-                                                Text(server.name)
-                                                if isServerConnected(server) {
-                                                    Label("已连接", systemImage: "dot.radiowaves.left.and.right")
-                                                        .font(.caption2.weight(.semibold))
-                                                        .foregroundStyle(security.connectionConnected.color)
+                                    if desktopOnly && !batchMode {
+                                        serverSummary(server, desktopOnly: true)
+                                            .accessibilityElement(children: .combine)
+                                            .accessibilityHint(MobileTransportSupportPolicy.remoteDesktopOnlyHint)
+                                            .contextMenu {
+                                                Button("编辑资产") {
+                                                    editingServer = server
+                                                }
+                                                Button("删除", role: .destructive) {
+                                                    pendingDeleteServer = server
                                                 }
                                             }
-                                            Text("\(server.username)@\(server.endpointText)")
-                                                .font(.caption)
-                                                .foregroundStyle(palette.textSecondary.color)
-                                        }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .accessibilityHint(batchMode ? "切换批量选择状态" : "建立远程连接")
-                                    .contextMenu {
-                                        Button("连接") {
-                                            connect(server)
-                                        }
-                                        Button("编辑资产") {
-                                            editingServer = server
-                                        }
-                                        Button("删除", role: .destructive) {
-                                            pendingDeleteServer = server
-                                        }
-                                    }
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                        Button {
-                                            editingServer = server
-                                        } label: {
-                                            Label("编辑", systemImage: "square.and.pencil")
-                                        }
-                                        .tint(palette.accentPrimary.color)
+                                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                                Button {
+                                                    editingServer = server
+                                                } label: {
+                                                    Label("编辑", systemImage: "square.and.pencil")
+                                                }
+                                                .tint(palette.accentPrimary.color)
 
-                                        Button(role: .destructive) {
-                                            pendingDeleteServer = server
-                                        } label: {
-                                            Label("删除", systemImage: "trash")
-                                        }
-                                    }
-                                    .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                                Button(role: .destructive) {
+                                                    pendingDeleteServer = server
+                                                } label: {
+                                                    Label("删除", systemImage: "trash")
+                                                }
+                                            }
+                                    } else {
                                         Button {
-                                            connect(server)
+                                            if batchMode {
+                                                toggleBatchSelection(server.id)
+                                            } else {
+                                                connect(server)
+                                            }
                                         } label: {
-                                            Label("连接", systemImage: "terminal.fill")
+                                            serverSummary(server, desktopOnly: desktopOnly)
                                         }
-                                        .tint(security.connectionConnected.color)
+                                        .buttonStyle(.plain)
+                                        .accessibilityHint(batchMode ? "切换批量选择状态" : "建立远程连接")
+                                        .contextMenu {
+                                            if !desktopOnly {
+                                                Button("连接") {
+                                                    connect(server)
+                                                }
+                                            }
+                                            Button("编辑资产") {
+                                                editingServer = server
+                                            }
+                                            Button("删除", role: .destructive) {
+                                                pendingDeleteServer = server
+                                            }
+                                        }
+                                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                            Button {
+                                                editingServer = server
+                                            } label: {
+                                                Label("编辑", systemImage: "square.and.pencil")
+                                            }
+                                            .tint(palette.accentPrimary.color)
+
+                                            Button(role: .destructive) {
+                                                pendingDeleteServer = server
+                                            } label: {
+                                                Label("删除", systemImage: "trash")
+                                            }
+                                        }
+                                        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                            if !desktopOnly {
+                                                Button {
+                                                    connect(server)
+                                                } label: {
+                                                    Label("连接", systemImage: "terminal.fill")
+                                                }
+                                                .tint(security.connectionConnected.color)
+                                            }
+                                        }
                                     }
 
                                     if !batchMode {
@@ -265,7 +285,11 @@ struct ServerListView: View {
         }
         .sheet(item: $editingServer) { server in
             AddServerView(store: store, editingServer: server) { updated in
-                connect(updated)
+                if MobileTransportSupportPolicy.allowsConnection(updated.transport) {
+                    connect(updated)
+                } else {
+                    session.showTransientStatus("RDP 资产已保存；请在桌面端发起连接")
+                }
             }
             .environmentObject(session)
         }
@@ -346,7 +370,34 @@ struct ServerListView: View {
         }
     }
 
+    @ViewBuilder
+    private func serverSummary(_ server: ServerEntry, desktopOnly: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(server.name)
+                if isServerConnected(server) {
+                    Label("已连接", systemImage: "dot.radiowaves.left.and.right")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(security.connectionConnected.color)
+                }
+            }
+            if desktopOnly {
+                Label(MobileTransportSupportPolicy.remoteDesktopOnlyLabel, systemImage: "desktopcomputer")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(palette.textSecondary.color)
+            }
+            Text("\(server.username)@\(server.endpointText)")
+                .font(.caption)
+                .foregroundStyle(palette.textSecondary.color)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private func connect(_ server: ServerEntry) {
+        guard MobileTransportSupportPolicy.allowsConnection(server.transport) else {
+            session.showTransientStatus("RDP 资产已同步；仅桌面端可连接")
+            return
+        }
         store.select(server)
         sessionManager.quickOpenServer = server
         onConnectRequested?(server)
@@ -375,6 +426,10 @@ struct ServerListView: View {
 
     private func syncDeletedServers(_ servers: [ServerEntry]) {
         guard !servers.isEmpty else { return }
+        let deletionSummary = servers.count == 1
+            ? "已移入最近删除。本机凭据已移除；删除状态将在后台同步。"
+            : "已将 \(servers.count) 项资产移入最近删除。本机凭据已移除；删除状态将在后台同步。"
+        session.showTransientStatus(deletionSummary)
         let token = session.readToken()
         let masterPassword = session.readMasterPassword()
         Task(priority: .background) {

@@ -8,6 +8,7 @@ extension SyncService {
         masterPassword: String?,
         accountID: String
     ) async {
+        let servers = servers.filter { $0.storageScope == .accountSynced }
         guard !servers.isEmpty else { return }
         let metadata = SyncMetadataStore.shared
         var syncedCount = 0
@@ -317,7 +318,7 @@ extension SyncService {
             id: remoteMeta.id,
             encrypted_blob_base64: encrypted.base64EncodedString(),
             vector_clock: mergedClock,
-            asset_id: portable.id,
+            asset_id: portable.id.lowercased(),
             identity_fingerprint: identityFingerprint ?? remoteMeta.identity_fingerprint
         )
     }

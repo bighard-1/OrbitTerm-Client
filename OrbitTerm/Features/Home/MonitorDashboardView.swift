@@ -291,14 +291,14 @@ private struct MonitorPanelCard: View {
         Chart(panel.points) { point in
             LineMark(
                 x: .value("时间", point.time),
-                y: .value("下行KB/s", point.rxRateKBps)
+                y: .value("下行Kbps", point.rxRateKBps)
             )
             .interpolationMethod(.catmullRom)
             .foregroundStyle(palette.accentPrimary.color)
 
             LineMark(
                 x: .value("时间", point.time),
-                y: .value("上行KB/s", point.txRateKBps)
+                y: .value("上行Kbps", point.txRateKBps)
             )
             .interpolationMethod(.catmullRom)
             .foregroundStyle(palette.accentSecondary.color)
@@ -337,7 +337,7 @@ private struct MonitorPanelCard: View {
 
     private func throughputAccessibilityValue(_ keyPath: KeyPath<MonitorPoint, Double>) -> String {
         guard let lastPoint else { return "暂无数据" }
-        return String(format: "%.1f KB/s", lastPoint[keyPath: keyPath])
+        return String(format: "%.1f Kbps", lastPoint[keyPath: keyPath])
     }
 
     private func metricChip(title: String, value: String) -> some View {

@@ -30,6 +30,9 @@ const MAX_SFTP_PATH_BYTES: usize = 512;
 const MAX_LOCAL_DOWNLOAD_PATH_BYTES: usize = 4096;
 const MAX_SFTP_TEXT_EDIT_BYTES: usize = 2 * 1024 * 1024;
 const SFTP_PROGRESS_MIN_INTERVAL: Duration = Duration::from_millis(100);
+// The checked SFTP client has a 30-second request timer. This outer bound also
+// covers a stalled channel/transport before the request timer starts.
+const SFTP_DIRECTORY_RESPONSE_TIMEOUT: Duration = Duration::from_secs(35);
 
 static ACTIVE_SFTP_TRANSFERS: Lazy<Mutex<HashMap<String, Arc<AtomicBool>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -349,10 +352,16 @@ where
                 HostKeyFfiErrorPayload::from_checked_channel_error(error, Some(request_id.clone()))
             })?;
         let home_path = ORBIT_RUNTIME
-            .block_on(crate::sftp_canonical_home_path_checked(
-                sftp_session_id.get(),
-            ))
-            .unwrap_or_else(|_| "/".to_string());
+            .block_on(async {
+                tokio::time::timeout(
+                    SFTP_DIRECTORY_RESPONSE_TIMEOUT,
+                    crate::sftp_canonical_home_path_checked(sftp_session_id.get()),
+                )
+                .await
+            })
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_else(|| "/".to_string());
         let envelope = (|| {
             let payload = SftpChannelOpenedPayload::new_with_home(
                 base_session_id,
@@ -393,6 +402,26 @@ where
     F: FnOnce(u64, String) -> Fut,
     Fut: Future<Output = Result<String, OrbitCoreError>>,
 {
+    sftp_list_checked_response_with_timeout(
+        sftp_session_id,
+        remote_path,
+        request_id,
+        lister,
+        SFTP_DIRECTORY_RESPONSE_TIMEOUT,
+    )
+}
+
+fn sftp_list_checked_response_with_timeout<F, Fut>(
+    sftp_session_id: u64,
+    remote_path: *const c_char,
+    request_id: *const c_char,
+    lister: F,
+    timeout: Duration,
+) -> *mut c_char
+where
+    F: FnOnce(u64, String) -> Fut,
+    Fut: Future<Output = Result<String, OrbitCoreError>>,
+{
     ffi_response(|| {
         let request_id = parse_request_id(request_id)?;
         if sftp_session_id == 0 {
@@ -401,7 +430,17 @@ where
 
         let remote_path = parse_remote_path(remote_path, Some(request_id.clone()))?;
         let list_json = ORBIT_RUNTIME
-            .block_on(lister(sftp_session_id, remote_path.clone()))
+            .block_on(async {
+                tokio::time::timeout(timeout, lister(sftp_session_id, remote_path.clone())).await
+            })
+            .map_err(|_| {
+                HostKeyFfiErrorPayload::new(
+                    HostKeyFfiErrorCode::SftpListFailed,
+                    Some("sftp_list_timeout"),
+                    Some(request_id.clone()),
+                    None,
+                )
+            })?
             .map_err(|error| sftp_list_error_payload(error, Some(request_id.clone())))?;
         let payload = directory_list_payload(sftp_session_id, remote_path, &list_json)
             .map_err(|error| error.to_error_payload(Some(request_id.clone())))?;
@@ -1007,15 +1046,23 @@ fn sftp_list_error_payload(
             request_id,
             None,
         ),
-        OrbitCoreError::SshFailed(_) => HostKeyFfiErrorPayload::new(
-            HostKeyFfiErrorCode::SecurityGenerationMismatch,
-            Some("sftp_generation_mismatch"),
-            request_id,
-            None,
-        ),
+        OrbitCoreError::SshFailed(_) | OrbitCoreError::SshSecondFactorRequired => {
+            HostKeyFfiErrorPayload::new(
+                HostKeyFfiErrorCode::SecurityGenerationMismatch,
+                Some("sftp_generation_mismatch"),
+                request_id,
+                None,
+            )
+        }
         OrbitCoreError::SftpTransferCancelled => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SftpListFailed,
             Some("sftp_operation_cancelled"),
+            request_id,
+            None,
+        ),
+        OrbitCoreError::SftpTimedOut => HostKeyFfiErrorPayload::new(
+            HostKeyFfiErrorCode::SftpListFailed,
+            Some("sftp_list_timeout"),
             request_id,
             None,
         ),
@@ -1048,15 +1095,23 @@ fn sftp_read_error_payload(
             request_id,
             None,
         ),
-        OrbitCoreError::SshFailed(_) => HostKeyFfiErrorPayload::new(
-            HostKeyFfiErrorCode::SecurityGenerationMismatch,
-            Some("sftp_generation_mismatch"),
-            request_id,
-            None,
-        ),
+        OrbitCoreError::SshFailed(_) | OrbitCoreError::SshSecondFactorRequired => {
+            HostKeyFfiErrorPayload::new(
+                HostKeyFfiErrorCode::SecurityGenerationMismatch,
+                Some("sftp_generation_mismatch"),
+                request_id,
+                None,
+            )
+        }
         OrbitCoreError::SftpTransferCancelled => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SftpReadFailed,
             Some("sftp_operation_cancelled"),
+            request_id,
+            None,
+        ),
+        OrbitCoreError::SftpTimedOut => HostKeyFfiErrorPayload::new(
+            HostKeyFfiErrorCode::SftpReadFailed,
+            Some("sftp_read_failed"),
             request_id,
             None,
         ),
@@ -1091,21 +1146,32 @@ fn sftp_download_error_payload(
             request_id,
             None,
         ),
-        OrbitCoreError::SshFailed(_) => HostKeyFfiErrorPayload::new(
-            HostKeyFfiErrorCode::SecurityGenerationMismatch,
-            Some("sftp_generation_mismatch"),
-            request_id,
-            None,
-        ),
+        OrbitCoreError::SshFailed(_) | OrbitCoreError::SshSecondFactorRequired => {
+            HostKeyFfiErrorPayload::new(
+                HostKeyFfiErrorCode::SecurityGenerationMismatch,
+                Some("sftp_generation_mismatch"),
+                request_id,
+                None,
+            )
+        }
         OrbitCoreError::SftpTransferCancelled => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SftpDownloadFailed,
             Some("sftp_transfer_cancelled"),
             request_id,
             None,
         ),
-        OrbitCoreError::SftpFailed(_) => HostKeyFfiErrorPayload::new(
+        OrbitCoreError::SftpTimedOut => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SftpDownloadFailed,
             Some("sftp_download_failed"),
+            request_id,
+            None,
+        ),
+        OrbitCoreError::SftpFailed(message) => HostKeyFfiErrorPayload::new(
+            HostKeyFfiErrorCode::SftpDownloadFailed,
+            Some(classify_sftp_transfer_failure(
+                &message,
+                "sftp_download_failed",
+            )),
             request_id,
             None,
         ),
@@ -1132,21 +1198,32 @@ fn sftp_upload_error_payload(
             request_id,
             None,
         ),
-        OrbitCoreError::SshFailed(_) => HostKeyFfiErrorPayload::new(
-            HostKeyFfiErrorCode::SecurityGenerationMismatch,
-            Some("sftp_generation_mismatch"),
-            request_id,
-            None,
-        ),
+        OrbitCoreError::SshFailed(_) | OrbitCoreError::SshSecondFactorRequired => {
+            HostKeyFfiErrorPayload::new(
+                HostKeyFfiErrorCode::SecurityGenerationMismatch,
+                Some("sftp_generation_mismatch"),
+                request_id,
+                None,
+            )
+        }
         OrbitCoreError::SftpTransferCancelled => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SftpUploadFailed,
             Some("sftp_transfer_cancelled"),
             request_id,
             None,
         ),
-        OrbitCoreError::SftpFailed(_) => HostKeyFfiErrorPayload::new(
+        OrbitCoreError::SftpTimedOut => HostKeyFfiErrorPayload::new(
             HostKeyFfiErrorCode::SftpUploadFailed,
             Some("sftp_upload_failed"),
+            request_id,
+            None,
+        ),
+        OrbitCoreError::SftpFailed(message) => HostKeyFfiErrorPayload::new(
+            HostKeyFfiErrorCode::SftpUploadFailed,
+            Some(classify_sftp_transfer_failure(
+                &message,
+                "sftp_upload_failed",
+            )),
             request_id,
             None,
         ),
@@ -1158,6 +1235,68 @@ fn sftp_upload_error_payload(
             request_id,
             None,
         ),
+    }
+}
+
+/// Converts backend text into a small, stable and redacted reason vocabulary.
+/// The checked ABI must never expose paths, credentials or server-provided
+/// strings, but desktop clients still need enough information to guide users.
+fn classify_sftp_transfer_failure(message: &str, fallback: &'static str) -> &'static str {
+    let normalized = message.to_ascii_lowercase();
+    // The operation prefix is ours; the trailing OS/server text is not. In
+    // particular, Windows reports a lost SMB download target as "network path
+    // was not found", which must not be mistaken for a missing remote source.
+    if normalized.starts_with("cleanup remote temporary file failed:") {
+        "sftp_remote_cleanup_failed"
+    } else if normalized.starts_with("cleanup local file failed:") {
+        "sftp_local_cleanup_failed"
+    } else if normalized.starts_with("open local file failed:")
+        || normalized.starts_with("create local file failed:")
+        || normalized.starts_with("write local file failed:")
+        || normalized.starts_with("flush local file failed:")
+        || normalized.starts_with("truncate local file failed:")
+        || normalized.starts_with("seek local failed:")
+    {
+        if normalized.contains("already exists") || normalized.contains("file exists") {
+            "sftp_destination_exists"
+        } else if normalized.contains("no space left")
+            || normalized.contains("disk full")
+            || normalized.contains("disk is full")
+            || normalized.contains("not enough space")
+            || normalized.contains("os error 112")
+            || normalized.contains("磁盘空间不足")
+            || normalized.contains("磁盘已满")
+        {
+            "sftp_no_space_left"
+        } else {
+            "sftp_local_io_failed"
+        }
+    } else if normalized.contains("permission denied") || normalized.contains("access denied") {
+        "sftp_permission_denied"
+    } else if normalized.contains("already exists")
+        || normalized.contains("file exists")
+        || normalized.starts_with("exists ")
+    {
+        "sftp_destination_exists"
+    } else if normalized.contains("no space left")
+        || normalized.contains("disk full")
+        || normalized.contains("disk is full")
+        || normalized.contains("not enough space")
+        || normalized.contains("os error 112")
+        || normalized.contains("磁盘空间不足")
+        || normalized.contains("磁盘已满")
+    {
+        "sftp_no_space_left"
+    } else if normalized.contains("not found") || normalized.contains("no such file") {
+        "sftp_source_not_found"
+    } else if normalized.contains("connection")
+        && (normalized.contains("closed")
+            || normalized.contains("reset")
+            || normalized.contains("lost"))
+    {
+        "sftp_connection_closed"
+    } else {
+        fallback
     }
 }
 
@@ -1263,6 +1402,27 @@ where
     Fut: Future<Output = Result<String, OrbitCoreError>>,
 {
     sftp_list_checked_response(sftp_session_id, remote_path, request_id, lister)
+}
+
+#[cfg(test)]
+pub(crate) fn sftp_list_checked_response_with_timeout_for_tests<F, Fut>(
+    sftp_session_id: u64,
+    remote_path: *const c_char,
+    request_id: *const c_char,
+    lister: F,
+    timeout: Duration,
+) -> *mut c_char
+where
+    F: FnOnce(u64, String) -> Fut,
+    Fut: Future<Output = Result<String, OrbitCoreError>>,
+{
+    sftp_list_checked_response_with_timeout(
+        sftp_session_id,
+        remote_path,
+        request_id,
+        lister,
+        timeout,
+    )
 }
 
 #[cfg(test)]

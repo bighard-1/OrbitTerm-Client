@@ -16,6 +16,17 @@ internal fun backgroundLockDisposition(
     else -> BackgroundLockDisposition.LOCK_NOW
 }
 
+/** Lock before a short app switch can return without ever reaching ON_STOP. */
+internal fun shouldLockOnPause(
+    isChangingConfigurations: Boolean,
+    isDocumentInteractionPending: Boolean,
+    isBiometricPromptActive: Boolean,
+): Boolean = !isBiometricPromptActive &&
+    backgroundLockDisposition(
+        isChangingConfigurations = isChangingConfigurations,
+        isDocumentInteractionPending = isDocumentInteractionPending,
+    ) == BackgroundLockDisposition.LOCK_NOW
+
 internal fun documentInteractionRequiresLockOnResume(
     startedAtMillis: Long?,
     resumedAtMillis: Long,
