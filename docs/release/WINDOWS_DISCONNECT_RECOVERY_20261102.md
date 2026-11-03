@@ -46,3 +46,9 @@
 **剩余范围**：Windows 内部释放失败／异常的受控 GUI 注入、失败后关闭意图及退出拦截仍待补；正常包 GUI 与自动化不能替代这部分。Android／iOS／macOS 对照待确认期间禁止提前重连、保留原资源、失败明确可重试、其他活跃会话可用及重复关闭幂等。K60 本轮开工只读检查在线但锁屏，没有解锁、安装或新增设备结果。五端完整验收仍未完成。
 
 详细证据、备份、脚本、TRX 和截图保存在加密外置盘 `Development/orbitterm-windows-disconnect-20261102/`，不提交真实端点、凭据或原始账户内容。
+
+## 新回归提交的 CI 回执
+
+回归及本轮记录已作为 `44628d37f2eac5d3af04b38bdb7083694d4d4ac0` 推送。[Windows Client 41555023994](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41555023994) 最终成功，Windows 托管运行器明确记录 **395 通过／0 失败／0 跳过**；WinUI x64 Release、测试 MSIX 签名及产物上传均成功。[Linux Client 41555023924](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41555023924) 同样成功。[Security Gates 41555024058](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41555024058) 此次读取仍运行，不能记完整成功：视觉及依赖扫描已成功，Rust／Apple／Android 作业仍在执行，条件式 OpenSSH RC 与专用签名 Mac UI 作业 skipped。
+
+`44628d3` 没有产品逻辑变化，真机继续保留已验签的 `4456ef8`，不为测试代码和文档变更再次导入证书／重装客户端。后继纯回执提交的 CI 不与本条混记。
