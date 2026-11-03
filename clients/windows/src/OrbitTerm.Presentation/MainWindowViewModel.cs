@@ -246,7 +246,7 @@ public sealed class MainWindowViewModel : ObservableObject
             CanDisconnectAndCloseSelectedWorkspaceTab);
         ConnectCommand = new AsyncRelayCommand(ConnectAsync, CanConnect);
         TrustHostKeyCommand = new AsyncRelayCommand(TrustHostKeyAsync, () => pendingChallenge is not null);
-        EndSessionCommand = new AsyncRelayCommand(EndSessionAsync, () => !IsDisconnecting && (isConnected || terminalLease is not null || sftpLease is not null || pendingChallenge is not null));
+        EndSessionCommand = new AsyncRelayCommand(EndSessionAsync, () => !IsDisconnecting && (isConnected || terminalLease is not null || sftpLease is not null || pendingChallenge is not null || SelectedWorkspaceTab?.NeedsDisconnectRetry == true));
         OpenTerminalCommand = new AsyncRelayCommand(OpenTerminalAsync, () => !IsDisconnecting && isConnected && terminalLease is null && !isOpeningVerifiedWorkspace && !IsTelnetSession);
         AddTerminalSplitCommand = new AsyncRelayCommand(AddTerminalSplitAsync, () => CanAddTerminalSplit);
         RemoveLastTerminalSplitCommand = new AsyncRelayCommand(RemoveLastTerminalSplitAsync, () => !IsDisconnecting && HasTerminalSplits);
@@ -3401,6 +3401,8 @@ public sealed class MainWindowViewModel : ObservableObject
             {
                 await EndSessionCoreAsync(cancellationToken, "账户状态变化，会话已安全断开").ConfigureAwait(true);
             }
+            if (HasActiveRuntime || tab.IsDisconnecting)
+                throw new InvalidOperationException("连接资源尚未释放，请重试断开后再切换账户状态。");
         }
 
         foreach (var context in sftpTransferContexts.Values)
@@ -3593,7 +3595,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private void CloseSelectedWorkspaceTabCore()
     {
-        if (SelectedWorkspaceTab is null)
+        if (SelectedWorkspaceTab is null || HasActiveRuntime || IsDisconnecting)
         {
             return;
         }
@@ -9489,11 +9491,13 @@ public sealed class MainWindowViewModel : ObservableObject
     private bool HasActiveRuntime => IsConnected ||
         HasHostKeyChallenge ||
         terminalLease is not null ||
-        sftpLease is not null;
+        sftpLease is not null ||
+        SelectedWorkspaceTab?.NeedsDisconnectRetry == true;
 
     private bool CanCloseSelectedWorkspaceTab()
     {
         return SelectedWorkspaceTab is not null && !IsDisconnecting &&
+            !SelectedWorkspaceTab.NeedsDisconnectRetry &&
             !SelectedWorkspaceTab.IsConnected &&
             !SelectedWorkspaceTab.HasHostKeyChallenge &&
             SelectedWorkspaceTab.TerminalLease is null &&
@@ -9503,7 +9507,8 @@ public sealed class MainWindowViewModel : ObservableObject
     private bool CanDisconnectAndCloseSelectedWorkspaceTab()
     {
         return SelectedWorkspaceTab is not null && !IsDisconnecting &&
-            (SelectedWorkspaceTab.IsConnected ||
+            (SelectedWorkspaceTab.NeedsDisconnectRetry ||
+                SelectedWorkspaceTab.IsConnected ||
                 SelectedWorkspaceTab.HasHostKeyChallenge ||
                 SelectedWorkspaceTab.TerminalLease is not null ||
                 SelectedWorkspaceTab.SftpLease is not null);

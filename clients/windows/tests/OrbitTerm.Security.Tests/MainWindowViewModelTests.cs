@@ -1530,6 +1530,49 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
+    public async Task PassiveLossAfterFailedDisconnectCannotBypassExplicitReleaseRetry()
+    {
+        var core = new FakeCheckedCoreClient();
+        var viewModel = CreateViewModel(core);
+        viewModel.Password = "secret";
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        var owner = viewModel.SelectedWorkspaceTab!;
+        core.FailDisconnect = true;
+        await viewModel.DisconnectSelectedWorkspaceAsync(CancellationToken.None);
+        core.EmitConnectionEvent(9UL, OrbitConnectionEventKind.ConnectionLost);
+        Assert.False(viewModel.IsConnected);
+        Assert.True(viewModel.HasIncompleteWorkspaceDisconnect);
+        Assert.False(viewModel.CloseWorkspaceTabCommand.CanExecute(null));
+        Assert.True(viewModel.EndSessionCommand.CanExecute(null));
+        Assert.True(viewModel.DisconnectAndCloseWorkspaceTabCommand.CanExecute(null));
+        await viewModel.CloseWorkspaceTabCommand.ExecuteAsync(null);
+        Assert.Contains(owner, viewModel.WorkspaceTabs);
+
+        core.FailDisconnect = false;
+        await viewModel.DisconnectSelectedWorkspaceAsync(CancellationToken.None);
+        Assert.False(viewModel.HasIncompleteWorkspaceDisconnect);
+        Assert.True(viewModel.CloseWorkspaceTabCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task FailedDisconnectPreventsAccountTransitionFromDiscardingWorkspaceOwnership()
+    {
+        var core = new FakeCheckedCoreClient();
+        var viewModel = CreateViewModel(core);
+        viewModel.Password = "secret";
+        await viewModel.ConnectCommand.ExecuteAsync(null);
+        var owner = viewModel.SelectedWorkspaceTab!;
+        core.FailDisconnect = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => viewModel.SignOutAccountAsync(CancellationToken.None));
+        Assert.Contains(owner, viewModel.WorkspaceTabs);
+        Assert.True(viewModel.HasIncompleteWorkspaceDisconnect);
+        core.FailDisconnect = false;
+        await viewModel.SignOutAccountAsync(CancellationToken.None);
+        Assert.DoesNotContain(owner, viewModel.WorkspaceTabs);
+        Assert.False(viewModel.HasIncompleteWorkspaceDisconnect);
+    }
+
+    [Fact]
     public async Task PendingDisconnectShowsProgressAndRejectsDuplicateConnectionActions()
     {
         using var entered = new ManualResetEventSlim();

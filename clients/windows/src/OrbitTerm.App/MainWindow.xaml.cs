@@ -6616,7 +6616,15 @@ public sealed partial class MainWindow : Window
                     "本机会话令牌将被清除，并尝试撤销当前设备的服务端会话；本机资产不会交给下一个账户。其他设备不受影响。",
                     "退出登录"))
                 {
-                    await ViewModel.SignOutAccountAsync(CancellationToken.None);
+                    try
+                    {
+                        await ViewModel.SignOutAccountAsync(CancellationToken.None);
+                    }
+                    catch (InvalidOperationException) when (ViewModel.HasIncompleteWorkspaceDisconnect)
+                    {
+                        await ShowAccountMessageAsync("暂未退出账户", "连接资源尚未释放。请回到对应会话重试断开，再退出账户。");
+                        break;
+                    }
                     if (ViewModel.LastAccountLogoutRevocationFailed)
                         await ShowAccountMessageAsync("远端撤销未确认", ViewModel.AccountStatus);
                 }
