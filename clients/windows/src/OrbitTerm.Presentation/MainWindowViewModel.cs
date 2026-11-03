@@ -1219,6 +1219,9 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public bool IsDisconnecting => SelectedWorkspaceTab?.IsDisconnecting == true;
 
+    public bool HasIncompleteWorkspaceDisconnect =>
+        WorkspaceTabs.Any(tab => tab.IsDisconnecting || tab.NeedsDisconnectRetry);
+
     public bool CanInteractWithTerminal => IsTerminalOpen && !IsDisconnecting;
 
     public ObservableCollection<TerminalSplitPaneViewModel> TerminalSplitPanes =>
@@ -4007,6 +4010,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
         var deletableAssets = new List<AssetViewModel>(requestedAssets.Length);
         var tombstoneFailures = 0;
+        var queuedTombstones = 0;
         if (IsAccountSignedIn && accountUnlockController is not null && encryptedAssetPublisher is not null)
         {
             foreach (var asset in requestedAssets)
@@ -4023,6 +4027,7 @@ public sealed class MainWindowViewModel : ObservableObject
                         .QueueAssetTombstoneAsync(encryptedAssetPublisher, asset.Id, cancellationToken)
                         .ConfigureAwait(true);
                     deletableAssets.Add(asset);
+                    queuedTombstones++;
                 }
                 catch (OperationCanceledException)
                 {
@@ -4099,9 +4104,15 @@ public sealed class MainWindowViewModel : ObservableObject
             }
         }
 
-        var status = IsAccountSignedIn
-            ? $"已删除 {deletableAssets.Count} 个资产，删除墓碑已加入下次双向同步队列。"
-            : $"已从本地资产库删除 {deletableAssets.Count} 个资产。";
+        var localDeletionCount = deletableAssets.Count - queuedTombstones;
+        var status = queuedTombstones > 0
+            ? $"已删除 {queuedTombstones} 个同步资产，删除墓碑已加入下次双向同步队列。"
+            : string.Empty;
+        if (localDeletionCount > 0)
+        {
+            if (status.Length > 0) status += " ";
+            status += $"已从本机直接删除 {localDeletionCount} 个资产；不会进入最近删除，无法在应用内恢复。";
+        }
         if (tombstoneFailures > 0)
         {
             status += $" {tombstoneFailures} 个资产因未能记录删除墓碑而保留。";
@@ -8653,6 +8664,7 @@ public sealed class MainWindowViewModel : ObservableObject
         SaveRuntimeStateToSelectedWorkspaceTab();
         var assetId = owner.AssetId;
         owner.IsDisconnecting = true;
+        owner.NeedsDisconnectRetry = true;
         owner.SessionGeneration = Guid.NewGuid();
         owner.IsSftpOpening = false;
         CancelAutomaticReconnect();
@@ -8695,6 +8707,8 @@ public sealed class MainWindowViewModel : ObservableObject
                 SetDisconnectStatus(owner, "断开连接未完成，请重试。", "连接资源尚未完全释放");
                 return;
             }
+
+            owner.NeedsDisconnectRetry = false;
 
             var sessionEnded = endResult == SessionEndResult.Ended || endedTelnetTerminal;
             if (ReferenceEquals(owner, SelectedWorkspaceTab))
@@ -8741,6 +8755,7 @@ public sealed class MainWindowViewModel : ObservableObject
         finally
         {
             owner.IsDisconnecting = false;
+            OnPropertyChanged(nameof(HasIncompleteWorkspaceDisconnect));
             RefreshBatchAssetTargets();
             if (ReferenceEquals(owner, SelectedWorkspaceTab)) NotifyDisconnectStateChanged();
         }
@@ -8758,6 +8773,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private void NotifyDisconnectStateChanged()
     {
         OnPropertyChanged(nameof(IsDisconnecting));
+        OnPropertyChanged(nameof(HasIncompleteWorkspaceDisconnect));
         OnPropertyChanged(nameof(CurrentConnectedHost));
         RefreshBatchAssetTargets();
         NotifyTerminalStateChanged();

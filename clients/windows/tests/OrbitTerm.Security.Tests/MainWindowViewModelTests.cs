@@ -640,7 +640,7 @@ public sealed class MainWindowViewModelTests
         await WaitUntilAsync(() => viewModel.Assets.Count == 0);
 
         Assert.Equal(asset.CredentialId, credentialVault.LastDeletedCredentialId);
-        Assert.Equal("已从本地资产库删除 1 个资产。", viewModel.AssetEditorStatus);
+        Assert.Equal("已从本机直接删除 1 个资产；不会进入最近删除，无法在应用内恢复。", viewModel.AssetEditorStatus);
     }
 
     [Fact]
@@ -697,7 +697,59 @@ public sealed class MainWindowViewModelTests
         Assert.Equal(retained.Id, viewModel.Assets[0].Id);
         Assert.Single(store.SavedAssets);
         Assert.Equal(retained.Id, store.SavedAssets[0].Id);
-        Assert.Equal("已从本地资产库删除 2 个资产。", viewModel.AssetEditorStatus);
+        Assert.Equal("已从本机直接删除 2 个资产；不会进入最近删除，无法在应用内恢复。", viewModel.AssetEditorStatus);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task SignedInDeletionReportsOnlyTombstonesActuallyQueued(bool includeCloud, bool rejectCloud)
+    {
+        var session = new AccountSessionRecord(
+            AccountProtocolContracts.Version, "qa@example.test", "synthetic-access", "synthetic-refresh",
+            DateTimeOffset.UtcNow, null, null);
+        var controller = new AccountUnlockController(
+            new EmptyAccountSessionStore(session), new UnusedAccountProtocol(), new UnusedUnlockVerifier());
+        var publisher = new RecordingAssetPublisher { RejectTombstones = rejectCloud };
+        var store = new MemoryServerAssetStore();
+        var viewModel = CreateViewModel(
+            assetStore: store, seedDefaultAsset: false,
+            accountUnlockController: controller, encryptedAssetPublisher: publisher);
+        await viewModel.LoadAccountSessionCommand.ExecuteAsync(null);
+        Assert.True(viewModel.IsAccountSignedIn);
+        var local = new AssetViewModel(
+            Guid.NewGuid(), Guid.NewGuid(), "Local", "local.example", 22, "qa", ServerTransport.Ssh, false)
+        { StorageScope = AssetStorageScope.LocalOnly };
+        viewModel.Assets.Add(local);
+        var ids = new List<Guid> { local.Id };
+        AssetViewModel? cloud = null;
+        if (includeCloud)
+        {
+            cloud = new AssetViewModel(
+                Guid.NewGuid(), Guid.NewGuid(), "Cloud", "cloud.example", 22, "qa", ServerTransport.Ssh, false)
+            { StorageScope = AssetStorageScope.AccountSynced };
+            viewModel.Assets.Add(cloud);
+            ids.Add(cloud.Id);
+        }
+
+        var result = await viewModel.DeleteAssetsAsync(ids, CancellationToken.None);
+
+        Assert.DoesNotContain(local, viewModel.Assets);
+        Assert.Equal(includeCloud && !rejectCloud ? 2 : 1, result.DeletedCount);
+        Assert.Equal(includeCloud && rejectCloud ? 1 : 0, result.FailedCount);
+        Assert.Contains("不会进入最近删除，无法在应用内恢复", viewModel.AssetEditorStatus);
+        Assert.DoesNotContain(local.Id, publisher.Tombstones);
+        if (cloud is not null)
+        {
+            Assert.Equal(new[] { cloud.Id }, publisher.Tombstones);
+            Assert.Equal(rejectCloud, viewModel.Assets.Contains(cloud));
+            Assert.Equal(rejectCloud, store.SavedAssets.Any(asset => asset.Id == cloud.Id));
+            if (!rejectCloud) Assert.Contains("1 个同步资产", viewModel.AssetEditorStatus);
+        }
+        else Assert.Empty(publisher.Tombstones);
+        Assert.Equal(includeCloud && !rejectCloud,
+            viewModel.AssetEditorStatus.Contains("删除墓碑已加入", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -1464,6 +1516,7 @@ public sealed class MainWindowViewModelTests
         Assert.True(viewModel.IsConnected);
         Assert.Equal(connectCalls, core.ConnectCallCount);
         Assert.Equal("断开连接未完成，请重试。", viewModel.Status);
+        Assert.True(viewModel.HasIncompleteWorkspaceDisconnect);
         await viewModel.DisconnectAndCloseWorkspaceTabCommand.ExecuteAsync(null);
         Assert.Same(tab, viewModel.SelectedWorkspaceTab);
         Assert.True(viewModel.IsConnected);
@@ -1473,6 +1526,7 @@ public sealed class MainWindowViewModelTests
         await viewModel.DisconnectSelectedWorkspaceAsync(CancellationToken.None);
         Assert.False(viewModel.IsConnected);
         Assert.Equal("会话已断开", viewModel.Status);
+        Assert.False(viewModel.HasIncompleteWorkspaceDisconnect);
     }
 
     [Fact]
@@ -1491,6 +1545,7 @@ public sealed class MainWindowViewModelTests
             await WaitUntilAsync(() => entered.IsSet);
             Assert.Equal("正在断开连接…", viewModel.SelectedWorkspaceTab!.ConnectionStateLabel);
             Assert.Equal("正在断开连接…", viewModel.TerminalEmptyStateLabel);
+            Assert.True(viewModel.HasIncompleteWorkspaceDisconnect);
             Assert.False(viewModel.ConnectCommand.CanExecute(null));
             Assert.False(viewModel.EndSessionCommand.CanExecute(null));
             Assert.False(viewModel.OpenTerminalCommand.CanExecute(null));
@@ -1504,6 +1559,7 @@ public sealed class MainWindowViewModelTests
         await ending;
         Assert.False(viewModel.IsConnected);
         Assert.Equal("未连接", viewModel.SelectedWorkspaceTab!.ConnectionStateLabel);
+        Assert.False(viewModel.HasIncompleteWorkspaceDisconnect);
     }
 
     [Theory]
@@ -1586,10 +1642,12 @@ public sealed class MainWindowViewModelTests
         Assert.Equal("断开连接未完成，请重试。", viewModel.Status);
         Assert.DoesNotContain("private backend", viewModel.Status);
         Assert.True(viewModel.EndSessionCommand.CanExecute(null));
+        Assert.True(viewModel.HasIncompleteWorkspaceDisconnect);
         core.ThrowOnTerminalClose = false;
         await viewModel.DisconnectSelectedWorkspaceAsync(CancellationToken.None);
         Assert.False(viewModel.IsConnected);
         Assert.False(viewModel.IsTerminalOpen);
+        Assert.False(viewModel.HasIncompleteWorkspaceDisconnect);
     }
 
     [Theory]
@@ -1664,6 +1722,7 @@ public sealed class MainWindowViewModelTests
             await WaitUntilAsync(() => entered.IsSet);
             viewModel.SelectedWorkspaceTab = other;
             Assert.False(viewModel.IsDisconnecting);
+            Assert.True(viewModel.HasIncompleteWorkspaceDisconnect);
             core.EmitTerminalData(otherTerminal.TerminalChannelId, "during-owner-disconnect\r\n");
             Assert.True(await viewModel.WriteTerminalInputAsync(new byte[] { 65 }, CancellationToken.None));
             Assert.Equal(otherTerminal.TerminalChannelId, core.LastWrittenTerminalChannelId);
@@ -1681,6 +1740,7 @@ public sealed class MainWindowViewModelTests
         Assert.Equal("/var", viewModel.SftpPathText);
         Assert.Contains(viewModel.TerminalLines, line => line.Text.Contains("during-owner-disconnect", StringComparison.Ordinal));
         Assert.Equal(failDisconnect, owner.IsConnected);
+        Assert.Equal(failDisconnect, viewModel.HasIncompleteWorkspaceDisconnect);
         Assert.Equal(new[] { ownerBase }, core.DisconnectedBaseSessionIds);
 
         if (failDisconnect)
@@ -1701,6 +1761,7 @@ public sealed class MainWindowViewModelTests
         Assert.True(viewModel.IsSftpOpen);
         Assert.Contains(viewModel.TerminalLines, line => line.Text.Contains("after-owner-release", StringComparison.Ordinal));
         Assert.Equal(2, core.ConnectCallCount);
+        Assert.False(viewModel.HasIncompleteWorkspaceDisconnect);
     }
 
     [Fact]
@@ -4151,7 +4212,8 @@ public sealed class MainWindowViewModelTests
         Action<Action>? dispatch = null,
         TimeSpan? terminalUiFrameInterval = null,
         AccountUnlockController? accountUnlockController = null,
-        bool tcpReachable = true)
+        bool tcpReachable = true,
+        IEncryptedAssetPublisher? encryptedAssetPublisher = null)
     {
         credentialVault ??= new MemoryCredentialVault();
         var orchestrator = new SessionOrchestrator(
@@ -4168,6 +4230,7 @@ public sealed class MainWindowViewModelTests
             snippetStore,
             dispatch: dispatch,
             accountUnlockController: accountUnlockController,
+            encryptedAssetPublisher: encryptedAssetPublisher,
             utcNow: utcNow,
             terminalUiFrameInterval: terminalUiFrameInterval ?? TimeSpan.Zero,
             tcpLatencyProbe: (_, _, _) =>
@@ -4988,10 +5051,10 @@ public sealed class MainWindowViewModelTests
         }
     }
 
-    private sealed class EmptyAccountSessionStore : IAccountSessionStore
+    private sealed class EmptyAccountSessionStore(AccountSessionRecord? session = null) : IAccountSessionStore
     {
         public ValueTask<AccountSessionRecord?> ReadAsync(CancellationToken cancellationToken) =>
-            ValueTask.FromResult<AccountSessionRecord?>(null);
+            ValueTask.FromResult(session);
 
         public ValueTask SaveAsync(AccountSessionRecord session, CancellationToken cancellationToken) =>
             ValueTask.CompletedTask;
@@ -5000,6 +5063,31 @@ public sealed class MainWindowViewModelTests
             ValueTask.FromResult(false);
 
         public ValueTask ClearAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
+    }
+
+    private sealed class RecordingAssetPublisher : IEncryptedAssetPublisher
+    {
+        public bool RejectTombstones { get; init; }
+        public List<Guid> Tombstones { get; } = [];
+
+        public ValueTask QueueTombstoneAsync(string scope, Guid assetId, CancellationToken token)
+        {
+            Tombstones.Add(assetId);
+            if (RejectTombstones) throw new IOException("Synthetic queue write failure");
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask QueueUpsertAsync(string scope, Guid assetId, CancellationToken token) =>
+            throw new NotSupportedException();
+        public ValueTask QueueUnsyncedAssetsAsync(string scope, IReadOnlyCollection<Guid> assetIds, CancellationToken token) =>
+            throw new NotSupportedException();
+        public ValueTask<IReadOnlyDictionary<Guid, PendingAssetSyncOperation>> ReadPendingOperationsAsync(string scope, CancellationToken token) =>
+            ValueTask.FromResult<IReadOnlyDictionary<Guid, PendingAssetSyncOperation>>(new Dictionary<Guid, PendingAssetSyncOperation>());
+        public ValueTask<EncryptedAssetPublishResult> PublishAsync(AccountSessionRecord session, string scope,
+            ServerAssetRecord asset, CredentialMaterial credential, CredentialMaterial? jumpCredential,
+            string masterPassword, byte[] rootKey, CancellationToken token) => throw new NotSupportedException();
+        public ValueTask<EncryptedAssetPublishResult> TombstoneAsync(AccountSessionRecord session, string scope,
+            Guid assetId, byte[] rootKey, CancellationToken token) => throw new NotSupportedException();
     }
 
     private sealed class UnusedAccountProtocol : IOrbitAccountProtocol

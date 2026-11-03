@@ -3765,6 +3765,25 @@ public sealed partial class MainWindow : Window
     private async void MainAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
     {
         PersistPaneLayout();
+        if (ViewModel.HasIncompleteWorkspaceDisconnect)
+        {
+            args.Cancel = true;
+            if (isExitConfirmationOpen) return;
+            isExitConfirmationOpen = true;
+            try
+            {
+                await ShowAccountMessageAsync(
+                    "连接资源尚未释放",
+                    "有会话正在断开或断开尚未完成。请等待释放完成；若会话提示未完成，请回到对应会话重试断开，再关闭应用。");
+            }
+            catch (COMException)
+            {
+                // Another modal may already be visible. Keep the close veto
+                // even when WinUI cannot show a second dialog on this root.
+            }
+            finally { isExitConfirmationOpen = false; }
+            return;
+        }
         if (allowApplicationClose ||
             (!ViewModel.HasActiveSftpTransfers && !ViewModel.HasActiveBatchContinuousSessions))
         {
@@ -5513,7 +5532,7 @@ public sealed partial class MainWindow : Window
                         "\n分组：", selected.Group,
                         isSynchronizedAsset
                             ? "\n\n此操作先安全记录删除墓碑，再从本机移除资产及凭据。下次双向同步会将删除传播到其他设备；若墓碑无法记录，本机资产会保留。保留期内可从支持“最近删除”的客户端恢复。不会连接或修改资产所指向的服务器。"
-                            : "\n\n此操作仅从当前 Windows 设备移除资产及本机凭据，不会影响其他设备，也不会连接或修改资产所指向的服务器。"),
+                            : "\n\n此操作会从当前 Windows 设备直接删除资产及本机凭据；不会进入最近删除，无法在应用内恢复。不会影响其他设备，也不会连接或修改资产所指向的服务器。"),
                     TextWrapping = TextWrapping.Wrap,
                 },
                 PrimaryButtonText = "删除",

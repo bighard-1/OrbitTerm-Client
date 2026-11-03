@@ -134,6 +134,10 @@ public sealed class WorkspaceTabViewModel : ObservableObject
 
     internal bool IsSftpOpening { get; set; }
 
+    // Runtime ownership only. A failed teardown must remain protected even
+    // after its asynchronous command has returned and another tab is selected.
+    internal bool NeedsDisconnectRetry { get; set; }
+
     internal long SftpBrowseVersion { get; set; }
 
     public bool IsDisconnecting
