@@ -750,3 +750,5 @@
 `WINDOWS-RESTORE-WORKAREA-283` 本地完整回执：仅纠正被忽略的测试输出目录中 macOS 原生库平台文件名，完整 .NET 412／412、0 失败／跳过，包含新 9 项且未过滤原失败项；TRX 私有留存。首次 40 项环境失败保留，Windows 原生与新候选 GUI 尚待，不以可移植通过替代。
 
 `WINDOWS-RESTORE-WORKAREA-283` 固定候选／首次安全失败追加：`802a48e` 的 Windows `42470265598` 原生 412／412、0 失败／跳过、WinUI 0 警告／错误，Linux `42470265565` 成功。归档／清单／Mac 与 Windows 本机包摘要一致，新证书 `0EAA…E446` 签名者／有效期匹配但尚未信任或更新；旧 `56c9e6d` 保持，27 文件备份无错误、9 关键文件摘要保持。**Security `42470265561` attempt 1 整体失败**：Apple 运行库下载 HTTP 504／curl 56，Android Java 下载 HTTP 504，Android 预构建下载 Gradle 超时 10000 ms；相应下游测试均未执行，原始失败保留。Rust／依赖／视觉成功、两条件 RC skipped；仅发起一次失败任务重试 attempt 2，结果待收，不能写成完整门禁通过。**隔离 GUI／真实设备**：本候选未新增 GUI 通过，窗口还原尚未闭环；无新增 Android／Apple／Linux 设备结果、五端未完成。后续 Windows 验签更新后重复还原边界，Android 对照旋转／分屏可达性，其他桌面对照显示环境变化与自由拖动；详见[专项回执](WINDOWS_RESTORE_WORKAREA_20261108.md)。
+
+`WINDOWS-RESTORE-WORKAREA-283` 限次重试最终追加：Security 同一源码 attempt 2 仍失败，Apple `128702465786` 原始日志为 HTTP 504／curl 56，Android release `128702465776` Java 安装 HTTP 504，instrumentation `128702465644` 预构建超时 10000 ms；第二次证据另存，停止进一步重试，不跳过任务放行。Rust／依赖／视觉成功，两条件 RC skipped，**完整门禁未通过、设备还原未闭环、五端未完成**。新证书的当次确认尚待答复，未导入或更新；后续先接收确认并做 Windows 固定候选几何复测，依赖获取恢复后另收完整门禁，不把这些下载失败当作代码下游验证成功。
