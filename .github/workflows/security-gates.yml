@@ -33,6 +33,7 @@ jobs:
           python3 -m unittest discover -s scripts/security/tests -p 'test_bounded_phase.py'
           python3 -m unittest discover -s scripts/security/tests -p 'test_apple_ui_evidence.py'
           python3 -m unittest discover -s scripts/security/tests -p 'test_ci_dependency_fetch.py'
+          python3 -m unittest discover -s scripts/performance/tests -p 'test_*.py'
 
   rust-security-gates:
     name: Rust release gates

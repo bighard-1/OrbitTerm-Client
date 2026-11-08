@@ -55,7 +55,9 @@ scripts/performance/preflight_real_device_acceptance.sh \
 每次运行保存一份脱敏 JSON，再用以下命令验证：
 
 ```zsh
-python3 scripts/performance/verify_desktop_concurrency_evidence.py /restricted/evidence/desktop-concurrency/*.json
+python3 scripts/performance/verify_desktop_concurrency_evidence.py \
+  --expected-build-commit '<完整的候选提交 SHA>' \
+  /restricted/evidence/desktop-concurrency/*.json
 ```
 
 JSON 只允许数值指标，示例字段如下：
@@ -64,7 +66,7 @@ JSON 只允许数值指标，示例字段如下：
 {
   "schema_version": 1,
   "kind": "desktop-concurrency",
-  "build_commit": "0123456789abcdef",
+  "build_commit": "0123456789abcdef0123456789abcdef01234567",
   "platform": "macos",
   "scenario": "three-assets-six-panes-3-gib-transfer",
   "run": 1,
@@ -75,13 +77,15 @@ JSON 只允许数值指标，示例字段如下：
   "stale_monitor_intervals": 0,
   "max_ui_progress_updates_per_second": 0,
   "canceling_state_ms": 0,
-  "memory_start_bytes": 0,
-  "memory_end_bytes": 0,
+  "memory_start_bytes": 104857600,
+  "memory_end_bytes": 104857600,
   "late_window_throughput_ratio": 0.85
 }
 ```
 
 验收阈值：点击不超过 250 ms、会话切换不超过 500 ms、空白窗格和陈旧监控为零、UI 进度更新每秒不超过 8 次、取消在 1 秒内进入取消中、15 分钟内内存增长不超过 64 MiB，且最后 4 分钟吞吐不少于最佳稳定 60 秒中位值的 70%。任何超标都不允许把 P0-2 标为完成。
+
+上述数字仅说明结构，必须替换为实测值。九份记录均须匹配显式指定的完整 40 位小写候选 SHA；禁止混合不同候选。校验器拒绝负数、布尔值代替指标、NaN／Infinity／溢出数字、重复 JSON 字段、重复平台／轮次、额外或敏感字段、缺失平台／轮次；内存必须为正整数字节数。错误提示不回显原始文件路径或证据内容。结构校验不能证明测量真实，仍须发布负责人核对原始私有证据。
 
 ## 归档与关闭
 

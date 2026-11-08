@@ -129,7 +129,8 @@ section "Real-device performance evidence contract"
 if [[ "${ORBITTERM_REQUIRE_DEVICE_PERFORMANCE_EVIDENCE:-0}" == "1" ]]; then
   evidence_dir="${ORBITTERM_DEVICE_PERFORMANCE_EVIDENCE_DIR:-}"
   [[ -n "$evidence_dir" ]] || fail "release lane requires ORBITTERM_DEVICE_PERFORMANCE_EVIDENCE_DIR"
-  "$ORBIT_ROOT/scripts/security/check_apple_device_performance_evidence.sh" "$evidence_dir"
+  "$ORBIT_ROOT/scripts/security/check_apple_device_performance_evidence.sh" \
+    "$evidence_dir" "$(git -C "$ORBIT_ROOT" rev-parse HEAD)"
   pass "real-device performance SLO evidence verified"
 else
   warn "real-device performance evidence is required only in the signed release-candidate lane"
