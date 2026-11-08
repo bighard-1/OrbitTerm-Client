@@ -26,6 +26,14 @@
 
 新回归加入 Security Gates 必跑任务。固定提交后的托管回执另收，不能把此前完整门禁通过直接复用。本轮完整日志／反例重验位于加密外置盘私有目录 `Development/orbitterm-performance-evidence-20261108/`，原始误放行输入留在前一轮私有探针目录。
 
+## 固定候选必跑回归回执
+
+源码固定为 `eb06f24dd1e8a19532595256ec1d9197747812fc`。Security [42486316038](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/42486316038) 的必跑 job `128748852790` 已成功；原始完整日志明确执行新性能回归 **29／29**，以及既有 bounded-phase 4、Apple evidence 5、依赖获取 13 项，均成功。依赖扫描成功。此前旧数据的错误放行已在源码／本地及托管故障自动化层面修复，不依赖将输入改为缺参数来拒绝。
+
+本次读取 Windows [42486315967](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/42486315967)、Linux [42486315978](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/42486315978) 和 Security 其余矩阵仍在运行；**完整新候选门禁未记作通过**，后继最终回执另收。条件式 OpenSSH RC／专用签名 Mac UI skipped，与本轮新增回归的实际执行不同。未改普通 CI 的设备证据 opt-in 条件；本地 shell 集成测试已验证合法完整矩阵可通过、错误候选及缺少预期提交参数被拒绝。
+
+所有正例均为临时合成数据，不能充当真实性能证据。后续采集须使用固定签名候选和 v2 生产者／校验器；没有真实 trace 与测量结果之前，性能及五端发布阻断仍保持开放。
+
 ## 后续验收
 
 先核对新提交的必跑回归与调用兼容性，再按[Apple 实机 SLO](APPLE_DEVICE_PERFORMANCE_SLO.md)及[真实设备协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)采集同候选证据。Android／Windows 后续对照同候选、完整平台／轮次、失败不能被重复记录或非有限指标绕过；其他五端业务矩阵、专用签名 Mac UI／实际 DPI 和生产签名证据仍分别待验。
