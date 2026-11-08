@@ -316,6 +316,23 @@ class EvidenceTests(EvidenceFixtures):
 
 
 class SummaryTests(EvidenceFixtures):
+    @staticmethod
+    def activity_xml(rows=None):
+        # Same schema/ref layout as real xctrace exports, without process or
+        # device identifiers from the private compatibility capture.
+        columns = [('pid', 'pid'), ('cpu-percent', 'system-cpu-percent'),
+                   ('duration', 'duration'), ('memory-real-shared', 'size-in-bytes'),
+                   ('memory-physical-footprint', 'size-in-bytes')]
+        schema = ''.join(f'<col><mnemonic>{name}</mnemonic>'
+                         f'<engineering-type>{kind}</engineering-type></col>'
+                         for name, kind in columns)
+        if rows is None:
+            rows = ('<row><pid>42</pid><system-cpu-percent>10</system-cpu-percent>'
+                    '<duration>100</duration><size-in-bytes>1</size-in-bytes>'
+                    '<size-in-bytes>104857600</size-in-bytes></row>')
+        return ('<trace-query-result><node><schema name="activity-monitor-process-live">'
+                + schema + '</schema>' + rows + '</node></trace-query-result>')
+
     def captures(self):
         activity = self.root / 'activity.trace'
         frame = self.root / 'frame.trace'
@@ -328,14 +345,12 @@ class SummaryTests(EvidenceFixtures):
     def summary_args(self, activity, frame, output):
         return ['summary', '--trace', str(activity), '--frame-trace', str(frame),
                 '--scenario', 'cold_launch', '--build-commit', COMMIT, '--platform', 'macos',
-                '--run', '1', '--output', str(output), '--response-ms', '100',
+                '--run', '1', '--target-pid', '42', '--output', str(output), '--response-ms', '100',
                 '--minimum-fps', '60', '--animation-hitches', '0']
 
     def exported_activity(self, command, **_kwargs):
         path = Path(command[command.index('--output') + 1])
-        path.write_text('<trace><row><system-cpu-percent>10</system-cpu-percent>'
-                        + '<unused/>' * 9 + '<size-in-bytes>104857600</size-in-bytes>'
-                        + '</row></trace>')
+        path.write_text(self.activity_xml())
 
     def test_summary_producer_emits_the_exact_consumer_schema(self):
         activity, frame = self.captures()
@@ -393,9 +408,81 @@ class SummaryTests(EvidenceFixtures):
     def test_trace_numeric_samples_reject_nonfinite_negative_and_malformed(self):
         import xml.etree.ElementTree as ET
         for value in ('nan', 'inf', '-1', 'bad-value'):
-            root = ET.fromstring(f'<row><system-cpu-percent>{value}</system-cpu-percent></row>')
+            root = ET.fromstring(self.activity_xml().replace('>10<', f'>{value}<'))
             with self.subTest(value=value), self.assertRaises(ValueError):
-                summarize.values(root, 'system-cpu-percent')
+                summarize.activity_metrics(root, 42)
+
+    def test_metric_columns_are_named_not_fixed_ordinals_or_first_byte_cell(self):
+        import xml.etree.ElementTree as ET
+        self.assertEqual(summarize.activity_metrics(ET.fromstring(self.activity_xml()), 42),
+                         (10, 104857600, 1))
+
+    def test_cpu_average_is_not_rounded_down_across_a_slo_boundary(self):
+        import xml.etree.ElementTree as ET
+        text = self.activity_xml().replace('>10<', '>70.0004<')
+        self.assertGreater(summarize.activity_metrics(ET.fromstring(text), 42)[0], 70)
+
+    def test_references_count_each_observation_and_cpu_is_duration_weighted(self):
+        import xml.etree.ElementTree as ET
+        rows = ('<row><pid id="p">42</pid><sentinel/><duration>1</duration>'
+                '<size-in-bytes>999</size-in-bytes><size-in-bytes id="m">104857600</size-in-bytes></row>'
+                '<row><pid ref="p"/><system-cpu-percent id="c">10</system-cpu-percent>'
+                '<duration id="d">1</duration><size-in-bytes>2</size-in-bytes><size-in-bytes ref="m"/></row>'
+                '<row><pid ref="p"/><system-cpu-percent ref="c"/><duration ref="d"/>'
+                '<size-in-bytes>3</size-in-bytes><size-in-bytes ref="m"/></row>'
+                '<row><pid ref="p"/><system-cpu-percent>90</system-cpu-percent><duration>6</duration>'
+                '<size-in-bytes>4</size-in-bytes><size-in-bytes ref="m"/></row>')
+        self.assertEqual(summarize.activity_metrics(ET.fromstring(self.activity_xml(rows)), 42),
+                         (70, 104857600, 3))
+
+    def test_wrong_process_schema_row_shape_and_unsupported_columns_are_rejected(self):
+        import xml.etree.ElementTree as ET
+        original = self.activity_xml()
+        for value in (original.replace('>42<', '>43<'),
+                      original.replace('memory-physical-footprint', 'memory-other'),
+                      original.replace('<duration>100</duration>', ''),
+                      original.replace('activity-monitor-process-live', 'other-table'),
+                      original.replace('<mnemonic>pid</mnemonic>', '<mnemonic>duration</mnemonic>')):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                summarize.activity_metrics(ET.fromstring(value), 42)
+        root = ET.fromstring(original)
+        root.append(ET.fromstring(original).find('node'))
+        with self.assertRaises(ValueError):
+            summarize.activity_metrics(root, 42)
+
+    def test_dangling_cyclic_duplicate_and_wrong_type_references_are_rejected(self):
+        import xml.etree.ElementTree as ET
+        cpu = '<system-cpu-percent>10</system-cpu-percent>'
+        for replacement in ('<system-cpu-percent ref="missing"/>',
+                            '<system-cpu-percent id="c" ref="c"/>',
+                            '<system-cpu-percent ref="m"/>',
+                            '<system-cpu-percent id="m">10</system-cpu-percent>'):
+            text = self.activity_xml().replace(cpu, replacement)
+            text = text.replace('<size-in-bytes>104857600', '<size-in-bytes id="m">104857600')
+            with self.subTest(replacement=replacement), self.assertRaises(ValueError):
+                summarize.activity_metrics(ET.fromstring(text), 42)
+
+    def test_missing_cpu_after_measurement_and_invalid_duration_are_rejected(self):
+        import xml.etree.ElementTree as ET
+        for duration in ('0', '-1', 'nan', 'inf', 'bad-value'):
+            text = self.activity_xml().replace('<duration>100</duration>', f'<duration>{duration}</duration>')
+            with self.subTest(duration=duration), self.assertRaises(ValueError):
+                summarize.activity_metrics(ET.fromstring(text), 42)
+        row = self.activity_xml().split('</schema>')[1].split('</node>')[0]
+        text = self.activity_xml(row + row.replace('<system-cpu-percent>10</system-cpu-percent>', '<sentinel/>'))
+        with self.assertRaises(ValueError):
+            summarize.activity_metrics(ET.fromstring(text), 42)
+
+    def test_target_process_is_required_and_never_exported_in_summary(self):
+        activity, frame = self.captures()
+        output = self.root / 'summary.json'
+        args = self.summary_args(activity, frame, output)
+        args[args.index('--target-pid') + 1] = '43'
+        with patch.object(sys, 'argv', args), \
+                patch.object(summarize.subprocess, 'run', side_effect=self.exported_activity):
+            with self.assertRaises(ValueError):
+                summarize.main()
+        self.assertFalse(output.exists())
 
     def test_invalid_footprint_export_does_not_replace_existing_summary(self):
         activity, frame = self.captures()

@@ -39,15 +39,29 @@ recording payload data.
 ## Capture procedure
 
 1. Build the exact release-candidate SHA and install it on the test device.
-2. Open OrbitTerm and leave it in the required starting state.
-3. Capture CPU and memory with Activity Monitor:
+2. Verify the installed QA bundle, signature and source manifest. For all
+   scenarios except `cold_launch`, open that exact app, verify its process on
+   the selected device and record its PID privately. A shared `OrbitTerm`
+   process name is insufficient when formal and QA apps coexist.
+3. Capture CPU and memory with Activity Monitor and explicit Points of Interest:
 
    ```zsh
    scripts/performance/record_apple_device_slo.sh \
      --scenario terminal_first_frame \
      --device '<device name or UDID>' \
+     --pid '<verified positive process ID>' \
      --output performance-evidence/terminal-first-frame-activity.trace
    ```
+
+   For `cold_launch`, verify that the exact candidate is stopped and use
+   `--launch '<verified app target supported by xctrace on this device>'`
+   instead of `--pid`. Attaching to an already open app cannot measure cold
+   launch. Keep its start-to-usable-root observation and signpost attribution;
+   a process launch alone does not prove the UI was usable. If launch recording
+   returns nonzero, retain that failed attempt and investigate or use a
+   separately verified Instruments launch workflow. A saved trace is not a
+   successful recording receipt. Use a new output path for every attempt;
+   the script refuses existing files, directories and symlinks.
 
 4. Repeat the same scenario using `--template 'Animation Hitches'` for frame
    evidence. Read the minimum FPS and hitch count from Instruments; read the
@@ -63,6 +77,7 @@ recording payload data.
      --frame-trace performance-evidence/terminal-first-frame-hitches.trace \
      --scenario terminal_first_frame \
      --build-commit '<full candidate commit>' --platform ios --run 1 \
+     --target-pid '<verified Activity Monitor capture process ID>' \
      --response-ms 1200 --minimum-fps 60 --animation-hitches 0 \
      --output performance-evidence/ios-terminal-first-frame-run1.json
    ```
@@ -83,6 +98,16 @@ than copying a summary into three runs. Response, FPS and footprint must be
 positive; CPU and integer hitch count may be zero. Booleans, non-finite numbers,
 negative values, duplicate JSON keys, unknown fields, reused trace digests,
 duplicate runs, mixed commits or missing platform/scenario/run groups fail.
+
+The producer requires the Activity Monitor capture's independently verified
+PID and rejects rows from another process; that PID is never exported to JSON.
+It locates CPU, duration and physical footprint by schema mnemonics, resolves
+interned `id`/`ref` values and counts repeated observations. CPU is weighted by
+the measured interval duration, without rounding away above-budget readings.
+The initial unavailable CPU delta is excluded; unknown columns, broken
+references, unsupported/missing intervals or mixed processes fail closed.
+Shared/real memory must never substitute for physical footprint. Frame-trace
+identity and manual frame/response readings still require private review.
 
 The producer hashes traces incrementally, rejects empty/symlinked packages and
 only replaces a summary after export and schema validation succeed. The v2

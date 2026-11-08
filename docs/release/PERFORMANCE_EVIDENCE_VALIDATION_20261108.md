@@ -34,6 +34,12 @@
 
 所有正例均为临时合成数据，不能充当真实性能证据。后续采集须使用固定签名候选和 v2 生产者／校验器；没有真实 trace 与测量结果之前，性能及五端发布阻断仍保持开放。
 
+### 后继读取与真实采集兼容性
+
+`eb06f24` Windows `42486315967`／Linux `42486315978` 最终成功；Windows 原始日志 412／412、0 失败／跳过、WinUI 0 警告／错误。Security `42486316038` 的 Rust／Android release／instrumentation／migration 已成功；Android 报告归档 `13620121153` SHA-256 `1ecd9eb533de420d4fab55ec9d5234005884b1a9b494419755c582c7b116db3b` 匹配，三份 XML 共 54 项、0 失败／错误／跳过，smoke 与三阶段 connected 实际执行通过。此次 Apple 仍在运行，整体不提前记成功，条件式两项 skipped 保持。
+
+进一步真实 Instruments 试采暴露了合成 XML 未覆盖的引用／列选择问题，后继[采集兼容性整改](APPLE_PERFORMANCE_CAPTURE_COMPATIBILITY_20261108.md)保留该反例并修正。29 项通过只对应前一提交的严格证据合同，不等于后继真实导出兼容性或产品性能已通过。
+
 ## 后续验收
 
 先核对新提交的必跑回归与调用兼容性，再按[Apple 实机 SLO](APPLE_DEVICE_PERFORMANCE_SLO.md)及[真实设备协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)采集同候选证据。Android／Windows 后续对照同候选、完整平台／轮次、失败不能被重复记录或非有限指标绕过；其他五端业务矩阵、专用签名 Mac UI／实际 DPI 和生产签名证据仍分别待验。

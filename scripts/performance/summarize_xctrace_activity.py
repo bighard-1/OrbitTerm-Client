@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import subprocess
 import sys
 import tempfile
@@ -21,17 +22,111 @@ from evidence_validation import EvidenceArgumentParser, expected_commit, reject
 from verify_apple_device_slo import PLATFORMS, SLOS, validate_record
 
 
-def values(row: ET.Element, tag: str) -> list[float]:
-    result: list[float] = []
-    for node in row.iter(tag):
-        if node.text:
-            try:
-                result.append(float(node.text))
-            except ValueError:
-                reject('trace contains a malformed numeric sample')
-    if any(not math.isfinite(value) or value < 0 for value in result):
-        reject('trace contains a non-finite or negative numeric sample')
-    return result
+def activity_metrics(root: ET.Element, target_pid: int) -> tuple[float, int, int]:
+    """Read the named columns, including xctrace's interned value references.
+
+    Ordinals, display labels and the first nonempty byte cell are not a schema
+    contract. Repeated CPU/memory values are references, not missing samples.
+    """
+    if type(target_pid) is not int or target_pid <= 0:
+        reject('target process must be a positive PID')
+    tables = [node for node in root.iter() if any(
+        child.tag == 'schema' and child.get('name') == 'activity-monitor-process-live'
+        for child in node)]
+    if len(tables) != 1:
+        reject('trace must contain one supported Activity Monitor table')
+    table = tables[0]
+    if len(table.findall('schema')) != 1:
+        reject('trace contains an ambiguous metric schema')
+    schema = table.find('schema')
+    columns = list(schema.findall('col'))
+    required = {'pid': 'pid', 'duration': 'duration',
+                'cpu-percent': 'system-cpu-percent',
+                'memory-physical-footprint': 'size-in-bytes'}
+    indices = {}
+    for name, kind in required.items():
+        matches = [i for i, col in enumerate(columns) if col.findtext('mnemonic') == name]
+        if len(matches) != 1 or columns[matches[0]].findtext('engineering-type') != kind:
+            reject('trace is missing a supported metric column')
+        indices[name] = matches[0]
+
+    ids = {}
+    for node in root.iter():
+        identity = node.get('id')
+        if identity is not None:
+            if identity in ids:
+                reject('trace contains duplicate value identifiers')
+            ids[identity] = node
+
+    def resolve(node):
+        visited = set()
+        while node.get('ref') is not None:
+            reference = node.get('ref')
+            if (reference in visited or reference not in ids or node.get('id') is not None
+                    or node.text and node.text.strip() or len(node)):
+                reject('trace contains an invalid value reference')
+            visited.add(reference)
+            destination = ids[reference]
+            if destination.tag != node.tag:
+                reject('trace reference has the wrong metric type')
+            node = destination
+        return node
+
+    def numeric(node, kind, *, integer=False, positive=False):
+        node = resolve(node)
+        if node.tag != kind or node.text is None:
+            reject('trace contains a missing or unsupported numeric sample')
+        if integer:
+            if re.fullmatch(r'[0-9]+', node.text) is None:
+                reject('trace contains a non-integer numeric sample')
+            value = int(node.text)
+            if positive and value == 0:
+                reject('trace contains an invalid numeric sample')
+            return value
+        try:
+            value = float(node.text)
+        except (ValueError, OverflowError):
+            reject('trace contains a malformed numeric sample')
+        if not math.isfinite(value) or value < 0 or (positive and value == 0):
+            reject('trace contains an invalid numeric sample')
+        return value
+
+    samples = []
+    footprints = []
+    for row in table.findall('row'):
+        cells = list(row)
+        if len(cells) != len(columns):
+            reject('trace row does not match its metric schema')
+        if numeric(cells[indices['pid']], 'pid', integer=True, positive=True) != target_pid:
+            reject('trace contains samples from a different process')
+        duration = numeric(cells[indices['duration']], 'duration', positive=True)
+        footprints.append(numeric(cells[indices['memory-physical-footprint']],
+                                  'size-in-bytes', integer=True, positive=True))
+        cpu = resolve(cells[indices['cpu-percent']])
+        # The initial live sample has no previous interval for a CPU delta.
+        # This explicit missing marker is not an idle (zero CPU) sample.
+        if cpu.tag == 'sentinel' and not cpu.attrib and cpu.text is None and not len(cpu):
+            if samples:
+                reject('trace contains an unmeasured interval after CPU sampling began')
+            continue
+        samples.append((numeric(cpu, 'system-cpu-percent'), duration))
+    if not samples or not footprints:
+        reject('Activity Monitor trace contains no measured CPU or footprint samples')
+    # Sampling intervals vary; count repeated observations and weight them by
+    # duration rather than averaging only the distinct exported values.
+    scale = max(duration for _, duration in samples)
+    weights = [duration / scale for _, duration in samples]
+    total_weight = math.fsum(weights)
+    try:
+        average = math.fsum(cpu * (weight / total_weight)
+                            for (cpu, _), weight in zip(samples, weights))
+    except OverflowError:
+        reject('trace contains an invalid CPU aggregate')
+    if not math.isfinite(average):
+        reject('trace contains an invalid CPU aggregate')
+    # Keep precision through the gate: rounding 70.0004 to 70.000 would turn
+    # an above-budget observation into a passing one.
+    return average, max(footprints), len(samples)
 
 
 def trace_digest(trace: Path) -> str:
@@ -68,6 +163,7 @@ def main() -> int:
     parser.add_argument("--build-commit", required=True)
     parser.add_argument("--platform", required=True, choices=sorted(PLATFORMS))
     parser.add_argument("--run", required=True, type=int, choices=(1, 2, 3))
+    parser.add_argument("--target-pid", required=True, type=int)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--response-ms", required=True, type=float)
     parser.add_argument("--minimum-fps", required=True, type=float)
@@ -75,7 +171,7 @@ def main() -> int:
     args = parser.parse_args()
 
     candidate = expected_commit(args.build_commit)
-    if (not math.isfinite(args.response_ms) or args.response_ms <= 0 or
+    if (args.target_pid <= 0 or not math.isfinite(args.response_ms) or args.response_ms <= 0 or
             not math.isfinite(args.minimum_fps) or args.minimum_fps <= 0 or
             args.animation_hitches < 0):
         reject('response/FPS must be positive and finite; hitch count must be non-negative')
@@ -102,29 +198,7 @@ def main() -> int:
         )
         root = ET.parse(exported).getroot()
 
-    cpu: list[float] = []
-    footprint: list[int] = []
-    for row in root.iter("row"):
-        cpu.extend(values(row, "system-cpu-percent"))
-
-    # `memory-physical-footprint` is the first size-in-bytes column in the
-    # stable Activity Monitor schema. Parse its ordinal explicitly so real,
-    # private/shared-memory columns cannot be mistaken for the budget.
-    for row in root.iter("row"):
-        children = list(row)
-        for index, child in enumerate(children):
-            if child.tag == "size-in-bytes" and index >= 10 and child.text:
-                try:
-                    sample = float(child.text)
-                except (ValueError, OverflowError):
-                    reject('trace contains a malformed footprint sample')
-                if not math.isfinite(sample) or not sample.is_integer() or sample <= 0:
-                    reject('trace footprint sample must be positive, finite integer bytes')
-                footprint.append(int(sample))
-                break
-
-    if not cpu or not footprint:
-        reject('Activity Monitor trace contains no CPU or footprint samples')
+    average_cpu, peak_footprint, sample_count = activity_metrics(root, args.target_pid)
 
     payload = {
         "schema_version": 2,
@@ -134,13 +208,13 @@ def main() -> int:
         "scenario": args.scenario,
         "run": args.run,
         "response_milliseconds": args.response_ms,
-        "average_cpu_percent": round(sum(cpu) / len(cpu), 3),
-        "peak_footprint_bytes": max(footprint),
+        "average_cpu_percent": average_cpu,
+        "peak_footprint_bytes": peak_footprint,
         "minimum_frames_per_second": args.minimum_fps,
         "animation_hitches": args.animation_hitches,
         "trace_sha256": activity_digest,
         "frame_trace_sha256": frame_digest,
-        "sample_count": len(cpu),
+        "sample_count": sample_count,
     }
     # Check the exact consumer contract before promoting a summary. A failed
     # export or validation must not truncate a prior summary.
