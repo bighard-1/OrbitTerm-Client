@@ -25,6 +25,22 @@
 
 跨桌面视觉合同、桌面稳定性合同、静态安全扫描及差异检查通过。新修订的 Windows 原生测试／WinUI 编译、签名更新及修订后 GUI 尚待固定候选回执，**还原位置问题未记作设备闭环**。
 
+## 固定候选构建与安装前回执
+
+源码固定为 `802a48e428bcf22f19ebb015d697cffb74410cca`。Windows [CI 42470265598](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/42470265598) 原生 **412／412，0 失败／跳过**，WinUI 构建 0 警告／错误并产出签名包；Linux [CI 42470265565](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/42470265565) 成功。这些是自动化结果，不代替修订后设备 GUI。
+
+GitHub 归档摘要、包内清单、Mac 与 Windows 本机 MSIX 摘要一致；Windows 本机新签名者及证书主题／有效期匹配。新测试证书 `0EAA…E446` 尚未加入信任，预检签名状态为 `UnknownError`，不能记作已验签安装成功。当前仍是已受信任的旧候选 `56c9e6d`，备份 27 个状态文件无错误、9 个关键文件摘要保持，旧包／证书留作回退。新证书确认与设备更新未执行，账户保持锁定，无资产连接、删除或同步。
+
+## 新安全门禁首次失败与限次重试
+
+同一源码的 [Security Gates 42470265561](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/42470265561) **第 1 次整体失败，不能放行**。原始日志与失败 job 标识均保留：
+
+- Apple checked-path `128699151702`：构建 audited macOS FreeRDP runtime 时 `curl` 返回 HTTP 504／退出码 56，后继 Apple 编译与测试没有执行。
+- Android release `128699151859`：`actions/setup-java@v6` 下载 Temurin 17 时 HTTP 504，动作自带重试后仍失败，后继 release 构建与测试没有执行。
+- Android instrumentation／migration `128699151940`：预构建下载 `gradle-8.13-bin.zip` 超过 10000 ms，`SocketTimeoutException: Read timed out`，仪器／迁移测试没有执行；不能把空报告归为通过。
+
+Rust、依赖扫描、桌面视觉合同成功，两个条件式 RC job skipped。以上三个具体错误发生在依赖获取阶段，不据此宣称其下游代码已通过，也未关闭证书验证或修改代理／网络。保留第 1 次失败后，通过 GitHub 仅发起 **一次失败任务重试（attempt 2）**，此次读取正在运行，最终结果另收。第 1 次失败不会被后继成功覆盖。
+
 ## 下一步关闭条件
 
 同一测试机重复“自由拖出→最大化→还原”：拖动期间不拉回，还原后同步底栏与窗口底边可见。补最小化→还原、普通边框拉伸、窗口内拖动、RDP 分辨率切换；真实多屏／DPI 及在线终端全屏返回单列未覆盖，不以纯几何单测代替。
