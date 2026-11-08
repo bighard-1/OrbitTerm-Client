@@ -24,3 +24,11 @@
 - Android 对照系统大字体与键盘弹出后的添加／删除操作区；macOS／Linux 对照原生字体或缩放下按钮文字可读性与底部操作可达性。
 
 **五端完整验收未完成**。原始画面和状态位仅存加密私有目录 `Development/orbitterm-windows-dpi-check-20261107/`，不提交真实账号、地址或凭据。
+
+## 固定后继候选构建回执
+
+修订已固定为 `56c9e6d` 并推送。[Windows CI 42454682914](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/42454682914) 最终成功，原生日志 **403／403、0 失败、0 跳过，WinUI Release 0 warnings／0 errors**，签名包已上传；[Linux CI 42454682929](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/42454682929) 成功。[Security Gates 42454682865](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/42454682865) 此次读取仍运行，不能将旧 `ec52e49` 的完整门禁结果替代本提交。
+
+本地静态安全扫描另通过。测试机注册表只读核对文本大小已恢复为 100%、QA 进程已退出、现有 `ec52e49` 签名仍 Valid；再次只在本机内存比较 7 个凭据仍一致，复核辅助副本已清理。为新候选重新备份 27 文件／0 错误。新包安装及修订后 GUI 仍待核验，不关闭首次失败。
+
+签名包由 GitHub 连接器取得后分段验证：完整归档 142717776 字节，SHA-256 `188b5e32…be538654` 与 Actions 摘要一致；MSIX `24c76efd…435f4239` 与包内摘要及 Windows 本机一致。证书签名者 `1B1D…80E9`、主题及有效期匹配，旧 `ec52e49` 包与证书具备回退条件；新证书尚未受信任、未导入，因此签名尚非 Valid，不把安装前预检写成新包已安装。修订后 100%／150% 文本与窗口 GUI 等待具体证书当次确认后再执行；不需要新删除。
