@@ -760,3 +760,5 @@
 `CI-DEPENDENCY-FETCH-285` 提交前追加：完整 security Python 套件 22／22；新下载器在外置盘独立目录真实下载 FreeRDP／OpenSSL，两完整归档与锁定摘要一致。本次实际下载直接成功，不冒称真实网络故障切换；备用官方归档有另一次完整读取同摘要证据，切换／失败耗尽／半文件清理为故障自动化。托管 CI、GUI／设备／五端结论仍待各自证据。
 
 `CI-DEPENDENCY-FETCH-285` 固定提交中间追加：`ff7b254` Windows `42477833195` 成功，原始完整日志 412／412、0 失败／跳过、WinUI 0 警告／错误；Linux `42477833242` 成功。Security `42477833346` 的两个 Android job 均核对并采用托管 JDK 17，跳过重复 Java 下载，实际进入后续构建；Apple runtime 构建成功、进入 Swift／完整平台矩阵，Android instrumentation 日志已实际编译 Gradle 任务。依赖扫描／桌面视觉成功，完整门禁仍运行，最终结论待收；上游 504 根因未建立，不宣称彻底消除网络故障。无新设备操作、五端未完成。
+
+`CI-DEPENDENCY-FETCH-285` Android／Rust 最终追加：同一候选 Rust、Android release、instrumentation／migration 成功。Android 预构建实际 9m53s 成功，完整报告归档 `13616861632` 摘要匹配，XML app 33／core 1／feature 20 共 54 项、0 失败／错误／跳过，独立 smoke 及三个 connected 阶段均 passed。保留模拟器启动时首次 ADB `device offline`／退出 1，随后探针恢复、测试实际执行，不能隐去或混为测试失败。Release 单测／构建／制品及源码合同最终成功。Apple 已到 iOS UI 测试，此次读取仍运行，**整体 Security 尚未通过**，两个条件 RC skipped；无新产品 GUI／设备、K60 未连接、五端未完成。后续先收 Apple 最终结果，不重复设备安装；Android／Windows 继续按固定源码和实际报告对照，详见[专项回执](CI_DEPENDENCY_FETCH_20261108.md)。

@@ -33,3 +33,13 @@
 Security [42477833346](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/42477833346) 中 Android release／instrumentation 的 JDK 选择步骤均成功，原 setup-java 下载步骤因已采用镜像 JDK 而 skipped，后续 SDK／NDK 安装成功，构建实际执行。Apple 已完成 audited runtime 构建并进入 Swift 静态扫描／Apple 构建矩阵；Android 预构建日志已有 Gradle 实际编译任务。依赖扫描及桌面视觉合同成功。其余任务读取时仍在运行，**完整门禁尚未通过**，后继最终结果另收；不把工具选择步骤的 skipped 与测试跳过混为一谈。
 
 这说明新流程已越过旧候选的三个获取阻滞点；不能据此断言首次上游 HTTP 504 的网络根因已建立或以后不会再有网络故障。真实故障耗尽时仍须失败，源码／故障测试负责验证限次、摘要及清理边界。
+
+### Android 与 Rust 最终回执，Apple 仍运行
+
+同一固定源码的 Rust、Android release、Android instrumentation／migration 均已最终成功。Release 原始日志确认运行时／编译器／架构核对后采用 JDK 17，执行 Android/iOS／五端源码合同、完整单测和 Release／smoke 构建，最后输出 Android Release gates 通过；本轮没有安装其产物到 K60。
+
+instrumentation 原始日志中，Gradle 8.13 预构建实际成功，用时 9m53s；新 JDK 选择、SDK／NDK、预构建、模拟器连接测试及报告保留步骤均成功。归档 `13616861632` 的完整 SHA-256 `b1facc71a0fe8075d51e595b009dd69b98a0e4a5471d8fcc71293f341e96d16e` 与 GitHub 摘要一致；读取 XML 为 app 33、core 1、feature 20，共 **54 项、0 失败、0 错误、0 跳过**。阶段 JSONL 记录 smoke 夹具及三个 connected 模块均 passed／exit 0，启动前磁盘余量符合既有门禁。
+
+**准备阶段异常保留**：模拟器刚启动时首次 ADB 探针 `device offline`／退出 1，后继探针恢复，所有 smoke／connected 测试随后实际执行并成功；不把该准备探针写成仪器测试失败或隐去记录。完整日志、XML 归档及阶段记录私有封存。
+
+Apple 此次读取已进入 iOS 模拟器 UI 测试及结果包生成，仍未最终完成。**Security 整体结论尚未通过**；专用签名 Mac UI／OpenSSH RC 两项条件任务 skipped。无产品 GUI／真实设备新增结果、五端验收未完成。
