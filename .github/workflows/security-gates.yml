@@ -32,6 +32,7 @@ jobs:
           python3 scripts/quality/check_desktop_visual_contract.py
           python3 -m unittest discover -s scripts/security/tests -p 'test_bounded_phase.py'
           python3 -m unittest discover -s scripts/security/tests -p 'test_apple_ui_evidence.py'
+          python3 -m unittest discover -s scripts/security/tests -p 'test_ci_dependency_fetch.py'
 
   rust-security-gates:
     name: Rust release gates
@@ -115,7 +116,11 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+      - name: Select verified hosted-image JDK 17
+        id: runner-java
+        run: python3 scripts/security/select_runner_java.py
       - uses: actions/setup-java@v6
+        if: steps.runner-java.outputs.available != 'true'
         with:
           distribution: temurin
           java-version: '17'
@@ -143,7 +148,11 @@ jobs:
         run: bash scripts/security/prepare_android_ci_kvm.sh
       - name: Reserve disk for Android emulator
         run: bash scripts/security/prepare_android_ci_disk.sh --cleanup
+      - name: Select verified hosted-image JDK 17
+        id: runner-java
+        run: python3 scripts/security/select_runner_java.py
       - uses: actions/setup-java@v6
+        if: steps.runner-java.outputs.available != 'true'
         with:
           distribution: temurin
           java-version: '17'
