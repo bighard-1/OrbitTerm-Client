@@ -43,3 +43,22 @@ instrumentation 原始日志中，Gradle 8.13 预构建实际成功，用时 9m5
 **准备阶段异常保留**：模拟器刚启动时首次 ADB 探针 `device offline`／退出 1，后继探针恢复，所有 smoke／connected 测试随后实际执行并成功；不把该准备探针写成仪器测试失败或隐去记录。完整日志、XML 归档及阶段记录私有封存。
 
 Apple 此次读取已进入 iOS 模拟器 UI 测试及结果包生成，仍未最终完成。**Security 整体结论尚未通过**；专用签名 Mac UI／OpenSSH RC 两项条件任务 skipped。无产品 GUI／真实设备新增结果、五端验收未完成。
+
+## 最终整体回执：本轮必跑门禁恢复通过
+
+固定源码仍为 `ff7b254a3729e0b4b742bbf15f2aaa05907169f3`，中间回执仅文档提交，没有替换源码或重跑本候选。Security [42477833346](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/42477833346) **attempt 1 最终 completed／success**，六个必跑 job 全部成功：
+
+| job | 结果／证据 |
+| --- | --- |
+| Desktop visual contract `128723022417` | 成功；新增下载／JDK 回归 13 项实际执行通过，另有既有 bounded-phase 4 项及 Apple evidence 5 项 |
+| Rust release gates `128723022567` | 成功；Debug／Release 主套件各 338 通过、0 失败、2 ignored，另有独立样例／定向验证；两 ignored 明确依赖专门 OpenSSH 夹具，不算通过；头文件／ABI 符号审计通过 |
+| Apple checked-path `128723022612` | 成功；audited runtime、XCTest、生命周期／资源／HTTP 回归、iOS UI、macOS UI 目标编译、各平台 Debug／Release 源构建、Release 排除与受检 ABI、重新生成项目一致性审计均完成 |
+| Android release `128723022506` | 成功；单测、Release／smoke 构建及制品／源码合同检查完成 |
+| Android instrumentation／migration `128723022680` | 成功；54 项 XML 无失败／错误／跳过，独立 smoke 及阶段报告已核对 |
+| Dependency vulnerability／license `128723022651` | 成功 |
+
+Apple UI 归档 `13617376652` 的 SHA-256 `ee2d9db0f7e240a81f40da4c6deffcbfa04d387cb129177608a4722b8cf3f4b9` 与 GitHub 一致；实际读取 `ios-ui-tests-summary.json` 为 **Passed，total=12／passed=12／failed=0／skipped=0**，归档内有完整 `.xcresult` 内容。原始日志及归档私有保存，不只依赖网页绿色状态。上游 FreeRDP 弃用／重复链接库及多目的地选择等非致命警告保留，不能写作 Apple 零警告。此次没有发生下载重试，不能称本次真实 CI 已演示故障后的备用来源切换；该安全边界由前述故障自动化及官方备用完整归档核验覆盖。
+
+Windows 原生 412／412 和 Linux 成功属于同一固定源码，其回执见上。**本轮 CI 依赖获取整改及必跑门禁闭环**；旧 `802a48e` 两次下载失败、本轮首次本地 4 项失败、模拟器准备阶段 offline 均保留。后继成功不改写旧候选结论，也不宣称上游网络根因已建立或此后不会再失败。
+
+**仍未覆盖**：专用签名 Mac UI、OpenSSH release-candidate 两个条件 job skipped；真实设备性能 SLO 不由普通源码 CI 生成，真实多屏／DPI、各设备业务矩阵和五端完整验收仍按原清单。设备 QA 仍为已验签 `802a48e`，本轮未导入新证书、未安装新包、未操作测试资产或部署线上服务。下一步建议先复审发布前剩余缺口，优先补可独立执行的 OpenSSH RC 夹具；专用签名 Mac UI／多屏环境在条件满足后单独验收，不用重复已通过的业务场景替代。
