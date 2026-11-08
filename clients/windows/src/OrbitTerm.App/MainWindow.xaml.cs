@@ -865,7 +865,19 @@ public sealed partial class MainWindow : Window
                 });
 
                 RefreshManagerGroups();
-                dialog = CreateThemedDialog("资产管理", content, closeButtonText: "关闭");
+                // The list owns its directory scrolling, while the dialog must
+                // also scroll its actions on short windows or increased DPI.
+                // ContentDialog otherwise clips the last action row entirely.
+                var managerScroll = new ScrollViewer
+                {
+                    Content = content,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                    VerticalScrollMode = ScrollMode.Enabled,
+                    MaxHeight = Math.Clamp(Root.ActualHeight - 200, 160, 680),
+                };
+                AutomationProperties.SetName(managerScroll, "资产管理内容与批量操作");
+                dialog = CreateThemedDialog("资产管理", managerScroll, closeButtonText: "关闭");
                 await dialog.ShowAsync();
 
                 if (action is null)
