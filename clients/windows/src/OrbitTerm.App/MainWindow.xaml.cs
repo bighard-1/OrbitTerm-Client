@@ -1110,7 +1110,7 @@ public sealed partial class MainWindow : Window
             }
 
             AppTitleBar.Visibility = Visibility.Visible;
-            TitleBarRow.Height = new GridLength(36);
+            TitleBarRow.Height = GridLength.Auto;
             MonitorOverviewBand.Visibility = Visibility.Visible;
             MonitorOverviewRow.Height = GridLength.Auto;
             SynchronizationStatusFooter.Visibility = Visibility.Visible;
@@ -3289,11 +3289,16 @@ public sealed partial class MainWindow : Window
 
     private void ApplyResponsivePaneRules(double availableWidth)
     {
-        // The native minimum-width contract now guarantees enough room for
-        // every fixed command. Never collapse the account label: Settings and
-        // Personal Center remain visually stable at the smallest supported
-        // manually resized width.
+        // Keep the full account label at every text scale. The command lane
+        // may scroll, but must leave the caption buttons and a native drag
+        // target outside its viewport even when its labels grow.
         AccountEntryText.Visibility = Visibility.Visible;
+        if (availableWidth > 0)
+        {
+            TitleBarCommandScroll.MaxWidth = Math.Max(
+                24,
+                availableWidth - AppTitleBar.Padding.Left - AppTitleBar.Padding.Right - 24);
+        }
 
         if (isTerminalFullscreen)
         {

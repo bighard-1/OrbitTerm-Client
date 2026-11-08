@@ -250,7 +250,7 @@ for text, fragments, platform in (
     for fragment in fragments:
         require(text, fragment, f"{platform} batch target filtering")
 require(mac_toolbar, ".frame(width: commandWidth, height: commandHeight)", "macOS fixed command button geometry")
-require(windows_tokens, '<Setter Property="Width" Value="82" />', "Windows fixed command button width")
+require(windows_tokens, '<Setter Property="MinWidth" Value="82" />', "Windows baseline command button width")
 require(linux_ui, "const COMMAND_BUTTON_WIDTH: i32 = 82;", "Linux preferred command button width")
 require(linux_ui, "const COMPACT_COMMAND_BUTTON_WIDTH: i32 = 62;", "Linux compact command button width")
 require(linux_ui, "workstation_command_button_width()", "Linux responsive command button geometry")

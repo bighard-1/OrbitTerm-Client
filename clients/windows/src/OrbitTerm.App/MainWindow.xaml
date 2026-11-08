@@ -11,7 +11,7 @@
           KeyboardAcceleratorPlacementMode="Hidden"
           SizeChanged="RootSizeChanged">
         <Grid.RowDefinitions>
-            <RowDefinition x:Name="TitleBarRow" Height="36" />
+            <RowDefinition x:Name="TitleBarRow" Height="Auto" />
             <RowDefinition x:Name="MonitorOverviewRow" Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
@@ -174,46 +174,56 @@
         <Grid x:Name="AppTitleBar"
               Grid.Row="0"
               Grid.ColumnSpan="3"
+              MinHeight="36"
               Padding="12,0,156,0"
               Background="{StaticResource OrbitWorkbenchBrush}">
             <Grid ColumnDefinitions="Auto,*">
-                <StackPanel x:Name="TitleBarCommandPanel"
-                            Orientation="Horizontal"
-                            Spacing="5"
-                            VerticalAlignment="Center">
-                    <Button Content="添加服务器" Click="CreateAssetClick"
-                            Style="{StaticResource OrbitTitleBarButtonStyle}" />
-                    <Button Content="编辑凭据" Click="EditAssetClick"
-                            Style="{StaticResource OrbitTitleBarButtonStyle}" />
-                    <Button Content="资产管理" Click="FocusAssetManagementClick"
-                            Style="{StaticResource OrbitTitleBarButtonStyle}" />
-                    <Button Content="密钥管理" Click="ShowSshKeyLibraryClick"
-                            AutomationProperties.Name="SSH 密钥管理"
-                            Style="{StaticResource OrbitTitleBarButtonStyle}" />
-                    <Button Content="端口映射" Click="ShowSelectedAssetPortForwardingClick"
-                            AutomationProperties.Name="打开端口映射"
-                            Style="{StaticResource OrbitTitleBarButtonStyle}" />
-                    <Button Content="批量命令" Click="OpenBatchCommandClick"
-                            AutomationProperties.AutomationId="OpenBatchCommandButton"
-                            AutomationProperties.Name="批量命令"
-                            Style="{StaticResource OrbitTitleBarButtonStyle}" />
-                    <Button Content="Snippets" Click="ShowSnippetsClick"
-                            AutomationProperties.Name="命令片段"
-                            Style="{StaticResource OrbitTitleBarButtonStyle}" />
-                    <Button Content="设置" Click="ShowTerminalAppearanceDialogClick"
-                            Style="{StaticResource OrbitTitleBarButtonStyle}" />
-                    <Button x:Name="AccountToolbarButton"
-                            ToolTipService.ToolTip="{Binding AccountEntryLabel}"
-                            Style="{StaticResource OrbitTitleBarButtonStyle}"
-                            Click="ManageAccountClick"
-                            AutomationProperties.Name="{Binding AccountEntryLabel}">
-                        <StackPanel Orientation="Horizontal" Spacing="5">
-                            <FontIcon Glyph="&#xE77B;" FontSize="13" />
-                            <TextBlock x:Name="AccountEntryText"
-                                       Text="{Binding AccountEntryLabel}" />
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
+                <ScrollViewer x:Name="TitleBarCommandScroll"
+                              HorizontalScrollMode="Enabled"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollMode="Disabled"
+                              VerticalScrollBarVisibility="Disabled"
+                              ZoomMode="Disabled"
+                              IsTabStop="False"
+                              AutomationProperties.Name="全局操作">
+                    <StackPanel x:Name="TitleBarCommandPanel"
+                                Orientation="Horizontal"
+                                Spacing="5"
+                                VerticalAlignment="Center">
+                        <Button Content="添加服务器" Click="CreateAssetClick"
+                                Style="{StaticResource OrbitTitleBarButtonStyle}" />
+                        <Button Content="编辑凭据" Click="EditAssetClick"
+                                Style="{StaticResource OrbitTitleBarButtonStyle}" />
+                        <Button Content="资产管理" Click="FocusAssetManagementClick"
+                                Style="{StaticResource OrbitTitleBarButtonStyle}" />
+                        <Button Content="密钥管理" Click="ShowSshKeyLibraryClick"
+                                AutomationProperties.Name="SSH 密钥管理"
+                                Style="{StaticResource OrbitTitleBarButtonStyle}" />
+                        <Button Content="端口映射" Click="ShowSelectedAssetPortForwardingClick"
+                                AutomationProperties.Name="打开端口映射"
+                                Style="{StaticResource OrbitTitleBarButtonStyle}" />
+                        <Button Content="批量命令" Click="OpenBatchCommandClick"
+                                AutomationProperties.AutomationId="OpenBatchCommandButton"
+                                AutomationProperties.Name="批量命令"
+                                Style="{StaticResource OrbitTitleBarButtonStyle}" />
+                        <Button Content="Snippets" Click="ShowSnippetsClick"
+                                AutomationProperties.Name="命令片段"
+                                Style="{StaticResource OrbitTitleBarButtonStyle}" />
+                        <Button Content="设置" Click="ShowTerminalAppearanceDialogClick"
+                                Style="{StaticResource OrbitTitleBarButtonStyle}" />
+                        <Button x:Name="AccountToolbarButton"
+                                ToolTipService.ToolTip="{Binding AccountEntryLabel}"
+                                Style="{StaticResource OrbitTitleBarButtonStyle}"
+                                Click="ManageAccountClick"
+                                AutomationProperties.Name="{Binding AccountEntryLabel}">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <FontIcon Glyph="&#xE77B;" FontSize="13" />
+                                <TextBlock x:Name="AccountEntryText"
+                                           Text="{Binding AccountEntryLabel}" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </ScrollViewer>
                 <Grid x:Name="TitleBarDragRegion"
                       Grid.Column="1"
                       Background="Transparent"

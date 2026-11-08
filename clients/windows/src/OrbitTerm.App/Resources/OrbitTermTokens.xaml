@@ -144,8 +144,8 @@
     <Style x:Key="OrbitTitleBarButtonStyle"
            TargetType="Button"
            BasedOn="{StaticResource OrbitButtonBaseStyle}">
-        <Setter Property="Width" Value="82" />
-        <Setter Property="Height" Value="28" />
+        <!-- Baseline dimensions are minima so Windows text scaling can grow
+             the label without clipping it or suppressing accessibility. -->
         <Setter Property="MinWidth" Value="82" />
         <Setter Property="MinHeight" Value="28" />
         <Setter Property="Padding" Value="6,3" />
@@ -153,7 +153,6 @@
     <Style x:Key="OrbitModuleButtonStyle"
            TargetType="Button"
            BasedOn="{StaticResource OrbitButtonBaseStyle}">
-        <Setter Property="Width" Value="112" />
         <Setter Property="MinWidth" Value="112" />
     </Style>
     <Style x:Key="OrbitWideActionButtonStyle"
