@@ -68,3 +68,9 @@
 **保留反馈失败**：本机删除确认说明正确、实际删除和原数据保持通过，但单条侧栏删除后没有可见完成说明，不能记作完成反馈 GUI 通过。源码检查发现单条入口未等待命令结果，`AssetEditorStatus` 没有可见展示；另外资产管理的批量确认仍错误暗示“已登录时每项都记录墓碑”。后继修订让单条删除等待完成后显示明确结果／安全失败提示，单条与批量共用按作用域计数的确认说明。尚需后继 WinUI 构建和设备复测，原失败保留。
 
 反馈修订后静态／差异检查通过，可移植 .NET 仍 **403／403**，没有把这些 ViewModel 测试冒充 WinUI 弹窗验收。删除后进一步确认凭据目录恢复到原 7 文件，9 个原始关键文件摘要全部匹配。当前产品设备继续保留 `034235c`，反馈修订的新原生候选及证书另收。
+
+### 2026-11-07 固定后继候选门禁回执
+
+`34cd7bc` 的 [Windows CI 41585994208](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41585994208) 最终成功，原生测试／WinUI Release、签名 MSIX 构建和上传步骤均成功；此前读取的原生日志为 **403／403、0 失败、0 跳过，构建 0 warnings／0 errors**。同提交 [Linux CI 41585994253](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41585994253) 与 [Security Gates 41585994271](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/41585994271) 成功。必跑六个安全 job 全部成功，专用签名 Mac UI／OpenSSH RC 两个条件 job skipped，详细 Android 结果见[磁盘专项回执](ANDROID_CI_EMULATOR_DISK_20261102.md)。
+
+**设备待办仍保留**：新版删除结果弹窗及批量作用域确认没有新增 GUI 通过证据。上次准备了虚构本机夹具 `ot-win-delete-feedback-20261102` 和 28 文件验前备份；本次开始时外置盘未被 Mac 检测到，私有包／备份／远控程序不可读。Windows 测试机 SMB 与 RDP 端口可达，但现存 Windows App 无法绑定，未在该条件下导入新证书或覆盖安装。上次已验收的产品是 `034235c`，不能将 `34cd7bc` 的 CI 成功写为设备已更新。待外置盘恢复后先复核包身份、摘要、备份和具体签名，再继续明确的删除反馈验收。
