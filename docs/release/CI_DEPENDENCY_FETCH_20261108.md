@@ -25,3 +25,11 @@
 提交前进一步收取：`scripts/security/tests` 完整 Python 套件 **22／22**；使用新下载器在外置盘独立目录实际下载 FreeRDP／OpenSSL，两个完整归档分别与既有锁定 SHA-256 一致。本次真实下载直接成功，不能记作真实网络失败后备用来源切换；该切换已在故障夹具中覆盖，官方 FreeRDP 备用归档另有实际完整读取摘要核验。没有用本机旧源码缓存冒充冷下载，也未执行归档中的构建程序。
 
 **无新增隔离产品 GUI、真实设备业务或五端完整验收结果**。后续 Android／Windows 对照固定源码对应的原生产物、依赖失败必须使门禁失败、测试报告实际执行且不被缓存／重试掩盖；Android 重点核对仪器／迁移／smoke 全部执行，Windows 不因本轮构建流程整改重复导入证书或覆盖设备包。
+
+## 固定提交托管中间回执
+
+固定源码 `ff7b254a3729e0b4b742bbf15f2aaa05907169f3` 已推送。Windows [42477833195](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/42477833195) 成功，原始完整日志确认 **412／412、0 失败／跳过**，WinUI 构建 0 警告／错误；Linux [42477833242](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/42477833242) 成功。
+
+Security [42477833346](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/42477833346) 中 Android release／instrumentation 的 JDK 选择步骤均成功，原 setup-java 下载步骤因已采用镜像 JDK 而 skipped，后续 SDK／NDK 安装成功，构建实际执行。Apple 已完成 audited runtime 构建并进入 Swift 静态扫描／Apple 构建矩阵；Android 预构建日志已有 Gradle 实际编译任务。依赖扫描及桌面视觉合同成功。其余任务读取时仍在运行，**完整门禁尚未通过**，后继最终结果另收；不把工具选择步骤的 skipped 与测试跳过混为一谈。
+
+这说明新流程已越过旧候选的三个获取阻滞点；不能据此断言首次上游 HTTP 504 的网络根因已建立或以后不会再有网络故障。真实故障耗尽时仍须失败，源码／故障测试负责验证限次、摘要及清理边界。
