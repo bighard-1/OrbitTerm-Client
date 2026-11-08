@@ -36,9 +36,8 @@ namespace OrbitTerm.App;
 
 public sealed partial class MainWindow : Window
 {
-    // The nine fixed 82 px global commands plus the native caption-button
-    // reserve require 946 logical px. A 980 px floor keeps Settings and
-    // Personal Center fully visible while still fitting a 1024 px desktop.
+    // The baseline command lane and native caption reserve fit a 980 px floor.
+    // Larger system text can grow and scroll the commands within that space.
     public const int MinimumWindowWidth = 980;
     public const int MinimumWindowHeight = 560;
     private const int ComfortableMinimumWindowWidth = 980;
@@ -153,6 +152,11 @@ public sealed partial class MainWindow : Window
     private double restoredWindowWidth = DefaultWindowWidth;
     private double restoredWindowHeight = DefaultWindowHeight;
     private bool restoreWindowMaximized;
+    private bool nativeWindowWasMinimizedOrMaximized;
+    private bool isNativeMoveSizeLoop;
+    private bool isRestoreRecoveryQueued;
+    private bool restoreRecoveryPending;
+    private bool isWindowClosed;
     private bool hasSavedWindowGeometry;
 
     public MainWindow(
@@ -226,6 +230,7 @@ public sealed partial class MainWindow : Window
         AppWindow.Closing += MainAppWindowClosing;
         Closed += (_, _) =>
         {
+            isWindowClosed = true;
             CloseRemoteDesktopWindows();
             activeDockerLogWindow?.StopAndClose();
             activeDockerLogWindow = null;
@@ -301,6 +306,7 @@ public sealed partial class MainWindow : Window
             presenter.Maximize();
         }
         ApplyResponsivePaneRules(Root.ActualWidth);
+        QueueRestoredWindowRecovery();
         DispatcherQueue.TryEnqueue(() =>
         {
             if (ViewModel.IsTerminalOpen)
@@ -442,6 +448,49 @@ public sealed partial class MainWindow : Window
             UpdateMonitorRefreshTimer();
             UpdateDockerRefreshTimer();
         }
+    }
+
+    private void QueueRestoredWindowRecovery()
+    {
+        if (isWindowClosed || isTerminalFullscreen)
+        {
+            return;
+        }
+
+        restoreRecoveryPending = true;
+        if (isRestoreRecoveryQueued || isNativeMoveSizeLoop || !Root.IsLoaded)
+        {
+            return;
+        }
+
+        // Run after Windows/WinUI has applied the restored rectangle or the
+        // display change. Never constrain each individual move/resize event.
+        isRestoreRecoveryQueued = DispatcherQueue.TryEnqueue(
+            Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+            () =>
+            {
+                isRestoreRecoveryQueued = false;
+                if (isWindowClosed || isTerminalFullscreen || isNativeMoveSizeLoop)
+                {
+                    return;
+                }
+                restoreRecoveryPending = false;
+                if (AppWindow.Presenter is not OverlappedPresenter { State: OverlappedPresenterState.Restored })
+                {
+                    return;
+                }
+
+                var position = AppWindow.Position;
+                var size = AppWindow.Size;
+                var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Nearest).WorkArea;
+                var current = new WindowBounds(position.X, position.Y, size.Width, size.Height);
+                var recovered = RestoredWindowBoundsPolicy.FitToWorkArea(
+                    current, new WindowBounds(area.X, area.Y, area.Width, area.Height));
+                if (recovered != current)
+                {
+                    AppWindow.MoveAndResize(new RectInt32(recovered.X, recovered.Y, recovered.Width, recovered.Height));
+                }
+            });
     }
 
     private void MonitorRefreshTimerTick(DispatcherQueueTimer sender, object args)
@@ -1123,6 +1172,7 @@ public sealed partial class MainWindow : Window
             UpdateAssetSidebarVisualState();
             UpdateToolInspectorVisualState();
             ApplyResponsivePaneRules(Root.ActualWidth);
+            QueueRestoredWindowRecovery();
         }
 
         DispatcherQueue.TryEnqueue(() =>
@@ -3227,7 +3277,37 @@ public sealed partial class MainWindow : Window
         UIntPtr subclassId,
         IntPtr referenceData)
     {
-        if (message == WindowMessageGetMinMaxInfo)
+        if (message == WindowMessageEnterSizeMove)
+        {
+            isNativeMoveSizeLoop = true;
+        }
+        else if (message == WindowMessageExitSizeMove)
+        {
+            isNativeMoveSizeLoop = false;
+            if (restoreRecoveryPending)
+            {
+                QueueRestoredWindowRecovery();
+            }
+        }
+        else if (message == WindowMessageSize)
+        {
+            var sizeState = wParam.ToInt64();
+            if (sizeState is 1 or 2) // SIZE_MINIMIZED / SIZE_MAXIMIZED
+            {
+                nativeWindowWasMinimizedOrMaximized = true;
+            }
+            else if (sizeState == 0 && nativeWindowWasMinimizedOrMaximized)
+            {
+                nativeWindowWasMinimizedOrMaximized = false;
+                QueueRestoredWindowRecovery();
+            }
+        }
+        else if (message == WindowMessageDisplayChange ||
+            (message == WindowMessageSettingChange && wParam.ToInt64() == SystemParametersSetWorkArea))
+        {
+            QueueRestoredWindowRecovery();
+        }
+        else if (message == WindowMessageGetMinMaxInfo)
         {
             var minMaxInfo = Marshal.PtrToStructure<MinMaxInfo>(lParam);
             var dpiScale = GetDpiScale(hWnd);
@@ -3244,6 +3324,7 @@ public sealed partial class MainWindow : Window
             // Keep the PTY geometry correct when the window moves between
             // 100%, 150%, and 200% DPI displays.
             DispatcherQueue.TryEnqueue(QueueTerminalResizeAfterDpiChange);
+            QueueRestoredWindowRecovery();
         }
         else if (message == WindowMessageNcHitTest)
         {
@@ -8073,6 +8154,12 @@ public sealed partial class MainWindow : Window
     }
 
     private const uint WindowMessageGetMinMaxInfo = 0x0024;
+    private const uint WindowMessageSize = 0x0005;
+    private const uint WindowMessageEnterSizeMove = 0x0231;
+    private const uint WindowMessageExitSizeMove = 0x0232;
+    private const uint WindowMessageDisplayChange = 0x007E;
+    private const uint WindowMessageSettingChange = 0x001A;
+    private const int SystemParametersSetWorkArea = 0x002F;
     private const uint WindowMessageDpiChanged = 0x02E0;
     private const uint WindowMessageNcHitTest = 0x0084;
     private const int HitTestClient = 1;
