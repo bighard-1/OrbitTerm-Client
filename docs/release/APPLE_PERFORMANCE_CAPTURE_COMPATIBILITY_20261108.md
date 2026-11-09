@@ -70,3 +70,13 @@ Activity Monitor 有 9 个归属明确的样本，录制期时长加权平均 CP
 Animation Hitches 录得 **187.4 ms** 的应用内启动区间。帧率、帧生命周期、卡顿和显示事件的导出表均为空。帧 trace SHA-256 为 `63f3cbe21eb7a9e26a63a9c944f2c96857ddae24b29911b1803d0641edca4a48`。追加 `Core Animation FPS` 的尝试在启动前退出 2，本机 Instruments 报告 macOS 上禁用该仪器。空表保留为缺测，最低帧率及卡顿次数仍待取得可归属的观测。对照仪器和帧轨的定义见 [Apple Instruments 文档](https://developer.apple.com/documentation/xcode/improving-app-responsiveness?changes=la%2Cla)。
 
 为排查启动方式的影响，另用 Instruments 直接选择独立应用包，先清理路径、状态和启动批次均已核对的暂停同包进程，再观察录制目标并正常退出。该对照返回 0，只观测到一个活跃 QA，帧率、帧生命周期和卡顿表仍均为零行。资源与标记链路已验证，Mac 帧指标和正式三轮仍待验。所有尝试和原始 trace 保存在私有目录，采集结束后 QA 进程均已退出。
+
+## 帧时间对照与首次显示后可响应时间
+
+在实体 Mac 的 Xcode 26.6／macOS 26.5.1 环境中，以独立 AppKit 窗口持续绘制合成动画，并在主线程注入一次约 350 ms 的停顿。首次编译遇到主线程隔离错误。修正后第一次 Instruments 运行又阻塞在对照程序写外置盘日志，未进入动画，达到时限后退出 54。保留编译日志、采样和录制。将元数据输出改为 stdout，由外部命令保存后重跑，窗口实际绘制 191 次，人工停顿为 **351.0 ms**。Animation Hitches 正常收尾并返回 0，导出 `InjectedStall` 两个标记。帧率、帧生命周期和卡顿表仍为零行。
+
+同一个合成窗口使用 ScreenCaptureKit 当前进程窗口接口，按窗口 ID 限定采集范围，只保存帧状态和显示时间。退出 0，获得 **186 个完整帧时间戳**。正常段的 70 个帧间隔中位数为 **17.4 ms**，最大值 **20.9 ms**。已知主线程停顿为 **351.2 ms**，跨越该停顿的帧间隔为 **351.6 ms**。这验证了合成窗口的帧时间来源及停顿识别。实际发布候选的启动窗口帧率、卡顿数及正式三轮仍待验。参见 [ScreenCaptureKit 显示时间定义](https://developer.apple.com/documentation/screencapturekit/scstreamframeinfo/displaytime)。
+
+另用独立 XCUITest runner 对现有签名 QA `20261108.2` 执行 `XCTApplicationLaunchMetric(waitUntilResponsive: true)`。按绝对路径启动并核对 Bundle ID、版本及单实例，测量后确认空白登录根界面，通过 `Command+Q` 正常退出。XCTest 执行一轮预热和一轮记账，测试 **1／1** 通过，无失败或跳过。`.xcresult` 的 `ApplicationFirstFramePresentationResponsive` 样本为 **263.355 ms**。前次 **165.3 ms** 的应用内 `AppLaunch` 区间继续单独留存。参见 [XCTest 启动指标定义](https://developer.apple.com/documentation/xctest/xctapplicationlaunchmetric/init%28waituntilresponsive%3A%29)。
+
+对照源码、日志、trace、帧时间元数据和 XCTest 结果保存在 `mac-personal-qa-eb06f24/method-calibration-203056/` 私有证据目录。测量结束后，QA、测试窗口和测试 runner 均已退出。`9745d54` 的六项必跑 Security Gates 已全部通过，条件式 OpenSSH 和签名 Mac UI 仍为跳过。上述局部实测与 CI 回执共同提供诊断证据，Apple 正式 SLO 与五端验收保持待验。
