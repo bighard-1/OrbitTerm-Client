@@ -110,3 +110,11 @@ Animation Hitches 录得 **187.4 ms** 的应用内启动区间。帧率、帧生
 另外用独立 SwiftUI 合成应用执行 120 次定时状态变化，在第 50 次注入一次主线程停顿。录制返回 0 并捕获完整的动画及停顿标记。标记区间为 **351.042 ms**，同一进程的 `potential-hangs` 表记录了一条覆盖该区间的 **353.601 ms Microhang**。合成应用同样收到 SwiftUI 缺数警告，五张更新／帧／卡顿表仍为空。此对照将缺测范围缩小到本机的 SwiftUI CLI 采集路径，尚未确认底层原因。主线程停顿记录独立于动画卡顿指标。
 
 录制日志、逐次操作时间、XML 和摘要保留在外置盘私有目录 `single-swiftui-20261108-205132/`、`single-swiftui-bundle-20261108-205238/` 和 `swiftui-control-ovT2ZM/`。签名 QA 验签及主程序摘要保持一致，所有测试进程已退出。下一步先用合成程序走 [Xcode 的 Product → Profile 流程](https://developer.apple.com/documentation/xcode/understanding-and-improving-swiftui-performance)，验证图形录制路径是否实际提供更新和卡顿数据，再决定是否值得重录签名 QA。Apple 正式三轮、iOS 实测和五端完整验收仍待完成。Android／Windows 后续分别核对本端原生跟踪中的进程归属、实际记录和已知停顿。
+
+## Xcode Product → Profile 图形路径对照
+
+在同一实体 Mac 上，把 CLI 合成对照的源文件逐字节复制到独立 Xcode 工程，采用独立 Bundle ID、Release 方案和临时签名。沿 Xcode **Product → Profile** 打开 Instruments，确认目标为本机夹具，选 SwiftUI 模板的默认 Deferred 模式，加入 Points of Interest，录制至夹具自然退出。保存了约 **6.19 秒**的单轮 trace。首次在仪器库双击离屏项目未生效，经筛选和回车正确加入时间标记后才开始录制。夹具进程已退出。
+
+导出和引用解析验证取得 **3,552** 条目标 Time Profiler 样本，以及同一进程的动画与停顿两对标记。人为停顿为 **351.045 ms**，一条 **352.921 ms Microhang** 覆盖该标记区间。另有一条 **307.682 ms Microhang**，保留原记录。SwiftUI 更新、更新组、变化、原因、卡顿、卡顿更新和帧生命周期七张表全部零行，保存的运行问题数据包含 `Trace file had no SwiftUI data`。图形路径在当前 macOS 26.5.1／Xcode 26.6 环境同样缺测。主线程挂起和动画卡顿分别记账。
+
+私有证据 `mac-personal-qa-eb06f24/swiftui-gui-KS3KID/` 保存 Release 构建、图形 trace、导出及摘要，导出 XML 的 SHA-256 为 `6e007a5e9592a04342b4faf44c54d13006be86af7daa6adda2c096a38272e5bc`。本轮范围为合成程序的图形路径对照，原签名 QA `20261108.2` 的产品帧指标、iOS 及五端正式实测仍待验。当前组合上的 CLI 与 GUI 对照均缺少帧证据，后续先核对 iOS 测试签名和设备条件，用 iOS 真机的 Animation Hitches 做独立对照。macOS 帧项继续保持缺测，等获得另一条可验证的采集路径后补齐。Android／Windows 后续以本端原生导出和已知停顿核对采集路径。
