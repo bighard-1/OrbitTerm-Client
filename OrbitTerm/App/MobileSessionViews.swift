@@ -1,7 +1,9 @@
 import SwiftUI
 
 #if os(iOS)
+import CoreTransferable
 import UIKit
+import UniformTypeIdentifiers
 struct MobileSessionView: View {
     let onBackToAssets: () -> Void
     @Binding var selectedTab: MobileShellTab
@@ -1121,15 +1123,48 @@ private struct MobileAboutView: View {
     }
 }
 
-private struct MobileTermsView: View {
+struct MobileTermsView: View {
     var body: some View {
         ScrollView {
-            Text(OrbitLegalTerms.fullText)
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(OrbitLegalTerms.title)
+                        .font(.title2.bold())
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.isHeader)
+                    Text(OrbitLegalTerms.effectiveDate)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                ShareLink(item: TermsShareFile(), preview: SharePreview(OrbitLegalTerms.title)) {
+                    Label("分享条款", systemImage: "square.and.arrow.up")
+                        .frame(minHeight: 44)
+                }
+                .accessibilityHint("打开系统分享面板，可保存或分享当前版本的完整条款")
+
+                Text(OrbitLegalTerms.body)
+            }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
+            .padding(20)
         }
         .navigationTitle("使用条款")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct TermsShareFile: Transferable {
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(exportedContentType: .utf8PlainText) { _ in
+            let manager = FileManager.default
+            let cache = try manager.url(for: .cachesDirectory, in: .userDomainMask,
+                                        appropriateFor: nil, create: true)
+            let folder = cache.appendingPathComponent("LegalTerms", isDirectory: true)
+            try manager.createDirectory(at: folder, withIntermediateDirectories: true)
+            let file = folder.appendingPathComponent("OrbitTerm-条款与隐私说明-\(OrbitLegalTerms.version).txt")
+            try Data(OrbitLegalTerms.fullText.utf8).write(to: file, options: .atomic)
+            return SentTransferredFile(file)
+        }
     }
 }
 #endif

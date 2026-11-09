@@ -5,6 +5,7 @@ struct AuthView: View {
     @Environment(\.appThemePalette) private var palette
 #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 #endif
     @Namespace private var modeAnimation
 
@@ -99,13 +100,19 @@ struct AuthView: View {
             })
             .sheet(isPresented: $showTerms) {
                 NavigationStack {
-                    ScrollView {
-                        Text(OrbitLegalTerms.fullText)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(20)
-                            .textSelection(.enabled)
+                    Group {
+#if os(iOS)
+                        MobileTermsView()
+#else
+                        ScrollView {
+                            Text(OrbitLegalTerms.fullText)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(20)
+                                .textSelection(.enabled)
+                        }
+                        .navigationTitle("使用条款、免责声明与隐私说明")
+#endif
                     }
-                    .navigationTitle("使用条款、免责声明与隐私说明")
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
                             Button("同意并继续") {
@@ -119,7 +126,11 @@ struct AuthView: View {
                         }
                     }
                 }
+#if os(iOS)
+                .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium, .large])
+#else
                 .presentationDetents([.medium, .large])
+#endif
             }
             .applyKeyboardDismissToolbar()
             .onReceive(NotificationCenter.default.publisher(for: .orbitTermClearTransientSensitiveInput)) { _ in

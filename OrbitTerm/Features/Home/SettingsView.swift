@@ -2,10 +2,10 @@ import SwiftUI
 
 enum OrbitLegalTerms {
     static let version = "2026-08-21"
-    static let fullText = """
-    OrbitTerm 使用条款、免责声明与隐私说明
-    生效日期：\(version)
-
+    static let title = "OrbitTerm 使用条款、免责声明与隐私说明"
+    static let effectiveDate = "生效日期：\(version)"
+    static let fullText = "\(title)\n\(effectiveDate)\n\n\(body)"
+    static let body = """
     1. 授权范围
     您只能使用 OrbitTerm 连接、管理您拥有、管理或已取得明确合法授权的设备、账户、网络及数据。不得将本软件用于未授权访问、规避安全控制、破坏服务或其他违法活动。
 
