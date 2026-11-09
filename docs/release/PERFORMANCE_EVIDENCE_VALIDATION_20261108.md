@@ -40,6 +40,8 @@
 
 进一步真实 Instruments 试采暴露了合成 XML 未覆盖的引用／列选择问题，后继[采集兼容性整改](APPLE_PERFORMANCE_CAPTURE_COMPATIBILITY_20261108.md)保留该反例并修正。29 项通过只对应前一提交的严格证据合同，不等于后继真实导出兼容性或产品性能已通过。
 
+最终回执：同一固定 `eb06f24` 的 Windows、Linux、Security 三个 workflow 均 success；Security 六项必跑 job（含 Apple `128748852996`）均 success。Apple 完整日志包含 iOS 模拟器 UI **12／12**；独立下载归档 `13621083198` 并核对 SHA-256 `90eef682a6de4cb9227e4efbbcc415b22f860f03f959a1e39e2137633015aedc`，实际报告为 Passed、12 通过、0 失败／跳过／预期失败。此前 Android 54 项与 Windows 412 项归属不变。条件式 OpenSSH RC 和专用签名 Mac UI 均 skipped。该通过只对应 `eb06f24` 的必跑自动化；后继 `940f23a` 采集器和独立签名 QA 的实机验收不继承该结果。
+
 ## 后续验收
 
 先核对新提交的必跑回归与调用兼容性，再按[Apple 实机 SLO](APPLE_DEVICE_PERFORMANCE_SLO.md)及[真实设备协议](REAL_DEVICE_ACCEPTANCE_PROTOCOL.md)采集同候选证据。Android／Windows 后续对照同候选、完整平台／轮次、失败不能被重复记录或非有限指标绕过；其他五端业务矩阵、专用签名 Mac UI／实际 DPI 和生产签名证据仍分别待验。

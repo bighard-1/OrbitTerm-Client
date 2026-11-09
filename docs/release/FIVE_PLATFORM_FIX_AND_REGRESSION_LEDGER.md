@@ -776,3 +776,7 @@
 `APPLE-PERFORMANCE-CAPTURE-289` 构建准备追加：外置盘干净 `eb06f24` 检出中 macOS Rust Release 构建成功；独立 QA 签名构建两次退出 65，首次无描述文件，更新尝试再报开发者钥匙串凭据缺失／`No Accounts`。旧 QA 描述文件 11 月 5 日过期、证书仍可用；未降级签名、未安装／启动或变更正式数据。需要用户恢复 Xcode Accounts 的原开发者认证后才能更新 QA 描述文件，设备性能保持待验。与 CI 中托管 Apple 环境及已通过其他平台分别记录，不当作客户端代码编译结论。
 
 `APPLE-PERFORMANCE-CAPTURE-289` 保存／清理追加：源码 `940f23a` 已推送并核对独立分支 `codex/apple-performance-capture-20261108`，原 PR 分支未更新，以保留运行中的 `eb06f24` Apple 门禁；前一候选其余必跑及 Windows／Linux 成功，完整 Security 仍待最终回执。Mac 锁屏、浏览器会话不可用使新分支 CI 尚未触发，41 项仅计本地。用户已收到恢复原 Xcode 开发者认证的具体步骤；产品采样待该前置条件。精确清理 launch 留下的停止态私有辅助进程，确认本轮辅助进程均退出，保留所有失败 trace／构建日志；无正式版、账户／资产或其他设备操作。
+
+- 2026-11-08｜`APPLE-PERSONAL-QA-290`｜**候选／失败保留**：Xcode 登录成功，但原团队不可用，原身份重试再退出 65；用户只有当前 Personal Team。独立临时签名探针成功，另在 `eb06f24` 加私有隔离补丁构建 `20261108.2`，新 Bundle ID／目录／自有钥匙串组，Apple Development 与 Hardened Runtime 严格验签通过；完整二进制摘要及补丁摘要见[专项回执](APPLE_PERFORMANCE_CAPTURE_COMPATIBILITY_20261108.md)。补丁未进入产品源码。**自动化**：`eb06f24` Windows／Linux／Security 的八项必跑全部通过，Apple 实际报告 12／12、摘要匹配，条件式 OpenSSH RC／专用签名 Mac UI skipped，详见[CI 最终回执](PERFORMANCE_EVIDENCE_VALIDATION_20261108.md)。**真实工具**：同一辅助 app 自然结束录制退出 0／实收 40 行标记，达 6 秒时限退出 54 并保留；无产品性能结果。**隔离 GUI／真机／五端**：未启动或安装新产品包，既有身份升级、产品隔离运行、Apple 真机性能、五端矩阵均待验。K60 USB 只读确认在线，未安装／触控，原 JNI 文件保持。Android／Windows 后续对照候选身份、安装和数据归属、独立证据与失败留存。
+
+`APPLE-PERSONAL-QA-290` 停止方式补测：采集器收到 SIGINT 也退出 54，保留 trace 与失败；仅目标先正常退出的辅助 app 路径得到 0，后续用隔离产品 QA 单独核对。原候选托管回执已收齐，后继采集工具源码可回到现有 PR 复验，私有签名变体不随 PR 推送。
