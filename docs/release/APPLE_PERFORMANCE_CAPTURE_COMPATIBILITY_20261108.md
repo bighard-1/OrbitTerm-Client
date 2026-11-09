@@ -80,3 +80,13 @@ Animation Hitches 录得 **187.4 ms** 的应用内启动区间。帧率、帧生
 另用独立 XCUITest runner 对现有签名 QA `20261108.2` 执行 `XCTApplicationLaunchMetric(waitUntilResponsive: true)`。按绝对路径启动并核对 Bundle ID、版本及单实例，测量后确认空白登录根界面，通过 `Command+Q` 正常退出。XCTest 执行一轮预热和一轮记账，测试 **1／1** 通过，无失败或跳过。`.xcresult` 的 `ApplicationFirstFramePresentationResponsive` 样本为 **263.355 ms**。前次 **165.3 ms** 的应用内 `AppLaunch` 区间继续单独留存。参见 [XCTest 启动指标定义](https://developer.apple.com/documentation/xctest/xctapplicationlaunchmetric/init%28waituntilresponsive%3A%29)。
 
 对照源码、日志、trace、帧时间元数据和 XCTest 结果保存在 `mac-personal-qa-eb06f24/method-calibration-203056/` 私有证据目录。测量结束后，QA、测试窗口和测试 runner 均已退出。`9745d54` 的六项必跑 Security Gates 已全部通过，条件式 OpenSSH 和签名 Mac UI 仍为跳过。上述局部实测与 CI 回执共同提供诊断证据，Apple 正式 SLO 与五端验收保持待验。
+
+## 签名 QA 窗口的帧数据归属
+
+实体 Mac 使用原独立签名 QA `20261108.2`（`eb06f24` 加既有私有隔离补丁），前后严格验签通过，主程序 SHA-256 保持一致。外部采集器沿用系统已有的采集授权，未申请新权限。先校验唯一 QA 进程的路径、Bundle ID、PID，再校验唯一可见测试窗口和单窗口过滤器的归属。仅保存帧状态和显示时间戳，不保存画面或音频。没有输入凭据、提交注册或登录、操作资产。
+
+首次采集器在初始化窗口服务前中止，退出 **134**，未产生帧；保留原源码和错误日志。补上 AppKit 初始化后，错误 PID 对照在开始采集前退出 **4**，未取得任何帧；正确目标采集退出 **0**，采集约 **40.6 秒**，收到 **2,305** 个时间戳严格递增的完整帧样本。登录→注册和注册→登录均由可访问性界面确认，在点击开始到点击返回后 200 ms 的两个观测区间内分别收到 **15** 和 **12** 个样本，间隔中位数 **17.6 ms** 和 **17.3 ms**。这两个区间只是用来对齐操作与采集记录，不是测得的动画起止。
+
+同轮未操作界面的一秒对照仍收到 **57** 个完整帧样本。因此，完整帧回调不能直接当作应用产生新画面的计数，不能用总帧数推算产品 FPS，也不能由本轮间隔直接判定产品卡顿。采集在窗口出现后才开始，不包含冷启动首帧前路径。本轮完成窗口归属验证，**未计入 Apple 正式 SLO 样本**。下一步先为可重复的主动动画或滚动验证有效画面更新和卡顿的计数方式，复用已知停顿作对照，再用固定候选跑正式三轮；冷启动可响应时间继续单独记录。
+
+采集元数据、对照日志和汇总保存在私有证据目录 `mac-personal-qa-eb06f24/window-attribution-DFTSbI/`。成功采集原始元数据 SHA-256：`7f5dc325c3ff7d15c3f6f6d78994d8eaa8d7c57691a015ed7c4acd3fc0088ba4`。采集器正常结束，QA 通过 Command+Q 退出，未操作正式版或其他设备。Android／Windows 对照本端窗口或进程归属、静置时的回调和真实绘制更新；iOS、五端完整验收及专用签名 Mac UI 门禁无新增通过结论。
