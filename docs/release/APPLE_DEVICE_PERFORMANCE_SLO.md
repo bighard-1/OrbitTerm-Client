@@ -63,9 +63,17 @@ recording payload data.
    successful recording receipt. Use a new output path for every attempt;
    the script refuses existing files, directories and symlinks.
 
+   Give the macOS QA bundle a unique `.app` filename and recheck its signature
+   and executable digest after copying it. Instruments can report ambiguity
+   even for an absolute path when another bundle has the same filename. Once
+   the scenario finishes, quit the verified QA app normally before the recorder
+   reaches its time limit. Confirm that the recorded process exited and the
+   recorder returned zero. Keep observations with multiple active instances as
+   diagnostics and repeat the measurement with a single active QA instance.
+
 4. Repeat the same scenario using `--template 'Animation Hitches'` for frame
    evidence. Read the minimum FPS and hitch count from Instruments; read the
-   response interval from the named `com.orbitterm.app / performance` signpost.
+   response interval from the named `com.orbitterm.app / PointsOfInterest` signpost.
 5. Summarize each pair of completed Activity Monitor / Animation Hitches traces.
    Supply the exact full lowercase 40-character source commit installed on the
    device, platform (`macos` or `ios`) and run (1–3). For example, replacing the
