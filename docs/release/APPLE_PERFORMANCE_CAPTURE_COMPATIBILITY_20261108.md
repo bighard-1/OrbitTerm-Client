@@ -58,3 +58,15 @@ Xcode 登录后按原团队重试仍退出 **65**：`No Account for Team`，原 
 录制以 150 秒为上限。启动时同一路径出现一个录制目标和一个暂停的同包进程。连接 GUI 时两个进程都处于活跃状态，并各自产生 `AppLaunch` 区间。用 `Command+Q` 逐个正常退出后，Instruments 以 `Target app exited` 结束，返回 **0**。采集器核对了录制 PID 的 **36 个资源样本**和唯一成对的 `AppLaunch` Begin／End，类别为 `PointsOfInterest`。原始 signpost 导出共四行，其中两行属于录制目标。trace SHA-256 为 `e4345b0ba3af39bca6cda43623fb44590378f5cd839fd37d8365693c4b1f305b`，原始录制和快照保存在外置盘私有目录。复核时两份 QA 进程均已退出。
 
 本轮通过的是隔离启动和录制正常收尾。双进程样本只保留为诊断，独立 QA 仍有私有补丁，本轮未采集帧数据或补齐重复轮次。产品性能 SLO 与五端验收继续开放。首次歧义失败和此前退出 54 的结果均保留。`9745d54` 的 Windows／Linux workflow 已 success，Security Gates `42544174276` 在本次读取时仍在执行。
+
+## 单实例启动与帧采集复测
+
+继续使用 `20261108.2` 同一签名 QA。启动前逐次校验包签名和二进制摘要。直接以同名可执行文件的绝对路径启动时，Instruments 再次报歧义并退出 20。使用唯一 `.app` 文件名时，Instruments 启动一个录制目标和一个暂停的同包进程。读取窗口唤醒了暂停进程，产生两份启动区间。该次录制和失败均留作诊断。
+
+使用 Instruments 的命令与参数入口，以 `/usr/bin/env` 执行已核验的 QA 可执行文件。Activity Monitor 和 Animation Hitches 分别完成一次冷启动。约每 0.3 秒观察一次进程，两轮各只观测到一个活跃 QA 实例。两次均看到登录根界面并用 `Command+Q` 正常退出，采集器均返回 0。两份 `AppLaunch` 标记均为各自 PID 的 Begin／End 配对。
+
+Activity Monitor 有 9 个归属明确的样本，录制期时长加权平均 CPU 为 **1.94%**，峰值物理内存为 **27.3 MiB**。应用内 `AppLaunch` 区间为 **165.3 ms**。该区间从应用标记开始计算，桌面图标点击到首帧呈现的时长仍待测。资源 trace SHA-256 为 `f6ad07c61381260529c9d59f1c84ef2753e61662cf12be13e130c778bf266dd0`。
+
+Animation Hitches 录得 **187.4 ms** 的应用内启动区间。帧率、帧生命周期、卡顿和显示事件的导出表均为空。帧 trace SHA-256 为 `63f3cbe21eb7a9e26a63a9c944f2c96857ddae24b29911b1803d0641edca4a48`。追加 `Core Animation FPS` 的尝试在启动前退出 2，本机 Instruments 报告 macOS 上禁用该仪器。空表保留为缺测，最低帧率及卡顿次数仍待取得可归属的观测。对照仪器和帧轨的定义见 [Apple Instruments 文档](https://developer.apple.com/documentation/xcode/improving-app-responsiveness?changes=la%2Cla)。
+
+为排查启动方式的影响，另用 Instruments 直接选择独立应用包，先清理路径、状态和启动批次均已核对的暂停同包进程，再观察录制目标并正常退出。该对照返回 0，只观测到一个活跃 QA，帧率、帧生命周期和卡顿表仍均为零行。资源与标记链路已验证，Mac 帧指标和正式三轮仍待验。所有尝试和原始 trace 保存在私有目录，采集结束后 QA 进程均已退出。
