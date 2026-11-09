@@ -796,3 +796,7 @@
 - 2026-11-08｜`APPLE-MAC-PROFILE-GUI-297`｜**候选与源码** 沿用前轮合成对照源码，用独立 Xcode Release 工程验证图形录制路径。原 `20261108.2` 签名 QA 仍是待补帧证据的候选。**自动化／隔离 GUI／实体 Mac** Product → Profile 已实际录制并保存 trace，3,552 条 Time Profiler 样本均归属夹具，351.045 ms 人工停顿对应 352.921 ms Microhang。另一条 307.682 ms Microhang 原样保留。七张 SwiftUI 更新和帧／卡顿表为空，保存的 trace 包含缺数警告。录制前的仪器选择问题已解决，夹具已正常退出。**五端** Apple 正式帧指标、iOS 实测与五端完整验收待验。Android／Windows 对照图形和命令行的实际导出及进程归属。详见[专项回执](APPLE_PERFORMANCE_CAPTURE_COMPATIBILITY_20261108.md)。
 
 - 2026-11-08｜`APPLE-IOS-ANIMATION-CALIBRATION-298`｜**候选与源码** 独立 iOS Release 动画夹具，设备签名及产物摘要见专项回执。**自动化** 核对唯一进程、完整标记及跨表帧键，保留通用描述文件未覆盖目标、首次安装额度拒绝、首次启动失败及查询超时参数错误。**隔离 GUI／实体 iPhone** 清理未运行的旧 UI 测试 runner 后安装成功，用户确认开发者信任后录制返回 0。获得 484 条显示帧生命周期、404 条目标应用更新，主动段 399 个帧键均匹配。351.093 ms 注入区间对应 333.320 ms 动画卡顿和 353.677 ms 主线程短暂挂起。夹具已退出，原两包安装元数据核对通过。**五端** iOS 真机采集校准通过，正式产品轮次、Mac 帧指标和五端完整验收待验。Android／Windows 对照进程归属、时间窗与已知停顿。详见[专项回执](APPLE_PERFORMANCE_CAPTURE_COMPATIBILITY_20261108.md)。
+
+- 2026-11-08｜`APPLE-IOS-COLD-PILOT-299`｜**候选与源码** `eb06f24` 的独立 iOS QA `20261108.3`，私有构建移除共享 URL 注册。**自动化** Rust／Xcode Release、严格验签、目标描述文件和专属钥匙串组核对通过。**隔离 GUI／实体 iPhone** 安装成功，首次试采在目标启动前被 iOS 拒绝，录制退出 2、导出退出 10。用户报告开发者信任弹窗反复出现，已停止录制并移除本轮 QA，核对原两包安装信息。首个可用界面与候选帧数据待验。**五端** 正式性能轮次仍待完成。Android／Windows 对照独立签名、包身份及启动失败的回退。详见[专项回执](APPLE_PERFORMANCE_CAPTURE_COMPATIBILITY_20261108.md)。
+
+  **同候选复测** 用户确认设备恢复和开发者信任，重装同一签名包后目视确认登录页。由无进程状态重新录制，退出 0，目标已退出。应用内启动 95.958 ms，一条目标更新关联唯一显示帧。正式冷启动响应、最低帧率、资源采样及三轮待验，初次拒绝保留。详见[专项回执](APPLE_PERFORMANCE_CAPTURE_COMPATIBILITY_20261108.md)。
