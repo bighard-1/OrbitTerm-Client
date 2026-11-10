@@ -52,6 +52,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import com.orbitterm.android.app.registrationValidationError
+import com.orbitterm.android.app.loginValidationError
 
 @Composable
 fun LoginScreen(
@@ -71,12 +72,24 @@ fun LoginScreen(
     var isLoginMode by rememberSaveable { mutableStateOf(true) }
     var isPasswordVisible by rememberSaveable { mutableStateOf(false) }
     var termsVisible by rememberSaveable { mutableStateOf(false) }
+    var localValidationError by rememberSaveable { mutableStateOf<String?>(null) }
     var termsAccepted by rememberSaveable {
         mutableStateOf(consentPreferences.getString("accepted_version", null) == ORBIT_LEGAL_TERMS_VERSION)
     }
-    val registrationError = if (isLoginMode) null else registrationValidationError(username.trim(), password, inviteCode)
-    val canSubmit = termsAccepted && username.isNotBlank() && password.isNotBlank() &&
-        (isLoginMode || registrationError == null) && retryAfterSeconds <= 0 && !isLoading
+    val canSubmit = retryAfterSeconds <= 0 && !isLoading
+    fun submit() {
+        val validationError = when {
+            !termsAccepted -> "请先勾选同意使用条款、免责声明与隐私说明。"
+            isLoginMode -> loginValidationError(username, password)
+            else -> registrationValidationError(username.trim(), password, inviteCode)
+        }
+        if (validationError != null) {
+            localValidationError = validationError
+            return
+        }
+        localValidationError = null
+        if (isLoginMode) onLogin(username, password) else onRegister(username, password, inviteCode)
+    }
 
     AuthSurface {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -95,33 +108,36 @@ fun LoginScreen(
         }
         Spacer(Modifier.height(24.dp))
         AuthGlassCard {
-            AuthModeSwitcher(isLoginMode = isLoginMode, onModeChanged = { isLoginMode = it })
+            AuthModeSwitcher(isLoginMode = isLoginMode, onModeChanged = {
+                isLoginMode = it
+                localValidationError = null
+            })
             AuthField(
                 value = username,
-                onValueChange = { username = it },
+                onValueChange = { username = it; localValidationError = null },
                 placeholder = "邮箱账号",
                 icon = { Icon(Icons.Rounded.Email, contentDescription = null) },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
             )
             AuthField(
                 value = password,
-                onValueChange = { password = it },
+                onValueChange = { password = it; localValidationError = null },
                 placeholder = "密码",
                 icon = { Icon(Icons.Rounded.Lock, contentDescription = null) },
                 keyboardOptions = KeyboardOptions(imeAction = if (isLoginMode) ImeAction.Done else ImeAction.Next),
                 isPassword = true,
                 passwordVisible = isPasswordVisible,
                 onPasswordVisibilityChange = { isPasswordVisible = !isPasswordVisible },
-                onSubmit = { if (canSubmit && isLoginMode) onLogin(username, password) },
+                onSubmit = { if (canSubmit && isLoginMode) submit() },
             )
             if (!isLoginMode) {
                 AuthField(
                     value = inviteCode,
-                    onValueChange = { inviteCode = it },
+                    onValueChange = { inviteCode = it; localValidationError = null },
                     placeholder = "管理员提供的邀请码",
                     icon = { Icon(Icons.Rounded.ConfirmationNumber, contentDescription = null) },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    onSubmit = { if (canSubmit) onRegister(username, password, inviteCode) },
+                    onSubmit = { if (canSubmit) submit() },
                 )
                 Text("密码至少 12 位，且包含大小写字母、数字和特殊字符。", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             }
@@ -141,6 +157,7 @@ fun LoginScreen(
                     checked = termsAccepted,
                     onCheckedChange = { checked ->
                         termsAccepted = checked
+                        localValidationError = null
                         if (checked) {
                             consentPreferences.edit { putString("accepted_version", ORBIT_LEGAL_TERMS_VERSION) }
                         } else {
@@ -172,7 +189,7 @@ fun LoginScreen(
                 }
             }
             Button(
-                onClick = { if (isLoginMode) onLogin(username, password) else onRegister(username, password, inviteCode) },
+                onClick = { submit() },
                 enabled = canSubmit,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(14.dp),
@@ -180,7 +197,7 @@ fun LoginScreen(
             ) {
                 Text(if (isLoading) if (isLoginMode) "正在登录…" else "正在注册…" else if (isLoginMode) "登录" else "注册并登录")
             }
-            error?.let { AuthErrorBanner(it) }
+            (localValidationError ?: error)?.let { AuthErrorBanner(it) }
         }
     }
 
@@ -198,6 +215,7 @@ fun LoginScreen(
             confirmButton = {
                 TextButton(onClick = {
                     termsAccepted = true
+                    localValidationError = null
                     consentPreferences.edit { putString("accepted_version", ORBIT_LEGAL_TERMS_VERSION) }
                     termsVisible = false
                 }) { Text("同意并继续") }

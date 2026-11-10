@@ -322,7 +322,8 @@ actor CheckedBatchCommandService {
             .execTimeout
         case .invalidInput:
             .invalidCommand
-        case .unavailable, .protocolViolation, .nullCStringResult, .invalidUTF8Result,
+        case .unavailable, .credentialUnavailable, .credentialStorageFailed,
+             .protocolViolation, .nullCStringResult, .invalidUTF8Result,
              .jsonDecodeFailed, .unsupportedSchema, .internalInvariant:
             .unknownCheckedFFIError
         }

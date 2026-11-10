@@ -107,10 +107,9 @@ public sealed class NativeTerminalView : Canvas
             SubscribeToLineSource();
             CalibrateCellMetrics();
             cursorBlinkTimer.Start();
-            if (renderQueued)
-            {
-                renderTimer.Start();
-            }
+            // A detached surface misses collection notifications. Always
+            // rebuild from its current source when it is attached again.
+            QueueRender();
         };
         Unloaded += (_, _) =>
         {

@@ -11,6 +11,64 @@ namespace OrbitTerm.Security.Tests;
 
 public sealed class SessionOrchestratorTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConnectionStagesDistinguishCredentialReadsFromNativeWork(bool withJump)
+    {
+        var orchestrator = CreateConnectedOrchestrator(out _);
+        var asset = CreateAsset(Guid.NewGuid(), Guid.NewGuid());
+        if (withJump)
+            asset = asset with { JumpHost = new JumpHostConfiguration(Guid.NewGuid(), "jump.example", 22, "qa", true) };
+        var stages = new List<ConnectionSetupStage>();
+
+        var result = await orchestrator.ConnectAsync(Guid.NewGuid(), asset, CancellationToken.None, reportStage: stages.Add);
+
+        Assert.IsType<ConnectResult.Connected>(result);
+        var expected = new List<ConnectionSetupStage>
+        {
+            ConnectionSetupStage.CredentialReadStarted,
+            ConnectionSetupStage.CredentialReadCompleted,
+        };
+        if (withJump)
+            expected.AddRange([ConnectionSetupStage.JumpCredentialReadStarted, ConnectionSetupStage.JumpCredentialReadCompleted]);
+        expected.AddRange([ConnectionSetupStage.NativeConnectStarted, ConnectionSetupStage.NativeConnectCompleted]);
+        Assert.Equal(expected, stages);
+    }
+
+    [Theory]
+    [InlineData(ConnectionSetupStage.CredentialReadCompleted)]
+    [InlineData(ConnectionSetupStage.JumpCredentialReadCompleted)]
+    [InlineData(ConnectionSetupStage.NativeConnectStarted)]
+    public async Task CancellationBeforeNativeWorkNeverStartsAnAuthentication(ConnectionSetupStage cancelAt)
+    {
+        var orchestrator = CreateConnectedOrchestrator(out var core);
+        using var cancellation = new CancellationTokenSource();
+        var asset = CreateAsset(Guid.NewGuid(), Guid.NewGuid()) with
+        {
+            JumpHost = new JumpHostConfiguration(Guid.NewGuid(), "jump.example", 22, "qa", true),
+        };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await orchestrator.ConnectAsync(Guid.NewGuid(), asset, cancellation.Token, reportStage: stage =>
+            {
+                if (stage == cancelAt) cancellation.Cancel();
+            }));
+
+        Assert.Null(core.LastConnectRequest);
+    }
+
+    [Fact]
+    public async Task BrokenDiagnosticSinkDoesNotBreakAuthentication()
+    {
+        var orchestrator = CreateConnectedOrchestrator(out var core);
+        var result = await orchestrator.ConnectAsync(Guid.NewGuid(), CreateAsset(Guid.NewGuid(), Guid.NewGuid()),
+            CancellationToken.None, reportStage: _ => throw new IOException("diagnostic unavailable"));
+
+        Assert.IsType<ConnectResult.Connected>(result);
+        Assert.NotNull(core.LastConnectRequest);
+    }
+
     [Fact]
     public async Task ConnectRegistersVerifiedLeaseAndAllowsTerminalOpen()
     {
@@ -511,6 +569,7 @@ public sealed class SessionOrchestratorTests
         var opened = Assert.IsType<SftpOpenResult.Opened>(result);
         Assert.Equal(55UL, opened.Lease.SftpSessionId);
         Assert.Equal("example.com", opened.Lease.Host);
+        Assert.Equal("/home/tester", opened.Lease.HomePath);
         Assert.Equal(1, core.OpenSftpCalls);
     }
 
@@ -583,6 +642,90 @@ public sealed class SessionOrchestratorTests
                 CancellationToken.None));
     }
 
+    [Fact]
+    public async Task EndSessionReleasesSftpBeforeBaseAndDoesNotReleaseTwice()
+    {
+        var orchestrator = CreateConnectedOrchestrator(out var core);
+        var workspace = Guid.NewGuid();
+        var asset = CreateAsset(Guid.NewGuid(), Guid.NewGuid());
+        await orchestrator.ConnectAsync(workspace, asset, CancellationToken.None);
+        await orchestrator.OpenSftpAsync(workspace, asset.Id, CancellationToken.None);
+
+        Assert.Equal(SessionEndResult.Ended,
+            await orchestrator.EndVerifiedSessionAsync(workspace, asset.Id, CancellationToken.None));
+        Assert.Equal(new[] { "sftp:55", "ssh:9" }, core.ReleaseCalls);
+        Assert.Equal(0UL, orchestrator.GetVerifiedBaseSessionId(workspace, asset.Id));
+        Assert.Equal(SessionEndResult.NoActiveSession,
+            await orchestrator.EndVerifiedSessionAsync(workspace, asset.Id, CancellationToken.None));
+        Assert.Equal(2, core.ReleaseCalls.Count);
+    }
+
+    [Fact]
+    public async Task EndSessionPreservesAnotherWorkspaceSharingTheSameTransport()
+    {
+        var orchestrator = CreateConnectedOrchestrator(out var core);
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        var asset = CreateAsset(Guid.NewGuid(), Guid.NewGuid());
+        await orchestrator.ConnectAsync(first, asset, CancellationToken.None);
+        await orchestrator.ConnectAsync(second, asset, CancellationToken.None);
+        await orchestrator.OpenSftpAsync(second, asset.Id, CancellationToken.None);
+
+        await orchestrator.EndVerifiedSessionAsync(first, asset.Id, CancellationToken.None);
+
+        Assert.Equal(new[] { "ssh:9" }, core.ReleaseCalls);
+        Assert.Equal(9UL, orchestrator.GetVerifiedBaseSessionId(second, asset.Id));
+        await orchestrator.EndVerifiedSessionAsync(second, asset.Id, CancellationToken.None);
+        Assert.Equal(new[] { "ssh:9", "sftp:55", "ssh:9" }, core.ReleaseCalls);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task FailedReleaseRetainsOwnershipForRetry(bool failSftp)
+    {
+        var orchestrator = CreateConnectedOrchestrator(out var core);
+        var workspace = Guid.NewGuid();
+        var asset = CreateAsset(Guid.NewGuid(), Guid.NewGuid());
+        await orchestrator.ConnectAsync(workspace, asset, CancellationToken.None);
+        await orchestrator.OpenSftpAsync(workspace, asset.Id, CancellationToken.None);
+        core.FailCloseSftp = failSftp;
+        core.FailDisconnect = !failSftp;
+
+        Assert.Equal(SessionEndResult.Failed,
+            await orchestrator.EndVerifiedSessionAsync(workspace, asset.Id, CancellationToken.None));
+        Assert.Equal(9UL, orchestrator.GetVerifiedBaseSessionId(workspace, asset.Id));
+        if (failSftp)
+        {
+            Assert.Equal(new[] { "sftp:55" }, core.ReleaseCalls);
+        }
+        else
+        {
+            Assert.Equal(new[] { "sftp:55", "ssh:9" }, core.ReleaseCalls);
+        }
+        core.FailCloseSftp = false;
+        core.FailDisconnect = false;
+        Assert.Equal(SessionEndResult.Ended,
+            await orchestrator.EndVerifiedSessionAsync(workspace, asset.Id, CancellationToken.None));
+        Assert.Equal(failSftp ? new[] { "sftp:55", "sftp:55", "ssh:9" }
+            : new[] { "sftp:55", "ssh:9", "ssh:9" }, core.ReleaseCalls);
+    }
+
+    [Fact]
+    public async Task ConcurrentEndReleasesTheOwnedReferenceOnlyOnce()
+    {
+        var orchestrator = CreateConnectedOrchestrator(out var core);
+        var workspace = Guid.NewGuid();
+        var asset = CreateAsset(Guid.NewGuid(), Guid.NewGuid());
+        await orchestrator.ConnectAsync(workspace, asset, CancellationToken.None);
+
+        var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ =>
+            orchestrator.EndVerifiedSessionAsync(workspace, asset.Id, CancellationToken.None).AsTask()));
+
+        Assert.Equal(1, results.Count(result => result == SessionEndResult.Ended));
+        Assert.Equal(new[] { "ssh:9" }, core.ReleaseCalls);
+    }
+
     private static SessionOrchestrator CreateConnectedOrchestrator(out FakeCheckedCoreClient core)
     {
         core = new FakeCheckedCoreClient();
@@ -645,6 +788,11 @@ public sealed class SessionOrchestratorTests
     {
         public event EventHandler<TerminalDataReceivedEventArgs>? TerminalDataReceived;
 
+        public event EventHandler<ConnectionEventReceivedEventArgs>? ConnectionEventReceived;
+
+        public void EmitConnectionEvent(ulong id, OrbitConnectionEventKind kind) =>
+            ConnectionEventReceived?.Invoke(this, new ConnectionEventReceivedEventArgs(id, kind));
+
         public event EventHandler<SftpTransferProgressEventArgs>? SftpTransferProgress;
 
         public int OpenTerminalCalls { get; private set; }
@@ -652,6 +800,23 @@ public sealed class SessionOrchestratorTests
         public int WriteTerminalCalls { get; private set; }
         public int ResizeTerminalCalls { get; private set; }
         public int CloseTerminalCalls { get; private set; }
+        public List<string> ReleaseCalls { get; } = [];
+        public bool FailCloseSftp { get; set; }
+        public bool FailDisconnect { get; set; }
+
+        public TerminalControlResult CloseSftp(ulong sftpSessionId)
+        {
+            ReleaseCalls.Add($"sftp:{sftpSessionId}");
+            return FailCloseSftp ? new TerminalControlResult.Failed("private backend detail")
+                : new TerminalControlResult.Succeeded("closed");
+        }
+
+        public TerminalControlResult DisconnectSession(ulong baseSessionId)
+        {
+            ReleaseCalls.Add($"ssh:{baseSessionId}");
+            return FailDisconnect ? new TerminalControlResult.Failed("private backend detail")
+                : new TerminalControlResult.Succeeded("closed");
+        }
         public int ListSftpDirectoryCalls { get; private set; }
         public int ReadSftpTextFileCalls { get; private set; }
         public int DownloadSftpFileCalls { get; private set; }
@@ -750,6 +915,7 @@ public sealed class SessionOrchestratorTests
                 {
                   "base_session_id": "{{baseSessionId}}",
                   "sftp_session_id": "55",
+                  "home_path": "/home/tester",
                   "security_generation": "host_key_verified"
                 }
                 """);

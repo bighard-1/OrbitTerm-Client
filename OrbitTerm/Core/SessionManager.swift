@@ -41,6 +41,9 @@ final class SessionManager: ObservableObject {
     @Published private(set) var checkedHostKeyRoute: CheckedHostKeyPresentationRoute?
     @Published private(set) var telnetRiskRoute: TelnetRiskPresentationRoute?
     @Published private(set) var interruptedSessionRecoveryPending = false
+    #if os(iOS)
+    @Published private(set) var mobileSessionFocusRequestID: UUID?
+    #endif
 
     let monitorService: MonitorService
     private let workspacePresentation = WorkspacePresentationCoordinator<WorkspaceSession>()
@@ -65,6 +68,10 @@ final class SessionManager: ObservableObject {
     private var auxiliaryRefreshesAreActive = true
     private let liveSessionRecoveryMarker = LiveSessionRecoveryMarker()
     private var connectionLossCleanupTasks: [UUID: Task<Void, Never>] = [:]
+    private var connectionLaunchGate = ConnectionLaunchGate()
+    #if os(iOS)
+    private var pendingSecondFactorResume: PendingSecondFactorResumeIntent?
+    #endif
 
     private init(
         connectionSecurityPolicy: ConnectionSecurityPolicy = .applicationDefault,
@@ -116,6 +123,75 @@ final class SessionManager: ObservableObject {
     var tabs: [WorkspaceSession] { workspacePresentation.tabs }
 
     var activeTabID: UUID? { workspacePresentation.activeTabID }
+
+    var isAwaitingCheckedSecondFactor: Bool {
+        guard let route = checkedHostKeyRoute else { return false }
+        if case .awaitingSecondFactor = route.coordinator.state { return true }
+        return false
+    }
+
+    #if os(iOS)
+    var hasPendingSecondFactorResume: Bool { pendingSecondFactorResume != nil }
+
+    /// Consume one successful MFA navigation request. The tab can disappear
+    /// while a sheet dismisses, so validate it again before exposing it.
+    func consumeMobileSessionFocusRequest() -> Bool {
+        guard let id = mobileSessionFocusRequestID else { return false }
+        mobileSessionFocusRequestID = nil
+        guard let session = tabs.first(where: { $0.id == id }), session.isConnected else {
+            return false
+        }
+        activateTab(id)
+        return true
+    }
+
+    /// Save only the route identity before the normal account-lock teardown
+    /// cancels the SSH challenge and closes its tab. No code, password, or
+    /// authenticated socket is retained for a backgrounded app.
+    func captureSecondFactorResume(accountID: String, now: Date = Date()) {
+        guard let route = checkedHostKeyRoute,
+              case .awaitingSecondFactor = route.coordinator.state,
+              let session = tabs.first(where: { $0.id == route.workspaceID }),
+              let scope = AccountScope(username: accountID) else { return }
+        pendingSecondFactorResume = PendingSecondFactorResumeIntent(
+            serverID: session.server.id,
+            accountScopeID: scope.storageIdentifier,
+            capturedAt: now
+        )
+    }
+
+    /// A new checked SSH attempt obtains a fresh server-side challenge after
+    /// the user has unlocked the app. The former challenge is never replayed.
+    @discardableResult
+    func resumeSecondFactorAfterUnlock(
+        accountID: String,
+        isAuthenticated: Bool,
+        isUnlocked: Bool,
+        store: ServerStore,
+        now: Date = Date()
+    ) -> Bool {
+        guard let intent = pendingSecondFactorResume else { return false }
+        pendingSecondFactorResume = nil
+        guard let scope = AccountScope(username: accountID),
+              MobileSecondFactorResumePolicy.canResume(
+                intent,
+                accountScopeID: scope.storageIdentifier,
+                now: now,
+                isAuthenticated: isAuthenticated,
+                isUnlocked: isUnlocked
+              ),
+              store.isActiveAccount(accountID),
+              let server = store.servers.first(where: { $0.id == intent.serverID }) else {
+            return false
+        }
+        openTab(for: server, autoConnect: true)
+        return true
+    }
+
+    func clearPendingSecondFactorResume() {
+        pendingSecondFactorResume = nil
+    }
+    #endif
 
     var activeSession: WorkspaceSession? { workspacePresentation.activeSession }
 
@@ -315,6 +391,9 @@ final class SessionManager: ObservableObject {
     /// Reuse the existing per-tab teardown path so SSH, SFTP, Docker and Monitor
     /// resources follow their normal disconnect order.
     func closeAllTabs() {
+        #if os(iOS)
+        mobileSessionFocusRequestID = nil
+        #endif
         let currentTabs = tabs
         for tab in currentTabs {
             closeTab(tab)
@@ -322,6 +401,9 @@ final class SessionManager: ObservableObject {
     }
 
     func closeTab(_ tab: WorkspaceSession) {
+        #if os(iOS)
+        if mobileSessionFocusRequestID == tab.id { mobileSessionFocusRequestID = nil }
+        #endif
         if checkedHostKeyRoute?.workspaceID == tab.id {
             _ = checkedHostKeyRoute?.orchestrator.cancel()
             checkedHostKeyRoute = nil
@@ -491,15 +573,19 @@ final class SessionManager: ObservableObject {
     }
 
     func connect(session: WorkspaceSession) async {
-        await awaitConnectionLossCleanup(for: session.id)
-        guard ApplicationNetworkAvailability.shared.isNetworkUsable else {
-            session.isConnected = false
-            session.updateConnectionState(.disconnected, detail: "等待网络恢复后重连")
-            session.appendTerminal("[network] 当前没有可用网络；网络恢复后请手动重新连接")
+        guard connectionLaunchGate.begin(
+            sessionID: session.id,
+            phase: session.connectionPresentation.phase
+        ) else {
             return
         }
+        defer { connectionLaunchGate.finish(sessionID: session.id) }
+        await awaitConnectionLossCleanup(for: session.id)
         if session.server.transport.requiresRemoteDesktopWorkspace {
 #if os(macOS)
+            // The native RDP engine owns authoritative reachability and error
+            // classification. A stale NWPath snapshot must never leave an
+            // empty tab without authentication/network feedback.
             await connectRemoteDesktop(session: session)
 #else
             session.updateConnectionState(.blocked, detail: "当前平台尚未开放远程桌面")
@@ -507,7 +593,12 @@ final class SessionManager: ObservableObject {
 #endif
             return
         }
-
+        guard ApplicationNetworkAvailability.shared.routeState.allowsUserInitiatedConnection else {
+            session.isConnected = false
+            session.updateConnectionState(.disconnected, detail: "等待网络恢复后重连")
+            session.appendTerminal("[network] 当前没有可用网络；网络恢复后请手动重新连接")
+            return
+        }
         if session.server.transport == .telnet {
             let target = TelnetTargetIdentity(
                 serverID: session.server.id,
@@ -741,6 +832,24 @@ final class SessionManager: ObservableObject {
         applyCheckedOutcome(await route.orchestrator.retrySave(), route: route)
     }
 
+    func submitCheckedSecondFactor(_ code: String) async {
+        guard let route = checkedHostKeyRoute else { return }
+        let outcome = await route.orchestrator.submitSecondFactor(code)
+        let routeWasCurrent = checkedHostKeyRoute === route
+        applyCheckedOutcome(outcome, route: route)
+        #if os(iOS)
+        let terminalIsConnected = tabs.first(where: { $0.id == route.workspaceID })?.isConnected == true
+        if MobileSecondFactorSessionFocusPolicy.shouldFocus(
+            after: outcome,
+            expectedWorkspaceID: route.workspaceID,
+            routeWasCurrent: routeWasCurrent,
+            terminalIsConnected: terminalIsConnected
+        ) {
+            mobileSessionFocusRequestID = route.workspaceID
+        }
+        #endif
+    }
+
     func cancelCheckedHostKeyFlow() {
         guard let route = checkedHostKeyRoute else { return }
         applyCheckedOutcome(route.orchestrator.cancel(), route: route)
@@ -749,6 +858,36 @@ final class SessionManager: ObservableObject {
     func closeCheckedHostKeyPresentation() {
         checkedHostKeyRoute?.orchestrator.close()
         checkedHostKeyRoute = nil
+    }
+
+    /// Recovers from an intentionally rotated SSH host key without weakening
+    /// verification. The exact old fingerprint must still match the local
+    /// trust store; after removal, the normal connection flow presents the new
+    /// key as an unknown host and requires a second explicit confirmation.
+    func removePreviousHostKeyTrustAndReconnect(_ block: HostKeyBlockedPayload) async -> String? {
+        guard block.reasonCode == .changed,
+              block.canReplace,
+              block.previousFingerprintSHA256 != nil,
+              let route = checkedHostKeyRoute,
+              let workspace = tabs.first(where: { $0.id == route.workspaceID }) else {
+            return "服务器身份变更信息已过期，请重新发起连接。"
+        }
+        do {
+            try KnownHostsTrustMaintenanceService().removeChangedTrust(block)
+        } catch {
+            return "旧信任记录未被移除。请重新连接并确认原指纹仍与弹窗一致。"
+        }
+
+        route.orchestrator.close()
+        checkedHostKeyRoute = nil
+        workspace.updateConnectionState(
+            HostKeyTrustReplacementReconnectPolicy.phaseBeforeReconnect,
+            detail: "旧信任已移除，正在重新验证服务器身份"
+        )
+        workspace.appendTerminal("[checked] 旧 Host Key 信任已精确移除；正在请求新的首次信任确认")
+        await Task.yield()
+        await connect(session: workspace)
+        return nil
     }
 
     private func applyCheckedOutcome(
@@ -765,6 +904,8 @@ final class SessionManager: ObservableObject {
             break
         case .awaitingUserDecision:
             session.updateConnectionState(.awaitingHostKeyDecision, detail: "等待服务器身份确认")
+        case .awaitingSecondFactor:
+            session.updateConnectionState(.awaitingSecondFactor, detail: "等待 SSH 二次验证码")
         case let .connected(lease):
             installCheckedLease(lease, on: session, terminalConnected: true)
             checkedHostKeyRoute = nil

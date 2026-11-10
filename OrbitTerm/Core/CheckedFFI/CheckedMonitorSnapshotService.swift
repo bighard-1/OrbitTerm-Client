@@ -129,7 +129,8 @@ actor CheckedMonitorSnapshotService: CheckedMonitorSnapshotFetching {
             .pollingCancelled
         case .invalidInput:
             .invalidBaseSessionID
-        case .unavailable, .timeout, .protocolViolation, .nullCStringResult,
+        case .unavailable, .credentialUnavailable, .credentialStorageFailed,
+             .timeout, .protocolViolation, .nullCStringResult,
              .invalidUTF8Result, .jsonDecodeFailed, .unsupportedSchema,
              .internalInvariant:
             .unknownCheckedFFIError
@@ -166,7 +167,7 @@ actor CheckedMonitorPollingLoop {
     private let fetcher: any CheckedMonitorSnapshotFetching
     private let intervalNanoseconds: UInt64
     private let isEnabled: @Sendable () -> Bool
-    private let retryDelayNanoseconds: UInt64 = 1_000_000_000
+    private let retryDelayNanoseconds: UInt64
     private var task: Task<Void, Never>?
     private var activeRunID: UUID?
 
@@ -174,11 +175,13 @@ actor CheckedMonitorPollingLoop {
         binding: CheckedMonitorBinding,
         fetcher: any CheckedMonitorSnapshotFetching,
         intervalNanoseconds: UInt64,
+        retryDelayNanoseconds: UInt64 = 1_000_000_000,
         isEnabled: @escaping @Sendable () -> Bool = { true }
     ) {
         self.binding = binding
         self.fetcher = fetcher
         self.intervalNanoseconds = intervalNanoseconds
+        self.retryDelayNanoseconds = retryDelayNanoseconds
         self.isEnabled = isEnabled
     }
 

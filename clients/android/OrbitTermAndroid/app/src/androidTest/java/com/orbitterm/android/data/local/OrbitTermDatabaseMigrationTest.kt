@@ -32,7 +32,7 @@ class OrbitTermDatabaseMigrationTest {
 
         val migrated = helper.runMigrationsAndValidate(
             TEST_DATABASE,
-            11,
+            13,
             true,
             OrbitTermMigrations.V1_TO_V2,
             OrbitTermMigrations.V2_TO_V3,
@@ -44,19 +44,22 @@ class OrbitTermDatabaseMigrationTest {
             OrbitTermMigrations.V8_TO_V9,
             OrbitTermMigrations.V9_TO_V10,
             OrbitTermMigrations.V10_TO_V11,
+            OrbitTermMigrations.V11_TO_V12,
+            OrbitTermMigrations.V12_TO_V13,
         )
 
         migrated.query(
-            "SELECT accountScope, id, credentialID, host, port FROM server_assets WHERE id = 'legacy-id'",
+            "SELECT accountScope, id, credentialID, host, port, storageScope FROM server_assets WHERE id = 'legacy-id'",
         ).use { cursor ->
             assertTrue(cursor.moveToFirst())
-            // A pre-account row must survive, but the migration must never
-            // guess which later signed-in account owns it.
-            assertEquals("", cursor.getString(0))
+            // A pre-account row must survive as a device-local asset; the
+            // migration must never guess which later account owns it.
+            assertEquals("__orbitterm_device_local__", cursor.getString(0))
             assertEquals("legacy-id", cursor.getString(1))
             assertEquals("legacy-credential", cursor.getString(2))
             assertEquals("127.0.0.1", cursor.getString(3))
             assertEquals(22, cursor.getInt(4))
+            assertEquals("LOCAL_ONLY", cursor.getString(5))
             assertFalse(cursor.moveToNext())
         }
         migrated.query("SELECT COUNT(*) FROM asset_sync_outbox").use { cursor ->
@@ -78,11 +81,13 @@ class OrbitTermDatabaseMigrationTest {
 
         val migrated = helper.runMigrationsAndValidate(
             REPLAY_DATABASE,
-            11,
+            13,
             true,
             OrbitTermMigrations.V8_TO_V9,
             OrbitTermMigrations.V9_TO_V10,
             OrbitTermMigrations.V10_TO_V11,
+            OrbitTermMigrations.V11_TO_V12,
+            OrbitTermMigrations.V12_TO_V13,
         )
         val firstIdentity = migrated.query(
             "SELECT operationId FROM asset_sync_outbox WHERE accountScope = 'account' AND assetId = 'asset'",
@@ -93,7 +98,7 @@ class OrbitTermDatabaseMigrationTest {
         assertTrue(firstIdentity.matches(Regex("[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}")))
         migrated.close()
 
-        val reopened = helper.runMigrationsAndValidate(REPLAY_DATABASE, 11, true)
+        val reopened = helper.runMigrationsAndValidate(REPLAY_DATABASE, 13, true)
         reopened.query("SELECT operationId FROM asset_sync_outbox").use { cursor ->
             assertTrue(cursor.moveToFirst())
             assertEquals(firstIdentity, cursor.getString(0))
@@ -114,10 +119,12 @@ class OrbitTermDatabaseMigrationTest {
 
         val migrated = helper.runMigrationsAndValidate(
             DISPOSITION_DATABASE,
-            11,
+            13,
             true,
             OrbitTermMigrations.V9_TO_V10,
             OrbitTermMigrations.V10_TO_V11,
+            OrbitTermMigrations.V11_TO_V12,
+            OrbitTermMigrations.V12_TO_V13,
         )
         migrated.query(
             "SELECT deliveryDisposition, failureCode, attemptCount FROM asset_sync_outbox",
@@ -145,9 +152,11 @@ class OrbitTermDatabaseMigrationTest {
 
         val migrated = helper.runMigrationsAndValidate(
             RETRY_AFTER_DATABASE,
-            11,
+            13,
             true,
             OrbitTermMigrations.V10_TO_V11,
+            OrbitTermMigrations.V11_TO_V12,
+            OrbitTermMigrations.V12_TO_V13,
         )
         migrated.query("SELECT nextAttemptAtUnix, attemptCount FROM asset_sync_outbox").use { cursor ->
             assertTrue(cursor.moveToFirst())
@@ -157,10 +166,37 @@ class OrbitTermDatabaseMigrationTest {
         migrated.close()
     }
 
+    @Test
+    fun migratesVersion12DeleteWithoutInventingAcknowledgementProof() {
+        helper.createDatabase(DELETE_CLOCK_DATABASE, 12).apply {
+            execSQL(
+                "INSERT INTO asset_sync_outbox " +
+                    "(accountScope, assetId, operation, operationId, enqueuedAtUnix, " +
+                    "deliveryDisposition, attemptCount, nextAttemptAtUnix) " +
+                    "VALUES ('account', 'asset', 'MOVE_TO_TRASH', 'operation', 12, 'BLOCKED', 1, 0)",
+            )
+            close()
+        }
+
+        val migrated = helper.runMigrationsAndValidate(
+            DELETE_CLOCK_DATABASE, 13, true, OrbitTermMigrations.V12_TO_V13,
+        )
+        migrated.query(
+            "SELECT operationId, deliveryDisposition, requestVectorClock FROM asset_sync_outbox",
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("operation", cursor.getString(0))
+            assertEquals("BLOCKED", cursor.getString(1))
+            assertTrue(cursor.isNull(2))
+        }
+        migrated.close()
+    }
+
     private companion object {
         const val TEST_DATABASE = "orbit-migration-test"
         const val REPLAY_DATABASE = "orbit-replay-migration-test"
         const val DISPOSITION_DATABASE = "orbit-disposition-migration-test"
         const val RETRY_AFTER_DATABASE = "orbit-retry-after-migration-test"
+        const val DELETE_CLOCK_DATABASE = "orbit-delete-clock-migration-test"
     }
 }

@@ -135,7 +135,7 @@ for state in '检测到同步冲突' '保留本地修改' '保留云端修改' '
   rg -Fq "$state" "$ios_sync_state" || fail "iOS sync/recovery vocabulary is missing: $state"
   rg -Fq "$state" "$android_sync_state" "$android_recently_deleted" || fail "Android sync/recovery vocabulary is missing: $state"
 done
-for state in '已更新登录密码；其他设备需要重新登录。' '已完成主密码轮换；其他设备需要重新登录并使用新主密码解锁。' '退出登录？' '将断开当前所有会话并清除当前登录状态；本机加密数据仍按账户隔离保留。'; do
+for state in '已更新登录密码；其他设备需要重新登录。' '已完成主密码轮换；其他设备需要重新登录并使用新主密码解锁。' '退出登录？' '将退出当前设备并清除本机令牌，同时尝试撤销服务端当前设备会话；其他设备不受影响。本机加密数据仍按账户隔离保留。'; do
   rg -Fq "$state" "$ios_sync_state" || fail "iOS account-security vocabulary is missing: $state"
   rg -Fq "$state" "$android_security_state" || fail "Android account-security vocabulary is missing: $state"
 done
@@ -176,8 +176,8 @@ rg -Fq 'BackgroundLockDisposition.LOCK_NOW' "$ORBIT_ROOT/clients/android/OrbitTe
 rg -Fq 'ordinaryBackgroundAlwaysLocksRegardlessOfSessionOwnership' "$android_lock_policy_test" || fail "Android ordinary background lock regression is missing"
 rg -Fq 'DEFER_FOR_DOCUMENT_INTERACTION' "$android_lock_policy" || fail "Android document-picker grace policy is missing"
 rg -Fq 'MobileAutoLockPolicy.shouldLockOnBackground' "$ios_app_session" || fail "iOS background auto-lock policy is not applied"
-rg -Fq 'testMobileBackgroundLockRequiresAuthenticatedConfiguredAccount' "$ORBIT_ROOT/OrbitTermCheckedFFITests/ApplicationOperationLifecyclePolicyTests.swift" || fail "iOS background auto-lock regression is missing"
-rg -Fq 'isAuthenticated && hasMasterPassword' "$ios_lifecycle_policy" || fail "iOS background auto-lock predicate changed without parity review"
+rg -Fq 'testMobileBackgroundLockRequiresAuthenticatedUnlockedAccount' "$ORBIT_ROOT/OrbitTermCheckedFFITests/ApplicationOperationLifecyclePolicyTests.swift" || fail "iOS background auto-lock regression is missing"
+rg -Fq 'isAuthenticated && wasUnlocked' "$ios_lifecycle_policy" || fail "iOS background auto-lock predicate changed without parity review"
 rg -Fq 'set: { _ in }' "$ios_root_content" || fail "iOS sync conflict must require an explicit choice"
 ! rg -Fq 'Button("取消", role: .cancel)' "$ios_root_content" || fail "iOS sync conflict reintroduced an implicit cancel choice"
 ! rg -Fq '终端在线' "$ORBIT_ROOT/OrbitTerm/App/MobileSessionViews.swift" "$android_session" || fail "mobile session header reintroduced ambiguous online wording"

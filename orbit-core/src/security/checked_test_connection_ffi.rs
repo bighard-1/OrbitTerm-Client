@@ -95,9 +95,21 @@ pub(crate) fn connection_error_payload(
             pre_authentication_error_payload(error, request_id)
         }
         CheckedTestConnectionError::Authentication(error) => HostKeyFfiErrorPayload::new(
-            HostKeyFfiErrorCode::SshAuthFailed,
+            match error {
+                CheckedAuthenticationError::Failed => HostKeyFfiErrorCode::SshAuthFailed,
+                CheckedAuthenticationError::SecondFactorRequired => {
+                    HostKeyFfiErrorCode::SshSecondFactorRequired
+                }
+                CheckedAuthenticationError::JumpSecondFactorRequired => {
+                    HostKeyFfiErrorCode::SshSecondFactorRequired
+                }
+            },
             Some(match error {
                 CheckedAuthenticationError::Failed => "authentication_failed",
+                CheckedAuthenticationError::SecondFactorRequired => "verification_code_required",
+                CheckedAuthenticationError::JumpSecondFactorRequired => {
+                    "jump_verification_code_required"
+                }
             }),
             request_id,
             None,
@@ -224,6 +236,7 @@ fn input_error_payload(
             CheckedTestInputError::InvalidRequestId => "invalid_request_id",
             CheckedTestInputError::MissingCredentials => "missing_credentials",
             CheckedTestInputError::InvalidKnownHostsPath => "invalid_known_hosts_path",
+            CheckedTestInputError::InvalidSecondFactor => "invalid_second_factor",
         },
         request_id,
     )
@@ -399,7 +412,7 @@ fn parse_required_string(
         })
 }
 
-fn parse_optional_string(
+pub(crate) fn parse_optional_string(
     pointer: *const c_char,
     utf8_detail: &'static str,
     request_id: &str,

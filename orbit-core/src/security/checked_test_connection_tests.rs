@@ -183,6 +183,8 @@ fn request_validation_and_debug_exclude_credentials_and_path() {
         path,
         REQUEST_ID.to_string(),
     )
+    .unwrap()
+    .with_one_time_code("transient-otp-secret".to_string())
     .unwrap();
     assert_eq!(request.request_id(), REQUEST_ID);
     let debug = format!("{request:?}");
@@ -190,6 +192,7 @@ fn request_validation_and_debug_exclude_credentials_and_path() {
         "password-secret",
         "private-key-secret",
         "passphrase-secret",
+        "transient-otp-secret",
         &path_text,
     ] {
         assert!(!debug.contains(secret));
@@ -420,6 +423,12 @@ fn challenge_blocked_success_and_error_json_keep_stable_distinct_semantics() {
         (
             CheckedTestConnectionError::Authentication(CheckedAuthenticationError::Failed),
             HostKeyFfiErrorCode::SshAuthFailed,
+        ),
+        (
+            CheckedTestConnectionError::Authentication(
+                CheckedAuthenticationError::SecondFactorRequired,
+            ),
+            HostKeyFfiErrorCode::SshSecondFactorRequired,
         ),
         (
             CheckedTestConnectionError::Connect(ConnectPreAuthError::Protocol(

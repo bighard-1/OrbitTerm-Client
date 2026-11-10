@@ -1,12 +1,12 @@
 use std::future::Future;
 use std::pin::Pin;
+use std::time::Duration;
 
 use russh_sftp::client::{Config as SftpClientConfig, SftpSession};
 
 use crate::security::CheckedChannelAccessError;
 use crate::session_pool::{
-    insert_checked_sftp_session, release_base_session, remove_sftp_session,
-    require_active_verified_base_session, VerifiedBaseSessionGuard,
+    insert_checked_sftp_session, require_active_verified_base_session, VerifiedBaseSessionGuard,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -34,6 +34,10 @@ pub(crate) trait CheckedSftpBackend {
 }
 
 struct RusshCheckedSftpBackend;
+
+// The SFTP client bounds individual requests at 30 seconds. Also bound the
+// SSH channel/subsystem handshake, which happens before that timer applies.
+const CHECKED_SFTP_OPEN_TIMEOUT: Duration = Duration::from_secs(35);
 
 pub(crate) fn checked_sftp_client_config(max_concurrent_writes: usize) -> SftpClientConfig {
     SftpClientConfig {
@@ -95,18 +99,30 @@ pub(crate) async fn open_sftp_channel_checked_with_backend<B: CheckedSftpBackend
     base_session_id: u64,
     backend: &B,
 ) -> Result<SftpSessionId, CheckedChannelAccessError> {
+    open_sftp_channel_checked_with_backend_timeout(
+        base_session_id,
+        backend,
+        CHECKED_SFTP_OPEN_TIMEOUT,
+    )
+    .await
+}
+
+pub(crate) async fn open_sftp_channel_checked_with_backend_timeout<B: CheckedSftpBackend>(
+    base_session_id: u64,
+    backend: &B,
+    timeout: Duration,
+) -> Result<SftpSessionId, CheckedChannelAccessError> {
     let guard = require_active_verified_base_session(base_session_id)?;
     guard.revalidate()?;
-    let session = backend.open(&guard).await?;
+    // Time out before registration so a late handshake cannot publish an
+    // orphaned checked SFTP session into the process-wide pool.
+    let session = tokio::time::timeout(timeout, backend.open(&guard))
+        .await
+        .map_err(|_| CheckedChannelAccessError::SubsystemRequestFailed)??;
     guard.revalidate()?;
     backend.register(&guard, session)
 }
 
 pub(crate) async fn discard_sftp_channel_checked(session_id: SftpSessionId) {
-    let Ok(session) = remove_sftp_session(session_id.get()) else {
-        return;
-    };
-    let base_session_id = session.base.id;
-    let _ = session.sftp.close().await;
-    let _ = release_base_session(base_session_id).await;
+    let _ = crate::sftp_disconnect(session_id.get()).await;
 }

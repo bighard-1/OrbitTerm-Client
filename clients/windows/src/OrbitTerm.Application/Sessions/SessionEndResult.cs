@@ -4,4 +4,5 @@ public enum SessionEndResult
 {
     NoActiveSession,
     Ended,
+    Failed,
 }

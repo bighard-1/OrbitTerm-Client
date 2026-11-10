@@ -81,6 +81,8 @@ class UiStateContractTest {
         )
         assertTrue(shouldShowBottomDock(AppDestination.Sessions, hasActiveTerminalSession = false))
         assertFalse(shouldShowBottomDock(AppDestination.Sessions, hasActiveTerminalSession = true))
+        assertFalse(shouldShowBottomDock(AppDestination.Servers, hasActiveTerminalSession = false, assetEditorOpen = true))
+        assertTrue(shouldShowBottomDock(AppDestination.Servers, hasActiveTerminalSession = false, assetEditorOpen = false))
         AppDestination.entries
             .filterNot { it == AppDestination.Sessions }
             .forEach { destination ->

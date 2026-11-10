@@ -24,7 +24,7 @@ final class SFTPManager: ObservableObject {
     /// never publish into a newer directory/session.
     private var transferConnectionOwner = OperationOwner()
     private var transferConnectionLease: OperationLease?
-    private var transferConcurrencyGate = OperationConcurrencyGate(
+    private var transferOperations = SFTPTransferOperationRegistry(
         maximumConcurrentOperations: OperationResourceBudget.sftpMaximumConcurrentTransfers
     )
     private var transferRetryActions: [UUID: @MainActor () -> Void] = [:]
@@ -134,25 +134,24 @@ final class SFTPManager: ObservableObject {
     /// caller owns the matching `finishTransferOperation()` call, including on
     /// cancellation or failure; this prevents drag-and-drop bursts from
     /// creating unbounded Rust/SSH work.
-    func beginTransferOperation(requestedSlots: Int = 1) -> Int? {
-        guard let granted = transferConcurrencyGate.acquire(requestedSlots: requestedSlots) else {
+    func beginTransferOperation(requestedSlots: Int = 1) -> SFTPTransferOperation? {
+        guard let operation = transferOperations.begin(requestedSlots: requestedSlots) else {
             statusText = "传输并发已达上限，请等待当前任务完成"
             return nil
         }
-        return granted
+        return operation
     }
 
-    func finishTransferOperation(slots: Int = 1) {
-        transferConcurrencyGate.release(slots: slots)
+    func finishTransferOperation(_ operation: SFTPTransferOperation) {
+        transferOperations.finish(operation)
     }
 
     func invalidateTransferOperations() {
         transferConnectionOwner.invalidate()
         transferConnectionLease = nil
-        transferConcurrencyGate.reset()
+        transferOperations.cancelAll()
         for index in transfers.indices where !transfers[index].isDone {
-            transfers[index].statusText = "已取消（会话已切换或断开）"
-            transfers[index].isDone = true
+            transfers[index].statusText = "正在停止（会话已切换或断开），等待传输清理"
         }
         trimTransferHistory()
     }
@@ -203,7 +202,8 @@ final class SFTPManager: ObservableObject {
     }
 
     func retryTransfer(_ taskID: UUID) {
-        guard let action = transferRetryActions[taskID] else { return }
+        guard transfers.contains(where: { $0.id == taskID && $0.isDone }),
+              let action = transferRetryActions[taskID] else { return }
         transfers.removeAll { $0.id == taskID }
         transferRetryActions.removeValue(forKey: taskID)
         action()

@@ -33,6 +33,21 @@ class SyncStatusPresentationTest {
     }
 
     @Test
+    fun `asset page directly reports offline and failed sync without claiming success`() {
+        val waiting = SyncStatus.AwaitingNetwork.assetPageFeedback()
+        assertEquals("等待网络：网络恢复后自动同步", waiting?.message)
+        assertFalse(waiting?.isError ?: true)
+
+        val failure = SyncStatus.Failed(syncError(OrbitErrorCode.NetworkUnavailable)).assetPageFeedback()
+        assertTrue(failure?.message?.startsWith("同步失败：") == true)
+        assertTrue(failure?.isError == true)
+
+        assertEquals(null, SyncStatus.Idle.assetPageFeedback())
+        assertEquals(null, SyncStatus.Syncing.assetPageFeedback())
+        assertEquals(null, SyncStatus.Succeeded(1, 0, AssetOutboxResult()).assetPageFeedback())
+    }
+
+    @Test
     fun `deferred work and conflicts cannot be presented as complete success`() {
         val deferred = SyncStatus.Succeeded(
             assetCount = 3,
@@ -68,6 +83,23 @@ class SyncStatusPresentationTest {
         assertEquals(SyncPresentationPhase.FAILURE, presentation.phase)
         assertTrue(presentation.detail.contains("2 项已停止后台重试"))
         assertFalse(presentation.detail.contains("等待网络"))
+    }
+
+    @Test
+    fun `delete versus local edit requires an explicit restore choice`() {
+        val conflict = AssetSyncConflict(
+            assetId = "test-asset",
+            fields = emptySet(),
+            localSummary = "本机测试修改",
+            remoteSummary = "云端资产已删除",
+            remoteDeleted = true,
+        ).presentation()
+
+        assertEquals("云端已删除此资产", conflict.title)
+        assertEquals("恢复资产并保留本地修改", conflict.keepLocalLabel)
+        assertEquals("接受云端删除", conflict.keepCloudLabel)
+        assertTrue(conflict.detail.contains("只有你明确选择恢复"))
+        assertFalse(conflict.detail.contains("冲突字段"))
     }
 
     @Test

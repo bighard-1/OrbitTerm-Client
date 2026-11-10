@@ -11,8 +11,10 @@ import AppKit
 final class AppSession: ObservableObject {
     @Published var isAuthenticated: Bool = false
     @Published var isUnlocked: Bool = false
+    @Published private(set) var mustChangePassword: Bool = false
     @Published var username: String = ""
     @Published var transientStatus: String = ""
+    @Published private(set) var logoutRevocationWarning: String?
     @Published private(set) var masterPasswordPersistenceError: String?
     @Published private(set) var authRevision: Int = 0
     @Published private(set) var isCheckingLocalStorage: Bool = false
@@ -23,6 +25,7 @@ final class AppSession: ObservableObject {
     private let tokenService = "com.orbitterm.auth"
     private let tokenAccount = "jwt_token"
     private let refreshTokenAccount = "jwt_refresh_token"
+    private let passwordChangeRequiredAccount = "password_change_required"
     private let usernameAccount = "username"
     private let passwordService = "com.orbitterm.security"
     private let legacyPasswordAccount = "master_password"
@@ -65,7 +68,7 @@ final class AppSession: ObservableObject {
             isAuthenticated = true
             isUnlocked = true
             username = "ui-test@example.invalid"
-        case .operationalStates, .syncRecoveryStates, .accountSecurityStates:
+        case .operationalStates, .syncRecoveryStates, .accountSecurityStates, .captureShieldStates:
             isAuthenticated = true
             isUnlocked = true
             username = "ui-test@example.invalid"
@@ -80,8 +83,11 @@ final class AppSession: ObservableObject {
         do {
             let token = try keychain.readString(service: tokenService, account: tokenAccount)
             let storedUsername = try keychain.readString(service: tokenService, account: usernameAccount)
+            let storedPasswordGate = try keychain.readString(service: tokenService, account: passwordChangeRequiredAccount)
             isAuthenticated = !(token?.isEmpty ?? true)
             username = storedUsername ?? ""
+            mustChangePassword = isAuthenticated && storedPasswordGate == "1"
+            if mustChangePassword { isUnlocked = false }
             if !isAuthenticated {
                 isUnlocked = false
                 username = ""
@@ -107,19 +113,27 @@ final class AppSession: ObservableObject {
         loadAuthState()
     }
 
-    func persistLogin(accessToken: String, refreshToken: String?, username: String) throws {
+    func persistLogin(accessToken: String, refreshToken: String?, username: String, mustChangePassword: Bool = false) throws {
+        guard !accessToken.isEmpty,
+              let refreshToken,
+              !refreshToken.isEmpty else {
+            throw NetworkService.NetworkError.decodeFailed
+        }
         do {
-            try keychain.saveString(accessToken, service: tokenService, account: tokenAccount)
-            if let refreshToken, !refreshToken.isEmpty {
+            try AuthCredentialMutationGate.withLock {
                 try keychain.saveString(refreshToken, service: tokenService, account: refreshTokenAccount)
+                try keychain.saveString(accessToken, service: tokenService, account: tokenAccount)
+                try keychain.saveString(username, service: tokenService, account: usernameAccount)
+                try keychain.saveString(mustChangePassword ? "1" : "0", service: tokenService, account: passwordChangeRequiredAccount)
             }
-            try keychain.saveString(username, service: tokenService, account: usernameAccount)
         } catch let error as KeychainManager.KeychainError {
             localStorageRecovery = LocalStorageRecoveryPolicy.keychainFailure(error)
             throw error
         }
         localStorageRecovery = nil
         self.username = username
+        self.mustChangePassword = mustChangePassword
+        if mustChangePassword { isUnlocked = false }
         isAuthenticated = true
         migrateLegacyMasterPasswordIfNeeded()
         authRevision += 1
@@ -164,10 +178,14 @@ final class AppSession: ObservableObject {
     }
 
     func logout() {
+        logoutRevocationWarning = nil
         do {
-            try keychain.delete(service: tokenService, account: tokenAccount)
-            try keychain.delete(service: tokenService, account: refreshTokenAccount)
-            try keychain.delete(service: tokenService, account: usernameAccount)
+            try AuthCredentialMutationGate.withLock {
+                try keychain.delete(service: tokenService, account: tokenAccount)
+                try keychain.delete(service: tokenService, account: refreshTokenAccount)
+                try keychain.delete(service: tokenService, account: usernameAccount)
+                try keychain.delete(service: tokenService, account: passwordChangeRequiredAccount)
+            }
             // Keep the account-scoped encrypted master-password blob. It is
             // required for biometric unlock after the same account signs in
             // again, cannot be decrypted without the local wrap key / user
@@ -189,8 +207,14 @@ final class AppSession: ObservableObject {
         localStorageRecovery = nil
         isAuthenticated = false
         isUnlocked = false
+        mustChangePassword = false
         username = ""
         authRevision += 1
+    }
+
+    func reportLogoutRevocationFailure() {
+        guard !isAuthenticated else { return }
+        logoutRevocationWarning = "已退出本机；服务端会话撤销未确认。联网后请重新登录并检查账户安全。"
     }
 
     var hasMasterPassword: Bool {
@@ -391,6 +415,26 @@ final class AppSession: ObservableObject {
     }
 
     private func bindLifecycleObservers() {
+        NotificationCenter.default.addObserver(
+            forName: .orbitTermPasswordChangeRequired,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor in
+                guard let self,
+                      let rejectedToken = notification.userInfo?["accessToken"] as? String,
+                      self.isAuthenticated,
+                      self.readToken() == rejectedToken else { return }
+                do {
+                    try self.keychain.saveString("1", service: self.tokenService, account: self.passwordChangeRequiredAccount)
+                    self.mustChangePassword = true
+                    self.isUnlocked = false
+                    self.authRevision += 1
+                } catch {
+                    self.recordLocalStorageAccessFailure(error)
+                }
+            }
+        }
 #if canImport(UIKit)
         NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
@@ -399,12 +443,20 @@ final class AppSession: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                if MobileAutoLockPolicy.shouldLockOnBackground(
-                    isAuthenticated: self.isAuthenticated,
-                    hasMasterPassword: self.hasMasterPassword
-                ) {
-                    self.isUnlocked = false
-                }
+                // Mirror QA only relaxes capture covers. Backgrounding must
+                // still close live sessions and require the master password,
+                // otherwise its MFA handoff results differ from production.
+                self.lockForMobileInterruptionIfNeeded(protectedDataLoss: false)
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.protectedDataWillBecomeUnavailableNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.lockForMobileInterruptionIfNeeded(protectedDataLoss: true)
             }
         }
 #elseif canImport(AppKit)
@@ -424,6 +476,28 @@ final class AppSession: ObservableObject {
         }
 #endif
     }
+
+    #if canImport(UIKit)
+    private func lockForMobileInterruptionIfNeeded(protectedDataLoss: Bool) {
+        let shouldLock = protectedDataLoss
+            ? MobileAutoLockPolicy.shouldLockOnProtectedDataLoss(
+                isAuthenticated: isAuthenticated,
+                wasUnlocked: isUnlocked
+            )
+            : MobileAutoLockPolicy.shouldLockOnBackground(
+                isAuthenticated: isAuthenticated,
+                wasUnlocked: isUnlocked
+            )
+        guard shouldLock else { return }
+        // The protected Keychain can already be unavailable here. Use only
+        // verified in-memory state; the regular account-lock path tears down
+        // the old SSH route after this non-secret intent has been captured.
+        let sessionManager = SessionManager.shared
+        sessionManager.captureSecondFactorResume(accountID: username)
+        sessionManager.closeAllTabs()
+        isUnlocked = false
+    }
+    #endif
 
     private func deriveArgon2id(password: String, salt: Data) throws -> Data {
         guard let passwordC = password.cString(using: .utf8) else {

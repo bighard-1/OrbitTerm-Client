@@ -245,9 +245,11 @@ final class BiometricAuthService: ObservableObject {
 
         // 统一删后重建，确保 ACL 策略始终生效（从旧 userPresence 升级到 biometryCurrentSet）。
         _ = SecItemDelete(baseDerivedQuery(scope: scope) as CFDictionary)
-        var legacyDelete = baseDerivedQuery(scope: scope)
-        legacyDelete.removeValue(forKey: kSecUseDataProtectionKeychain as String)
-        _ = SecItemDelete(legacyDelete as CFDictionary)
+        if !MacQARuntimeIsolation.isEnabled {
+            var legacyDelete = baseDerivedQuery(scope: scope)
+            legacyDelete.removeValue(forKey: kSecUseDataProtectionKeychain as String)
+            _ = SecItemDelete(legacyDelete as CFDictionary)
+        }
 
         let addStatus = SecItemAdd(add as CFDictionary, nil)
         if addStatus == errSecSuccess { return }
@@ -270,6 +272,7 @@ final class BiometricAuthService: ObservableObject {
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         if status == errSecItemNotFound {
+            if MacQARuntimeIsolation.isEnabled { return nil }
             // 兼容早期版本未写入 kSecUseDataProtectionKeychain 的条目。
             query.removeValue(forKey: kSecUseDataProtectionKeychain as String)
             let legacyStatus = SecItemCopyMatching(query as CFDictionary, &item)
@@ -297,6 +300,7 @@ final class BiometricAuthService: ObservableObject {
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         if status == errSecItemNotFound {
+            if MacQARuntimeIsolation.isEnabled { return false }
             query.removeValue(forKey: kSecUseDataProtectionKeychain as String)
             let legacyStatus = SecItemCopyMatching(query as CFDictionary, &item)
             return isExistingProtectedItemStatus(legacyStatus)
@@ -343,6 +347,7 @@ final class BiometricAuthService: ObservableObject {
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         if status == errSecItemNotFound {
+            if MacQARuntimeIsolation.isEnabled { return nil }
             var legacyQuery = query
             legacyQuery.removeValue(forKey: kSecUseDataProtectionKeychain as String)
             let legacyStatus = SecItemCopyMatching(legacyQuery as CFDictionary, &item)

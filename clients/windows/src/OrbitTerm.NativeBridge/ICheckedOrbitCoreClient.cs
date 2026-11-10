@@ -4,6 +4,8 @@ public interface ICheckedOrbitCoreClient
 {
     event EventHandler<TerminalDataReceivedEventArgs>? TerminalDataReceived;
 
+    event EventHandler<ConnectionEventReceivedEventArgs>? ConnectionEventReceived;
+
     event EventHandler<SftpTransferProgressEventArgs>? SftpTransferProgress;
 
     CheckedConnectOutcome Connect(CheckedConnectionRequest request, HostKeyRequestId requestId);
@@ -25,6 +27,10 @@ public interface ICheckedOrbitCoreClient
     TerminalControlResult ResizeTerminal(ulong terminalChannelId, uint columns, uint rows);
 
     TerminalControlResult CloseTerminal(ulong terminalChannelId);
+
+    TerminalControlResult DisconnectSession(ulong baseSessionId);
+
+    TerminalControlResult CloseSftp(ulong sftpSessionId);
 
     CheckedEnvelope OpenSftp(ulong baseSessionId, HostKeyRequestId requestId);
 

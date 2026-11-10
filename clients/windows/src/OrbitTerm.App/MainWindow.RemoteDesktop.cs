@@ -14,14 +14,19 @@ public sealed partial class MainWindow
     private readonly HashSet<RemoteDesktopHostSession> remoteDesktopFailurePresented = [];
     private readonly object remoteDesktopHostsGate = new();
     private readonly RemoteDesktopHostLauncher remoteDesktopHostLauncher = new();
+    private readonly RemoteDesktopLaunchGate remoteDesktopLaunchGate = new();
+    private int remoteDesktopLaunchOverlayLeases;
     private bool isRemoteDesktopDialogOpen;
 
     private async Task LaunchSavedRemoteDesktopAssetAsync(AssetViewModel asset)
     {
-        if (isRemoteDesktopDialogOpen)
-            return;
+        if (isRemoteDesktopDialogOpen) return;
+        if (TryActivateExistingRemoteDesktopHost(asset.Id)) return;
+        using var launchLease = remoteDesktopLaunchGate.TryAcquire(asset.Id);
+        if (launchLease is null) return;
 
-        isRemoteDesktopDialogOpen = true;
+        remoteDesktopLaunchOverlayLeases++;
+        ConnectionProgressOverlay.Visibility = Visibility.Visible;
         try
         {
             var credential = await credentialVault.ReadAsync(asset.CredentialId, CancellationToken.None);
@@ -50,7 +55,9 @@ public sealed partial class MainWindow
         }
         finally
         {
-            isRemoteDesktopDialogOpen = false;
+            remoteDesktopLaunchOverlayLeases = Math.Max(0, remoteDesktopLaunchOverlayLeases - 1);
+            if (remoteDesktopLaunchOverlayLeases == 0)
+                ConnectionProgressOverlay.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -293,6 +300,60 @@ public sealed partial class MainWindow
 
     private WorkspaceTabViewModel? FindConnectedWorkspace(Guid assetId) =>
         ViewModel.WorkspaceTabs.FirstOrDefault(tab => tab.AssetId == assetId && tab.IsConnected);
+
+    private bool TryActivateExistingRemoteDesktopHost(Guid assetId)
+    {
+        var existing = FindRemoteDesktopHost(assetId);
+        if (existing is null) return false;
+
+        // Repeated activation means “return to this asset”, matching embedded
+        // tab reuse on macOS/Linux. Windows keeps its isolated native RDP host,
+        // so the equivalent operation is restoring and focusing that window.
+        existing.TryActivate();
+        return true;
+    }
+
+    private RemoteDesktopHostSession? FindRemoteDesktopHost(Guid assetId)
+    {
+        lock (remoteDesktopHostsGate)
+        {
+            return remoteDesktopHosts.Keys.FirstOrDefault(
+                session => session.AssetId == assetId && session.IsAlive);
+        }
+    }
+
+    internal async void AssetContextRestoreRemoteDesktopClick(object sender, RoutedEventArgs e)
+    {
+        if (!SelectContextAsset(sender) || ViewModel.SelectedAsset is not { } asset || !asset.IsRemoteDesktop)
+            return;
+        if (TryActivateExistingRemoteDesktopHost(asset.Id)) return;
+
+        await ShowAccountMessageAsync(
+            "没有活动的远程桌面",
+            "此资产当前没有正在运行的 RDP 窗口。双击资产即可重新连接。");
+    }
+
+    internal async void AssetContextDisconnectRemoteDesktopClick(object sender, RoutedEventArgs e)
+    {
+        if (!SelectContextAsset(sender) || ViewModel.SelectedAsset is not { } asset || !asset.IsRemoteDesktop)
+            return;
+        var existing = FindRemoteDesktopHost(asset.Id);
+        if (existing is null)
+        {
+            await ShowAccountMessageAsync(
+                "没有活动的远程桌面",
+                "此资产当前没有需要断开的 RDP 窗口。");
+            return;
+        }
+
+        if (!existing.RequestClose())
+        {
+            existing.TryActivate();
+            await ShowAccountMessageAsync(
+                "远程桌面窗口未响应",
+                "已尝试恢复远程桌面窗口。请使用窗口内的“断开并关闭”按钮重试。");
+        }
+    }
 
     private void RemoteDesktopHostStateChanged(object? sender, RemoteDesktopSessionUpdate update)
     {

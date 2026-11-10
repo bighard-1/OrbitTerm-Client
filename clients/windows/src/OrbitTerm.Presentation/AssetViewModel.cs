@@ -46,6 +46,8 @@ public sealed record AssetViewModel(
         _ => Transport.ToString().ToUpperInvariant(),
     };
 
+    public bool IsRemoteDesktop => Transport == ServerTransport.RemoteDesktop;
+
     public static AssetViewModel FromRecord(ServerAssetRecord record)
     {
         return new AssetViewModel(

@@ -198,6 +198,7 @@ pub(crate) fn register_open_channel(
     lock_terminal_channels()?.insert(terminal_id, OrbitTerminalChannel { metadata, tx });
 
     tokio::spawn(async move {
+        let mut remote_closed = false;
         loop {
             tokio::select! {
                 cmd = rx.recv() => {
@@ -221,7 +222,8 @@ pub(crate) fn register_open_channel(
                     match msg {
                         Some(ChannelMsg::Data { data }) => emit_terminal_data(terminal_id, &data),
                         Some(ChannelMsg::ExtendedData { data, .. }) => emit_terminal_data(terminal_id, &data),
-                        Some(ChannelMsg::ExitStatus { .. }) | Some(ChannelMsg::Eof) | None => {
+                        Some(ChannelMsg::ExitStatus { .. }) | Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => {
+                            remote_closed = true;
                             break;
                         }
                         _ => {}
@@ -232,6 +234,9 @@ pub(crate) fn register_open_channel(
 
         if let Ok(mut map) = TERMINAL_CHANNELS.lock() {
             map.remove(&terminal_id);
+        }
+        if remote_closed {
+            session_pool::emit_connection_event(terminal_id, "ERR_TERMINAL_CLOSED");
         }
         let _ = session_pool::release_base_session(base_id).await;
     });
@@ -292,11 +297,11 @@ pub(crate) async fn close(terminal_channel_id: u64) -> Result<(), OrbitCoreError
     let channel = lock_terminal_channels()?.remove(&terminal_channel_id);
     if let Some(ch) = channel {
         let _ = ch.tx.send(TerminalCommand::Close);
-        return Ok(());
     }
-    Err(OrbitCoreError::SshFailed(
-        "terminal channel not found".to_string(),
-    ))
+    // EOF and a prior close both remove the registration. Already absent is
+    // successful cleanup, matching SFTP/base disconnect. The terminal worker
+    // alone releases its base reference; a retry must not release it again.
+    Ok(())
 }
 
 pub(crate) fn base_id_for_channel(terminal_channel_id: u64) -> Result<Option<u64>, OrbitCoreError> {

@@ -6,6 +6,7 @@ actor ScriptedCheckedFFIClient: CheckedFFIClient {
         case challenge
         case challengeWithMismatchedRequest
         case blocked(HostKeyBlockReasonCode)
+        case secondFactor(forJump: Bool)
         case error(String)
         case clientError(CheckedFFIClientError)
     }
@@ -155,6 +156,7 @@ actor ScriptedCheckedFFIClient: CheckedFFIClient {
     private var dockerActionSteps: [DockerStep]
     private var execSteps: [ExecStep]
     private(set) var connectRequestIDs: [HostKeyRequestID] = []
+    private(set) var connectCodeScopes: [(target: Bool, jump: Bool)] = []
     private(set) var persistRequestIDs: [HostKeyRequestID] = []
     private(set) var persistedChallengeIDs: [String] = []
     private(set) var terminalRequestIDs: [HostKeyRequestID] = []
@@ -205,6 +207,7 @@ actor ScriptedCheckedFFIClient: CheckedFFIClient {
         input: CheckedConnectInput
     ) async throws -> CheckedClientResponse<CheckedConnectResponse> {
         connectRequestIDs.append(requestID)
+        connectCodeScopes.append((input.oneTimeCode != nil, input.jumpOneTimeCode != nil))
         guard !connectSteps.isEmpty else { throw CheckedFFIClientError.protocolViolation }
         let step = connectSteps.removeFirst()
         if step.delayNanoseconds > 0 {
@@ -229,6 +232,11 @@ actor ScriptedCheckedFFIClient: CheckedFFIClient {
             )
         case let .blocked(reason):
             response = .blocked(blockedPayload(reason: reason, input: input))
+        case let .secondFactor(forJump):
+            response = .failure(errorPayload(
+                code: "ssh_second_factor_required", requestID: requestID,
+                detailCode: forJump ? "jump_verification_code_required" : "verification_code_required"
+            ))
         case let .error(code):
             response = .failure(errorPayload(code: code, requestID: requestID))
         case .clientError:
@@ -622,12 +630,13 @@ actor ScriptedCheckedFFIClient: CheckedFFIClient {
 
     private func errorPayload(
         code: String,
-        requestID: HostKeyRequestID
+        requestID: HostKeyRequestID,
+        detailCode: String = "fixture_detail"
     ) -> CheckedFFIErrorPayload {
         CheckedFFIErrorPayload(
             code: CheckedFFIErrorCode(rawValue: code),
             messageKey: "error.fixture",
-            detailCode: "fixture_detail",
+            detailCode: detailCode,
             retryable: false,
             requestID: requestID,
             challengeID: nil

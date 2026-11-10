@@ -32,7 +32,9 @@ public sealed record PendingAssetSyncOperation(
     PendingAssetSyncOperationKind Kind,
     string? BaseVectorClock,
     long QueuedAtUnix,
-    IReadOnlyList<string>? ConflictingFields = null);
+    IReadOnlyList<string>? ConflictingFields = null,
+    Guid? OperationId = null,
+    string? RequestVectorClock = null);
 
 /// <summary>Last confirmed asset shape plus a one-way credential fingerprint.</summary>
 public sealed record AssetSyncSnapshot(
@@ -209,7 +211,7 @@ public sealed class EncryptedConfigSynchronizationService(
                     acknowledgedPages);
             }
 
-            foreach (var deletion in pagePlan.DeletedAssetIds)
+            foreach (var (deletion, remoteTombstone) in pagePlan.DeletedAssets)
             {
                 if (pendingOperations.TryGetValue(deletion, out var pending) &&
                     pending.Kind == PendingAssetSyncOperationKind.Upsert)
@@ -223,6 +225,15 @@ public sealed class EncryptedConfigSynchronizationService(
                         ConflictingFields = ["删除与本机编辑"],
                     };
                     conflicted++;
+                    continue;
+                }
+
+                if (pending is { Kind: PendingAssetSyncOperationKind.Tombstone } &&
+                    !RemoteTombstoneCoversPendingDelete(remoteTombstone, pending))
+                {
+                    // A tombstone for the same asset is not proof that this
+                    // queued request was accepted. Preserve its durable intent
+                    // until the server clock covers the exact request clock.
                     continue;
                 }
 
@@ -357,7 +368,7 @@ public sealed class EncryptedConfigSynchronizationService(
                 snapshots[asset.Record.Id] = Snapshot(asset.Record, asset.Credential, asset.JumpHostCredential);
             }
 
-            if (pagePlan.ActiveAssets.Count > 0 || pagePlan.DeletedAssetIds.Count > 0)
+            if (pagePlan.ActiveAssets.Count > 0 || pagePlan.DeletedAssets.Count > 0)
             {
                 await assetStore.SaveAsync(assets.Values.OrderBy(asset => asset.Id).ToArray(), cancellationToken).ConfigureAwait(false);
             }
@@ -551,18 +562,31 @@ public sealed class EncryptedConfigSynchronizationService(
         bool validatePrivateKeys)
     {
         var assets = new List<PortableAsset>();
-        var deletions = new HashSet<Guid>();
+        var deletions = new Dictionary<Guid, EncryptedConfigRecord>();
         SnippetEnvelope? latestSnippetEnvelope = null;
         SshKeySyncEnvelope? latestSshKeyEnvelope = null;
         PortForwardProfileSyncEnvelope? latestPortForwardProfileEnvelope = null;
 
         foreach (var item in items)
         {
-            if (!string.Equals(item.State, "active", StringComparison.OrdinalIgnoreCase) && item.State is not null)
+            if (item.State is not null &&
+                !string.Equals(item.State, "active", StringComparison.OrdinalIgnoreCase))
             {
+                // Future server states are not implicitly deletions. Fail the
+                // entire page before applying or acknowledging any record.
+                if (!string.Equals(item.State, "deleted", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(item.State, "purged", StringComparison.OrdinalIgnoreCase))
+                {
+                    return SyncPagePlan.UnsupportedPlan;
+                }
                 if (Guid.TryParse(item.AssetId, out var deletedAssetId))
                 {
-                    deletions.Add(deletedAssetId);
+                    if (!deletions.TryGetValue(deletedAssetId, out var previous) ||
+                        item.ServerRevision.GetValueOrDefault() > previous.ServerRevision.GetValueOrDefault() ||
+                        (item.ServerRevision == previous.ServerRevision && item.Id > previous.Id))
+                    {
+                        deletions[deletedAssetId] = item;
+                    }
                     continue;
                 }
 
@@ -637,8 +661,32 @@ public sealed class EncryptedConfigSynchronizationService(
         // record for the same logical asset. Deletion is authoritative within
         // that snapshot regardless of record order; never re-add the active
         // copy after applying its tombstone.
-        assets.RemoveAll(asset => deletions.Contains(asset.Record.Id));
+        assets.RemoveAll(asset => deletions.ContainsKey(asset.Record.Id));
         return new SyncPagePlan(assets, deletions, latestSnippetEnvelope, latestSshKeyEnvelope, latestPortForwardProfileEnvelope, false);
+    }
+
+    private static bool RemoteTombstoneCoversPendingDelete(
+        EncryptedConfigRecord remote,
+        PendingAssetSyncOperation pending)
+    {
+        if (remote.ServerRevision.GetValueOrDefault() == 0 ||
+            !(string.Equals(remote.State, "deleted", StringComparison.OrdinalIgnoreCase) ||
+              string.Equals(remote.State, "purged", StringComparison.OrdinalIgnoreCase)) ||
+            string.IsNullOrWhiteSpace(remote.VectorClock) ||
+            string.IsNullOrWhiteSpace(pending.RequestVectorClock)) return false;
+
+        try
+        {
+            var requested = JsonSerializer.Deserialize<Dictionary<string, long>>(pending.RequestVectorClock);
+            var observed = JsonSerializer.Deserialize<Dictionary<string, long>>(remote.VectorClock);
+            if (requested is null || requested.Count == 0 || observed is null ||
+                requested.Values.Any(value => value < 0) || observed.Values.Any(value => value < 0)) return false;
+            return requested.All(entry => observed.TryGetValue(entry.Key, out var value) && value >= entry.Value);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     private static byte[] Decrypt(string encryptedBlobBase64, string masterPassword, byte[] rootKey)
@@ -1021,13 +1069,13 @@ public sealed class EncryptedConfigSynchronizationService(
 
     private sealed record SyncPagePlan(
         IReadOnlyList<PortableAsset> ActiveAssets,
-        IReadOnlySet<Guid> DeletedAssetIds,
+        IReadOnlyDictionary<Guid, EncryptedConfigRecord> DeletedAssets,
         SnippetEnvelope? SnippetEnvelope,
         SshKeySyncEnvelope? SshKeyEnvelope,
         PortForwardProfileSyncEnvelope? PortForwardProfileEnvelope,
         bool Unsupported)
     {
-        public static SyncPagePlan UnsupportedPlan { get; } = new([], new HashSet<Guid>(), null, null, null, true);
+        public static SyncPagePlan UnsupportedPlan { get; } = new([], new Dictionary<Guid, EncryptedConfigRecord>(), null, null, null, true);
     }
 
     private sealed record PortableAsset(

@@ -9,6 +9,7 @@ struct VerifiedWorkspaceSession: Hashable, Sendable {
 enum CheckedTerminalConnectionOutcome: Hashable, Sendable {
     case pending
     case awaitingUserDecision
+    case awaitingSecondFactor
     case connected(VerifiedWorkspaceSession)
     case terminalOpenFailed(VerifiedWorkspaceSession, CheckedFFIClientError)
     case blocked(HostKeyBlockedPayload)
@@ -57,6 +58,11 @@ final class CheckedTerminalConnectionOrchestrator {
         return await consumeCoordinatorState()
     }
 
+    func submitSecondFactor(_ code: String) async -> CheckedTerminalConnectionOutcome {
+        await coordinator.submitSecondFactor(code)
+        return await consumeCoordinatorState()
+    }
+
     func cancel() -> CheckedTerminalConnectionOutcome {
         coordinator.cancel()
         return .cancelled
@@ -72,6 +78,8 @@ final class CheckedTerminalConnectionOrchestrator {
             return await openTerminal(baseSessionID: baseSessionID)
         case .awaitingUserDecision:
             return .awaitingUserDecision
+        case .awaitingSecondFactor:
+            return .awaitingSecondFactor
         case .persisting, .connecting, .reconnecting:
             return .pending
         case let .blocked(_, payload):

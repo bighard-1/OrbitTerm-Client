@@ -3,6 +3,7 @@ using OrbitTerm.NativeBridge;
 using OrbitTerm.Terminal;
 using System.Collections.Concurrent;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 
 namespace OrbitTerm.Application.Sessions;
 
@@ -13,6 +14,8 @@ public sealed class SessionOrchestrator
     private readonly IKnownHostsPathProvider knownHostsPathProvider;
     private readonly VerifiedSessionRegistry sessionRegistry;
     private readonly TerminalSessionRegistry terminalRegistry;
+    private readonly ConcurrentDictionary<ulong, SftpSessionLease> sftpSessions = new();
+    private readonly ConditionalWeakTable<VerifiedSessionLease, object> sessionResourceGates = new();
     private readonly object terminalBacklogGate = new();
     private readonly Dictionary<ulong, TerminalBacklog> terminalBacklogs = [];
     private readonly Dictionary<ulong, TerminalScreen> terminalScreens = [];
@@ -32,9 +35,15 @@ public sealed class SessionOrchestrator
         this.sessionRegistry = sessionRegistry ?? new VerifiedSessionRegistry();
         this.terminalRegistry = terminalRegistry ?? new TerminalSessionRegistry();
         this.coreClient.TerminalDataReceived += OnTerminalDataReceived;
+        this.coreClient.ConnectionEventReceived += OnConnectionEventReceived;
     }
 
     public event EventHandler<TerminalOutputReceivedEventArgs>? TerminalOutputReceived;
+
+    public event EventHandler<SessionConnectionEventArgs>? SessionConnectionEventReceived;
+
+    public ulong GetVerifiedBaseSessionId(Guid workspaceId, Guid serverId) =>
+        sessionRegistry.TryGet(workspaceId, serverId, out var lease) ? lease.BaseSessionId : 0;
 
     public async ValueTask<TerminalOpenResult> ConnectTelnetAsync(
         Guid workspaceId,
@@ -108,14 +117,21 @@ public sealed class SessionOrchestrator
     public async ValueTask<ConnectResult> ConnectAsync(
         Guid workspaceId,
         ServerAsset asset,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string oneTimeCode = "",
+        string jumpOneTimeCode = "",
+        Action<ConnectionSetupStage>? reportStage = null)
     {
         if (asset.Transport != ServerTransport.Ssh)
         {
             throw new NotSupportedException("Only SSH can enter the checked session flow.");
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        ReportConnectionStage(reportStage, ConnectionSetupStage.CredentialReadStarted);
         var credential = await credentialVault.ReadAsync(asset.CredentialId, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        ReportConnectionStage(reportStage, ConnectionSetupStage.CredentialReadCompleted);
         credential = CredentialMaterialPolicy.NormalizeSshCredential(credential);
         if (credential.IsEmpty)
         {
@@ -126,7 +142,10 @@ public sealed class SessionOrchestrator
             workspaceId,
             asset,
             credential,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            oneTimeCode,
+            jumpOneTimeCode,
+            reportStage).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -138,13 +157,17 @@ public sealed class SessionOrchestrator
         Guid workspaceId,
         ServerAsset asset,
         CredentialMaterial credential,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string oneTimeCode = "",
+        string jumpOneTimeCode = "",
+        Action<ConnectionSetupStage>? reportStage = null)
     {
         if (asset.Transport != ServerTransport.Ssh)
         {
             throw new NotSupportedException("Only SSH can enter the checked session flow.");
         }
         ArgumentNullException.ThrowIfNull(credential);
+        cancellationToken.ThrowIfCancellationRequested();
         credential = CredentialMaterialPolicy.NormalizeSshCredential(credential);
         if (credential.IsEmpty)
         {
@@ -154,7 +177,10 @@ public sealed class SessionOrchestrator
         CheckedJumpHostRequest? jumpRequest = null;
         if (asset.JumpHost is { } jump)
         {
+            ReportConnectionStage(reportStage, ConnectionSetupStage.JumpCredentialReadStarted);
             var jumpCredential = await credentialVault.ReadAsync(jump.CredentialId, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            ReportConnectionStage(reportStage, ConnectionSetupStage.JumpCredentialReadCompleted);
             jumpCredential = CredentialMaterialPolicy.NormalizeSshCredential(jumpCredential);
             if (jumpCredential.IsEmpty)
             {
@@ -176,9 +202,14 @@ public sealed class SessionOrchestrator
             credential.PrivateKeyPassphrase,
             asset.AllowPasswordFallback,
             knownHostsPathProvider.GetKnownHostsPath(),
-            jumpRequest);
+            jumpRequest,
+            oneTimeCode,
+            jumpOneTimeCode);
 
+        ReportConnectionStage(reportStage, ConnectionSetupStage.NativeConnectStarted);
+        cancellationToken.ThrowIfCancellationRequested();
         var outcome = coreClient.Connect(request, requestId);
+        ReportConnectionStage(reportStage, ConnectionSetupStage.NativeConnectCompleted);
         var result = ConnectResult.FromNative(workspaceId, asset.Id, outcome);
         if (result is ConnectResult.Connected connected)
         {
@@ -186,6 +217,12 @@ public sealed class SessionOrchestrator
         }
 
         return result;
+    }
+
+    private static void ReportConnectionStage(Action<ConnectionSetupStage>? reportStage, ConnectionSetupStage stage)
+    {
+        try { reportStage?.Invoke(stage); }
+        catch (Exception) { /* Best-effort diagnostics must not alter authentication. */ }
     }
 
     public ValueTask<TerminalOpenResult> OpenTerminalAsync(
@@ -233,8 +270,21 @@ public sealed class SessionOrchestrator
             throw new InvalidOperationException("A verified SSH session is required before opening SFTP.");
         }
 
-        var envelope = coreClient.OpenSftp(lease.BaseSessionId, HostKeyRequestId.Create());
-        return ValueTask.FromResult(SftpOpenResult.FromEnvelope(lease, envelope));
+        lock (sessionResourceGates.GetValue(lease, static _ => new object()))
+        {
+            if (!sessionRegistry.TryGet(workspaceId, serverId, out var current) ||
+                !ReferenceEquals(current, lease))
+            {
+                throw new InvalidOperationException("The verified SSH session has ended.");
+            }
+            var envelope = coreClient.OpenSftp(lease.BaseSessionId, HostKeyRequestId.Create());
+            var result = SftpOpenResult.FromEnvelope(lease, envelope);
+            if (result is SftpOpenResult.Opened opened)
+            {
+                sftpSessions[opened.Lease.SftpSessionId] = opened.Lease;
+            }
+            return ValueTask.FromResult(result);
+        }
     }
 
     public ValueTask<LocalTunnelLease> StartLocalTunnelAsync(
@@ -749,10 +799,47 @@ public sealed class SessionOrchestrator
             return ValueTask.FromResult(SessionEndResult.NoActiveSession);
         }
 
-        return ValueTask.FromResult(
-            sessionRegistry.Remove(lease)
-                ? SessionEndResult.Ended
-                : SessionEndResult.NoActiveSession);
+        // Native teardown can wait for the peer; do not block the UI dispatcher.
+        return new ValueTask<SessionEndResult>(Task.Run(() =>
+        {
+            lock (sessionResourceGates.GetValue(lease, static _ => new object()))
+            {
+                if (!sessionRegistry.TryGet(workspaceId, serverId, out var current) ||
+                    !ReferenceEquals(current, lease))
+                {
+                    return SessionEndResult.NoActiveSession;
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    // Each child holds its own native reference. Release only this
+                    // workspace's children, then its base reference; other tabs may
+                    // legitimately share the authenticated transport.
+                    foreach (var child in sftpSessions.Values.Where(candidate =>
+                        candidate.WorkspaceId == workspaceId && candidate.ServerId == serverId &&
+                        candidate.BaseSessionId == lease.BaseSessionId).ToArray())
+                    {
+                        if (coreClient.CloseSftp(child.SftpSessionId) is not TerminalControlResult.Succeeded)
+                        {
+                            return SessionEndResult.Failed;
+                        }
+                        sftpSessions.TryRemove(new KeyValuePair<ulong, SftpSessionLease>(child.SftpSessionId, child));
+                    }
+                    if (coreClient.DisconnectSession(lease.BaseSessionId) is not TerminalControlResult.Succeeded)
+                    {
+                        return SessionEndResult.Failed;
+                    }
+                    sessionRegistry.Remove(lease);
+                    return SessionEndResult.Ended;
+                }
+                catch (OrbitNativeException)
+                {
+                    // Retain the lease for a retry; never expose native details or
+                    // claim successful disconnect after a failed release.
+                    return SessionEndResult.Failed;
+                }
+            }
+        }, cancellationToken));
     }
 
     /// <summary>
@@ -762,6 +849,11 @@ public sealed class SessionOrchestrator
     /// </summary>
     public void AbandonSession(Guid workspaceId, Guid serverId)
     {
+        foreach (var child in sftpSessions.Values.Where(candidate =>
+            candidate.WorkspaceId == workspaceId && candidate.ServerId == serverId).ToArray())
+        {
+            sftpSessions.TryRemove(new KeyValuePair<ulong, SftpSessionLease>(child.SftpSessionId, child));
+        }
         foreach (var terminal in terminalRegistry.RemoveAll(workspaceId, serverId))
         {
             lock (terminalBacklogGate)
@@ -899,6 +991,39 @@ public sealed class SessionOrchestrator
         }
 
         PublishTerminalData(lease, e.Data);
+    }
+
+    private void OnConnectionEventReceived(object? sender, ConnectionEventReceivedEventArgs e)
+    {
+        if (e.Kind == OrbitConnectionEventKind.ConnectionLost)
+        {
+            if (!sessionRegistry.TryGetByBaseSessionId(e.SessionOrChannelId, out var session))
+            {
+                return;
+            }
+
+            AbandonSession(session.WorkspaceId, session.ServerId);
+            SessionConnectionEventReceived?.Invoke(this, new SessionConnectionEventArgs(
+                session.WorkspaceId, session.ServerId, e.SessionOrChannelId,
+                SessionConnectionEventKind.ConnectionLost));
+            return;
+        }
+
+        if (e.Kind != OrbitConnectionEventKind.TerminalClosed ||
+            !terminalRegistry.TryGetByChannelId(e.SessionOrChannelId, out var terminal) ||
+            !terminalRegistry.Remove(terminal))
+        {
+            return;
+        }
+
+        lock (terminalBacklogGate)
+        {
+            terminalBacklogs.Remove(terminal.TerminalChannelId);
+            terminalScreens.Remove(terminal.TerminalChannelId);
+        }
+        SessionConnectionEventReceived?.Invoke(this, new SessionConnectionEventArgs(
+            terminal.WorkspaceId, terminal.ServerId, e.SessionOrChannelId,
+            SessionConnectionEventKind.TerminalClosed));
     }
 
     private void PublishTerminalData(TerminalSessionLease lease, ReadOnlySpan<byte> data)

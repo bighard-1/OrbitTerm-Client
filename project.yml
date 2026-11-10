@@ -122,6 +122,13 @@ targets:
           - Core/WorkspacePresentationCoordinator.swift
           - Core/WorkspaceToolCoordinator.swift
           - Core/OperationResourceBudget.swift
+          - Core/SFTPModels.swift
+          - Core/FileSizeFormatter.swift
+          - Features/Home/SFTPBrowserBatchState.swift
+          - Features/Home/SFTPBatchDownloadController.swift
+          - Features/Home/SFTPUploadSelectionContext.swift
+          - Features/Home/SFTPUploadQueueController.swift
+          - Features/Home/SFTPBatchOperationFormatter.swift
           - Core/DevicePerformanceSLO.swift
           - Core/PerformanceSignpost.swift
           - Core/TerminalChunkBuffer.swift
@@ -144,10 +151,10 @@ targets:
           - Core/TerminalAppearance/*.swift
           - Core/TerminalInputDispatchPolicy.swift
           - Core/ShellPathResolver.swift
+          - Features/Home/WorkstationLayoutMetrics.swift
           - Features/Home/SnippetVariableResolver.swift
         excludes:
           - Core/CheckedFFI/CredentialVaultCheckedProvider.swift
-          - Core/CheckedFFI/OrbitCoreCheckedFFILiveFunctions.swift
       - path: OrbitTerm/CBridge
         includes:
           - orbit_remote_desktop.c
@@ -213,7 +220,7 @@ targets:
       - target: OrbitTerm_macOS
     settings:
       base:
-        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_ALLOWED: YES
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.orbitterm.macos.ui-tests
         PRODUCT_NAME: OrbitTermmacOSUITests

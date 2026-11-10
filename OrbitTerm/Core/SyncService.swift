@@ -151,13 +151,14 @@ final class SyncService: ObservableObject {
             let remoteItems = try await network.pullConfigs(token: token)
             let remoteAssetIDs = Set(remoteItems.compactMap { item -> String? in
                 guard (item.state ?? "active") == "active",
-                      let rawID = item.asset_id?.lowercased(),
-                      UUID(uuidString: rawID) != nil else {
+                      let canonicalID = SyncPullRecoveryPolicy.canonicalAssetID(item.asset_id) else {
                     return nil
                 }
-                return rawID
+                return canonicalID
             })
-            let localAssetIDs = Set(store.servers.map { $0.id.uuidString.lowercased() })
+            let localAssetIDs = Set(store.servers
+                .filter { $0.storageScope == .accountSynced }
+                .map { $0.id.uuidString.lowercased() })
             let remoteOnly = remoteAssetIDs.subtracting(localAssetIDs).count
             let localOnly = localAssetIDs.subtracting(remoteAssetIDs).count
             let nonAssetRecords = remoteItems.count - remoteAssetIDs.count
@@ -191,7 +192,9 @@ final class SyncService: ObservableObject {
         accountID: String
     ) async {
         let recoveryIDs = pendingLocalAssetRecoveryIDs
-        let servers = store.servers.filter { recoveryIDs.contains($0.id) }
+        let servers = store.servers.filter {
+            $0.storageScope == .accountSynced && recoveryIDs.contains($0.id)
+        }
         guard !servers.isEmpty else {
             setPendingLocalAssetRecoveryIDs([])
             lastSyncMessage = "本地暂无可发布资产"
@@ -288,11 +291,7 @@ final class SyncService: ObservableObject {
         do {
             let remoteItems = try await network.pullConfigs(token: token)
             let cloudKnownAssetIDs = Set(remoteItems.compactMap { item -> String? in
-                guard let rawID = item.asset_id?.lowercased(),
-                      UUID(uuidString: rawID) != nil else {
-                    return nil
-                }
-                return rawID
+                SyncPullRecoveryPolicy.canonicalAssetID(item.asset_id)
             })
             let attemptedRawIDs = Set(attemptedIDs.map { $0.uuidString.lowercased() })
             let unverifiedRawIDs = SyncPullRecoveryPolicy.unverifiedPublishedAssetIDs(
@@ -351,7 +350,7 @@ final class SyncService: ObservableObject {
                 id: configID,
                 encrypted_blob_base64: encrypted.base64EncodedString(),
                 vector_clock: encodedClock,
-                asset_id: localPortable.id,
+                asset_id: localPortable.id.lowercased(),
                 identity_fingerprint: identityFingerprint
             )
 

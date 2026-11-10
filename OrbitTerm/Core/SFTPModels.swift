@@ -78,6 +78,25 @@ struct BatchOperationSummary {
     var successCount: Int { succeeded.count }
     var failureCount: Int { failed.count }
     var hasFailure: Bool { !failed.isEmpty }
+    var cancellationCount: Int { failed.values.filter { $0 == "传输已取消" }.count }
+    var nonCancellationFailures: [String: String] { failed.filter { $0.value != "传输已取消" } }
+
+    func downloadStatusText(wasCancelled: Bool) -> String {
+        if wasCancelled, hasFailure {
+            let failures = nonCancellationFailures
+            if !failures.isEmpty {
+                let ordered = failures.sorted { $0.key < $1.key }
+                let detail = ordered.first { $0.value.contains("目标清理失败") }?.value
+                    ?? ordered.first?.value ?? "请检查未完成文件"
+                return "批量下载已停止，失败 \(failures.count) 项；\(detail)"
+            }
+            return "批量下载已停止：成功 \(successCount) 项，取消 \(cancellationCount) 项"
+        }
+        if hasFailure {
+            return "批量下载结束：成功 \(successCount) 项，失败 \(failureCount) 项"
+        }
+        return "批量下载完成：成功 \(successCount) 项"
+    }
 }
 
 struct BatchDownloadProgress {

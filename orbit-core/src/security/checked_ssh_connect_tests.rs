@@ -30,6 +30,224 @@ use crate::c_ffi::orbit_free_string;
 const REQUEST_ID: &str = "checked-connect-request";
 const ALGORITHM: &str = "ssh-ed25519";
 
+#[tokio::test]
+async fn timed_out_pool_waiter_is_dropped_without_late_acquisition() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    for stage in [
+        CheckedSessionPoolStage::CreationGate,
+        CheckedSessionPoolStage::ExactLookup,
+    ] {
+        let gate = tokio::sync::Mutex::new(());
+        let guard = gate.lock().await;
+        let acquired = AtomicBool::new(false);
+        let result = super::checked_ssh_connect::wait_for_session_pool(
+            async {
+                let _guard = gate.lock().await;
+                acquired.store(true, Ordering::SeqCst);
+            },
+            stage,
+            Duration::from_millis(20),
+        )
+        .await;
+        assert!(matches!(
+            result,
+            Err(CheckedSshConnectError::SessionPoolTimeout { .. })
+        ));
+        drop(guard);
+        // A fresh caller can proceed; the expired operation never runs later.
+        assert!(gate.try_lock().is_ok());
+        tokio::task::yield_now().await;
+        assert!(!acquired.load(Ordering::SeqCst));
+    }
+}
+
+#[test]
+fn pool_timeout_payload_preserves_a_closed_stage_without_session_data() {
+    for (stage, detail) in [
+        (
+            CheckedSessionPoolStage::CandidateLookup,
+            "session_pool_lookup_timeout",
+        ),
+        (
+            CheckedSessionPoolStage::CreationGate,
+            "session_pool_creation_timeout",
+        ),
+        (
+            CheckedSessionPoolStage::ExactLookup,
+            "session_pool_exact_lookup_timeout",
+        ),
+    ] {
+        let json = outcome_json_for_tests(
+            CheckedSshConnectOutcome::Error(CheckedSshConnectError::SessionPoolTimeout { stage }),
+            REQUEST_ID,
+        );
+        let value: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["error"]["code"], "ssh_timeout");
+        assert_eq!(value["error"]["detail_code"], detail);
+        assert_eq!(value["request_id"], REQUEST_ID);
+        assert!(!json.contains("password"));
+        assert!(!json.contains("session_id"));
+        assert!(!json.contains("127.0.0.1"));
+    }
+}
+
+#[tokio::test]
+async fn contended_keyed_gate_and_exact_lookup_preserve_the_reusable_session() {
+    use std::sync::atomic::Ordering;
+    use std::time::{Duration, SystemTime};
+
+    let username = format!(
+        "exact-pool-wait-{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+    let generation = verified_generation();
+    let base = crate::session_pool::insert_synthetic_base_session_for_tests(
+        "example.com",
+        &username,
+        generation.clone(),
+    )
+    .unwrap();
+    crate::session_pool::index_synthetic_base_session_for_tests(&base);
+    let gate = crate::session_pool::base_session_creation_gate(&base.key).unwrap();
+    let guard = gate.lock().await;
+    let gate_result = super::checked_ssh_connect::wait_for_session_pool(
+        gate.lock(),
+        CheckedSessionPoolStage::CreationGate,
+        Duration::from_millis(20),
+    )
+    .await;
+    drop(guard);
+    assert!(matches!(
+        gate_result,
+        Err(CheckedSshConnectError::SessionPoolTimeout {
+            stage: CheckedSessionPoolStage::CreationGate
+        })
+    ));
+    assert!(gate.try_lock().is_ok());
+
+    let guard = base.ssh.lock().await;
+    let reuse_result = super::checked_ssh_connect::wait_for_session_pool(
+        crate::session_pool::try_reuse_checked_base_session(&username, generation.clone()),
+        CheckedSessionPoolStage::ExactLookup,
+        Duration::from_millis(20),
+    )
+    .await;
+    drop(guard);
+    let references_after_timeout = base.channel_ref_count.load(Ordering::SeqCst);
+    let retry = crate::session_pool::try_reuse_checked_base_session(&username, generation)
+        .await
+        .unwrap();
+    crate::session_pool::remove_synthetic_base_session_for_tests(base.id);
+
+    assert!(matches!(
+        reuse_result,
+        Err(CheckedSshConnectError::SessionPoolTimeout {
+            stage: CheckedSessionPoolStage::ExactLookup
+        })
+    ));
+    assert_eq!(references_after_timeout, 1);
+    assert_eq!(retry.unwrap().id, base.id);
+    assert_eq!(base.channel_ref_count.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        base.metadata.state().unwrap(),
+        super::SessionLifecycleState::Active
+    );
+}
+
+#[tokio::test]
+async fn busy_verified_session_lookup_returns_a_bounded_error_without_replacing_the_session() {
+    use std::sync::atomic::Ordering;
+    use std::time::{Duration, SystemTime};
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let directory = std::env::temp_dir().join(format!("OrbitTerm-checked-pool-wait-{unique}"));
+    std::fs::create_dir_all(&directory).unwrap();
+    let path = directory.join("known_hosts");
+    let public_key = public_key_base64(4);
+    std::fs::write(&path, format!("[127.0.0.1]:2222 {ALGORITHM} {public_key}")).unwrap();
+    let store = KnownHostsStore::load(&path).unwrap();
+    let identity = HostIdentity::parse("127.0.0.1", 2222).unwrap();
+    let HostKeyVerificationDecision::Proceed(verified) = HostKeyVerifier.verify(
+        &store,
+        &HostKeyVerificationInput {
+            host_identity: identity,
+            key_algorithm: ALGORITHM.into(),
+            public_key_base64: public_key,
+        },
+    ) else {
+        panic!("trusted local fixture")
+    };
+    let generation = SessionSecurityGeneration::from_verified(
+        &verified,
+        TrustStoreGeneration::from_store(&store),
+    );
+    let username = format!("pool-wait-{unique}");
+    let base = crate::session_pool::insert_synthetic_base_session_for_tests(
+        "127.0.0.1",
+        &username,
+        generation,
+    )
+    .unwrap();
+    let request = super::checked_test_connection::CheckedTestConnectionRequest::new(
+        "127.0.0.1".into(),
+        2222,
+        username,
+        "test-only".into(),
+        String::new(),
+        String::new(),
+        false,
+        path,
+        REQUEST_ID.into(),
+    )
+    .unwrap();
+    let initial = crate::session_pool::lookup_verified_session_for_store(
+        request.host_identity(),
+        request.username(),
+        &super::checked_test_connection::load_checked_trust_store_generation(&request).unwrap(),
+    )
+    .await
+    .unwrap()
+    .expect("fixture must hit the existing verified session before testing contention");
+    assert_eq!(initial.id, base.id);
+    crate::session_pool::release_base_session(initial.id)
+        .await
+        .unwrap();
+    let guard = base.ssh.lock().await;
+    let result = tokio::time::timeout(
+        Duration::from_secs(20),
+        super::checked_ssh_connect::run_checked_ssh_connect(request),
+    )
+    .await;
+    drop(guard);
+    crate::session_pool::remove_synthetic_base_session_for_tests(base.id);
+    std::fs::remove_dir_all(directory).unwrap();
+
+    let outcome =
+        result.expect("a busy pooled SSH handle must not hold a new connection indefinitely");
+    let CheckedSshConnectOutcome::Error(error) = outcome else {
+        panic!("busy session must not be reused")
+    };
+    let payload = error_payload_for_tests(&error, REQUEST_ID);
+    assert_eq!(payload.code, HostKeyFfiErrorCode::SshTimeout);
+    assert_eq!(
+        payload.detail_code.as_deref(),
+        Some("session_pool_lookup_timeout")
+    );
+    assert_eq!(base.channel_ref_count.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        base.metadata.state().unwrap(),
+        super::SessionLifecycleState::Active
+    );
+}
+
 fn public_key_base64(fill: u8) -> String {
     let mut blob = Vec::new();
     blob.extend_from_slice(&(ALGORITHM.len() as u32).to_be_bytes());

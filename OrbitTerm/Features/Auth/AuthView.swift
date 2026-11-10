@@ -5,6 +5,7 @@ struct AuthView: View {
     @Environment(\.appThemePalette) private var palette
 #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 #endif
     @Namespace private var modeAnimation
 
@@ -28,19 +29,7 @@ struct AuthView: View {
     private let network = NetworkService.shared
 
     private var canSubmit: Bool {
-        guard !isLoading, cooldownRemaining == 0, acceptedTerms,
-              !username.isEmpty, !password.isEmpty else { return false }
-        guard !isLoginMode else { return true }
-        let emailParts = username.split(separator: "@", omittingEmptySubsequences: false)
-        return emailParts.count == 2
-            && !emailParts[0].isEmpty
-            && !emailParts[1].isEmpty
-            && !inviteCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && password.count >= 12
-            && password.contains { $0.isUppercase }
-            && password.contains { $0.isLowercase }
-            && password.contains { $0.isNumber }
-            && password.contains { !$0.isLetter && !$0.isNumber && !$0.isWhitespace }
+        !isLoading && cooldownRemaining == 0
     }
 
     var body: some View {
@@ -111,13 +100,19 @@ struct AuthView: View {
             })
             .sheet(isPresented: $showTerms) {
                 NavigationStack {
-                    ScrollView {
-                        Text(OrbitLegalTerms.fullText)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(20)
-                            .textSelection(.enabled)
+                    Group {
+#if os(iOS)
+                        MobileTermsView()
+#else
+                        ScrollView {
+                            Text(OrbitLegalTerms.fullText)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(20)
+                                .textSelection(.enabled)
+                        }
+                        .navigationTitle("使用条款、免责声明与隐私说明")
+#endif
                     }
-                    .navigationTitle("使用条款、免责声明与隐私说明")
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
                             Button("同意并继续") {
@@ -131,7 +126,11 @@ struct AuthView: View {
                         }
                     }
                 }
+#if os(iOS)
+                .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium, .large])
+#else
                 .presentationDetents([.medium, .large])
+#endif
             }
             .applyKeyboardDismissToolbar()
             .onReceive(NotificationCenter.default.publisher(for: .orbitTermClearTransientSensitiveInput)) { _ in
@@ -182,40 +181,7 @@ struct AuthView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            HStack(alignment: .center, spacing: 8) {
-                Button {
-                    if acceptedTerms {
-                        acceptedTerms = false
-                        AuthTermsConsentStore.clearCurrentVersion()
-                    } else {
-                        acceptedTerms = true
-                        AuthTermsConsentStore.recordCurrentVersion()
-                    }
-                } label: {
-                    Image(systemName: acceptedTerms ? "checkmark.square.fill" : "square")
-                        .font(.title3)
-                        .foregroundStyle(acceptedTerms ? palette.accentPrimary.color : palette.textSecondary.color)
-                }
-                .buttonStyle(.plain)
-                .frame(minWidth: 44, minHeight: 44)
-                .accessibilityLabel(acceptedTerms ? "已同意使用条款、免责声明与隐私说明" : "尚未同意使用条款、免责声明与隐私说明")
-
-                Text("已阅读并同意")
-                    .foregroundStyle(palette.textSecondary.color)
-                    .fixedSize(horizontal: true, vertical: false)
-
-                Spacer(minLength: 4)
-
-                Button("查看法律条款") {
-                    showTerms = true
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(palette.accentPrimary.color)
-                .fixedSize(horizontal: true, vertical: false)
-                .accessibilityLabel("查看使用条款、免责声明与隐私说明")
-            }
-            .font(.footnote)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            termsConsent(width: width)
 
             if cooldownRemaining > 0 {
                 Text("登录尝试过于频繁，请在 \(cooldownRemaining) 秒后重试。")
@@ -224,6 +190,58 @@ struct AuthView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+
+    private func termsConsent(width: CGFloat) -> some View {
+        let checkbox = Button {
+            acceptedTerms.toggle()
+            if acceptedTerms {
+                AuthTermsConsentStore.recordCurrentVersion()
+            } else {
+                AuthTermsConsentStore.clearCurrentVersion()
+            }
+        } label: {
+            Image(systemName: acceptedTerms ? "checkmark.square.fill" : "square")
+                .font(.title3)
+                .foregroundStyle(acceptedTerms ? palette.accentPrimary.color : palette.textSecondary.color)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(acceptedTerms ? "已同意使用条款、免责声明与隐私说明" : "尚未同意使用条款、免责声明与隐私说明")
+
+        let explanation = Text("已阅读并同意")
+            .foregroundStyle(palette.textSecondary.color)
+
+        let openTerms = Button {
+            showTerms = true
+        } label: {
+            Text("查看法律条款")
+                .multilineTextAlignment(.leading)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(palette.accentPrimary.color)
+        .accessibilityLabel("查看使用条款、免责声明与隐私说明")
+
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                checkbox
+                explanation
+                Spacer(minLength: 4)
+                openTerms
+            }
+
+            HStack(alignment: .top, spacing: 8) {
+                checkbox
+                VStack(alignment: .leading, spacing: 4) {
+                    explanation
+                    openTerms
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .font(.footnote)
+        .frame(width: width, alignment: .leading)
     }
 
     private func actionArea(width: CGFloat) -> some View {
@@ -242,11 +260,23 @@ struct AuthView: View {
     private var bannerArea: some View {
         if !message.isEmpty {
             AuthStatusBanner(message: message, kind: messageKind, shakeOffset: shakeOffset)
+        } else if let warning = session.logoutRevocationWarning {
+            AuthStatusBanner(message: warning, kind: .failure, shakeOffset: 0)
         }
     }
 
     private func startSubmit() {
         guard submitTask == nil, canSubmit else { return }
+        if let validationMessage = AuthInputValidation.message(
+            isLoginMode: isLoginMode,
+            username: username,
+            password: password,
+            inviteCode: inviteCode,
+            acceptedTerms: acceptedTerms
+        ) {
+            setMessage("失败: \(validationMessage)", kind: .failure)
+            return
+        }
         let canonicalUsername = AccountIdentity.canonicalUsername(username)
         let retryAfter = LoginAttemptThrottle.retryAfterSeconds(for: canonicalUsername)
         guard retryAfter == 0 else {
@@ -303,7 +333,8 @@ struct AuthView: View {
             try session.persistLogin(
                 accessToken: loginData.accessTokenValue,
                 refreshToken: loginData.refreshTokenValue,
-                username: canonicalUsername
+                username: canonicalUsername,
+                mustChangePassword: loginData.must_change_password ?? false
             )
             username = canonicalUsername
             LoginAttemptThrottle.clear(for: canonicalUsername)
@@ -324,7 +355,7 @@ struct AuthView: View {
                 let delay = LoginAttemptThrottle.recordFailure(for: canonicalUsername)
                 if delay > 0 { beginCooldown(seconds: delay) }
             }
-            setMessage("失败: \(error.localizedDescription)", kind: .failure)
+            setMessage("失败: \(LoginFailurePresentation.message(for: error))", kind: .failure)
         }
     }
 

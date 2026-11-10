@@ -1,6 +1,7 @@
 using OrbitTerm.Application.Accounts;
 using OrbitTerm.NativeBridge;
 using System.Security.Cryptography;
+using System.Net;
 using System.Text;
 using Xunit;
 
@@ -8,6 +9,167 @@ namespace OrbitTerm.Security.Tests;
 
 public sealed class AccountUnlockControllerTests
 {
+    [Fact]
+    public async Task UnlockFailureReportsOnlyFixedStageAndStatusCode()
+    {
+        var controller = new AccountUnlockController(
+            new Store(), new Protocol(),
+            new ThrowingVerifier(new HttpRequestException("secret response body", null, HttpStatusCode.BadGateway)),
+            keyDeriver: new Deriver());
+        await controller.LoginAsync(new AccountLoginRequest("user@example.com", "password"), CancellationToken.None);
+
+        Assert.Equal(AccountUnlockResult.ServiceFailure, await controller.UnlockAsync("master-password", CancellationToken.None));
+        Assert.Equal("remote_verify_http_502", controller.LastUnlockDiagnosticCode);
+        Assert.False(controller.CanSynchronize);
+        Assert.DoesNotContain("secret", controller.LastUnlockDiagnosticCode, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task LateLogoutFailureDoesNotWarnAReplacementSession()
+    {
+        var protocol = new DelayedLogoutProtocol();
+        var controller = new AccountUnlockController(new Store(), protocol, new Verifier(true), keyDeriver: new Deriver());
+        await controller.LoginAsync(new AccountLoginRequest("user@example.com", "password"), CancellationToken.None);
+
+        var signingOut = controller.SignOutAsync(CancellationToken.None).AsTask();
+        await protocol.Started.Task;
+        await controller.LoginAsync(new AccountLoginRequest("user@example.com", "password"), CancellationToken.None);
+        protocol.Fail();
+        await signingOut;
+
+        Assert.Equal(AccountLockState.SignedInLocked, controller.State);
+        Assert.False(controller.LastLogoutRevocationFailed);
+    }
+
+    [Fact]
+    public async Task RequiredPasswordChangeBlocksUnlockUntilRotatedSessionIsStored()
+    {
+        var store = new Store();
+        var controller = new AccountUnlockController(store, new ForcedPasswordProtocol(), new Verifier(true), keyDeriver: new Deriver());
+        await controller.LoginAsync(new AccountLoginRequest("user@example.com", "old-password"), CancellationToken.None);
+
+        Assert.True(controller.MustChangePassword);
+        Assert.False(controller.CanSynchronize);
+        Assert.Equal(AccountUnlockResult.ServiceFailure, await controller.UnlockAsync("master-password", CancellationToken.None));
+
+        await controller.ChangeLoginPasswordAsync("old-password", "New-password-123!", CancellationToken.None);
+        Assert.False(controller.MustChangePassword);
+        Assert.Equal("rotated-refresh", store.Value?.RefreshToken);
+    }
+
+    [Fact]
+    public async Task PasswordResponseAfterLogoutCannotRestoreTheSession()
+    {
+        var store = new Store();
+        var protocol = new DelayedPasswordProtocol();
+        var controller = new AccountUnlockController(store, protocol, new Verifier(true), keyDeriver: new Deriver());
+        await controller.LoginAsync(new AccountLoginRequest("user@example.com", "old-password"), CancellationToken.None);
+
+        var changing = controller.ChangeLoginPasswordAsync("old-password", "New-password-123!", CancellationToken.None).AsTask();
+        await protocol.Started.Task;
+        await controller.SignOutAsync(CancellationToken.None);
+        protocol.Complete();
+
+        var rejected = await Assert.ThrowsAsync<AccountSessionChangedException>(() => changing);
+        Assert.Equal("controller_session_changed", rejected.DiagnosticCode);
+        Assert.Null(store.Value);
+        Assert.Equal(AccountLockState.SignedOut, controller.State);
+    }
+
+    [Fact]
+    public async Task DelayedUnlockAfterLogoutCannotRestoreTheRootKey()
+    {
+        var verifier = new DelayedVerifier();
+        var controller = new AccountUnlockController(new Store(), new Protocol(), verifier, keyDeriver: new Deriver());
+        await controller.LoginAsync(new AccountLoginRequest("user@example.com", "login-password"), CancellationToken.None);
+
+        var unlocking = controller.UnlockAsync("master-password", CancellationToken.None).AsTask();
+        await verifier.Started.Task;
+        await controller.SignOutAsync(CancellationToken.None);
+        verifier.Complete(true);
+
+        Assert.Equal(AccountUnlockResult.ServiceFailure, await unlocking);
+        Assert.Equal(AccountLockState.SignedOut, controller.State);
+        Assert.False(controller.CanSynchronize);
+    }
+
+    [Fact]
+    public async Task OverlappingSynchronizationsUseTheLatestPersistedSession()
+    {
+        var store = new Store();
+        var controller = new AccountUnlockController(store, new Protocol(), new Verifier(true), keyDeriver: new Deriver());
+        await controller.LoginAsync(new AccountLoginRequest("user@example.com", "login-password"), CancellationToken.None);
+        Assert.Equal(AccountUnlockResult.Unlocked, await controller.UnlockAsync("master-password", CancellationToken.None));
+        var synchronizer = new DelayedRotatingSynchronizer();
+
+        var first = controller.SynchronizeAsync(synchronizer, "master-password", CancellationToken.None).AsTask();
+        await synchronizer.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var second = controller.SynchronizeAsync(synchronizer, "master-password", CancellationToken.None).AsTask();
+        Assert.Equal(1, synchronizer.CallCount);
+        synchronizer.ReleaseFirst();
+        await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(new[] { "refresh", "refresh-1" }, synchronizer.ReceivedRefreshTokens);
+        Assert.Equal("refresh-2", store.Value?.RefreshToken);
+    }
+
+    [Fact]
+    public async Task QueuedSynchronizationAfterSignOutCannotRestoreTheOldSession()
+    {
+        var store = new Store();
+        var controller = new AccountUnlockController(store, new Protocol(), new Verifier(true), keyDeriver: new Deriver());
+        await controller.LoginAsync(new AccountLoginRequest("user@example.com", "login-password"), CancellationToken.None);
+        Assert.Equal(AccountUnlockResult.Unlocked, await controller.UnlockAsync("master-password", CancellationToken.None));
+        var synchronizer = new DelayedRotatingSynchronizer();
+
+        var first = controller.SynchronizeAsync(synchronizer, "master-password", CancellationToken.None).AsTask();
+        await synchronizer.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var queued = controller.SynchronizeAsync(synchronizer, "master-password", CancellationToken.None).AsTask();
+        await controller.SignOutAsync(CancellationToken.None);
+        synchronizer.ReleaseFirst();
+
+        var rejected = await Assert.ThrowsAsync<AccountSessionChangedException>(() => first.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal("controller_session_changed", rejected.DiagnosticCode);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => queued.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Null(store.Value);
+        Assert.Equal(1, synchronizer.CallCount);
+    }
+
+    [Fact]
+    public async Task SynchronizationAdoptsTheDurableRefreshPerformedByUnlockVerification()
+    {
+        var store = new Store();
+        var controller = new AccountUnlockController(store, new Protocol(), new StoreRotatingVerifier(store), keyDeriver: new Deriver());
+        await controller.LoginAsync(new AccountLoginRequest("user@example.com", "login-password"), CancellationToken.None);
+        Assert.Equal(AccountUnlockResult.Unlocked, await controller.UnlockAsync("master-password", CancellationToken.None));
+        Assert.Equal("verifier-refresh", store.Value?.RefreshToken);
+        var synchronizer = new DelayedRotatingSynchronizer();
+        synchronizer.ReleaseFirst();
+
+        await controller.SynchronizeAsync(synchronizer, "master-password", CancellationToken.None);
+
+        Assert.Equal(new[] { "verifier-refresh" }, synchronizer.ReceivedRefreshTokens);
+        Assert.Equal("refresh-1", store.Value?.RefreshToken);
+    }
+
+    [Fact]
+    public async Task SynchronizationRejectsAnUnrelatedStoredLogin()
+    {
+        var store = new Store();
+        var controller = new AccountUnlockController(store, new Protocol(), new Verifier(true), keyDeriver: new Deriver());
+        await controller.LoginAsync(new AccountLoginRequest("user@example.com", "login-password"), CancellationToken.None);
+        Assert.Equal(AccountUnlockResult.Unlocked, await controller.UnlockAsync("master-password", CancellationToken.None));
+        store.Value = store.Value! with { CreatedAt = store.Value!.CreatedAt.AddMinutes(1), RefreshToken = "unrelated-refresh" };
+
+        var rejected = await Assert.ThrowsAsync<AccountSessionChangedException>(async () =>
+        {
+            await controller.SynchronizeAsync(new DelayedRotatingSynchronizer(), "master-password", CancellationToken.None);
+        });
+
+        Assert.Equal("stored_session_replaced", rejected.DiagnosticCode);
+        Assert.Equal("unrelated-refresh", store.Value?.RefreshToken);
+    }
+
     [Fact]
     public async Task LoginStaysLockedUntilReadOnlyVerificationSucceeds()
     {
@@ -149,7 +311,74 @@ public sealed class AccountUnlockControllerTests
         CryptographicOperations.ZeroMemory(nextRoot);
     }
 
-    private sealed class Store : IAccountSessionStore { public AccountSessionRecord? Value; public ValueTask<AccountSessionRecord?> ReadAsync(CancellationToken c) => ValueTask.FromResult(Value); public ValueTask SaveAsync(AccountSessionRecord s, CancellationToken c) { Value = s; return ValueTask.CompletedTask; } public ValueTask ClearAsync(CancellationToken c) => ValueTask.CompletedTask; }
+    private sealed class Store : IAccountSessionStore
+    {
+        public AccountSessionRecord? Value;
+        public ValueTask<AccountSessionRecord?> ReadAsync(CancellationToken c) => ValueTask.FromResult(Value);
+        public ValueTask SaveAsync(AccountSessionRecord s, CancellationToken c) { Value = s; return ValueTask.CompletedTask; }
+        public ValueTask<bool> TryReplaceAsync(AccountSessionRecord expected, AccountSessionRecord replacement, CancellationToken c)
+        {
+            if (Value != expected) return ValueTask.FromResult(false);
+            Value = replacement;
+            return ValueTask.FromResult(true);
+        }
+        public ValueTask ClearAsync(CancellationToken c) { Value = null; return ValueTask.CompletedTask; }
+    }
+    private sealed class ForcedPasswordProtocol : IOrbitAccountProtocol, IOrbitAccountSecurityProtocol
+    {
+        public ValueTask<AccountLoginResponse> LoginAsync(AccountLoginRequest request, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new AccountLoginResponse(null, "access", "refresh", "bearer", null, null, true));
+        public ValueTask<AccountLoginResponse> RefreshAsync(AccountRefreshRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<AuthorizedProtocolResult<AccountLoginResponse>> ChangePasswordAsync(AccountSessionRecord session, AccountPasswordChangeRequest request, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new AuthorizedProtocolResult<AccountLoginResponse>(
+                new AccountLoginResponse(null, "rotated-access", "rotated-refresh", "bearer", null, null, false), session));
+        public ValueTask<AuthorizedProtocolResult<IReadOnlyList<EncryptedConfigRecord>>> PullCompleteConfigSnapshotAsync(AccountSessionRecord session, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<AuthorizedProtocolResult<AccountLoginResponse>> RotateMasterKeyAsync(AccountSessionRecord session, MasterKeyRotationRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+    private sealed class DelayedPasswordProtocol : IOrbitAccountProtocol, IOrbitAccountSecurityProtocol
+    {
+        private readonly TaskCompletionSource<AuthorizedProtocolResult<AccountLoginResponse>> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public ValueTask<AccountLoginResponse> LoginAsync(AccountLoginRequest request, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new AccountLoginResponse(null, "access", "refresh", "bearer", null, null));
+        public ValueTask<AccountLoginResponse> RefreshAsync(AccountRefreshRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<AuthorizedProtocolResult<AccountLoginResponse>> ChangePasswordAsync(AccountSessionRecord session, AccountPasswordChangeRequest request, CancellationToken cancellationToken)
+        {
+            pendingSession = session;
+            Started.SetResult(true);
+            return new ValueTask<AuthorizedProtocolResult<AccountLoginResponse>>(completion.Task);
+        }
+        private AccountSessionRecord? pendingSession;
+        public void Complete() => completion.SetResult(new AuthorizedProtocolResult<AccountLoginResponse>(
+            new AccountLoginResponse(null, "next-access", "next-refresh", "bearer", null, null), pendingSession!));
+        public ValueTask<AuthorizedProtocolResult<IReadOnlyList<EncryptedConfigRecord>>> PullCompleteConfigSnapshotAsync(AccountSessionRecord session, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<AuthorizedProtocolResult<AccountLoginResponse>> RotateMasterKeyAsync(AccountSessionRecord session, MasterKeyRotationRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+    private sealed class DelayedVerifier : IEncryptedConfigUnlockVerifier
+    {
+        private readonly TaskCompletionSource<bool?> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public ValueTask<bool?> VerifyAsync(AccountSessionRecord session, string masterPassword, byte[] rootKey, CancellationToken cancellationToken)
+        {
+            Started.SetResult(true);
+            return new ValueTask<bool?>(completion.Task);
+        }
+        public void Complete(bool? result) => completion.SetResult(result);
+    }
+    private sealed class DelayedLogoutProtocol : IOrbitAccountProtocol, IOrbitAccountLogoutProtocol
+    {
+        private readonly TaskCompletionSource<bool> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public ValueTask<AccountLoginResponse> LoginAsync(AccountLoginRequest request, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new AccountLoginResponse(null, "access", "refresh", "bearer", null, null));
+        public ValueTask<AccountLoginResponse> RefreshAsync(AccountRefreshRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask LogoutCurrentAsync(AccountSessionRecord session, CancellationToken cancellationToken)
+        {
+            Started.SetResult(true);
+            return new ValueTask(completion.Task);
+        }
+        public void Fail() => completion.SetException(new HttpRequestException("revocation failed"));
+    }
     private sealed class Protocol : IOrbitAccountProtocol { public AccountLoginRequest? LastLoginRequest { get; private set; } public ValueTask<AccountLoginResponse> LoginAsync(AccountLoginRequest r, CancellationToken c) { LastLoginRequest = r; return ValueTask.FromResult(new AccountLoginResponse(null,"access","refresh","bearer",null,null)); } public ValueTask<AccountLoginResponse> RefreshAsync(AccountRefreshRequest r, CancellationToken c) => throw new NotSupportedException(); }
     private sealed class RegistrationProtocol : IOrbitAccountProtocol, IOrbitAccountRegistrationProtocol
     {
@@ -183,6 +412,45 @@ public sealed class AccountUnlockControllerTests
         }
     }
     private sealed class Verifier(bool? result) : IEncryptedConfigUnlockVerifier { public int Calls { get; private set; } public ValueTask<bool?> VerifyAsync(AccountSessionRecord s, string password, byte[] key, CancellationToken c) { Calls++; return ValueTask.FromResult(result); } }
+    private sealed class StoreRotatingVerifier(Store store) : IEncryptedConfigUnlockVerifier
+    {
+        public ValueTask<bool?> VerifyAsync(AccountSessionRecord session, string password, byte[] key, CancellationToken cancellationToken)
+        {
+            store.Value = session with { AccessToken = "verifier-access", RefreshToken = "verifier-refresh" };
+            return ValueTask.FromResult<bool?>(true);
+        }
+    }
+    private sealed class DelayedRotatingSynchronizer : IEncryptedConfigSynchronizer
+    {
+        private readonly TaskCompletionSource<bool> firstStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> releaseFirst = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> FirstStarted => firstStarted;
+        public List<string> ReceivedRefreshTokens { get; } = [];
+        public int CallCount => ReceivedRefreshTokens.Count;
+        public void ReleaseFirst() => releaseFirst.TrySetResult(true);
+
+        public async ValueTask<EncryptedConfigSynchronizationResult> SynchronizeAsync(
+            AccountSessionRecord session,
+            string accountScope,
+            string masterPassword,
+            byte[] rootKey,
+            CancellationToken cancellationToken,
+            bool forceCompleteReconciliation = false)
+        {
+            ReceivedRefreshTokens.Add(session.RefreshToken);
+            var call = ReceivedRefreshTokens.Count;
+            if (call == 1)
+            {
+                firstStarted.TrySetResult(true);
+                await releaseFirst.Task.WaitAsync(cancellationToken);
+            }
+            return new EncryptedConfigSynchronizationResult(
+                EncryptedConfigSynchronizationStatus.Completed,
+                session with { AccessToken = $"access-{call}", RefreshToken = $"refresh-{call}" },
+                0, 0, 0, 0, 0, 0);
+        }
+    }
+    private sealed class ThrowingVerifier(Exception error) : IEncryptedConfigUnlockVerifier { public ValueTask<bool?> VerifyAsync(AccountSessionRecord s, string password, byte[] key, CancellationToken c) => ValueTask.FromException<bool?>(error); }
     private sealed class VerifierStore : IAccountUnlockVerifierStore { public byte[]? Value; public ValueTask<byte[]?> ReadAsync(string s, CancellationToken c) => ValueTask.FromResult(Value?.ToArray()); public ValueTask SaveAsync(string s, byte[] v, CancellationToken c) { Value = v.ToArray(); return ValueTask.CompletedTask; } }
     private sealed class Deriver : IConfigRootKeyDeriver { public byte[] Derive(string p, string s) => Enumerable.Repeat((byte)7, 32).ToArray(); }
 }

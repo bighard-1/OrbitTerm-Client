@@ -12,13 +12,13 @@ public abstract record SftpDirectoryListResult
         string Path,
         IReadOnlyList<SftpDirectoryEntry> Entries) : SftpDirectoryListResult;
 
-    public sealed record Failed(string Code, string MessageKey) : SftpDirectoryListResult;
+    public sealed record Failed(string Code, string MessageKey, string? DetailCode = null) : SftpDirectoryListResult;
 
     public static SftpDirectoryListResult FromEnvelope(SftpSessionLease lease, string path, CheckedEnvelope envelope)
     {
         if (envelope.Error is not null)
         {
-            return new Failed(envelope.Error.Code, envelope.Error.MessageKey);
+            return new Failed(envelope.Error.Code, envelope.Error.MessageKey, envelope.Error.DetailCode);
         }
 
         if (!string.Equals(envelope.Kind, CheckedFfiKind.SftpDirectoryList, StringComparison.Ordinal))

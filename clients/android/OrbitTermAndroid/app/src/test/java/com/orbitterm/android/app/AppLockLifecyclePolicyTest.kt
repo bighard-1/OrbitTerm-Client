@@ -31,4 +31,12 @@ class AppLockLifecyclePolicyTest {
         assertTrue(documentInteractionRequiresLockOnResume(1_000, 121_000, 120_000))
         assertFalse(documentInteractionRequiresLockOnResume(null, 121_000, 120_000))
     }
+
+    @Test
+    fun pauseLocksOrdinarySwitchButNotDocumentOrBiometricFlow() {
+        assertTrue(shouldLockOnPause(false, false, false))
+        assertFalse(shouldLockOnPause(true, false, false))
+        assertFalse(shouldLockOnPause(false, true, false))
+        assertFalse(shouldLockOnPause(false, false, true))
+    }
 }

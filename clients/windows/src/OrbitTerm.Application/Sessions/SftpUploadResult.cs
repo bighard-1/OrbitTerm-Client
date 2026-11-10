@@ -7,7 +7,7 @@ public abstract record SftpUploadResult
 {
     public sealed record Uploaded(SftpSessionLease Lease, string Path, ulong ByteLength) : SftpUploadResult;
 
-    public sealed record Failed(string Code, string MessageKey) : SftpUploadResult;
+    public sealed record Failed(string Code, string MessageKey, string? DetailCode = null) : SftpUploadResult;
 
     public static SftpUploadResult FromEnvelope(SftpSessionLease lease, string path, CheckedEnvelope envelope)
     {
@@ -15,7 +15,8 @@ public abstract record SftpUploadResult
         {
             return new Failed(
                 envelope.Error?.Code ?? "sftp_upload_failed",
-                envelope.Error?.MessageKey ?? "error.sftp.upload_failed");
+                envelope.Error?.MessageKey ?? "error.sftp.upload_failed",
+                envelope.Error?.DetailCode);
         }
 
         var payload = CheckedEnvelopeDecoder.DecodePayload<SftpUploadPayload>(

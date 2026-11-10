@@ -1,3 +1,4 @@
+use crate::OrbitCoreError;
 use std::sync::Arc;
 
 use crate::security::{
@@ -20,6 +21,49 @@ fn verified_generation(
         fingerprint_sha256: fingerprint_sha256(fingerprint_seed),
         trust_store_generation: TrustStoreGeneration::from_contents(store),
     }
+}
+
+#[tokio::test]
+async fn local_release_runs_after_graceful_close_success_error_or_timeout() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    for outcome in 0..3 {
+        let released = AtomicBool::new(false);
+        let close = async {
+            match outcome {
+                0 => Ok(()),
+                1 => Err(OrbitCoreError::SftpFailed("fixture EOF".to_string())),
+                _ => std::future::pending().await,
+            }
+        };
+        crate::session_pool::finish_session_release(
+            close,
+            async {
+                released.store(true, Ordering::SeqCst);
+                Ok(())
+            },
+            Duration::from_millis(1),
+        )
+        .await
+        .unwrap();
+        assert!(released.load(Ordering::SeqCst));
+    }
+}
+
+#[tokio::test]
+async fn local_release_failure_is_not_hidden_by_graceful_close() {
+    let result = crate::session_pool::finish_session_release(
+        async {},
+        async {
+            Err(OrbitCoreError::Internal(
+                "fixture release failure".to_string(),
+            ))
+        },
+        std::time::Duration::from_secs(1),
+    )
+    .await;
+    assert!(matches!(result, Err(OrbitCoreError::Internal(_))));
 }
 
 #[test]

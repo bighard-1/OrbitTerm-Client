@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using OrbitTerm.Application.Accounts;
 using OrbitTerm.Application.Security;
@@ -139,6 +140,146 @@ public sealed class EncryptedAssetPublisherTests
     }
 
     [Fact]
+    public async Task RetriedTombstoneKeepsItsDurableOperationIdAndVectorClock()
+    {
+        var asset = Asset();
+        var state = new States
+        {
+            State = new EncryptedSyncState(Guid.NewGuid(), 0, new Dictionary<Guid, EncryptedAssetSyncMetadata>
+            {
+                [asset.Id] = new(42, "{\"other\":4}", "active", 4),
+            }),
+        };
+        var protocol = new Protocol { RejectDeletionWithConflict = true };
+        var publisher = new EncryptedAssetPublisher(protocol, state);
+        await publisher.QueueTombstoneAsync("scope", asset.Id, CancellationToken.None);
+        var queued = state.State!.PendingOperations![asset.Id];
+
+        Assert.Equal(EncryptedAssetPublishStatus.Conflict,
+            (await publisher.TombstoneAsync(Session, "scope", asset.Id, new byte[32], CancellationToken.None)).Status);
+        Assert.Equal(EncryptedAssetPublishStatus.Conflict,
+            (await publisher.TombstoneAsync(Session, "scope", asset.Id, new byte[32], CancellationToken.None)).Status);
+        Assert.Equal(2, protocol.DeletionAttempts.Count);
+        Assert.Equal(protocol.DeletionAttempts[0].OperationId, protocol.DeletionAttempts[1].OperationId);
+        Assert.Equal(protocol.DeletionAttempts[0].VectorClock, protocol.DeletionAttempts[1].VectorClock);
+        Assert.Equal(queued.OperationId, protocol.DeletionAttempts[0].OperationId);
+        Assert.Equal(queued.RequestVectorClock, protocol.DeletionAttempts[0].VectorClock);
+        Assert.True(state.State.PendingOperations.ContainsKey(asset.Id));
+    }
+
+    [Fact]
+    public async Task UnpublishedAssetDeletionRequiresAuthenticatedNotFoundBeforeClearingQueue()
+    {
+        var asset = Asset();
+        var state = new States();
+        var protocol = new Protocol { DeletionFailureStatus = HttpStatusCode.NotFound };
+        var publisher = new EncryptedAssetPublisher(protocol, state);
+        await publisher.QueueUpsertAsync("scope", asset.Id, CancellationToken.None);
+        await publisher.QueueTombstoneAsync("scope", asset.Id, CancellationToken.None);
+        var queued = state.State!.PendingOperations![asset.Id];
+
+        Assert.NotNull(queued.OperationId);
+        Assert.False(string.IsNullOrWhiteSpace(queued.RequestVectorClock));
+        var result = await publisher.TombstoneAsync(Session, "scope", asset.Id, new byte[32], CancellationToken.None);
+
+        Assert.Equal(EncryptedAssetPublishStatus.LocalOnlyDeleted, result.Status);
+        Assert.Single(protocol.DeletionAttempts);
+        Assert.Equal(queued.OperationId, protocol.DeletionAttempts[0].OperationId);
+        Assert.Equal(queued.RequestVectorClock, protocol.DeletionAttempts[0].VectorClock);
+        Assert.False(state.State.PendingOperations!.ContainsKey(asset.Id));
+    }
+
+    [Fact]
+    public async Task LegacyUnpublishedTombstoneRetainsIdentityAcrossNetworkFailureAndRestart()
+    {
+        var asset = Asset();
+        var operationId = Guid.NewGuid();
+        var state = new States
+        {
+            State = new EncryptedSyncState(Guid.NewGuid(), 0, PendingOperations:
+                new Dictionary<Guid, PendingAssetSyncOperation>
+                {
+                    [asset.Id] = new(PendingAssetSyncOperationKind.Tombstone, null, 1, OperationId: operationId),
+                }),
+        };
+        var protocol = new Protocol { FailDeletionWithoutStatus = true };
+        var publisher = new EncryptedAssetPublisher(protocol, state);
+
+        await Assert.ThrowsAsync<HttpRequestException>(async () =>
+            await publisher.TombstoneAsync(Session, "scope", asset.Id, new byte[32], CancellationToken.None));
+        var durable = state.State!.PendingOperations![asset.Id];
+        Assert.Equal(operationId, durable.OperationId);
+        Assert.False(string.IsNullOrWhiteSpace(durable.RequestVectorClock));
+
+        protocol.FailDeletionWithoutStatus = false;
+        protocol.DeletionFailureStatus = HttpStatusCode.NotFound;
+        var resumed = new EncryptedAssetPublisher(protocol, state);
+        Assert.Equal(EncryptedAssetPublishStatus.LocalOnlyDeleted,
+            (await resumed.TombstoneAsync(Session, "scope", asset.Id, new byte[32], CancellationToken.None)).Status);
+        Assert.Equal(2, protocol.DeletionAttempts.Count);
+        Assert.All(protocol.DeletionAttempts, attempt => Assert.Equal(operationId, attempt.OperationId));
+        Assert.Equal(protocol.DeletionAttempts[0].VectorClock, protocol.DeletionAttempts[1].VectorClock);
+        Assert.False(state.State.PendingOperations.ContainsKey(asset.Id));
+    }
+
+    [Fact]
+    public async Task UnknownRemoteStateKeepsTombstoneOnConflictUntilServerAcceptsIt()
+    {
+        var asset = Asset();
+        var state = new States();
+        var protocol = new Protocol { DeletionFailureStatus = HttpStatusCode.Conflict };
+        var publisher = new EncryptedAssetPublisher(protocol, state);
+        await publisher.QueueTombstoneAsync("scope", asset.Id, CancellationToken.None);
+
+        Assert.Equal(EncryptedAssetPublishStatus.Conflict,
+            (await publisher.TombstoneAsync(Session, "scope", asset.Id, new byte[32], CancellationToken.None)).Status);
+        Assert.True(state.State!.PendingOperations!.ContainsKey(asset.Id));
+
+        protocol.DeletionFailureStatus = null;
+        Assert.Equal(EncryptedAssetPublishStatus.Deleted,
+            (await publisher.TombstoneAsync(Session, "scope", asset.Id, new byte[32], CancellationToken.None)).Status);
+        Assert.Equal(2, protocol.DeletionAttempts.Count);
+        Assert.Equal(protocol.DeletionAttempts[0].OperationId, protocol.DeletionAttempts[1].OperationId);
+        Assert.Equal(protocol.DeletionAttempts[0].VectorClock, protocol.DeletionAttempts[1].VectorClock);
+        Assert.False(state.State.PendingOperations.ContainsKey(asset.Id));
+    }
+
+    [Fact]
+    public async Task KnownRemoteAssetNeverTreatsNotFoundAsLocalOnlyDeletion()
+    {
+        var asset = Asset();
+        var state = new States
+        {
+            State = new EncryptedSyncState(Guid.NewGuid(), 0, new Dictionary<Guid, EncryptedAssetSyncMetadata>
+            {
+                [asset.Id] = new(42, "{}", "active", 4),
+            }),
+        };
+        var publisher = new EncryptedAssetPublisher(
+            new Protocol { DeletionFailureStatus = HttpStatusCode.NotFound }, state);
+        await publisher.QueueTombstoneAsync("scope", asset.Id, CancellationToken.None);
+
+        await Assert.ThrowsAsync<AssetDeletionNotFoundException>(async () =>
+            await publisher.TombstoneAsync(Session, "scope", asset.Id, new byte[32], CancellationToken.None));
+        Assert.True(state.State!.PendingOperations!.ContainsKey(asset.Id));
+        Assert.True(state.State.Assets!.ContainsKey(asset.Id));
+    }
+
+    [Fact]
+    public async Task GenericNotFoundCannotDiscardUnpublishedTombstone()
+    {
+        var asset = Asset();
+        var state = new States();
+        var protocol = new Protocol { GenericDeletionNotFound = true };
+        var publisher = new EncryptedAssetPublisher(protocol, state);
+        await publisher.QueueTombstoneAsync("scope", asset.Id, CancellationToken.None);
+
+        await Assert.ThrowsAsync<HttpRequestException>(async () =>
+            await publisher.TombstoneAsync(Session, "scope", asset.Id, new byte[32], CancellationToken.None));
+        Assert.True(state.State!.PendingOperations!.ContainsKey(asset.Id));
+    }
+
+    [Fact]
     public async Task MissingCredentialNeverOverwritesAnExistingRemoteCredential()
     {
         var asset = Asset();
@@ -269,6 +410,11 @@ public sealed class EncryptedAssetPublisherTests
 
     private sealed class Protocol : IOrbitEncryptedSyncProtocol
     {
+        public bool RejectDeletionWithConflict { get; set; }
+        public HttpStatusCode? DeletionFailureStatus { get; set; }
+        public bool FailDeletionWithoutStatus { get; set; }
+        public bool GenericDeletionNotFound { get; set; }
+        public List<AssetDeletionRequest> DeletionAttempts { get; } = [];
         public EncryptedConfigUpload? Upload { get; private set; }
         public Guid DeletedAssetId { get; private set; }
         public AssetDeletionRequest? Deletion { get; private set; }
@@ -283,6 +429,18 @@ public sealed class EncryptedAssetPublisherTests
         {
             DeletedAssetId = id;
             Deletion = deletion;
+            DeletionAttempts.Add(deletion);
+            if (FailDeletionWithoutStatus)
+                throw new HttpRequestException("offline");
+            if (GenericDeletionNotFound)
+                throw new HttpRequestException("route not found", null, HttpStatusCode.NotFound);
+            if (DeletionFailureStatus is { } status)
+            {
+                if (status == HttpStatusCode.NotFound) throw new AssetDeletionNotFoundException();
+                throw new HttpRequestException("deletion rejected", null, status);
+            }
+            if (RejectDeletionWithConflict)
+                throw new HttpRequestException("conflict", null, HttpStatusCode.Conflict);
             return ValueTask.FromResult(new AuthorizedProtocolResult<EncryptedConfigRecord>(new(99, id.ToString("D"), null, "", deletion.VectorClock, "deleted", 4, DateTimeOffset.UtcNow), s));
         }
     }

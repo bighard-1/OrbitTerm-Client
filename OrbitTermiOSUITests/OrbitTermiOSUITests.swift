@@ -25,6 +25,19 @@ final class OrbitTermiOSUITests: XCTestCase {
         XCTAssertFalse(app.tabBars.buttons["服务器"].exists)
     }
 
+    func testCaptureShieldCoversPresentedSheetAfterAuthorizationExpires() {
+        let app = launch("capture_shield_states")
+        XCTAssertTrue(app.staticTexts["测试弹层内容"].waitForExistence(timeout: 5))
+        app.buttons["模拟授权到期"].tap()
+
+        let shield = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", "OrbitTerm 已保护敏感内容"))
+            .firstMatch
+        XCTAssertTrue(shield.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["测试弹层内容"].isHittable)
+        XCTAssertFalse(app.buttons["模拟授权到期"].isHittable)
+    }
+
     func testLockedLaunchShowsMasterPasswordRootWithoutWorkspace() {
         let app = launch("authenticated_locked")
         XCTAssertTrue(app.staticTexts["设置主密码"].waitForExistence(timeout: 5))
@@ -124,17 +137,53 @@ final class OrbitTermiOSUITests: XCTestCase {
         XCTAssertTrue(masterPassword.waitForExistence(timeout: 5))
         XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
         XCTAssertLessThanOrEqual(masterPassword.frame.maxY, confirmation.frame.minY, "最大辅助字号下，主密码输入框不得重叠")
-        XCTAssertTrue(locked.buttons["保存并解锁"].isHittable)
+        // At the largest accessibility size the form intentionally scrolls;
+        // reachability means the action is accessible after scrolling, not
+        // that it must fit in the initial viewport alongside both fields.
+        let saveAndUnlock = locked.buttons["保存并解锁"]
+        for _ in 0..<3 where !saveAndUnlock.isHittable {
+            locked.scrollViews.firstMatch.swipeUp()
+        }
+        XCTAssertTrue(saveAndUnlock.isHittable)
+    }
+
+    func testLegalConsentFitsAndOpensTermsAtLargestTextSize() {
+        let app = launch("unauthenticated", usesLargestAccessibilityText: true)
+        let consent = app.buttons["尚未同意使用条款、免责声明与隐私说明"]
+        let explanation = app.staticTexts["已阅读并同意"]
+        let openTerms = app.buttons["查看使用条款、免责声明与隐私说明"]
+
+        XCTAssertTrue(openTerms.waitForExistence(timeout: 5))
+        let window = app.windows.firstMatch.frame
+        for element in [consent, explanation, openTerms] {
+            XCTAssertTrue(element.exists)
+            XCTAssertGreaterThan(element.frame.width, 0)
+            XCTAssertGreaterThanOrEqual(element.frame.minX, window.minX, "\(element.label) 超出左侧")
+            XCTAssertLessThanOrEqual(element.frame.maxX, window.maxX, "\(element.label) 超出右侧")
+        }
+        XCTAssertFalse(explanation.frame.intersects(openTerms.frame))
+        for _ in 0..<3 where !consent.isHittable || !openTerms.isHittable {
+            app.scrollViews.firstMatch.swipeUp()
+        }
+        XCTAssertTrue(consent.isHittable)
+        XCTAssertTrue(openTerms.isHittable)
+        guard consent.isHittable, openTerms.isHittable else { return }
+
+        openTerms.tap()
+        let closeTerms = app.buttons["返回"]
+        XCTAssertTrue(closeTerms.waitForExistence(timeout: 5))
+        closeTerms.tap()
+        XCTAssertTrue(consent.waitForExistence(timeout: 5))
     }
 
     func testOperationalFailuresExposeRetryRetainedContentAndTransientSuccessLifetime() {
         let app = launch("operational_states")
         XCTAssertTrue(app.navigationBars["操作状态回归"].waitForExistence(timeout: 5))
 
-        // The success contract is intentionally short lived. Capture it before
-        // the exhaustive failure-state assertions consume that four-second window.
+        // Launch and accessibility startup must not consume the success lifetime.
+        // Trigger the fixture only after the persistent failure checks complete.
         let success = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "容器操作已完成。")).firstMatch
-        XCTAssertTrue(success.waitForExistence(timeout: 2))
+        XCTAssertFalse(success.exists)
 
         for title in ["监控读取失败", "SFTP 操作失败", "Docker 操作失败"] {
             XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 5))
@@ -155,6 +204,10 @@ final class OrbitTermiOSUITests: XCTestCase {
         let busy = app.buttons["正在刷新监控"]
         XCTAssertTrue(busy.waitForExistence(timeout: 5))
         XCTAssertFalse(busy.isEnabled)
+        let trigger = app.buttons["模拟容器操作成功"]
+        XCTAssertTrue(trigger.waitForExistence(timeout: 5))
+        trigger.tap()
+        XCTAssertTrue(success.waitForExistence(timeout: 2))
         let disappeared = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == false"),
             object: success
@@ -170,7 +223,7 @@ final class OrbitTermiOSUITests: XCTestCase {
         let queued = app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS %@", "恢复已加入后台队列，联网后自动完成。")
         ).firstMatch
-        XCTAssertTrue(queued.waitForExistence(timeout: 2))
+        XCTAssertFalse(queued.exists)
 
         for message in [
             "等待网络：网络恢复后自动同步",
@@ -188,6 +241,10 @@ final class OrbitTermiOSUITests: XCTestCase {
         }
         XCTAssertTrue(app.staticTexts["检测到同步冲突"].waitForExistence(timeout: 5))
 
+        let trigger = app.buttons["模拟恢复加入队列"]
+        XCTAssertTrue(trigger.waitForExistence(timeout: 5))
+        trigger.tap()
+        XCTAssertTrue(queued.waitForExistence(timeout: 2))
         let disappeared = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == false"),
             object: queued
@@ -206,6 +263,9 @@ final class OrbitTermiOSUITests: XCTestCase {
         let logoutTitle = "退出登录？"
         let app = launch("account_security_states")
         XCTAssertTrue(app.navigationBars["账户安全状态回归"].waitForExistence(timeout: 5))
+        let triggerSuccess = app.buttons["模拟登录密码更新成功"]
+        XCTAssertTrue(triggerSuccess.waitForExistence(timeout: 5))
+        triggerSuccess.tap()
 
         let success = app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS %@", loginSuccessMessage)

@@ -1,0 +1,41 @@
+# Android 15 CI 模拟器包服务异常与恢复门禁（2026-10-13）
+
+## 原始失败（保留）
+
+- 固定提交 `7f5031a` 的 [Security Gates 作业](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38509529791/job/115674600175)在 Android 15 / x86_64 AOSP ATD 软件模拟器上失败。Linux Client、Windows Client 及其余 Security Gates 常规作业通过；条件 OpenSSH 和已签名 Mac UI 作业跳过。
+- 模拟器先报告 `sys.boot_completed=1`，随后测试脚本的包服务预检查通过。约 76 秒后，隔离 Smoke APK 安装返回 `cmd: Can't find service: package`；仪表化测试及 Smoke 状态断言均**尚未开始**。这是模拟器运行时包服务不可用的直接证据，不是客户端用例失败，也不证明后续用例通过。现有 CI 日志没有足够的系统日志解释包服务为何消失，根因暂记为未定。
+- Android 包服务消失和签名 macOS UI 缺少 provisioning profile 是两项独立未闭环问题，不能互相覆盖。
+
+## 后继防护
+
+- 工作流在启动模拟器前已执行 `:app:assembleSmoke`。ATD 门禁不再在软件模拟器启动后重复运行 Gradle；缺少预构建 x86_64 APK 时立即失败。
+- 安装前继续等待启动标志及 `cmd package list packages` 可用。若 APK 安装时仍收到 `Can't find service: package`，仅在包服务恢复后重试，最多三次安装和两轮各 90 秒等待；长期不可用则明确失败，不标记测试通过。其余安装错误仍原样失败。
+- 此修改只涉及 CI/隔离 Smoke 脚本；不修改 Android 客户端、测试账户、线上服务或实体设备。
+
+## 新 CI 的另一项失败（保留）
+
+- 后继提交 `2dd118e` 的 [Android 15 作业](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38518784894/job/115703474379)已跨过原包服务失败：隔离 Smoke APK 安装成功并启动首个 `locked` 状态，但在 30 次无障碍快照后仍未读到预期文案。最后的层级树显示最上层是系统 `Fake System App isn't responding` 弹窗，测试应用 Activity 位于其后。**夹具断言失败保留**，不能把安装成功写成 Smoke 或仪表化通过。
+- 第二次修订只对 `aosp-atd-api35` 隔离 CI 档案生效：无障碍树同时精确匹配该系统弹窗标题和 `android:id/aerr_close` 按钮时，最多关闭两次并继续读取夹具状态；其他标题、真实设备和标准档案绝不自动点击。若弹窗持续出现或仍无预期内容，测试照常失败。
+- `2dd118e` 同轮的 Apple checked-path、Rust、Android Release、依赖扫描、桌面视觉、Linux Client、Windows Client 最终均通过；Security Gates 总体因本项 Android Smoke 失败。条件 OpenSSH 与签名 Mac UI 作业跳过，不是通过。
+
+## 验收边界
+
+- 本地先做 Shell 语法、静态扫描和差异检查；必须由后继 CI 的真实模拟器运行确认 Smoke 与连接仪表化结果。
+- 本轮无隔离账户 GUI 或实体 Android/Windows 测试。后续两端实体设备仍按总台账对照包身份、安装/升级、离线墓碑与最终删除、SSH 二次验证正反向及录屏边界；模拟器基础设施重试不能代替这些结论。
+
+## 2026-10-14 后继 CI 实测
+
+- 固定提交 `4cf96ef` 的 [Android 15 作业](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38522715924/job/115715871946)完成隔离 Smoke 的 16 个状态，最终 `[PASS] Android isolated smoke fixtures`；随后 core、feature、app 三模块连接测试均构建/执行成功，覆盖检查输出 `[PASS] Android instrumentation gates`。这包含迁移与回归用例的 CI 门禁，**不是 Android 实体设备验收**。
+- 该轮日志没有 `dismissing isolated AOSP ATD Fake System App ANR overlay`，所以精确系统 ANR 处理分支**没有被实际触发**；不能把本轮通过归因于自动关闭弹窗。旧轮次包服务消失及 Fake System App ANR 两项失败均保留，后续若再次发生须保留当轮日志和结果。
+- 同一固定源码的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38522715924) 六项常规作业、[Linux Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38522715920) 与 [Windows Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/38522715808) 均已完成并成功，合计 **8/8**。OpenSSH 发布候选冒烟、签名 Mac UI 冒烟为条件跳过；本次无五端实体设备矩阵。
+
+## 2026-10-21 后继失败：系统提供方尚未初始化
+
+- `e25bc86` 的 [Android 15 CI 作业](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39603372497/job/119233801562)在预构建成功后，隔离 Smoke APK 安装先遭遇 ADB `Broken pipe`，随后报告包服务不可用；第三次安装明确抛出 `Cannot access system provider: 'settings' before system providers are installed!`，最后为 `[FAIL] isolated smoke fixture APK installation failed`。该作业失败、没有连接仪表化报告；不得把同轮其它门禁通过外推为 Android 仪表化通过。此日志证明模拟器安装服务的就绪检查不足，**不证明客户端 APK 自身有缺陷**。首次 `e25bc86` 失败结果保留，不以未来重跑覆盖。
+- CI-only 提交 `74acf0a` 在进入隔离 Smoke 和连接测试前，除 `sys.boot_completed`、PackageManager 外再核对系统 `settings` 提供方可响应；Smoke 安装若精确命中上述初始化错误，最多沿原三次安装预算等待包服务和提供方均恢复后再试。其它安装失败照常报错，未放宽断言或静默跳过测试。Shell 语法、错误分类匹配与差异检查在本机通过；**后继远端 CI 尚未完成前，不记作修复已在模拟器验收**。
+- 此处没有新增产品包、隔离账户 GUI 或真实设备操作。Android K60 受保护 QA 的 SFTP 结果单列于总台账；Windows 对照 CI 包身份与原生 GUI，不把 Android 模拟器基础设施失败误记为 Windows 产品故障。五端完整验收仍未完成。
+
+## 2026-10-21 固定候选后继 CI 通过
+
+- 分支头 `104a8e8` 的 [Security Gates](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39701362653)中，Android 仪器/迁移作业最终成功。完整日志有 `[PASS] Android isolated smoke fixtures`，随后 core 1 项、feature 13 项、app 33 项连接测试均完成；最后为 `[PASS] Android instrumentation gates`。这证明该固定候选在当轮 Android 15 AOSP ATD 模拟器上已越过此前的 `settings` 提供方安装失败，且后续断言运行完毕。`e25bc86` 原始失败仍如上保留；单次通过不保证托管模拟器永不波动。
+- 同一固定候选的 Android Release、Apple checked-path、Rust Release、依赖扫描和桌面视觉契约也成功；签名 macOS UI 与 OpenSSH 发行候选冒烟按条件跳过，不能计为成功。独立 [Windows Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39701362638)和 [Linux Client](https://github.com/bighard-1/OrbitTerm-Client/actions/runs/39701362512)工作流成功。此为 CI/自动化，不替代 Android K60 或其余四端同版真机验收。

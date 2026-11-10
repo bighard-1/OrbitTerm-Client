@@ -10,11 +10,47 @@ final class ConnectionPresentationTests: XCTestCase {
         XCTAssertEqual(map(phase: .connecting).phase, .connecting)
         XCTAssertEqual(map(phase: .reconnecting).phase, .reconnecting)
         XCTAssertEqual(map(awaiting: true).phase, .awaitingHostKeyDecision)
+        XCTAssertEqual(map(phase: .awaitingSecondFactor).label, "等待 SSH 验证码")
         XCTAssertEqual(map(lease: true).phase, .openingTerminal)
         XCTAssertEqual(map(lease: true, channel: true, connected: true).phase, .connected)
         XCTAssertEqual(map(phase: .blocked).phase, .blocked)
         XCTAssertEqual(map(phase: .failed).phase, .failed)
         XCTAssertEqual(map(phase: .cancelled).phase, .cancelled)
+    }
+
+    func testConnectionLaunchGateCoalescesDoubleActivationAndHonorsLifecycle() {
+        let first = UUID()
+        let second = UUID()
+        var gate = ConnectionLaunchGate()
+
+        XCTAssertTrue(gate.begin(sessionID: first, phase: .idle))
+        XCTAssertFalse(gate.begin(sessionID: first, phase: .idle))
+        XCTAssertTrue(gate.begin(sessionID: second, phase: .disconnected))
+
+        gate.finish(sessionID: first)
+        XCTAssertTrue(gate.begin(sessionID: first, phase: .failed))
+        gate.finish(sessionID: first)
+        gate.finish(sessionID: second)
+
+        for phase in [
+            ConnectionPresentationPhase.connecting,
+            .reconnecting,
+            .awaitingHostKeyDecision,
+            .awaitingSecondFactor,
+            .openingTerminal,
+            .connected,
+            .blocked,
+        ] {
+            XCTAssertFalse(gate.begin(sessionID: UUID(), phase: phase), "unexpected launch for \(phase)")
+        }
+    }
+
+    func testHostKeyReplacementReentersAnAdmissibleLaunchPhase() {
+        let phase = HostKeyTrustReplacementReconnectPolicy.phaseBeforeReconnect
+        XCTAssertEqual(phase, .disconnected)
+        var gate = ConnectionLaunchGate()
+        XCTAssertTrue(gate.begin(sessionID: UUID(), phase: phase))
+        XCTAssertFalse(gate.begin(sessionID: UUID(), phase: .connecting))
     }
 
     func testPresentationHasAccessibleTextAndDistinctBlockedRole() {
@@ -30,6 +66,8 @@ final class ConnectionPresentationTests: XCTestCase {
         XCTAssertEqual(ConnectionPresentationMapper.map(blocked).phase, .blocked)
         let awaiting = ConnectionPresentationAdapter.input(.init(hasVerifiedSessionLease: false, hasTerminalChannel: false, isSessionUsable: false, isConnectOperationInProgress: true, wasConnectionLost: false, hostKey: .awaitingDecision))
         XCTAssertEqual(ConnectionPresentationMapper.map(awaiting).phase, .awaitingHostKeyDecision)
+        let secondFactor = ConnectionPresentationAdapter.input(.init(hasVerifiedSessionLease: false, hasTerminalChannel: false, isSessionUsable: false, isConnectOperationInProgress: true, wasConnectionLost: false, hostKey: .awaitingSecondFactor))
+        XCTAssertEqual(ConnectionPresentationMapper.map(secondFactor).phase, .awaitingSecondFactor)
         let lost = ConnectionPresentationAdapter.input(.init(hasVerifiedSessionLease: true, hasTerminalChannel: true, isSessionUsable: false, isConnectOperationInProgress: false, wasConnectionLost: true, hostKey: .none))
         XCTAssertEqual(ConnectionPresentationMapper.map(lost).phase, .disconnected)
     }

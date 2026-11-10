@@ -6,6 +6,9 @@ import androidx.room.Upsert
 
 @Dao
 interface AssetSyncOutboxDao {
+    @Query("SELECT * FROM asset_sync_outbox WHERE accountScope = :accountScope AND assetId COLLATE NOCASE = :assetId LIMIT 1")
+    suspend fun find(accountScope: String, assetId: String): AssetSyncOutboxEntity?
+
     @Query("SELECT * FROM asset_sync_outbox WHERE accountScope = :accountScope ORDER BY enqueuedAtUnix ASC")
     suspend fun list(accountScope: String): List<AssetSyncOutboxEntity>
 
@@ -74,6 +77,20 @@ interface AssetSyncOutboxDao {
         disposition: String,
         failureCode: String,
         nextAttemptAtUnix: Long,
+    ): Int
+
+    /** A late worker cannot stamp a replacement user intent with its old clock. */
+    @Query(
+        "UPDATE asset_sync_outbox SET requestVectorClock = :requestVectorClock " +
+            "WHERE accountScope = :accountScope AND assetId COLLATE NOCASE = :assetId " +
+            "AND operationId = :operationId AND operation = 'MOVE_TO_TRASH' " +
+            "AND requestVectorClock IS NULL",
+    )
+    suspend fun rememberDeleteRequestClock(
+        accountScope: String,
+        assetId: String,
+        operationId: String,
+        requestVectorClock: String,
     ): Int
 
     @Query(

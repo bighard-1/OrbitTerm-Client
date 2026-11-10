@@ -35,6 +35,7 @@ public abstract record SftpOpenResult
             baseLease.Host,
             baseLease.Port,
             baseLease.HostKeyAlgorithm,
-            baseLease.HostKeyFingerprintSha256));
+            baseLease.HostKeyFingerprintSha256,
+            string.IsNullOrWhiteSpace(payload.HomePath) ? "/" : payload.HomePath));
     }
 }

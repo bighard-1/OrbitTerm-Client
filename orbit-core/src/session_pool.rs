@@ -429,15 +429,10 @@ pub(crate) fn insert_checked_sftp_session(
     Ok(channel_id)
 }
 
-pub(crate) fn remove_sftp_session(
+pub(crate) fn take_sftp_session(
     session_id: u64,
-) -> Result<Arc<OrbitSftpSession>, OrbitCoreError> {
-    let session = {
-        let mut sessions = lock_sftp_sessions()?;
-        sessions.remove(&session_id)
-    }
-    .ok_or_else(|| OrbitCoreError::SftpFailed("session not found".to_string()))?;
-    Ok(session)
+) -> Result<Option<Arc<OrbitSftpSession>>, OrbitCoreError> {
+    Ok(lock_sftp_sessions()?.remove(&session_id))
 }
 
 pub(crate) async fn get_or_create_base_session(
@@ -493,6 +488,7 @@ pub(crate) async fn get_or_create_base_session(
             private_key_content,
             private_key_passphrase,
             allow_password_fallback,
+            None,
         )
         .await?;
 
@@ -805,9 +801,22 @@ pub(crate) fn insert_synthetic_base_session_for_tests(
 }
 
 #[cfg(test)]
+pub(crate) fn index_synthetic_base_session_for_tests(session: &OrbitBaseSession) {
+    // Existing synthetic fixtures deliberately avoid the shared reuse index.
+    // Only unique-key contention fixtures opt into the production lookup path.
+    lock_base_key_index()
+        .unwrap()
+        .insert(session.key.clone(), session.id);
+}
+
+#[cfg(test)]
 pub(crate) fn remove_synthetic_base_session_for_tests(base_session_id: u64) {
     if let Ok(mut sessions) = BASE_SESSIONS.lock() {
-        sessions.remove(&base_session_id);
+        if let Some(session) = sessions.remove(&base_session_id) {
+            if let Ok(mut index) = lock_base_key_index() {
+                index.remove_if_matches(&session.key, session.id);
+            }
+        }
     }
 }
 
@@ -817,12 +826,21 @@ pub(crate) async fn release_base_session(base_id: u64) -> Result<(), OrbitCoreEr
         return Ok(());
     };
 
-    let prev = base
-        .channel_ref_count
-        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
-            current.checked_sub(1)
-        })
-        .map_err(|_| OrbitCoreError::Internal("base session reference underflow".to_string()))?;
+    let mut current = base.channel_ref_count.load(Ordering::SeqCst);
+    let prev = loop {
+        let next = current.checked_sub(1).ok_or_else(|| {
+            OrbitCoreError::Internal("base session reference underflow".to_string())
+        })?;
+        match base.channel_ref_count.compare_exchange_weak(
+            current,
+            next,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        ) {
+            Ok(previous) => break previous,
+            Err(observed) => current = observed,
+        }
+    };
     if prev > 1 {
         return Ok(());
     }
@@ -843,11 +861,31 @@ pub(crate) async fn release_base_session(base_id: u64) -> Result<(), OrbitCoreEr
         }
     }
 
-    let ssh = base.ssh.lock().await;
-    let _ = ssh
-        .disconnect(Disconnect::ByApplication, "session released", "en")
-        .await;
+    // The pool entry is already revoked. A stalled peer or an in-flight
+    // operation must not prevent local teardown from completing.
+    let _ = tokio::time::timeout(Duration::from_secs(3), async {
+        let ssh = base.ssh.lock().await;
+        let _ = ssh
+            .disconnect(Disconnect::ByApplication, "session released", "en")
+            .await;
+    })
+    .await;
     Ok(())
+}
+
+pub(crate) async fn finish_session_release<C, R>(
+    graceful_close: C,
+    release: R,
+    timeout: Duration,
+) -> Result<(), OrbitCoreError>
+where
+    C: std::future::Future,
+    R: std::future::Future<Output = Result<(), OrbitCoreError>>,
+{
+    // Remote acknowledgement is best effort. Once the local child has been
+    // removed, its owned base reference must be released even on EOF/timeout.
+    let _ = tokio::time::timeout(timeout, graceful_close).await;
+    release.await
 }
 
 fn lock_sftp_sessions(
@@ -931,15 +969,27 @@ async fn try_reuse_base_session(
 }
 
 fn try_acquire_session_reference(session: &OrbitBaseSession) -> bool {
-    session
-        .channel_ref_count
-        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
-            (current > 0).then(|| current.checked_add(1)).flatten()
-        })
-        .is_ok()
+    let mut current = session.channel_ref_count.load(Ordering::SeqCst);
+    loop {
+        if current == 0 {
+            return false;
+        }
+        let Some(next) = current.checked_add(1) else {
+            return false;
+        };
+        match session.channel_ref_count.compare_exchange_weak(
+            current,
+            next,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        ) {
+            Ok(_) => return true,
+            Err(observed) => current = observed,
+        }
+    }
 }
 
-fn emit_connection_event(base_id: u64, message: &str) {
+pub(crate) fn emit_connection_event(session_id: u64, message: &str) {
     let cb_opt = CONNECTION_EVENT_CALLBACK
         .lock()
         .ok()
@@ -947,7 +997,7 @@ fn emit_connection_event(base_id: u64, message: &str) {
 
     if let Some(cb) = cb_opt {
         if let Ok(payload) = CString::new(message) {
-            cb(base_id, payload.as_ptr());
+            cb(session_id, payload.as_ptr());
         }
     }
 }

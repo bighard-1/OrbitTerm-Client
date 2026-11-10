@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${ROOT_DIR}/scripts/security/download_verified.sh"
 WORK_DIR="${ROOT_DIR}/.tooling/freerdp-macos"
 DOWNLOAD_DIR="${WORK_DIR}/downloads"
 SOURCE_DIR="${WORK_DIR}/sources"
@@ -12,6 +13,7 @@ TOOLS_DIR="${HOME}/Library/Python/3.9/bin"
 FREERDP_VERSION="3.26.0"
 FREERDP_SHA256="55fa5c3159399886ba4adbe2c8a10d0b1c0484022efdf3827f68adc478b944d5"
 FREERDP_URL="https://github.com/FreeRDP/FreeRDP/releases/download/${FREERDP_VERSION}/freerdp-${FREERDP_VERSION}.tar.gz"
+FREERDP_FALLBACK_URL="https://pub.freerdp.com/releases/freerdp-${FREERDP_VERSION}.tar.gz"
 OPENSSL_VERSION="3.6.0"
 OPENSSL_SHA256="b6a5f44b7eb69e3fa35dbf15524405b44837a481d43d81daddde3ff21fcbb8e9"
 OPENSSL_URL="https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz"
@@ -32,21 +34,6 @@ fi
 
 mkdir -p "${DOWNLOAD_DIR}" "${SOURCE_DIR}" "${BUILD_DIR}" "${INSTALL_DIR}"
 
-download_and_verify() {
-  local url="$1"
-  local expected="$2"
-  local output="$3"
-  if [[ ! -f "${output}" ]]; then
-    curl --fail --location --retry 3 --output "${output}" "${url}"
-  fi
-  local actual
-  actual="$(shasum -a 256 "${output}" | awk '{print $1}')"
-  if [[ "${actual}" != "${expected}" ]]; then
-    printf 'Checksum mismatch for %s\nexpected: %s\nactual:   %s\n' "${output}" "${expected}" "${actual}" >&2
-    exit 1
-  fi
-}
-
 extract_once() {
   local archive="$1"
   local marker="$2"
@@ -58,7 +45,7 @@ extract_once() {
 
 FREERDP_ARCHIVE="${DOWNLOAD_DIR}/freerdp-${FREERDP_VERSION}.tar.gz"
 OPENSSL_ARCHIVE="${DOWNLOAD_DIR}/openssl-${OPENSSL_VERSION}.tar.gz"
-download_and_verify "${FREERDP_URL}" "${FREERDP_SHA256}" "${FREERDP_ARCHIVE}"
+download_and_verify "${FREERDP_URL}" "${FREERDP_SHA256}" "${FREERDP_ARCHIVE}" "${FREERDP_FALLBACK_URL}"
 download_and_verify "${OPENSSL_URL}" "${OPENSSL_SHA256}" "${OPENSSL_ARCHIVE}"
 extract_once "${FREERDP_ARCHIVE}" "${SOURCE_DIR}/.freerdp-${FREERDP_VERSION}-extracted"
 extract_once "${OPENSSL_ARCHIVE}" "${SOURCE_DIR}/.openssl-${OPENSSL_VERSION}-extracted"
