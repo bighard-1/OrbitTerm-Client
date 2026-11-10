@@ -147,6 +147,35 @@ final class OrbitTermiOSUITests: XCTestCase {
         XCTAssertTrue(saveAndUnlock.isHittable)
     }
 
+    func testLegalConsentFitsAndOpensTermsAtLargestTextSize() {
+        let app = launch("unauthenticated", usesLargestAccessibilityText: true)
+        let consent = app.buttons["尚未同意使用条款、免责声明与隐私说明"]
+        let explanation = app.staticTexts["已阅读并同意"]
+        let openTerms = app.buttons["查看使用条款、免责声明与隐私说明"]
+
+        XCTAssertTrue(openTerms.waitForExistence(timeout: 5))
+        let window = app.windows.firstMatch.frame
+        for element in [consent, explanation, openTerms] {
+            XCTAssertTrue(element.exists)
+            XCTAssertGreaterThan(element.frame.width, 0)
+            XCTAssertGreaterThanOrEqual(element.frame.minX, window.minX, "\(element.label) 超出左侧")
+            XCTAssertLessThanOrEqual(element.frame.maxX, window.maxX, "\(element.label) 超出右侧")
+        }
+        XCTAssertFalse(explanation.frame.intersects(openTerms.frame))
+        for _ in 0..<3 where !consent.isHittable || !openTerms.isHittable {
+            app.scrollViews.firstMatch.swipeUp()
+        }
+        XCTAssertTrue(consent.isHittable)
+        XCTAssertTrue(openTerms.isHittable)
+        guard consent.isHittable, openTerms.isHittable else { return }
+
+        openTerms.tap()
+        let closeTerms = app.buttons["返回"]
+        XCTAssertTrue(closeTerms.waitForExistence(timeout: 5))
+        closeTerms.tap()
+        XCTAssertTrue(consent.waitForExistence(timeout: 5))
+    }
+
     func testOperationalFailuresExposeRetryRetainedContentAndTransientSuccessLifetime() {
         let app = launch("operational_states")
         XCTAssertTrue(app.navigationBars["操作状态回归"].waitForExistence(timeout: 5))

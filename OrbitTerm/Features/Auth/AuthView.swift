@@ -181,40 +181,7 @@ struct AuthView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            HStack(alignment: .center, spacing: 8) {
-                Button {
-                    if acceptedTerms {
-                        acceptedTerms = false
-                        AuthTermsConsentStore.clearCurrentVersion()
-                    } else {
-                        acceptedTerms = true
-                        AuthTermsConsentStore.recordCurrentVersion()
-                    }
-                } label: {
-                    Image(systemName: acceptedTerms ? "checkmark.square.fill" : "square")
-                        .font(.title3)
-                        .foregroundStyle(acceptedTerms ? palette.accentPrimary.color : palette.textSecondary.color)
-                }
-                .buttonStyle(.plain)
-                .frame(minWidth: 44, minHeight: 44)
-                .accessibilityLabel(acceptedTerms ? "已同意使用条款、免责声明与隐私说明" : "尚未同意使用条款、免责声明与隐私说明")
-
-                Text("已阅读并同意")
-                    .foregroundStyle(palette.textSecondary.color)
-                    .fixedSize(horizontal: true, vertical: false)
-
-                Spacer(minLength: 4)
-
-                Button("查看法律条款") {
-                    showTerms = true
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(palette.accentPrimary.color)
-                .fixedSize(horizontal: true, vertical: false)
-                .accessibilityLabel("查看使用条款、免责声明与隐私说明")
-            }
-            .font(.footnote)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            termsConsent(width: width)
 
             if cooldownRemaining > 0 {
                 Text("登录尝试过于频繁，请在 \(cooldownRemaining) 秒后重试。")
@@ -223,6 +190,58 @@ struct AuthView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+
+    private func termsConsent(width: CGFloat) -> some View {
+        let checkbox = Button {
+            acceptedTerms.toggle()
+            if acceptedTerms {
+                AuthTermsConsentStore.recordCurrentVersion()
+            } else {
+                AuthTermsConsentStore.clearCurrentVersion()
+            }
+        } label: {
+            Image(systemName: acceptedTerms ? "checkmark.square.fill" : "square")
+                .font(.title3)
+                .foregroundStyle(acceptedTerms ? palette.accentPrimary.color : palette.textSecondary.color)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(acceptedTerms ? "已同意使用条款、免责声明与隐私说明" : "尚未同意使用条款、免责声明与隐私说明")
+
+        let explanation = Text("已阅读并同意")
+            .foregroundStyle(palette.textSecondary.color)
+
+        let openTerms = Button {
+            showTerms = true
+        } label: {
+            Text("查看法律条款")
+                .multilineTextAlignment(.leading)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(palette.accentPrimary.color)
+        .accessibilityLabel("查看使用条款、免责声明与隐私说明")
+
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                checkbox
+                explanation
+                Spacer(minLength: 4)
+                openTerms
+            }
+
+            HStack(alignment: .top, spacing: 8) {
+                checkbox
+                VStack(alignment: .leading, spacing: 4) {
+                    explanation
+                    openTerms
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .font(.footnote)
+        .frame(width: width, alignment: .leading)
     }
 
     private func actionArea(width: CGFloat) -> some View {
